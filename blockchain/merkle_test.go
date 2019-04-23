@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/wire"
@@ -16,12 +17,16 @@ import (
 // TestMerkle tests the BuildMerkleTreeStore API.
 func TestMerkle(t *testing.T) {
 	block := btcutil.NewBlock(&Block100000)
-	merkles := BuildMerkleTreeStore(block.Transactions(), false)
-	calculatedMerkleRoot := merkles[len(merkles)-1]
+	calcMerkleRoot := CalcMerkleRoot(block.Transactions(), false)
+	merkleStoreTree := BuildMerkleTreeStore(block.Transactions(), false)
+	merkleStoreRoot := merkleStoreTree[len(merkleStoreTree)-1]
+
+	require.Equal(t, *merkleStoreRoot, calcMerkleRoot)
+
 	wantMerkle := &Block100000.Header.MerkleRoot
-	if !wantMerkle.IsEqual(calculatedMerkleRoot) {
+	if !wantMerkle.IsEqual(&calcMerkleRoot) {
 		t.Errorf("BuildMerkleTreeStore: merkle root mismatch - "+
-			"got %v, want %v", calculatedMerkleRoot, wantMerkle)
+			"got %v, want %v", calcMerkleRoot, wantMerkle)
 	}
 }
 
