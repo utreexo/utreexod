@@ -1304,11 +1304,18 @@ func handleGetBlockChainInfo(s *rpcServer, cmd interface{}, closeChan <-chan str
 
 		// Finally, populate the soft-fork description with all the
 		// information gathered above.
+		var startTime, endTime int64
+		if starter, ok := deploymentDetails.DeploymentStarter.(*chaincfg.MedianTimeDeploymentStarter); ok {
+			startTime = starter.StartTime().Unix()
+		}
+		if ender, ok := deploymentDetails.DeploymentEnder.(*chaincfg.MedianTimeDeploymentEnder); ok {
+			endTime = ender.EndTime().Unix()
+		}
 		chainInfo.SoftForks.Bip9SoftForks[forkName] = &btcjson.Bip9SoftForkDescription{
 			Status:     strings.ToLower(statusString),
 			Bit:        deploymentDetails.BitNumber,
-			StartTime2: int64(deploymentDetails.StartTime),
-			Timeout:    int64(deploymentDetails.ExpireTime),
+			StartTime2: startTime,
+			Timeout:    endTime,
 		}
 	}
 
