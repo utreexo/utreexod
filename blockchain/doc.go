@@ -60,6 +60,7 @@ is by no means exhaustive:
  - Run the transaction scripts to verify the spender is allowed to spend the
    coins
  - Insert the block into the block database
+ - Cache recent UTXOs in memory
 
 Errors
 
@@ -74,8 +75,12 @@ Bitcoin Improvement Proposals
 
 This package includes spec changes outlined by the following BIPs:
 
+		BIP0009 (https://en.bitcoin.it/wiki/BIP_0009)
 		BIP0016 (https://en.bitcoin.it/wiki/BIP_0016)
 		BIP0030 (https://en.bitcoin.it/wiki/BIP_0030)
 		BIP0034 (https://en.bitcoin.it/wiki/BIP_0034)
+		BIP0065 (https://en.bitcoin.it/wiki/BIP_0065)
+		BIP0066 (https://en.bitcoin.it/wiki/BIP_0066)
+		BIP0068 (https://en.bitcoin.it/wiki/BIP_0068)
 */
 package blockchain

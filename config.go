@@ -62,6 +62,7 @@ const (
 	defaultMaxOrphanTransactions = 100
 	defaultMaxOrphanTxSize       = 100000
 	defaultSigCacheMaxSize       = 100000
+	defaultUtxoCacheMaxSizeMiB   = 250
 	sampleConfigFilename         = "sample-btcd.conf"
 	defaultTxIndex               = false
 	defaultAddrIndex             = false
@@ -159,6 +160,7 @@ type config struct {
 	RPCPass              string        `short:"P" long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
 	RPCUser              string        `short:"u" long:"rpcuser" description:"Username for RPC connections"`
 	SigCacheMaxSize      uint          `long:"sigcachemaxsize" description:"The maximum number of entries in the signature verification cache"`
+	UtxoCacheMaxSizeMiB  uint          `long:"utxocachemaxsize" description:"The maximum size in MiB of the UTXO cache"`
 	SimNet               bool          `long:"simnet" description:"Use the simulation test network"`
 	SigNet               bool          `long:"signet" description:"Use the signet test network"`
 	SigNetChallenge      string        `long:"signetchallenge" description:"Connect to a custom signet network defined by this challenge instead of using the global default signet test network -- Can be specified multiple times"`
@@ -434,6 +436,7 @@ func loadConfig() (*config, []string, error) {
 		BlockPrioritySize:    mempool.DefaultBlockPrioritySize,
 		MaxOrphanTxs:         defaultMaxOrphanTransactions,
 		SigCacheMaxSize:      defaultSigCacheMaxSize,
+		UtxoCacheMaxSizeMiB:  defaultUtxoCacheMaxSizeMiB,
 		Generate:             defaultGenerate,
 		TxIndex:              defaultTxIndex,
 		AddrIndex:            defaultAddrIndex,
