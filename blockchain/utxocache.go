@@ -42,6 +42,17 @@ const (
 	//   unsafe.Sizeof(wire.OutPoint{})
 	outpointSize = uint64(36)
 
+	// mapOverhead is the number of bytes per entry to use when approximating the
+	// memory overhead of the entries map itself (i.e. the memory usage due to
+	// internals of the map, such as the underlying buckets that are allocated).
+	// This number was determined by inspecting the true size of the map with
+	// various numbers of entries and comparing it with the total size of all
+	// entries in the map.  The average overhead came out to 55 bytes per entry.
+	mapOverhead = 55
+
+	// pointerSize is the size of a pointer on a 64-bit platform.
+	pointerSize = 8
+
 	// pubKeyHashLen is the length of a P2PKH script.
 	pubKeyHashLen = 25
 )
@@ -231,7 +242,7 @@ type utxoCache struct {
 // newUtxoCache initiates a new utxo cache instance with its memory usage limited
 // to the given maximum.
 func newUtxoCache(db database.DB, maxTotalMemoryUsage uint64) *utxoCache {
-	avgEntrySize := outpointSize + 8 + baseEntrySize + pubKeyHashLen
+	avgEntrySize := outpointSize + pointerSize + baseEntrySize + pubKeyHashLen + mapOverhead
 	numMaxElements := maxTotalMemoryUsage / avgEntrySize
 	log.Infof("Pre-alloacting for %v entries: ", numMaxElements)
 
@@ -251,7 +262,8 @@ func (s *utxoCache) totalMemoryUsage() uint64 {
 
 	// Total size is total size of the keys + total size of the pointers in the
 	// map + total size of the elements held in the pointers.
-	return nbEntries*outpointSize + nbEntries*8 + s.totalEntryMemory
+	return nbEntries*outpointSize + nbEntries*pointerSize +
+		nbEntries*mapOverhead + s.totalEntryMemory
 }
 
 // TotalMemoryUsage returns the total memory usage in bytes of the UTXO cache.
