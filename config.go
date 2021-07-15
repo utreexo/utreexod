@@ -65,6 +65,7 @@ const (
 	defaultUtxoCacheMaxSizeMiB   = 250
 	sampleConfigFilename         = "sample-btcd.conf"
 	defaultTxIndex               = false
+	defaultTTLIndex              = false
 	defaultAddrIndex             = false
 )
 
@@ -117,6 +118,7 @@ type config struct {
 	DropAddrIndex        bool          `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
 	DropCfIndex          bool          `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
 	DropTxIndex          bool          `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
+	DropTTLIndex         bool          `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
 	ExternalIPs          []string      `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
 	Generate             bool          `long:"generate" description:"Generate (mine) bitcoins using the CPU"`
 	FreeTxRelayLimit     float64       `long:"limitfreerelay" description:"Limit relay of transactions with no transaction fee to the given amount in thousands of bytes per minute"`
@@ -169,6 +171,7 @@ type config struct {
 	TorIsolation         bool          `long:"torisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
 	TrickleInterval      time.Duration `long:"trickleinterval" description:"Minimum time between attempts to send new inventory to a connected peer"`
 	TxIndex              bool          `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
+	TTLIndex             bool          `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
 	UserAgentComments    []string      `long:"uacomment" description:"Comment to add to the user agent -- See BIP 14 for more information."`
 	Upnp                 bool          `long:"upnp" description:"Use UPnP to map our listening port outside of NAT"`
 	ShowVersion          bool          `short:"V" long:"version" description:"Display version information and exit"`
@@ -439,6 +442,7 @@ func loadConfig() (*config, []string, error) {
 		UtxoCacheMaxSizeMiB:  defaultUtxoCacheMaxSizeMiB,
 		Generate:             defaultGenerate,
 		TxIndex:              defaultTxIndex,
+		TTLIndex:             defaultTTLIndex,
 		AddrIndex:            defaultAddrIndex,
 	}
 
@@ -909,6 +913,16 @@ func loadConfig() (*config, []string, error) {
 			"options may not be activated at the same time "+
 			"because the address index relies on the transaction "+
 			"index",
+			funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	// --ttlindex and --dropttlindex do not mix.
+	if cfg.TTLIndex && cfg.DropTTLIndex {
+		err := fmt.Errorf("%s: the --ttlindex and --dropttlindex "+
+			"options may not be activated at the same time ",
 			funcName)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)

@@ -665,6 +665,24 @@ func NewGetRawTransactionCmd(txHash string, verbose *int) *GetRawTransactionCmd 
 	}
 }
 
+// GetTTLCmd defines the getttl JSON-RPC command.
+type GetTTLCmd struct {
+	Txid string
+	Vout uint32
+}
+
+// NewGetTTLCmd returns a new instance which can be used to issue a gettxout
+// JSON-RPC command.
+//
+// The parameters which are pointers indicate they are optional.  Passing nil
+// for optional parameters will use the default value.
+func NewGetTTLCmd(txHash string, index uint32) *GetTTLCmd {
+	return &GetTTLCmd{
+		Txid: txHash,
+		Vout: index,
+	}
+}
+
 // GetTxOutCmd defines the gettxout JSON-RPC command.
 type GetTxOutCmd struct {
 	Txid           string
@@ -1082,6 +1100,7 @@ func init() {
 	MustRegisterCmd("getpeerinfo", (*GetPeerInfoCmd)(nil), flags)
 	MustRegisterCmd("getrawmempool", (*GetRawMempoolCmd)(nil), flags)
 	MustRegisterCmd("getrawtransaction", (*GetRawTransactionCmd)(nil), flags)
+	MustRegisterCmd("getttl", (*GetTTLCmd)(nil), flags)
 	MustRegisterCmd("gettxout", (*GetTxOutCmd)(nil), flags)
 	MustRegisterCmd("gettxoutproof", (*GetTxOutProofCmd)(nil), flags)
 	MustRegisterCmd("gettxoutsetinfo", (*GetTxOutSetInfoCmd)(nil), flags)

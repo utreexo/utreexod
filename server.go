@@ -237,6 +237,7 @@ type server struct {
 	txIndex   *indexers.TxIndex
 	addrIndex *indexers.AddrIndex
 	cfIndex   *indexers.CfIndex
+	ttlIndex  *indexers.TTLIndex
 
 	// The fee estimator keeps track of how long transactions are left in
 	// the mempool before they are mined into blocks.
@@ -2708,6 +2709,11 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		s.cfIndex = indexers.NewCfIndex(db, chainParams)
 		indexes = append(indexes, s.cfIndex)
 	}
+	if cfg.TTLIndex {
+		indxLog.Info("TTL index is enabled")
+		s.ttlIndex = indexers.NewTTLIndex(db, chainParams)
+		indexes = append(indexes, s.ttlIndex)
+	}
 
 	// Create an index manager if any of the optional indexes are enabled.
 	var indexManager blockchain.IndexManager
@@ -2944,6 +2950,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			TxIndex:      s.txIndex,
 			AddrIndex:    s.addrIndex,
 			CfIndex:      s.cfIndex,
+			TTLIndex:     s.ttlIndex,
 			FeeEstimator: s.feeEstimator,
 		})
 		if err != nil {

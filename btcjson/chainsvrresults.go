@@ -431,6 +431,11 @@ type ScriptPubKeyResult struct {
 	Addresses []string `json:"addresses,omitempty"`
 }
 
+// GetTTLResult models the data from the getttl command.
+type GetTTLResult struct {
+	TTL int32 `json:"ttl"`
+}
+
 // GetTxOutResult models the data from the gettxout command.
 type GetTxOutResult struct {
 	BestBlock     string             `json:"bestblock"`

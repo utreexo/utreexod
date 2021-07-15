@@ -163,6 +163,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getpeerinfo":            handleGetPeerInfo,
 	"getrawmempool":          handleGetRawMempool,
 	"getrawtransaction":      handleGetRawTransaction,
+	"getttl":                 handleGetTTL,
 	"gettxout":               handleGetTxOut,
 	"help":                   handleHelp,
 	"node":                   handleNode,
@@ -2697,6 +2698,41 @@ func handleGetRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan str
 	return *rawTxn, nil
 }
 
+// handleGetTTL handles getttl commands
+func handleGetTTL(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Respond with an error if the ttl index is not enabled.
+	ttlIndex := s.cfg.TTLIndex
+	if ttlIndex == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "ttl index must be enabled (--ttlindex)",
+		}
+	}
+
+	c := cmd.(*btcjson.GetTTLCmd)
+
+	// Convert the provided transaction hash hex to a Hash.
+	txHash, err := chainhash.NewHashFromStr(c.Txid)
+	if err != nil {
+		return nil, rpcDecodeHexError(c.Txid)
+	}
+
+	op := wire.NewOutPoint(txHash, c.Vout)
+	ttlRes := ttlIndex.GetTTL(op)
+
+	// If the txo is not in the database, it means either the txo never existed
+	// or that the txo is a utxo. Mark them as -1.
+	ttl := int32(-1)
+	if ttlRes != nil {
+		// Only set if we found a result in the database.
+		ttl = *ttlRes
+	}
+	ttlReply := &btcjson.GetTTLResult{
+		TTL: ttl,
+	}
+	return ttlReply, nil
+}
+
 // handleGetTxOut handles gettxout commands.
 func handleGetTxOut(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
 	c := cmd.(*btcjson.GetTxOutCmd)
@@ -4590,6 +4626,7 @@ type rpcserverConfig struct {
 	TxIndex   *indexers.TxIndex
 	AddrIndex *indexers.AddrIndex
 	CfIndex   *indexers.CfIndex
+	TTLIndex  *indexers.TTLIndex
 
 	// The fee estimator keeps track of how long transactions are left in
 	// the mempool before they are mined into blocks.

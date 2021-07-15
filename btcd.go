@@ -143,6 +143,14 @@ func btcdMain(serverChan chan<- *server) error {
 
 		return nil
 	}
+	if cfg.DropTTLIndex {
+		if err := indexers.DropTTLIndex(db, interrupt); err != nil {
+			btcdLog.Errorf("%v", err)
+			return err
+		}
+
+		return nil
+	}
 
 	// Create server and start it.
 	server, err := newServer(cfg.Listeners, cfg.AgentBlacklist,
