@@ -494,7 +494,7 @@ func upgradeUtxoSetToV2(db database.DB, interrupt <-chan struct{}) error {
 					return 0, err
 				}
 
-				key := outpointKey(wire.OutPoint{
+				key := OutpointKey(wire.OutPoint{
 					Hash:  txHash,
 					Index: txOutIdx,
 				})

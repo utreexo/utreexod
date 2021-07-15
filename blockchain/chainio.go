@@ -589,13 +589,13 @@ var outpointKeyPool = sync.Pool{
 	},
 }
 
-// outpointKey returns a key suitable for use as a database key in the utxo set
+// OutpointKey returns a key suitable for use as a database key in the utxo set
 // while making use of a free list.  A new buffer is allocated if there are not
 // already any available on the free list.  The returned byte slice should be
-// returned to the free list by using the recycleOutpointKey function when the
+// returned to the free list by using the RecycleOutpointKey function when the
 // caller is done with it _unless_ the slice will need to live for longer than
 // the caller can calculate such as when used to write to the database.
-func outpointKey(outpoint wire.OutPoint) *[]byte {
+func OutpointKey(outpoint wire.OutPoint) *[]byte {
 	// A VLQ employs an MSB encoding, so they are useful not only to reduce
 	// the amount of storage space, but also so iteration of utxos when
 	// doing byte-wise comparisons will produce them in order.
@@ -607,9 +607,9 @@ func outpointKey(outpoint wire.OutPoint) *[]byte {
 	return key
 }
 
-// recycleOutpointKey puts the provided byte slice, which should have been
+// RecycleOutpointKey puts the provided byte slice, which should have been
 // obtained via the outpointKey function, back on the free list.
-func recycleOutpointKey(key *[]byte) {
+func RecycleOutpointKey(key *[]byte) {
 	outpointKeyPool.Put(key)
 }
 
@@ -706,9 +706,9 @@ func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry,
 	// where the index uses an MSB encoding, if there are any entries for
 	// the hash at all, one will be found.
 	cursor := dbTx.Metadata().Bucket(utxoSetBucketName).Cursor()
-	key := outpointKey(wire.OutPoint{Hash: *hash, Index: 0})
+	key := OutpointKey(wire.OutPoint{Hash: *hash, Index: 0})
 	ok := cursor.Seek(*key)
-	recycleOutpointKey(key)
+	RecycleOutpointKey(key)
 	if !ok {
 		return nil, nil
 	}
@@ -737,9 +737,9 @@ func dbFetchUtxoEntry(dbTx database.Tx, utxoBucket database.Bucket,
 
 	// Fetch the unspent transaction output information for the passed
 	// transaction output.  Return now when there is no entry.
-	key := outpointKey(outpoint)
+	key := OutpointKey(outpoint)
 	serializedUtxo := utxoBucket.Get(*key)
-	recycleOutpointKey(key)
+	RecycleOutpointKey(key)
 	if serializedUtxo == nil {
 		return nil, nil
 	}
@@ -785,7 +785,7 @@ func dbPutUtxoEntries(dbTx database.Tx, entries map[wire.OutPoint]*UtxoEntry) er
 		if err != nil {
 			return err
 		}
-		key := outpointKey(outpoint)
+		key := OutpointKey(outpoint)
 		err = utxoBucket.Put(*key, serialized)
 		if err != nil {
 			return err
@@ -805,9 +805,9 @@ func dbDeleteUtxoEntries(dbTx database.Tx, outpoints []wire.OutPoint) error {
 	utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
 
 	for _, outpoint := range outpoints {
-		key := outpointKey(outpoint)
+		key := OutpointKey(outpoint)
 		err := utxoBucket.Delete(*key)
-		recycleOutpointKey(key)
+		RecycleOutpointKey(key)
 		if err != nil {
 			return err
 		}
