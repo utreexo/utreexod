@@ -402,6 +402,20 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 	// each block that needs to be indexed.
 	log.Infof("Catching up indexes from height %d to %d", lowestHeight,
 		bestHeight)
+
+	// Needed for flushing the utreexo state in case of a sigint by the user.
+	defer func() {
+		for _, indexer := range m.enabledIndexes {
+			switch idxType := indexer.(type) {
+			case *UtreexoProofIndex:
+				err := idxType.FlushUtreexoState()
+				if err != nil {
+					log.Errorf("Error while flushing utreexo state: %v", err)
+				}
+			}
+		}
+	}()
+
 	for height := lowestHeight + 1; height <= bestHeight; height++ {
 		// Load the block for the height since it is required to index
 		// it.
