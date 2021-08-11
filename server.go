@@ -38,6 +38,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
+	"github.com/mit-dci/utreexo/accumulator"
 )
 
 const (
@@ -234,10 +235,11 @@ type server struct {
 	// if the associated index is not enabled.  These fields are set during
 	// initial creation of the server and never changed afterwards, so they
 	// do not need to be protected for concurrent access.
-	txIndex   *indexers.TxIndex
-	addrIndex *indexers.AddrIndex
-	cfIndex   *indexers.CfIndex
-	ttlIndex  *indexers.TTLIndex
+	txIndex           *indexers.TxIndex
+	addrIndex         *indexers.AddrIndex
+	cfIndex           *indexers.CfIndex
+	ttlIndex          *indexers.TTLIndex
+	utreexoProofIndex *indexers.UtreexoProofIndex
 
 	// The fee estimator keeps track of how long transactions are left in
 	// the mempool before they are mined into blocks.
@@ -2208,6 +2210,14 @@ out:
 	s.syncManager.Stop()
 	s.addrManager.Stop()
 
+	// If utreexoProofIndex option is on, flush it after closing down syncManager.
+	if s.utreexoProofIndex != nil {
+		err := s.utreexoProofIndex.FlushUtreexoState()
+		if err != nil {
+			btcdLog.Errorf("Error while flushing utreexo state: %v", err)
+		}
+	}
+
 	// Drain channels before exiting so nothing is left waiting around
 	// to send.
 cleanup:
@@ -2713,6 +2723,20 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		indxLog.Info("TTL index is enabled")
 		s.ttlIndex = indexers.NewTTLIndex(db, chainParams)
 		indexes = append(indexes, s.ttlIndex)
+	}
+	if cfg.UtreexoProofIndex {
+		indxLog.Info("Utreexo Proof index is enabled")
+		utreexoView, err := indexers.InitUtreexoState(&indexers.UtreexoConfig{
+			DataDir: cfg.DataDir,
+			// Default to ram for now.
+			Type:   accumulator.RamForest,
+			Params: chainParams,
+		})
+		if err != nil {
+			return nil, err
+		}
+		s.utreexoProofIndex = indexers.NewUtreexoProofIndex(db, chainParams, utreexoView)
+		indexes = append(indexes, s.utreexoProofIndex)
 	}
 
 	// Create an index manager if any of the optional indexes are enabled.
