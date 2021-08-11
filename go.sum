@@ -59,6 +59,8 @@ github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23 h1:FOOIBWrEkLgmlgGfM
 github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23/go.mod h1:J+Gs4SYgM6CZQHDETBtE9HaSEkGmuNXF86RwHhHUvq4=
 github.com/mit-dci/utreexo v0.0.0-20210705143209-7d436ce11280 h1:VBjyc9H+Uwrk8QHWg9/hAJf90sg/Xt2cti7yyWnmubI=
 github.com/mit-dci/utreexo v0.0.0-20210705143209-7d436ce11280/go.mod h1:wuxf0Gw9BahRXtet2o6TKzezC49+SjqXBrt+rTZUfVU=
+github.com/mit-dci/utreexo v0.0.0-20210809143320-21ea8ec3939c h1:8D6vax7gPd3G+jym/4xUf0FcE9xhVdIubkgQSqNBQE8=
+github.com/mit-dci/utreexo v0.0.0-20210809143320-21ea8ec3939c/go.mod h1:NibmQNUXsfdOMYs0VGpfd9yH74Qw1Mlbr3kRC9dcwBw=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
 github.com/onsi/ginkgo v1.6.0/go.mod h1:lLunBs/Ym6LB5Z9jYTR76FiuTmxDTDusOGeTQH+WWjE=
 github.com/onsi/ginkgo v1.7.0 h1:WSHQ+IS43OoUrWtD1/bbclrwK8TTH5hzp+umCiuxHgs=

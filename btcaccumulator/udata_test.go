@@ -140,7 +140,7 @@ func TestUDataSerialize(t *testing.T) {
 
 	for _, leafData := range leafDatas {
 		// New forest object.
-		forest := accumulator.NewForest(nil, false, "", 0)
+		forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
 
 		// Create hashes to add from the stxo data.
 		addHashes := make([]accumulator.Leaf, 0, len(leafData.leavesPerBlock))
@@ -203,7 +203,7 @@ func TestUDataSerializeCompact(t *testing.T) {
 
 	for _, leafData := range leafDatas {
 		// New forest object.
-		forest := accumulator.NewForest(nil, false, "", 0)
+		forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
 
 		// Create hashes to add from the stxo data.
 		addHashes := make([]accumulator.Leaf, 0, len(leafData.leavesPerBlock))
@@ -283,7 +283,7 @@ func generateLeaves(rnd, count uint32) []accumulator.Leaf {
 }
 
 func generateCompactUData(rnd uint32) (*UData, error) {
-	forest := accumulator.NewForest(nil, false, "", 0)
+	forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
 
 	leaves := generateLeaves(rnd, 25)
 	forest.Modify(leaves, nil)
