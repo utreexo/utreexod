@@ -2,18 +2,49 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package btcaccumulator
+package wire
 
 import (
 	"crypto/sha512"
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 )
+
+const (
+	// MaxScriptSize is the maximum allowed length of a raw script.
+	//
+	// TODO: This is a duplicate of MaxScriptSize in package txscript.  However,
+	// importing package txscript to wire will cause a import cycle so this is a
+	// stopgap solution.
+	MaxScriptSize = 10000
+)
+
+// SpentTxOut contains a spent transaction output and potentially additional
+// contextual information such as whether or not it was contained in a coinbase
+// transaction, the version of the transaction it was contained in, and which
+// block height the containing transaction was included in.  As described in
+// the comments above, the additional contextual information will only be valid
+// when this spent txout is spending the last unspent output of the containing
+// transaction.
+//
+// TODO: This is a duplicate of SpentTxOut in package blockchain.  However,
+// importing package blockchain to wire will cause a import cycle so this is a
+// stopgap solution.
+type SpentTxOut struct {
+	// Amount is the amount of the output.
+	Amount int64
+
+	// PkScipt is the the public key script for the output.
+	PkScript []byte
+
+	// Height is the height of the the block containing the creating tx.
+	Height int32
+
+	// Denotes if the creating tx is a coinbase.
+	IsCoinBase bool
+}
 
 // LeafData is all the data that goes into a leaf in the utreexo accumulator.
 // The data here serve two roles: commitments and data needed for verification.
@@ -23,8 +54,8 @@ import (
 //               Stxo is the data needed for tx verification (script, signatures, etc).
 type LeafData struct {
 	BlockHash *chainhash.Hash
-	OutPoint  *wire.OutPoint
-	Stxo      *blockchain.SpentTxOut
+	OutPoint  *OutPoint
+	Stxo      *SpentTxOut
 }
 
 // LeafHash concats and hashes all the data in LeafData.
@@ -92,10 +123,10 @@ func (l *LeafData) ToString() (s string) {
 // LeafData.
 func (l *LeafData) SerializeSize() int {
 	var size int
-	size += wire.VarIntSerializeSize(uint64(l.OutPoint.Index))
-	size += wire.VarIntSerializeSize(uint64(l.Stxo.Height))
-	size += wire.VarIntSerializeSize(uint64(l.Stxo.Amount))
-	size += wire.VarIntSerializeSize(uint64(len(l.Stxo.PkScript)))
+	size += VarIntSerializeSize(uint64(l.OutPoint.Index))
+	size += VarIntSerializeSize(uint64(l.Stxo.Height))
+	size += VarIntSerializeSize(uint64(l.Stxo.Amount))
+	size += VarIntSerializeSize(uint64(len(l.Stxo.PkScript)))
 
 	// blockhash + txhash + pkscript size + others
 	return chainhash.HashSize + chainhash.HashSize + len(l.Stxo.PkScript) + size
@@ -117,26 +148,23 @@ func (l *LeafData) Serialize(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	err = wire.WriteVarInt(w, 0, uint64(l.OutPoint.Index))
+	err = WriteVarInt(w, 0, uint64(l.OutPoint.Index))
 	if err != nil {
 		return err
 	}
-	err = wire.WriteVarInt(w, 0, uint64(hcb))
+	err = WriteVarInt(w, 0, uint64(hcb))
 	if err != nil {
 		return err
 	}
-	err = wire.WriteVarInt(w, 0, uint64(l.Stxo.Amount))
+	err = WriteVarInt(w, 0, uint64(l.Stxo.Amount))
 	if err != nil {
 		return err
 	}
-	if len(l.Stxo.PkScript) > txscript.MaxScriptSize {
-		return txscript.Error{
-			ErrorCode:   txscript.ErrScriptTooBig,
-			Description: "LeafData Serialize() failed, pkScript too long",
-		}
+	if uint32(len(l.Stxo.PkScript)) > MaxScriptSize {
+		return messageError("LeafData.Serialize", "pkScript too long")
 	}
 
-	return wire.WriteVarBytes(w, 0, l.Stxo.PkScript)
+	return WriteVarBytes(w, 0, l.Stxo.PkScript)
 }
 
 // Deserialize encodes the LeafData from r using the LeafData serialization format.
@@ -149,21 +177,21 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 	//}
 
 	// Deserialize the outpoint.
-	l.OutPoint = &wire.OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
+	l.OutPoint = &OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
 	_, err := io.ReadFull(r, l.OutPoint.Hash[:])
 	if err != nil {
 		return err
 	}
 
-	index, err := wire.ReadVarInt(r, 0)
+	index, err := ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
 	l.OutPoint.Index = uint32(index)
 
 	// Deserialize the stxo.
-	l.Stxo = new(blockchain.SpentTxOut)
-	height, err := wire.ReadVarInt(r, 0)
+	l.Stxo = new(SpentTxOut)
+	height, err := ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
@@ -174,13 +202,13 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 	}
 	l.Stxo.Height >>= 1
 
-	amt, err := wire.ReadVarInt(r, 0)
+	amt, err := ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
 	l.Stxo.Amount = int64(amt)
 
-	l.Stxo.PkScript, err = wire.ReadVarBytes(r, 0, txscript.MaxScriptSize, "pkscript size")
+	l.Stxo.PkScript, err = ReadVarBytes(r, 0, MaxScriptSize, "pkscript size")
 	if err != nil {
 		return err
 	}
@@ -224,9 +252,9 @@ func (l *LeafData) SerializeSizeCompact() int {
 	if l.Stxo.IsCoinBase {
 		hcb |= 1
 	}
-	size += wire.VarIntSerializeSize(uint64(hcb))
-	size += wire.VarIntSerializeSize(uint64(l.Stxo.Amount))
-	size += wire.VarIntSerializeSize(uint64(len(l.Stxo.PkScript)))
+	size += VarIntSerializeSize(uint64(hcb))
+	size += VarIntSerializeSize(uint64(l.Stxo.Amount))
+	size += VarIntSerializeSize(uint64(len(l.Stxo.PkScript)))
 
 	return size + len(l.Stxo.PkScript)
 }
@@ -239,28 +267,25 @@ func (l *LeafData) SerializeCompact(w io.Writer) error {
 	}
 
 	// Height & IsCoinBase.
-	err := wire.WriteVarInt(w, 0, uint64(hcb))
+	err := WriteVarInt(w, 0, uint64(hcb))
 	if err != nil {
 		return err
 	}
 
-	err = wire.WriteVarInt(w, 0, uint64(l.Stxo.Amount))
+	err = WriteVarInt(w, 0, uint64(l.Stxo.Amount))
 	if err != nil {
 		return err
 	}
-	if len(l.Stxo.PkScript) > txscript.MaxScriptSize {
-		return txscript.Error{
-			ErrorCode:   txscript.ErrScriptTooBig,
-			Description: "LeafData Serialize() failed, pkScript too long",
-		}
+	if uint32(len(l.Stxo.PkScript)) > MaxScriptSize {
+		return messageError("LeafData.SerializeCompact", "pkScript too long")
 	}
 
-	return wire.WriteVarBytes(w, 0, l.Stxo.PkScript)
+	return WriteVarBytes(w, 0, l.Stxo.PkScript)
 }
 
 // DeserializeCompact encodes the LeafData to w using the compact leaf serialization format.
 func (l *LeafData) DeserializeCompact(r io.Reader) error {
-	height, err := wire.ReadVarInt(r, 0)
+	height, err := ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
@@ -271,13 +296,13 @@ func (l *LeafData) DeserializeCompact(r io.Reader) error {
 	}
 	l.Stxo.Height >>= 1
 
-	amt, err := wire.ReadVarInt(r, 0)
+	amt, err := ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
 	l.Stxo.Amount = int64(amt)
 
-	l.Stxo.PkScript, err = wire.ReadVarBytes(r, 0, txscript.MaxScriptSize, "pkScript size")
+	l.Stxo.PkScript, err = ReadVarBytes(r, 0, MaxScriptSize, "pkScript size")
 	if err != nil {
 		return err
 	}
@@ -289,7 +314,7 @@ func (l *LeafData) DeserializeCompact(r io.Reader) error {
 func NewLeafData() LeafData {
 	return LeafData{
 		BlockHash: new(chainhash.Hash),
-		OutPoint:  wire.NewOutPoint(new(chainhash.Hash), 0),
-		Stxo:      new(blockchain.SpentTxOut),
+		OutPoint:  NewOutPoint(new(chainhash.Hash), 0),
+		Stxo:      new(SpentTxOut),
 	}
 }

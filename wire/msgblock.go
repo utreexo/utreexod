@@ -43,6 +43,11 @@ type TxLoc struct {
 type MsgBlock struct {
 	Header       BlockHeader
 	Transactions []*MsgTx
+
+	// UData is an optional field that contains all the data needed to prove
+	// the validity of a block with only the utreexo accmulator state of the
+	// previous block.
+	UData *UData
 }
 
 // AddTransaction adds a transaction to the message.
@@ -89,6 +94,14 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 			return err
 		}
 		msg.Transactions = append(msg.Transactions, &tx)
+	}
+
+	if enc == UtreexoEncoding {
+		msg.UData = new(UData)
+		err = msg.UData.Deserialize(r)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -186,6 +199,17 @@ func (msg *MsgBlock) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) er
 
 	for _, tx := range msg.Transactions {
 		err = tx.BtcEncode(w, pver, enc)
+		if err != nil {
+			return err
+		}
+	}
+
+	if enc == UtreexoEncoding {
+		if msg.UData == nil {
+			str := "utreexo encoding specified but MsgBlock.UData field is nil"
+			return messageError("MsgBlock.BtcEncode", str)
+		}
+		err = msg.UData.Serialize(w)
 		if err != nil {
 			return err
 		}

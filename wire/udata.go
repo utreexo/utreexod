@@ -2,14 +2,13 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package btcaccumulator
+package wire
 
 import (
 	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/mit-dci/utreexo/accumulator"
 )
 
@@ -53,26 +52,26 @@ func (ud *UData) SerializeSize() int {
 	// Size of all the time to live values.
 	var txoTTLSize int
 	for _, ttl := range ud.TxoTTLs {
-		txoTTLSize += wire.VarIntSerializeSize(uint64(ttl))
+		txoTTLSize += VarIntSerializeSize(uint64(ttl))
 	}
 
 	// Add on accumulator proof size and the varint serialized height size.
 	return txoTTLSize + ldSize + ud.AccProof.SerializeSize() +
-		wire.VarIntSerializeSize(uint64(ud.Height))
+		VarIntSerializeSize(uint64(ud.Height))
 }
 
 // Serialize encodes the UData to w using the UData serialization format.
 func (ud *UData) Serialize(w io.Writer) error {
-	err := wire.WriteVarInt(w, 0, uint64(ud.Height))
+	err := WriteVarInt(w, 0, uint64(ud.Height))
 	if err != nil {
 		return err
 	}
-	err = wire.WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
+	err = WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
 	if err != nil {
 		return err
 	}
 	for _, ttlval := range ud.TxoTTLs {
-		err = wire.WriteVarInt(w, 0, uint64(ttlval))
+		err = WriteVarInt(w, 0, uint64(ttlval))
 		if err != nil {
 			return err
 		}
@@ -80,7 +79,7 @@ func (ud *UData) Serialize(w io.Writer) error {
 
 	err = ud.AccProof.Serialize(w)
 	if err != nil {
-		returnErr := accumulatorError("Serialize", err.Error())
+		returnErr := messageError("Serialize", err.Error())
 		return returnErr
 	}
 
@@ -97,24 +96,24 @@ func (ud *UData) Serialize(w io.Writer) error {
 
 // Deserialize encodes the UData to w using the UData serialization format.
 func (ud *UData) Deserialize(r io.Reader) error {
-	height, err := wire.ReadVarInt(r, 0)
+	height, err := ReadVarInt(r, 0)
 	if err != nil {
-		returnErr := accumulatorError("Deserialize height", err.Error())
+		returnErr := messageError("Deserialize height", err.Error())
 		return returnErr
 	}
 	ud.Height = int32(height)
 
-	ttlCount, err := wire.ReadVarInt(r, 0)
+	ttlCount, err := ReadVarInt(r, 0)
 	if err != nil {
-		returnErr := accumulatorError("Deserialize ttlCount", err.Error())
+		returnErr := messageError("Deserialize ttlCount", err.Error())
 		return returnErr
 	}
 
 	ud.TxoTTLs = make([]int32, ttlCount)
 	for i := range ud.TxoTTLs {
-		ttl, err := wire.ReadVarInt(r, 0)
+		ttl, err := ReadVarInt(r, 0)
 		if err != nil {
-			returnErr := accumulatorError("Deserialize ttl", err.Error())
+			returnErr := messageError("Deserialize ttl", err.Error())
 			return returnErr
 		}
 
@@ -123,7 +122,7 @@ func (ud *UData) Deserialize(r io.Reader) error {
 
 	err = ud.AccProof.Deserialize(r)
 	if err != nil {
-		returnErr := accumulatorError("Deserialize", err.Error())
+		returnErr := messageError("Deserialize", err.Error())
 		return returnErr
 	}
 
@@ -134,7 +133,7 @@ func (ud *UData) Deserialize(r io.Reader) error {
 		if err != nil {
 			str := fmt.Sprintf("Height:%d, ttlCount:%d, targetCount:%d, Stxos[%d], err:%s\n",
 				ud.Height, ttlCount, len(ud.AccProof.Targets), i, err.Error())
-			returnErr := accumulatorError("Deserialize stxos", str)
+			returnErr := messageError("Deserialize stxos", str)
 			return returnErr
 		}
 	}
@@ -154,12 +153,12 @@ func (ud *UData) SerializeSizeCompact() int {
 	// Size of all the time to live values.
 	var txoTTLSize int
 	for _, ttl := range ud.TxoTTLs {
-		txoTTLSize += wire.VarIntSerializeSize(uint64(ttl))
+		txoTTLSize += VarIntSerializeSize(uint64(ttl))
 	}
 
 	// Add on accumulator proof size and the varint serialized height size.
 	return txoTTLSize + ldSize + ud.AccProof.SerializeSize() +
-		wire.VarIntSerializeSize(uint64(ud.Height))
+		VarIntSerializeSize(uint64(ud.Height))
 }
 
 // SerializeCompact encodes the UData to w using the compact UData
@@ -167,7 +166,7 @@ func (ud *UData) SerializeSizeCompact() int {
 func (ud *UData) SerializeCompact(w io.Writer) error {
 	err := ud.AccProof.Serialize(w)
 	if err != nil {
-		returnErr := accumulatorError("SerializeCompact", err.Error())
+		returnErr := messageError("SerializeCompact", err.Error())
 		return returnErr
 	}
 
@@ -179,7 +178,7 @@ func (ud *UData) SerializeCompact(w io.Writer) error {
 func (ud *UData) DeserializeCompact(r io.Reader) error {
 	err := ud.AccProof.Deserialize(r)
 	if err != nil {
-		returnErr := accumulatorError("DeserializeCompact", err.Error())
+		returnErr := messageError("DeserializeCompact", err.Error())
 		return returnErr
 	}
 
@@ -213,7 +212,7 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest, blockHeight int
 	if len(ud.AccProof.Targets) != len(txIns) {
 		str := fmt.Sprintf("GenerateUData has %d txIns but has proofs for %d txIns",
 			len(txIns), len(ud.AccProof.Targets))
-		return nil, accumulatorError("GenerateUData", str)
+		return nil, messageError("GenerateUData", str)
 	}
 
 	return ud, nil

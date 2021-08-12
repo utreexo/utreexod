@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package btcaccumulator
+package wire
 
 import (
 	"bytes"
@@ -15,9 +15,7 @@ import (
 	"testing/quick"
 	"time"
 
-	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/mit-dci/utreexo/accumulator"
 )
 
@@ -36,11 +34,11 @@ func getLeafDatas() []leafDatas {
 			leavesPerBlock: []LeafData{
 				{
 					BlockHash: newHashFromStr("000000000002bc1ddaae8ef976adf1c36db878b5f0711ec58c92ec0e4724277b"),
-					OutPoint: &wire.OutPoint{
+					OutPoint: &OutPoint{
 						Hash:  *newHashFromStr("43263e398303de72f5b8f5dd690c88cd87c31ec7c73cc98a567a4b73521428ea"),
 						Index: 0,
 					},
-					Stxo: &blockchain.SpentTxOut{
+					Stxo: &SpentTxOut{
 						Amount:     29865000000,
 						PkScript:   hexToBytes("76a9147ac5cfe778bc4e65d8fa86f80caeb47b1f6303a988ac"),
 						Height:     104766,
@@ -49,11 +47,11 @@ func getLeafDatas() []leafDatas {
 				},
 				{
 					BlockHash: newHashFromStr("0000000000021ecac6ea6e14d61821b3ddcb8f4563c796957394e4181c261b4d"),
-					OutPoint: &wire.OutPoint{
+					OutPoint: &OutPoint{
 						Hash:  *newHashFromStr("76c131357f1efc87434b3de49f9cf2660acaad5f360205ba390cb8726c01c948"),
 						Index: 0,
 					},
-					Stxo: &blockchain.SpentTxOut{
+					Stxo: &SpentTxOut{
 						Amount:     2586000000,
 						PkScript:   hexToBytes("76a914f303158d2894dbe996e9dc1f26798796716c9bf588ac"),
 						Height:     104768,
@@ -70,11 +68,11 @@ func getLeafDatas() []leafDatas {
 			leavesPerBlock: []LeafData{
 				{
 					BlockHash: newHashFromStr("00000000ff41b51f43141f3fd198016cead8c92355f7064849c4507f9e8914f8"),
-					OutPoint: &wire.OutPoint{
+					OutPoint: &OutPoint{
 						Hash:  *newHashFromStr("58102e32e848fbd68c29480de00d653a88a6de077c46d8f6c37488290f2b4d43"),
 						Index: 0,
 					},
-					Stxo: &blockchain.SpentTxOut{
+					Stxo: &SpentTxOut{
 						Amount:     5000000000,
 						PkScript:   hexToBytes("210263ee71bdafe3250552cf9fb0c1734072758fff5c7b9f0b1a045ee91461fdeb87ac"),
 						Height:     151,
@@ -83,11 +81,11 @@ func getLeafDatas() []leafDatas {
 				},
 				{
 					BlockHash: newHashFromStr("000000004a0cd08dbda8e47cbab13205ba9ae2f3e4b157c6b2539446db44aae9"),
-					OutPoint: &wire.OutPoint{
+					OutPoint: &OutPoint{
 						Hash:  *newHashFromStr("013e22e413cdf3e80eca36c058f0a31ac00ebcfbf547fa6a5688b5626d1739e7"),
 						Index: 0,
 					},
-					Stxo: &blockchain.SpentTxOut{
+					Stxo: &SpentTxOut{
 						Amount:     5000000000,
 						PkScript:   hexToBytes("2102fac1c1962818c784ed4be71611986fdb06c19577d410f4447aa9c8e705983609ac"),
 						Height:     241,
@@ -96,11 +94,11 @@ func getLeafDatas() []leafDatas {
 				},
 				{
 					BlockHash: newHashFromStr("000000001a4c2c64beded987790ab0c00675b4bc467cd3574ad455b1397c967c"),
-					OutPoint: &wire.OutPoint{
+					OutPoint: &OutPoint{
 						Hash:  *newHashFromStr("7e621eeb02874ab039a8566fd36f4591e65eca65313875221842c53de6907d6c"),
 						Index: 0,
 					},
-					Stxo: &blockchain.SpentTxOut{
+					Stxo: &SpentTxOut{
 						Amount:     4989000000,
 						PkScript:   hexToBytes("76a914944a7d4b3a8d3a5ecf19dfdfd8dcc18c6f1487dd88ac"),
 						Height:     381,
@@ -109,11 +107,11 @@ func getLeafDatas() []leafDatas {
 				},
 				{
 					BlockHash: newHashFromStr("0000000092907b867c2871a75a70de6d5e39c697eac57555a3896c19321c75b8"),
-					OutPoint: &wire.OutPoint{
+					OutPoint: &OutPoint{
 						Hash:  *newHashFromStr("6a2ea57b544fce1e36eafec6543486e3d49f66295ddc11f3ec2276295bf8eeaa"),
 						Index: 0,
 					},
-					Stxo: &blockchain.SpentTxOut{
+					Stxo: &SpentTxOut{
 						Amount:     5000000000,
 						PkScript:   hexToBytes("2103aba3696c249664d96c9fe7e09d31010071189c00995d9573026aeb57ee18e142ac"),
 						Height:     237,

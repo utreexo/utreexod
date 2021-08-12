@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcaccumulator"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
@@ -116,7 +115,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 
 	adds := blockToAddLeaves(block, nil, outskip)
 
-	ud, err := btcaccumulator.GenerateUData(dels, idx.utreexoView, block.Height())
+	ud, err := wire.GenerateUData(dels, idx.utreexoView, block.Height())
 	if err != nil {
 		return err
 	}
@@ -203,7 +202,7 @@ func DropUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan stru
 // blockToDelLeaves takes a non-utreexo block and stxos and turns the block into
 // leaves that are to be deleted from the UtreexoBridgeState.
 func blockToDelLeaves(stxos []blockchain.SpentTxOut, block *btcutil.Block, inskip []uint32) (
-	delLeaves []btcaccumulator.LeafData, err error) {
+	delLeaves []wire.LeafData, err error) {
 	var blockInputs int
 	var blockInIdx uint32
 	for idx, tx := range block.Transactions() {
@@ -227,9 +226,9 @@ func blockToDelLeaves(stxos []blockchain.SpentTxOut, block *btcutil.Block, inski
 				Index: txIn.PreviousOutPoint.Index,
 			}
 
-			stxo := stxos[blockInIdx-1]
+			stxo := wire.SpentTxOut(stxos[blockInIdx-1])
 
-			var leaf = btcaccumulator.LeafData{
+			var leaf = wire.LeafData{
 				// TODO fetch block hash and add it to the data
 				// to be commited to.
 				//BlockHash: hash,
@@ -278,14 +277,14 @@ func blockToAddLeaves(block *btcutil.Block, remember []bool, outskip []uint32) [
 				Index: uint32(outIdx),
 			}
 
-			stxo := blockchain.SpentTxOut{
+			stxo := wire.SpentTxOut{
 				Amount:     txOut.Value,
 				PkScript:   txOut.PkScript,
 				Height:     block.Height(),
 				IsCoinBase: coinbase == 0,
 			}
 
-			var leaf = btcaccumulator.LeafData{
+			var leaf = wire.LeafData{
 				BlockHash: block.Hash(),
 				OutPoint:  &op,
 				Stxo:      &stxo,
@@ -325,7 +324,7 @@ func isUnspendable(o *wire.TxOut) bool {
 }
 
 // Stores the utreexo proof in the database. It uses compact serialization.
-func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *btcaccumulator.UData) error {
+func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *wire.UData) error {
 	var buf bytes.Buffer
 	err := ud.SerializeCompact(&buf)
 	if err != nil {
