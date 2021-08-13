@@ -675,6 +675,10 @@ func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
 			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeBlock:
 			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.BaseEncoding)
+		case wire.InvTypeUtreexoBlock:
+			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.UtreexoEncoding)
+		case wire.InvTypeWitnessUtreexoBlock:
+			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.UtreexoEncoding|wire.WitnessEncoding)
 		case wire.InvTypeFilteredWitnessBlock:
 			err = sp.server.pushMerkleBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeFilteredBlock:
@@ -1466,6 +1470,18 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<- struct{},
 	waitChan <-chan struct{}, encoding wire.MessageEncoding) error {
 
+	// Early check to see if Utreexo proof index is there if UtreexoEncoding is given.
+	doUtreexo := encoding&wire.UtreexoEncoding == wire.UtreexoEncoding
+	if doUtreexo && s.utreexoProofIndex == nil {
+		err := fmt.Errorf("UtreexoProofIndex is nil. Cannot fetch utreexo accumulator proofs.")
+		peerLog.Tracef(err.Error())
+		if doneChan != nil {
+			doneChan <- struct{}{}
+		}
+
+		return err
+	}
+
 	// Fetch the raw block bytes from the database.
 	var blockBytes []byte
 	err := sp.server.db.View(func(dbTx database.Tx) error {
@@ -1494,6 +1510,22 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 			doneChan <- struct{}{}
 		}
 		return err
+	}
+
+	// Fetch the Utreexo accumulator proof.
+	if doUtreexo {
+		ud, err := s.utreexoProofIndex.FetchUtreexoProof(hash)
+		if err != nil {
+			peerLog.Tracef("Unable to fetch requested utreexo data for block hash %v: %v",
+				hash, err)
+
+			if doneChan != nil {
+				doneChan <- struct{}{}
+			}
+			return err
+		}
+
+		msgBlock.UData = ud
 	}
 
 	// Once we have fetched data wait for any previous operation to finish.
@@ -2641,6 +2673,9 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	}
 	if cfg.NoCFilters {
 		services &^= wire.SFNodeCF
+	}
+	if cfg.UtreexoProofIndex {
+		services |= wire.SFNodeUtreexo
 	}
 
 	amgr := addrmgr.New(cfg.DataDir, btcdLookup)

@@ -449,7 +449,7 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 	// A count of zero (meaning no TxIn's to the uninitiated) means that the
 	// value is a TxFlagMarker, and hence indicates the presence of a flag.
 	var flag [1]TxFlag
-	if count == TxFlagMarker && enc == WitnessEncoding {
+	if count == TxFlagMarker && enc&WitnessEncoding == WitnessEncoding {
 		// The count varint was in fact the flag marker byte. Next, we need to
 		// read the flag value, which is a single byte.
 		if _, err = io.ReadFull(r, flag[:]); err != nil {
@@ -562,7 +562,7 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 
 	// If the transaction's flag byte isn't 0x00 at this point, then one or
 	// more of its inputs has accompanying witness data.
-	if flag[0] != 0 && enc == WitnessEncoding {
+	if flag[0] != 0 && enc&WitnessEncoding == WitnessEncoding {
 		for _, txin := range msg.TxIn {
 			// For each input, the witness is encoded as a stack
 			// with one or more items. Therefore, we first read a
@@ -718,7 +718,7 @@ func (msg *MsgTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error
 	// field for the MsgTx aren't 0x00, then this indicates the transaction
 	// is to be encoded using the new witness inclusionary structure
 	// defined in BIP0144.
-	doWitness := enc == WitnessEncoding && msg.HasWitness()
+	doWitness := enc&WitnessEncoding == WitnessEncoding && msg.HasWitness()
 	if doWitness {
 		// After the transaction's Version field, we include two additional
 		// bytes specific to the witness encoding. This byte sequence is known

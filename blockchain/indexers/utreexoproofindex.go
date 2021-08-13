@@ -175,6 +175,27 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 	return nil
 }
 
+// FetchUtreexoProof returns the Utreexo proof data for the given block hash.
+func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UData, error) {
+	ud := new(wire.UData)
+	err := idx.db.View(func(dbTx database.Tx) error {
+		proofBytes, err := dbFetchUtreexoProofEntry(dbTx, hash)
+		if err != nil {
+			return err
+		}
+		r := bytes.NewReader(proofBytes)
+
+		err = ud.Deserialize(r)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return ud, err
+}
+
 // NewUtreexoProofIndex returns a new instance of an indexer that is used to create a
 //
 // It implements the Indexer interface which plugs into the IndexManager that in

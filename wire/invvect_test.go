@@ -22,6 +22,7 @@ func TestInvTypeStringer(t *testing.T) {
 		{InvTypeError, "ERROR"},
 		{InvTypeTx, "MSG_TX"},
 		{InvTypeBlock, "MSG_BLOCK"},
+		{InvTypeUtreexoBlock, "MSG_UTREEXO_BLOCK"},
 		{0xffffffff, "Unknown InvType (4294967295)"},
 	}
 
