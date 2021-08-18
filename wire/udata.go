@@ -22,8 +22,8 @@ type UData struct {
 	// AccProof is the utreexo accumulator proof for all the inputs.
 	AccProof accumulator.BatchProof
 
-	// Stxos are the tx validation data for every input.
-	Stxos []LeafData
+	// LeafDatas are the tx validation data for every input.
+	LeafDatas []LeafData
 
 	// TxoTTLs are the time to live values for all the stxos.
 	TxoTTLs []int32
@@ -32,8 +32,8 @@ type UData struct {
 // StxosHashes returns the hash of all stxos in this UData.  The hashes returned
 // here represent the hash commitments of the stxos.
 func (ud *UData) StxoHashes() []chainhash.Hash {
-	leafHashes := make([]chainhash.Hash, len(ud.Stxos))
-	for i, stxo := range ud.Stxos {
+	leafHashes := make([]chainhash.Hash, len(ud.LeafDatas))
+	for i, stxo := range ud.LeafDatas {
 		leafHashes[i] = *stxo.LeafHash()
 	}
 
@@ -45,7 +45,7 @@ func (ud *UData) StxoHashes() []chainhash.Hash {
 func (ud *UData) SerializeSize() int {
 	// Size of all the leafData.
 	var ldSize int
-	for _, l := range ud.Stxos {
+	for _, l := range ud.LeafDatas {
 		ldSize += l.SerializeSize()
 	}
 
@@ -84,7 +84,7 @@ func (ud *UData) Serialize(w io.Writer) error {
 	}
 
 	// write all the leafdatas
-	for _, ld := range ud.Stxos {
+	for _, ld := range ud.LeafDatas {
 		err = ld.Serialize(w)
 		if err != nil {
 			return err
@@ -127,9 +127,9 @@ func (ud *UData) Deserialize(r io.Reader) error {
 	}
 
 	// we've already gotten targets. 1 leafdata per target
-	ud.Stxos = make([]LeafData, len(ud.AccProof.Targets))
-	for i := range ud.Stxos {
-		err = ud.Stxos[i].Deserialize(r)
+	ud.LeafDatas = make([]LeafData, len(ud.AccProof.Targets))
+	for i := range ud.LeafDatas {
+		err = ud.LeafDatas[i].Deserialize(r)
 		if err != nil {
 			str := fmt.Sprintf("Height:%d, ttlCount:%d, targetCount:%d, Stxos[%d], err:%s\n",
 				ud.Height, ttlCount, len(ud.AccProof.Targets), i, err.Error())
@@ -146,7 +146,7 @@ func (ud *UData) Deserialize(r io.Reader) error {
 func (ud *UData) SerializeSizeCompact() int {
 	// Size of all the leafData.
 	var ldSize int
-	for _, l := range ud.Stxos {
+	for _, l := range ud.LeafDatas {
 		ldSize += l.SerializeSizeCompact()
 	}
 
@@ -194,11 +194,11 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest, blockHeight int
 
 	ud := new(UData)
 	ud.Height = blockHeight
-	ud.Stxos = txIns
+	ud.LeafDatas = txIns
 
 	// make slice of hashes from leafdata
-	delHashes := make([]accumulator.Hash, len(ud.Stxos))
-	for i, stxo := range ud.Stxos {
+	delHashes := make([]accumulator.Hash, len(ud.LeafDatas))
+	for i, stxo := range ud.LeafDatas {
 		delHashes[i] = accumulator.Hash(*stxo.LeafHash())
 	}
 
