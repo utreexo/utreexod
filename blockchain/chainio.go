@@ -71,6 +71,10 @@ var (
 	// unspent transaction output set.
 	utxoSetBucketName = []byte("utxosetv2")
 
+	// utreexoStateBucketName is the name of the db bucket used to house the
+	// utreexo accumulator state
+	utreexoStateBucketName = []byte("utreexostate")
+
 	// byteOrder is the preferred byte order used for serializing numeric
 	// fields for storage in the database.
 	byteOrder = binary.LittleEndian
@@ -1100,6 +1104,65 @@ func dbFetchUtxoStateConsistency(dbTx database.Tx) (byte, *chainhash.Hash, error
 	return deserializeUtxoStateConsistency(serialized)
 }
 
+// serializeUtreexoView returns a serialized byte slice of the utreexo accumulator roots.
+func serializeUtreexoView(uView *UtreexoViewpoint) ([]byte, error) {
+	serializedAcc, err := uView.accumulator.Serialize()
+	if err != nil {
+		return nil, err
+	}
+
+	return serializedAcc, nil
+}
+
+// deserializeUtreexoView deserializes the provided byte slice into the provided uView.
+func deserializeUtreexoView(uView *UtreexoViewpoint, serializedUView []byte) error {
+	err := uView.accumulator.Deserialize(serializedUView)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// dbPutUtreexoView stores the utreexoViewpoint into the database.
+func dbPutUtreexoView(dbTx database.Tx, uView *UtreexoViewpoint, blockHash *chainhash.Hash) error {
+	utreexoBucket := dbTx.Metadata().Bucket(utreexoStateBucketName)
+	serialized, err := serializeUtreexoView(uView)
+	if err != nil {
+		return err
+	}
+
+	err = utreexoBucket.Put(blockHash[:], serialized)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// dbFetchUtreexoView returns the utreexoViewpoint at the provided hash.
+func dbFetchUtreexoView(dbTx database.Tx, blockHash *chainhash.Hash) (*UtreexoViewpoint, error) {
+	utreexoBucket := dbTx.Metadata().Bucket(utreexoStateBucketName)
+	serializedUtreexoView := utreexoBucket.Get(blockHash[:])
+	if serializedUtreexoView == nil {
+		return nil, nil
+	}
+
+	uView := NewUtreexoViewpoint()
+	err := deserializeUtreexoView(uView, serializedUtreexoView)
+	if err != nil {
+		return nil, err
+	}
+
+	return uView, err
+}
+
+// dbRemoveUtreexoView deletes the utreexoViewpoint at the given hash from the database.
+func dbRemoveUtreexoView(dbTx database.Tx, blockHash chainhash.Hash) error {
+	utreexoBucket := dbTx.Metadata().Bucket(utreexoStateBucketName)
+	return utreexoBucket.Delete(blockHash[:])
+}
+
 // createChainState initializes both the database and the chain state to the
 // genesis block.  This includes creating the necessary buckets and inserting
 // the genesis block, so it must only be called on an uninitialized database.
@@ -1191,6 +1254,19 @@ func (b *BlockChain) createChainState() error {
 		err = dbPutBestState(dbTx, b.stateSnapshot, node.workSum)
 		if err != nil {
 			return err
+		}
+
+		// Store the utreexoView if it's not nil.
+		if b.utreexoView != nil {
+			_, err = meta.CreateBucket(utreexoStateBucketName)
+			if err != nil {
+				return err
+			}
+
+			err = dbPutUtreexoView(dbTx, b.utreexoView, &node.hash)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Store the genesis block into the database.
@@ -1312,6 +1388,15 @@ func (b *BlockChain) initChainState() error {
 		err = block.Deserialize(bytes.NewReader(blockBytes))
 		if err != nil {
 			return err
+		}
+
+		// If utreexoView is enabled (aka not nil), then load the best
+		// utreexoView state.
+		if b.utreexoView != nil {
+			b.utreexoView, err = dbFetchUtreexoView(dbTx, &state.hash)
+			if err != nil {
+				return err
+			}
 		}
 
 		// As a final consistency check, we'll run through all the

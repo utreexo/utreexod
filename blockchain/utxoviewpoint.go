@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/mit-dci/utreexo/util"
 )
 
 // NewUtxoEntry returns a new UtxoEntry built from the arguments.
@@ -485,6 +486,56 @@ func (view *UtxoViewpoint) prune() {
 
 		entry.packedFlags ^= tfModified
 	}
+}
+
+// UBlockToUtxoView converts the UData from a block into a UtxoViewpoint. This
+// function essentially mimics that of addInputUtxos as the UtxoViewpoint will include
+// all the utxos necessary to validate the given bitcoin block.
+//
+// NOTE: this function is only relevant when the utreexo accumulators are enabled.
+func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
+	if block.MsgBlock().UData == nil {
+		return fmt.Errorf("UData is nil. Cannot verify block with hash %s.",
+			block.Hash().String())
+	}
+	ud := block.MsgBlock().UData
+	m := view.Entries()
+
+	// Loop through LeafDatas and convert them into UtxoEntries.
+	for _, ld := range ud.LeafDatas {
+		txo := wire.NewTxOut(ld.Stxo.Amount, ld.Stxo.PkScript)
+		utxo := NewUtxoEntry(txo, ld.Stxo.Height, ld.Stxo.IsCoinBase)
+		m[*ld.OutPoint] = utxo
+	}
+
+	_, _, _, outskip := util.DedupeBlock(block)
+
+	var txonum uint32
+	for coinbaseif0, tx := range block.Transactions() {
+		for idx, txOut := range tx.MsgTx().TxOut {
+			// Skip all the OP_RETURNs
+			if util.IsUnspendable(txOut) {
+				txonum++
+				continue
+			}
+			// only add txouts for the same block spends
+			if len(outskip) > 0 && outskip[0] == txonum {
+				utxo := NewUtxoEntry(
+					txOut, block.Height(), coinbaseif0 == 0)
+				op := wire.OutPoint{
+					Index: uint32(idx),
+					Hash:  *tx.Hash(),
+				}
+				m[op] = utxo
+				outskip = outskip[1:]
+				txonum++
+				continue
+			}
+			txonum++
+		}
+	}
+
+	return nil
 }
 
 // NewUtxoViewpoint returns a new empty unspent transaction output view.

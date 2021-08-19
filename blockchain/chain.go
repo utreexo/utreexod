@@ -152,6 +152,13 @@ type BlockChain struct {
 	// to help prevent logic races when blocks are being processed.
 	utxoCache *utxoCache
 
+	// The UTXO state represeted as a utreexo accumulator. A node can choose to
+	// use the utreexoView instead of utxoCache.
+	//
+	// NOTE Block verification differs with utreexoView and requires extra data
+	// from peers.
+	utreexoView *UtreexoViewpoint
+
 	// These fields are related to handling of orphan blocks.  They are
 	// protected by a combination of the chain lock and the orphan lock.
 	orphanLock   sync.RWMutex
@@ -644,6 +651,14 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 			return err
 		}
 
+		// Store the latest utreexo accumulator state if it's enabled.
+		if b.utreexoView != nil {
+			err = dbPutUtreexoView(dbTx, b.utreexoView, &node.hash)
+			if err != nil {
+				return err
+			}
+		}
+
 		// Allow the index manager to call each of the currently active
 		// optional indexes with the block being connected so they can
 		// update themselves accordingly.
@@ -927,6 +942,20 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 			return err
 		}
 
+		// Fetch the utreexo accumulator state at the previous block and
+		// set it as the current utreexo accumulator state.
+		if b.utreexoView != nil {
+			var uView *UtreexoViewpoint
+			err = b.db.View(func(dbTx database.Tx) error {
+				uView, err = dbFetchUtreexoView(dbTx, block.Hash())
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+			b.utreexoView = uView
+		}
+
 		newBest = n.parent
 	}
 
@@ -1145,11 +1174,24 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		// utxos, spend them, and add the new utxos being created by
 		// this block.
 		if fastAdd {
-			err := view.addInputUtxos(b.utxoCache, block)
-			if err != nil {
-				return false, err
+			if b.utreexoView != nil {
+				// Check that the block txOuts are valid by checking the utreexo proof and
+				// extra data.
+				err := b.utreexoView.Modify(block)
+				if err != nil {
+					return false, err
+				}
+				err = view.BlockToUtxoView(block)
+				if err != nil {
+					return false, err
+				}
+			} else {
+				err := view.addInputUtxos(b.utxoCache, block)
+				if err != nil {
+					return false, err
+				}
 			}
-			err = connectTransactions(view, block, &stxos, false)
+			err := connectTransactions(view, block, &stxos, false)
 			if err != nil {
 				return false, err
 			}
@@ -1730,6 +1772,12 @@ type Config struct {
 	// This field can be nil if the caller is not interested in using a
 	// signature cache.
 	HashCache *txscript.HashCache
+
+	// UtreexoView defines a utreexo accumulator state to be used to store
+	// the UTXO set instead of a key-value store.
+	//
+	// This field can be nil as being a utreexo node is optional.
+	UtreexoView *UtreexoViewpoint
 }
 
 // New returns a BlockChain instance using the provided configuration details.
@@ -1780,6 +1828,7 @@ func New(config *Config) (*BlockChain, error) {
 		blocksPerRetarget:   int32(targetTimespan / targetTimePerBlock),
 		index:               newBlockIndex(config.DB, params),
 		utxoCache:           newUtxoCache(config.DB, config.UtxoCacheMaxSize),
+		utreexoView:         config.UtreexoView,
 		hashCache:           config.HashCache,
 		bestChain:           newChainView(nil),
 		orphans:             make(map[chainhash.Hash]*orphanBlock),

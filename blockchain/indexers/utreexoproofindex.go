@@ -6,7 +6,6 @@ package indexers
 
 import (
 	"bytes"
-	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -107,13 +106,21 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 // This is part of the Indexer interface.
 func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
-	_, _, inskip, outskip := util.DedupeBlock(block)
-	dels, err := blockToDelLeaves(stxos, block, inskip)
+
+	// Don't include genesis blocks.
+	if block.Height() == 0 {
+		log.Tracef("UtreexoProofIndex.ConnectBlock: Asked to connect genesis"+
+			" block (height %d) Ignoring request and skipping block",
+			block.Height())
+		return nil
+	}
+	_, outCount, inskip, outskip := util.DedupeBlock(block)
+	dels, err := blockchain.BlockToDelLeaves(stxos, block, inskip)
 	if err != nil {
 		return err
 	}
 
-	adds := blockToAddLeaves(block, nil, outskip)
+	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
 
 	ud, err := wire.GenerateUData(dels, idx.utreexoView, block.Height())
 	if err != nil {
@@ -130,6 +137,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
+	// UndoBlocks needed during reorgs.
 	err = dbStoreUndoBlock(dbTx, block.Hash(), undoBlock)
 	if err != nil {
 		return err
@@ -220,134 +228,10 @@ func DropUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan stru
 	return deleteUtreexoState(dataDir)
 }
 
-// blockToDelLeaves takes a non-utreexo block and stxos and turns the block into
-// leaves that are to be deleted from the UtreexoBridgeState.
-func blockToDelLeaves(stxos []blockchain.SpentTxOut, block *btcutil.Block, inskip []uint32) (
-	delLeaves []wire.LeafData, err error) {
-	var blockInputs int
-	var blockInIdx uint32
-	for idx, tx := range block.Transactions() {
-		if idx == 0 {
-			// coinbase can have many inputs
-			blockInIdx += uint32(len(tx.MsgTx().TxIn))
-			continue
-		}
-
-		for _, txIn := range tx.MsgTx().TxIn {
-			blockInputs++
-			// Skip txos on the skip list
-			if len(inskip) > 0 && inskip[0] == blockInIdx {
-				inskip = inskip[1:]
-				blockInIdx++
-				continue
-			}
-
-			op := wire.OutPoint{
-				Hash:  txIn.PreviousOutPoint.Hash,
-				Index: txIn.PreviousOutPoint.Index,
-			}
-
-			stxo := wire.SpentTxOut(stxos[blockInIdx-1])
-
-			var leaf = wire.LeafData{
-				// TODO fetch block hash and add it to the data
-				// to be commited to.
-				//BlockHash: hash,
-				OutPoint: &op,
-				Stxo:     &stxo,
-			}
-
-			delLeaves = append(delLeaves, leaf)
-			blockInIdx++
-		}
-	}
-
-	// just an assertion to check the code is correct. Should never happen
-	if blockInputs != len(stxos) {
-		return nil, fmt.Errorf(
-			"block height: %v, hash:%x, has %v txs but %v stxos",
-			block.Height(), block.Hash(), len(block.Transactions()), len(stxos))
-	}
-
-	return
-}
-
-// blockToAddLeaves takes a non-utreexo block and stxos and turns the block into
-// leaves that are to be added to the UtreexoBridgeState.
-func blockToAddLeaves(block *btcutil.Block, remember []bool, outskip []uint32) []accumulator.Leaf {
-	var leaves []accumulator.Leaf
-
-	var txonum uint32
-	for coinbase, tx := range block.Transactions() {
-		for outIdx, txOut := range tx.MsgTx().TxOut {
-			// Skip all the OP_RETURNs
-			if isUnspendable(txOut) {
-				txonum++
-				continue
-			}
-
-			// Skip txos on the skip list
-			if len(outskip) > 0 && outskip[0] == txonum {
-				outskip = outskip[1:]
-				txonum++
-				continue
-			}
-
-			op := wire.OutPoint{
-				Hash:  *tx.Hash(),
-				Index: uint32(outIdx),
-			}
-
-			stxo := wire.SpentTxOut{
-				Amount:     txOut.Value,
-				PkScript:   txOut.PkScript,
-				Height:     block.Height(),
-				IsCoinBase: coinbase == 0,
-			}
-
-			var leaf = wire.LeafData{
-				BlockHash: block.Hash(),
-				OutPoint:  &op,
-				Stxo:      &stxo,
-			}
-
-			uleaf := accumulator.Leaf{
-				Hash: accumulator.Hash(*leaf.LeafHash()),
-			}
-
-			if len(remember) > int(txonum) {
-				uleaf.Remember = remember[txonum]
-			}
-
-			leaves = append(leaves, uleaf)
-			txonum++
-		}
-	}
-
-	return leaves
-}
-
-// isUnspendable determines whether a tx is spendable or not.
-// returns true if spendable, false if unspendable.
-//
-// NOTE: for utreexo, we're keeping our own isUnspendable function that has the
-// same behavior as the bitcoind code. There are some utxos that btcd will mark
-// unspendable that bitcoind will not and vise versa.
-func isUnspendable(o *wire.TxOut) bool {
-	switch {
-	case len(o.PkScript) > 10000: //len 0 is OK, spendable
-		return true
-	case len(o.PkScript) > 0 && o.PkScript[0] == 0x6a: // OP_RETURN is 0x6a
-		return true
-	default:
-		return false
-	}
-}
-
 // Stores the utreexo proof in the database. It uses compact serialization.
 func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *wire.UData) error {
 	var buf bytes.Buffer
-	err := ud.SerializeCompact(&buf)
+	err := ud.Serialize(&buf)
 	if err != nil {
 		return err
 	}

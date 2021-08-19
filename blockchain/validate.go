@@ -1026,9 +1026,26 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 	//
 	// These utxo entries are needed for verification of things such as
 	// transaction inputs, counting pay-to-script-hashes, and scripts.
-	err := view.addInputUtxos(b.utxoCache, block)
-	if err != nil {
-		return err
+	//
+	// If utreexo accumulators are enabled, then check that the accumulator
+	// proof is ok.  Then convert the msgBlock.UData into UtxoViewpoint.
+	if b.utreexoView != nil {
+		// Check that the block txOuts are valid by checking the utreexo proof and
+		// extra data.
+		err := b.utreexoView.Modify(block)
+		if err != nil {
+			return err
+		}
+
+		err = view.BlockToUtxoView(block)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := view.addInputUtxos(b.utxoCache, block)
+		if err != nil {
+			return err
+		}
 	}
 
 	// BIP0016 describes a pay-to-script-hash type that is considered a

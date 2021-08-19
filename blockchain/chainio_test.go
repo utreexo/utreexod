@@ -6,7 +6,9 @@ package blockchain
 
 import (
 	"bytes"
+	"crypto/sha512"
 	"errors"
+	"fmt"
 	"math/big"
 	"reflect"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/mit-dci/utreexo/accumulator"
 )
 
 // TestErrNotInMainChain ensures the functions related to errNotInMainChain work
@@ -826,6 +829,110 @@ func TestUtxoConsistencyDeserializeErrors(t *testing.T) {
 					tderr.ErrorCode)
 				continue
 			}
+		}
+	}
+}
+
+// NOTE just here because hardcoding a UtreexoViewpoint isn't possible. There's
+// unexported fields in package accumulator so we have to use this workaround.
+func initUtreexoViewpoints() []*UtreexoViewpoint {
+	// 3 is enough for testing serialization.
+	var uViews [3]*UtreexoViewpoint
+	for i := 0; i < len(uViews); i++ {
+		uViews[i] = NewUtreexoViewpoint()
+	}
+
+	var leafCount int
+	for i := 0; i < len(uViews); i++ {
+		for j := 0; j < 10; j++ {
+			hash := accumulator.Hash(sha512.Sum512_256([]byte{byte(leafCount)}))
+			leaves := []accumulator.Leaf{
+				{
+					Hash: hash,
+				},
+			}
+			leafCount++
+
+			uViews[i].accumulator.Modify(leaves, nil)
+		}
+	}
+
+	// This needs to be done as statistics variables that don't get serialized
+	// mess up reflect.DeepEqual.
+	for i := 0; i < len(uViews); i++ {
+		bytes, err := serializeUtreexoView(uViews[i])
+		if err != nil {
+			retErr := fmt.Errorf("initUtreexoViewpoints #%d unexpected "+
+				"error: %v", i, err)
+			panic(retErr)
+		}
+
+		newUView := NewUtreexoViewpoint()
+		err = deserializeUtreexoView(newUView, bytes)
+		if err != nil {
+			retErr := fmt.Errorf("initUtreexoViewpoints #%d unexpected "+
+				"error: %v", i, err)
+			panic(retErr)
+		}
+		uViews[i] = newUView
+	}
+
+	return uViews[:]
+}
+
+// TestUtreexoViewSerialize test the serialization for UtreexoViewpoints.
+func TestUtreexoViewSerialize(t *testing.T) {
+	t.Parallel()
+
+	uViews := initUtreexoViewpoints()
+	tests := []struct {
+		name       string
+		uView      *UtreexoViewpoint
+		serialized []byte
+	}{
+		{
+			name:       "first",
+			uView:      uViews[0],
+			serialized: hexToBytes("000000000000000a0692637b0a02630c81a9a31bbd420aecd368574bbc108d49c23c077e76518e59793da673181eb164c3243a17238499f1dff4f8a317175625f6f56950e8671071"),
+		},
+		{
+			name:       "second",
+			uView:      uViews[1],
+			serialized: hexToBytes("000000000000000aa5e23fdcfcd4700c60b85c830ad50443a7ff9020428ae488f4a0de7a5d8f10d06d2caf97109b1df49a41e5690498a9f37a8ab617e4148ccd65c16193fb4bb083"),
+		},
+		{
+			name:       "third",
+			uView:      uViews[2],
+			serialized: hexToBytes("000000000000000a3b2b0b094650bc2f1bac89eee152b55afc6a233c19f5e23e1166a22c041988d2d3ed620b0f7114b58a57f18f96f292384954e2690f7a7d6a38239cd172a1f256"),
+		},
+	}
+
+	for i, test := range tests {
+		gotBytes, err := serializeUtreexoView(test.uView)
+		if err != nil {
+			t.Errorf("serializeUtreexoView #%d (%s) unexpected "+
+				"error: %v", i, test.name, err)
+			continue
+		}
+		if !bytes.Equal(gotBytes, test.serialized) {
+			t.Errorf("serializeUtreexoView #%d (%s): mismatched "+
+				"bytes - got %x, want %x", i, test.name,
+				gotBytes, test.serialized)
+			continue
+		}
+
+		gotUtreexoView := NewUtreexoViewpoint()
+		err = deserializeUtreexoView(gotUtreexoView, gotBytes)
+		if err != nil {
+			t.Errorf("serializeUtreexoView #%d (%s) unexpected "+
+				"error: %v", i, test.name, err)
+			continue
+		}
+		if !reflect.DeepEqual(gotUtreexoView.accumulator, test.uView.accumulator) {
+			t.Errorf("deserializeUtreexoView (%s) mismatched utreexoView - "+
+				"got %v, want %v", test.name, gotUtreexoView.accumulator,
+				test.uView.accumulator)
+			continue
 		}
 	}
 }
