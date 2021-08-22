@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/mit-dci/utreexo/accumulator"
 )
 
@@ -31,10 +30,10 @@ type UData struct {
 
 // StxosHashes returns the hash of all stxos in this UData.  The hashes returned
 // here represent the hash commitments of the stxos.
-func (ud *UData) StxoHashes() []chainhash.Hash {
-	leafHashes := make([]chainhash.Hash, len(ud.LeafDatas))
+func (ud *UData) StxoHashes() []accumulator.Hash {
+	leafHashes := make([]accumulator.Hash, len(ud.LeafDatas))
 	for i, stxo := range ud.LeafDatas {
-		leafHashes[i] = *stxo.LeafHash()
+		leafHashes[i] = stxo.LeafHash()
 	}
 
 	return leafHashes
@@ -198,8 +197,8 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest, blockHeight int
 
 	// make slice of hashes from leafdata
 	delHashes := make([]accumulator.Hash, len(ud.LeafDatas))
-	for i, stxo := range ud.LeafDatas {
-		delHashes[i] = accumulator.Hash(*stxo.LeafHash())
+	for i := range ud.LeafDatas {
+		delHashes[i] = ud.LeafDatas[i].LeafHash()
 	}
 
 	// Generate the utreexo accumulator proof for all the inputs.

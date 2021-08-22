@@ -45,7 +45,7 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block) error {
 	// to be proven.
 	delHashes := make([]accumulator.Hash, len(ud.LeafDatas))
 	for i := range ud.LeafDatas {
-		delHashes[i] = accumulator.Hash(*ud.LeafDatas[i].LeafHash())
+		delHashes[i] = ud.LeafDatas[i].LeafHash()
 	}
 
 	// IngestBatchProof first checks that the utreexo proofs are valid. If it is valid,
@@ -145,21 +145,18 @@ func BlockToAddLeaves(block *btcutil.Block,
 				Index: uint32(outIdx),
 			}
 
-			stxo := wire.SpentTxOut{
+			var leaf = wire.LeafData{
+				// TODO put blockhash back in
+				//BlockHash: block.Hash(),
+				OutPoint:   &op,
 				Amount:     txOut.Value,
 				PkScript:   txOut.PkScript,
 				Height:     block.Height(),
 				IsCoinBase: coinbase == 0,
 			}
 
-			var leaf = wire.LeafData{
-				BlockHash: block.Hash(),
-				OutPoint:  &op,
-				Stxo:      &stxo,
-			}
-
 			uleaf := accumulator.Leaf{
-				Hash: accumulator.Hash(*leaf.LeafHash()),
+				Hash: leaf.LeafHash(),
 			}
 
 			if len(remember) > int(txonum) {
@@ -200,19 +197,15 @@ func BlockToDelLeaves(stxos []SpentTxOut, block *btcutil.Block, inskip []uint32)
 				Index: txIn.PreviousOutPoint.Index,
 			}
 
-			stxo := wire.SpentTxOut{
-				Amount:     stxos[blockInIdx-1].Amount,
-				PkScript:   stxos[blockInIdx-1].PkScript,
-				Height:     stxos[blockInIdx-1].Height,
-				IsCoinBase: stxos[blockInIdx-1].IsCoinBase,
-			}
-
 			var leaf = wire.LeafData{
 				// TODO fetch block hash and add it to the data
 				// to be commited to.
 				//BlockHash: hash,
-				OutPoint: &op,
-				Stxo:     &stxo,
+				OutPoint:   &op,
+				Amount:     stxos[blockInIdx-1].Amount,
+				PkScript:   stxos[blockInIdx-1].PkScript,
+				Height:     stxos[blockInIdx-1].Height,
+				IsCoinBase: stxos[blockInIdx-1].IsCoinBase,
 			}
 
 			delLeaves = append(delLeaves, leaf)

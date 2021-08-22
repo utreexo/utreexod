@@ -503,8 +503,8 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 
 	// Loop through LeafDatas and convert them into UtxoEntries.
 	for _, ld := range ud.LeafDatas {
-		txo := wire.NewTxOut(ld.Stxo.Amount, ld.Stxo.PkScript)
-		utxo := NewUtxoEntry(txo, ld.Stxo.Height, ld.Stxo.IsCoinBase)
+		txo := wire.NewTxOut(ld.Amount, ld.PkScript)
+		utxo := NewUtxoEntry(txo, ld.Height, ld.IsCoinBase)
 		m[*ld.OutPoint] = utxo
 	}
 
