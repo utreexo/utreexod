@@ -448,6 +448,7 @@ type Peer struct {
 	sendHeadersPreferred bool   // peer sent a sendheaders message
 	verAckReceived       bool
 	witnessEnabled       bool
+	utreexoEnabled       bool
 
 	wireEncoding wire.MessageEncoding
 
@@ -811,6 +812,18 @@ func (p *Peer) IsWitnessEnabled() bool {
 	p.flagsMtx.Unlock()
 
 	return witnessEnabled
+}
+
+// IsUtreexoEnabled returns true if the peer has signalled that it supports
+// utreexo accumulators.
+//
+// This function is safe for concurrent access.
+func (p *Peer) IsUtreexoEnabled() bool {
+	p.flagsMtx.Lock()
+	utreexoEnabled := p.utreexoEnabled
+	p.flagsMtx.Unlock()
+
+	return utreexoEnabled
 }
 
 // PushAddrMsg sends an addr message to the connected peer using the provided
@@ -1603,7 +1616,9 @@ out:
 				// out immediately, sipping the inv trickle
 				// queue.
 				if iv.Type == wire.InvTypeBlock ||
-					iv.Type == wire.InvTypeWitnessBlock {
+					iv.Type == wire.InvTypeUtreexoBlock ||
+					iv.Type == wire.InvTypeWitnessBlock ||
+					iv.Type == wire.InvTypeWitnessUtreexoBlock {
 
 					invMsg := wire.NewMsgInvSizeHint(1)
 					invMsg.AddInvVect(iv)
@@ -1930,6 +1945,12 @@ func (p *Peer) readRemoteVersionMsg() error {
 	if p.services&wire.SFNodeWitness == wire.SFNodeWitness {
 		p.witnessEnabled = true
 	}
+
+	// Determine if the peer would like to receive witness data with
+	// transactions, or not.
+	if p.services&wire.SFNodeUtreexo == wire.SFNodeUtreexo {
+		p.utreexoEnabled = true
+	}
 	p.flagsMtx.Unlock()
 
 	// Once the version message has been exchanged, we're able to determine
@@ -1939,6 +1960,12 @@ func (p *Peer) readRemoteVersionMsg() error {
 	// BIP0144.
 	if p.services&wire.SFNodeWitness == wire.SFNodeWitness {
 		p.wireEncoding = wire.WitnessEncoding
+	}
+
+	// If the peer is a utreexo enabled node, turn on the UtreexoEncoding
+	// bit.
+	if p.services&wire.SFNodeUtreexo == wire.SFNodeUtreexo {
+		p.wireEncoding |= wire.UtreexoEncoding
 	}
 
 	// Invoke the callback if specified.
