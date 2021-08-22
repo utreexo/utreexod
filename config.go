@@ -174,6 +174,7 @@ type config struct {
 	TrickleInterval       time.Duration `long:"trickleinterval" description:"Minimum time between attempts to send new inventory to a connected peer"`
 	TxIndex               bool          `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
 	TTLIndex              bool          `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
+	Utreexo               bool          `long:"utreexo" description:"Use utreexo compact state during block validation"`
 	UtreexoProofIndex     bool          `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
 	UserAgentComments     []string      `long:"uacomment" description:"Comment to add to the user agent -- See BIP 14 for more information."`
 	Upnp                  bool          `long:"upnp" description:"Use UPnP to map our listening port outside of NAT"`

@@ -2674,7 +2674,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if cfg.NoCFilters {
 		services &^= wire.SFNodeCF
 	}
-	if cfg.UtreexoProofIndex {
+	if cfg.Utreexo || cfg.UtreexoProofIndex {
 		services |= wire.SFNodeUtreexo
 	}
 
@@ -2786,6 +2786,13 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		checkpoints = mergeCheckpoints(s.chainParams.Checkpoints, cfg.addCheckpoints)
 	}
 
+	// If Utreexo is enabled, make an empty UtreexoViewpoint to signal that utreexo
+	// accumulators are enabled.
+	var utreexo *blockchain.UtreexoViewpoint
+	if cfg.Utreexo {
+		utreexo = blockchain.NewUtreexoViewpoint()
+	}
+
 	// Create a new block chain instance with the appropriate configuration.
 	var err error
 	s.chain, err = blockchain.New(&blockchain.Config{
@@ -2798,6 +2805,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		IndexManager:     indexManager,
 		HashCache:        s.hashCache,
 		UtxoCacheMaxSize: uint64(cfg.UtxoCacheMaxSizeMiB) * 1024 * 1024,
+		UtreexoView:      utreexo,
 	})
 	if err != nil {
 		return nil, err
