@@ -24,7 +24,11 @@ const MaxBlocksPerMsg = 500
 
 // MaxBlockPayload is the maximum bytes a block message can be in bytes.
 // After Segregated Witness, the max block payload has been raised to 4MB.
-const MaxBlockPayload = 4000000
+//
+// NOTE Utreexo proof adds additional data.  Max block payload has been raised
+// to 12MB to account for the proof data.  This is experimental and is subject
+// to change in the future.
+const MaxBlockPayload = 12000000
 
 // maxTxPerBlock is the maximum number of transactions that could
 // possibly fit into a block.

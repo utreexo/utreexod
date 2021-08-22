@@ -13,7 +13,11 @@ import (
 // XXX pedro: we will probably need to bump this.
 const (
 	// ProtocolVersion is the latest protocol version this package supports.
-	ProtocolVersion uint32 = 70013
+	//
+	// NOTE ProtocolVersion set at 170013 for the moment to mark that it
+	// supports utreexo proof attached blocks.  This is experimental and is
+	// subject to change in the future.
+	ProtocolVersion uint32 = 170013
 
 	// MultipleAddressVersion is the protocol version which added multiple
 	// addresses per message (pver >= MultipleAddressVersion).
