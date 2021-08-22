@@ -325,3 +325,73 @@ func TestUDataSerializeCompactRand(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateUData(t *testing.T) {
+	t.Parallel()
+
+	// Creates 15 leaves
+	leafCount := 15
+
+	rand := rand.New(rand.NewSource(0))
+	leafDatas := make([]LeafData, leafCount)
+	for i := range leafDatas {
+		// This creates a txo thats not spendable but it's ok for accumulator
+		// testing.
+		leafVal, ok := quick.Value(reflect.TypeOf(LeafData{}), rand)
+		if !ok {
+			t.Fatal("Could not create LeafData")
+		}
+		ld := leafVal.Interface().(LeafData)
+
+		outPointVal, ok := quick.Value(reflect.TypeOf(OutPoint{}), rand)
+		if !ok {
+			t.Fatal("Could not create OutPoint")
+		}
+		op := outPointVal.Interface().(OutPoint)
+		ld.OutPoint = &op
+		leafDatas[i] = ld
+	}
+
+	// Hash the leafData so that it can be added to the accumulator.
+	addLeaves := make([]accumulator.Leaf, leafCount)
+	for i := range addLeaves {
+		addLeaves[i] = accumulator.Leaf{
+			Hash: leafDatas[i].LeafHash(),
+		}
+	}
+
+	forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
+	_, err := forest.Modify(addLeaves, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	delCount := 2
+	firstDelIdx := 4
+	secondDelIdx := 10
+
+	delLeaves := make([]LeafData, delCount)
+	delLeaves[0] = leafDatas[firstDelIdx]
+	delLeaves[1] = leafDatas[secondDelIdx]
+
+	ud, err := GenerateUData(delLeaves, forest, 0) // random blockheight is ok
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	delHashes := make([]accumulator.Hash, delCount)
+	delHashes[0] = leafDatas[firstDelIdx].LeafHash()
+	delHashes[1] = leafDatas[secondDelIdx].LeafHash()
+
+	// Test if the UData actually validates
+	ok := forest.VerifyBatchProof(delHashes, ud.AccProof)
+	if !ok {
+		t.Errorf("Generated UData not verifiable")
+	}
+
+	// Use the udata.
+	_, err = forest.Modify(nil, ud.AccProof.Targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
