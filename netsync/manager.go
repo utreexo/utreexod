@@ -271,6 +271,10 @@ func (sm *SyncManager) startSync() {
 		return
 	}
 
+	// If the current node is dependent on the utreexoView, (aka a compact state node)
+	// then only connect to other utreexo nodes.
+	utreexoViewActive := sm.chain.IsUtreexoViewActive()
+
 	best := sm.chain.BestSnapshot()
 	var higherPeers, equalPeers []*peerpkg.Peer
 	for peer, state := range sm.peerStates {
@@ -280,6 +284,11 @@ func (sm *SyncManager) startSync() {
 
 		if segwitActive && !peer.IsWitnessEnabled() {
 			log.Debugf("peer %v not witness enabled, skipping", peer)
+			continue
+		}
+
+		if utreexoViewActive && !peer.IsUtreexoEnabled() {
+			log.Debugf("peer %v not utreexo enabled, skipping", peer)
 			continue
 		}
 
@@ -409,6 +418,14 @@ func (sm *SyncManager) isSyncCandidate(peer *peerpkg.Peer) bool {
 		nodeServices := peer.Services()
 		if nodeServices&wire.SFNodeNetwork != wire.SFNodeNetwork ||
 			(segwitActive && !peer.IsWitnessEnabled()) {
+			return false
+		}
+
+		// If the node is dependent on the utreexoViewpoint (aka the node
+		// is a compact state node), then the peer must have utreexo services
+		// active.
+		utreexoViewActive := sm.chain.IsUtreexoViewActive()
+		if utreexoViewActive && !peer.IsUtreexoEnabled() {
 			return false
 		}
 	}
@@ -901,6 +918,18 @@ func (sm *SyncManager) fetchHeaderBlocks() {
 			// witness data in the blocks.
 			if sm.syncPeer.IsWitnessEnabled() {
 				iv.Type = wire.InvTypeWitnessBlock
+
+				// If we're syncing from a utreexo enabled peer, also
+				// ask for the proofs.
+				if sm.syncPeer.IsUtreexoEnabled() {
+					iv.Type = wire.InvTypeWitnessUtreexoBlock
+				}
+			} else {
+				// If we're syncing from a utreexo enabled peer, also
+				// ask for the proofs.
+				if sm.syncPeer.IsUtreexoEnabled() {
+					iv.Type = wire.InvTypeUtreexoBlock
+				}
 			}
 
 			gdmsg.AddInvVect(iv)
@@ -1036,6 +1065,10 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 		// verify the hash was actually announced by the peer
 		// before deleting from the global requested maps.
 		switch inv.Type {
+		case wire.InvTypeUtreexoBlock:
+			fallthrough
+		case wire.InvTypeWitnessUtreexoBlock:
+			fallthrough
 		case wire.InvTypeWitnessBlock:
 			fallthrough
 		case wire.InvTypeBlock:
@@ -1062,6 +1095,10 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 // are in the memory pool (either the main pool or orphan pool).
 func (sm *SyncManager) haveInventory(invVect *wire.InvVect) (bool, error) {
 	switch invVect.Type {
+	case wire.InvTypeUtreexoBlock:
+		fallthrough
+	case wire.InvTypeWitnessUtreexoBlock:
+		fallthrough
 	case wire.InvTypeWitnessBlock:
 		fallthrough
 	case wire.InvTypeBlock:
@@ -1161,6 +1198,8 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeBlock:
 		case wire.InvTypeTx:
 		case wire.InvTypeWitnessBlock:
+		case wire.InvTypeWitnessUtreexoBlock:
+		case wire.InvTypeUtreexoBlock:
 		case wire.InvTypeWitnessTx:
 		default:
 			continue
@@ -1205,7 +1244,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			continue
 		}
 
-		if iv.Type == wire.InvTypeBlock {
+		if iv.Type == wire.InvTypeBlock || iv.Type == wire.InvTypeUtreexoBlock {
 			// The block is an orphan block that we already have.
 			// When the existing orphan was processed, it requested
 			// the missing parent blocks.  When this scenario
@@ -1257,6 +1296,10 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		requestQueue = requestQueue[1:]
 
 		switch iv.Type {
+		case wire.InvTypeUtreexoBlock:
+			fallthrough
+		case wire.InvTypeWitnessUtreexoBlock:
+			fallthrough
 		case wire.InvTypeWitnessBlock:
 			fallthrough
 		case wire.InvTypeBlock:
@@ -1268,6 +1311,14 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 
 				if peer.IsWitnessEnabled() {
 					iv.Type = wire.InvTypeWitnessBlock
+
+					if peer.IsUtreexoEnabled() {
+						iv.Type = wire.InvTypeWitnessUtreexoBlock
+					}
+				} else {
+					if peer.IsUtreexoEnabled() {
+						iv.Type = wire.InvTypeUtreexoBlock
+					}
 				}
 
 				gdmsg.AddInvVect(iv)
