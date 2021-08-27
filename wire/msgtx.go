@@ -314,6 +314,7 @@ type MsgTx struct {
 	Version  int32
 	TxIn     []*TxIn
 	TxOut    []*TxOut
+	UData    *UData
 	LockTime uint32
 }
 
@@ -674,6 +675,14 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 		scriptPool.Return(pkScript)
 	}
 
+	if enc&UtreexoEncoding == UtreexoEncoding {
+		msg.UData = new(UData)
+		err = msg.UData.Deserialize(r)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -708,9 +717,10 @@ func (msg *MsgTx) DeserializeNoWitness(r io.Reader) error {
 // database, as opposed to encoding transactions for the wire.
 func (msg *MsgTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
 	bs := newSerializer()
+	defer bs.free()
+
 	err := bs.PutUint32(w, littleEndian, uint32(msg.Version))
 	if err != nil {
-		bs.free()
 		return err
 	}
 
@@ -768,8 +778,22 @@ func (msg *MsgTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error
 	}
 
 	err = bs.PutUint32(w, littleEndian, msg.LockTime)
-	bs.free()
-	return err
+	if err != nil {
+		return err
+	}
+
+	if enc&UtreexoEncoding == UtreexoEncoding {
+		// AccProof can be nil for transactions that are included in
+		// a block.
+		if msg.UData != nil {
+			err = msg.UData.Serialize(w)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // HasWitness returns false if none of the inputs within the transaction

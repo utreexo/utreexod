@@ -41,6 +41,8 @@ const (
 	InvTypeUtreexoBlock         InvType = InvTypeBlock | InvUtreexoFlag
 	InvTypeWitnessUtreexoBlock  InvType = InvTypeBlock | InvWitnessFlag | InvUtreexoFlag
 	InvTypeWitnessTx            InvType = InvTypeTx | InvWitnessFlag
+	InvTypeUtreexoTx            InvType = InvTypeTx | InvUtreexoFlag
+	InvTypeWitnessUtreexoTx     InvType = InvTypeTx | InvWitnessFlag | InvUtreexoFlag
 	InvTypeFilteredWitnessBlock InvType = InvTypeFilteredBlock | InvWitnessFlag
 )
 
@@ -54,6 +56,8 @@ var ivStrings = map[InvType]string{
 	InvTypeUtreexoBlock:         "MSG_UTREEXO_BLOCK",
 	InvTypeWitnessUtreexoBlock:  "MSG_WITNESS_UTREEXO_BLOCK",
 	InvTypeWitnessTx:            "MSG_WITNESS_TX",
+	InvTypeUtreexoTx:            "MSG_UTREEXO_TX",
+	InvTypeWitnessUtreexoTx:     "MSG_WITNESS_UTREEXO_TX",
 	InvTypeFilteredWitnessBlock: "MSG_FILTERED_WITNESS_BLOCK",
 }
 

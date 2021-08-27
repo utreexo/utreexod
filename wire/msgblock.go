@@ -90,10 +90,18 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 		return messageError("MsgBlock.BtcDecode", str)
 	}
 
+	// Unset UtreexoEncoding for the encoding that we'll pass off to the
+	// tx.BtcDecode().  This is done as tx.BtcDecode() expects Utreexo
+	// Proofs to be appended to each tx if UtreexoEncoding bit is turned on.
+	// However, this only applies to mempool txs and there are no separate
+	// Utreexo Proofs for individual txs as the MsgBlock contains a proof
+	// for all the txs.
+	txEncoding := enc &^ UtreexoEncoding
+
 	msg.Transactions = make([]*MsgTx, 0, txCount)
 	for i := uint64(0); i < txCount; i++ {
 		tx := MsgTx{}
-		err := tx.BtcDecode(r, pver, enc)
+		err := tx.BtcDecode(r, pver, txEncoding)
 		if err != nil {
 			return err
 		}
