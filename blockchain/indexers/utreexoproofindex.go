@@ -6,6 +6,7 @@ package indexers
 
 import (
 	"bytes"
+	"sync"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -43,6 +44,9 @@ var _ NeedsInputser = (*UtreexoProofIndex)(nil)
 type UtreexoProofIndex struct {
 	db          database.DB
 	chainParams *chaincfg.Params
+
+	// mtx protects concurrent access to utreexoView.
+	mtx *sync.RWMutex
 
 	// utreexoView represents the Bitcoin UTXO set as a utreexo accumulator.
 	// It keeps all the elements of the forest in order to generate proofs.
@@ -122,7 +126,9 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 
 	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
 
+	idx.mtx.RLock()
 	ud, err := wire.GenerateUData(dels, idx.utreexoView, block.Height())
+	idx.mtx.RUnlock()
 	if err != nil {
 		return err
 	}
@@ -132,7 +138,9 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
+	idx.mtx.Lock()
 	undoBlock, err := idx.utreexoView.Modify(adds, ud.AccProof.Targets)
+	idx.mtx.Unlock()
 	if err != nil {
 		return err
 	}
@@ -165,7 +173,9 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		return err
 	}
 
+	idx.mtx.Lock()
 	err = idx.utreexoView.Undo(*undoBlock)
+	idx.mtx.Unlock()
 	if err != nil {
 		return err
 	}
@@ -204,6 +214,20 @@ func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UDa
 	return ud, err
 }
 
+// GenerateUData generates utreexo data for the dels passed in.  Height passed in
+// should either be of block height of where the deletions are happening or just
+// the lastest block height for mempool tx proof generation.
+func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData, height int32) (*wire.UData, error) {
+	idx.mtx.RLock()
+	ud, err := wire.GenerateUData(dels, idx.utreexoView, height)
+	idx.mtx.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+
+	return ud, nil
+}
+
 // NewUtreexoProofIndex returns a new instance of an indexer that is used to create a
 //
 // It implements the Indexer interface which plugs into the IndexManager that in
@@ -213,6 +237,7 @@ func NewUtreexoProofIndex(db database.DB, chainParams *chaincfg.Params, uView *a
 	return &UtreexoProofIndex{
 		db:          db,
 		chainParams: chainParams,
+		mtx:         new(sync.RWMutex),
 		utreexoView: uView,
 	}
 }
