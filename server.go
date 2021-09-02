@@ -1330,9 +1330,17 @@ func (sp *serverPeer) OnNotFound(p *peer.Peer, msg *wire.MsgNotFound) {
 			numBlocks++
 		case wire.InvTypeWitnessBlock:
 			numBlocks++
+		case wire.InvTypeUtreexoBlock:
+			numBlocks++
+		case wire.InvTypeWitnessUtreexoBlock:
+			numBlocks++
 		case wire.InvTypeTx:
 			numTxns++
 		case wire.InvTypeWitnessTx:
+			numTxns++
+		case wire.InvTypeWitnessUtreexoTx:
+			numTxns++
+		case wire.InvTypeUtreexoTx:
 			numTxns++
 		default:
 			peerLog.Debugf("Invalid inv type '%d' in notfound message from %s",

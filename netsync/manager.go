@@ -1327,6 +1327,10 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 
 		case wire.InvTypeWitnessTx:
 			fallthrough
+		case wire.InvTypeWitnessUtreexoTx:
+			fallthrough
+		case wire.InvTypeUtreexoTx:
+			fallthrough
 		case wire.InvTypeTx:
 			// Request the transaction if there is not already a
 			// pending request.
@@ -1338,6 +1342,14 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 				// including all witness data.
 				if peer.IsWitnessEnabled() {
 					iv.Type = wire.InvTypeWitnessTx
+
+					if peer.IsUtreexoEnabled() {
+						iv.Type = wire.InvTypeWitnessUtreexoTx
+					}
+				} else {
+					if peer.IsUtreexoEnabled() {
+						iv.Type = wire.InvTypeUtreexoTx
+					}
 				}
 
 				gdmsg.AddInvVect(iv)

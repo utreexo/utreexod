@@ -95,8 +95,16 @@ func invSummary(invList []*wire.InvVect) string {
 			return fmt.Sprintf("witness block %s", iv.Hash)
 		case wire.InvTypeBlock:
 			return fmt.Sprintf("block %s", iv.Hash)
+		case wire.InvTypeUtreexoBlock:
+			return fmt.Sprintf("utreexo block %s", iv.Hash)
+		case wire.InvTypeWitnessUtreexoBlock:
+			return fmt.Sprintf("witness utreexo block %s", iv.Hash)
 		case wire.InvTypeWitnessTx:
 			return fmt.Sprintf("witness tx %s", iv.Hash)
+		case wire.InvTypeUtreexoTx:
+			return fmt.Sprintf("utreexo tx %s", iv.Hash)
+		case wire.InvTypeWitnessUtreexoTx:
+			return fmt.Sprintf("witness utreexo tx %s", iv.Hash)
 		case wire.InvTypeTx:
 			return fmt.Sprintf("tx %s", iv.Hash)
 		}
