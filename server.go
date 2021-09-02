@@ -671,6 +671,10 @@ func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
 			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeTx:
 			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.BaseEncoding)
+		case wire.InvTypeWitnessUtreexoTx:
+			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding|wire.UtreexoEncoding)
+		case wire.InvTypeUtreexoTx:
+			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.UtreexoEncoding)
 		case wire.InvTypeWitnessBlock:
 			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeBlock:
@@ -1461,6 +1465,74 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 			doneChan <- struct{}{}
 		}
 		return err
+	}
+
+	// If the requsted encoding is a utreexo encoding, then also grab the
+	// utreexo proof for the tx.
+	if encoding&wire.UtreexoEncoding == wire.UtreexoEncoding {
+		// If utreexo proof index is not present, we can't send the tx
+		// as we can't grab the proof for the tx.
+		if s.utreexoProofIndex == nil {
+			err := fmt.Errorf("UtreexoProofIndex is nil. Cannot fetch utreexo accumulator proofs.")
+			srvrLog.Debugf(err.Error())
+			if doneChan != nil {
+				doneChan <- struct{}{}
+			}
+
+			return err
+		}
+
+		confirmedUtxoView, err := s.chain.FetchUtxoView(tx)
+		if err != nil {
+			chanLog.Debugf(err.Error())
+			if doneChan != nil {
+				doneChan <- struct{}{}
+			}
+			return err
+		}
+
+		// Don't try to prove any entries that are nil or is already
+		// spent.
+		for op, entry := range confirmedUtxoView.Entries() {
+			if entry == nil || entry.IsSpent() {
+				confirmedUtxoView.RemoveEntry(op)
+			}
+		}
+
+		viewEntries := confirmedUtxoView.Entries()
+
+		// Prep the UDatas to be sent over.  These will also be
+		// used to generate the accumulator proofs.
+		leafDatas := make([]wire.LeafData, 0, len(viewEntries))
+		for op, entry := range viewEntries {
+			leaf := wire.LeafData{
+				OutPoint:   op,
+				Amount:     entry.Amount(),
+				Height:     entry.BlockHeight(),
+				IsCoinBase: entry.IsCoinBase(),
+			}
+			// Copy the key over so it doesn't get dropped while
+			// we're still using it.
+			//
+			// TODO check if this copy actually needs to happen.
+			// Might not need it and could save a bit of memory.
+			leaf.PkScript = make([]byte, len(entry.PkScript()))
+			copy(leaf.PkScript, entry.PkScript())
+
+			leafDatas = append(leafDatas, leaf)
+		}
+
+		height := s.chain.BestSnapshot().Height
+		ud, err := s.utreexoProofIndex.GenerateUData(leafDatas, height)
+		if err != nil {
+			chanLog.Errorf(err.Error())
+			if doneChan != nil {
+				doneChan <- struct{}{}
+			}
+			return err
+		}
+
+		tx.MsgTx().UData = ud
 	}
 
 	// Once we have fetched data wait for any previous operation to finish.
