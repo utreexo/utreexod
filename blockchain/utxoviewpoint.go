@@ -505,7 +505,7 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 	for _, ld := range ud.LeafDatas {
 		txo := wire.NewTxOut(ld.Amount, ld.PkScript)
 		utxo := NewUtxoEntry(txo, ld.Height, ld.IsCoinBase)
-		m[*ld.OutPoint] = utxo
+		m[ld.OutPoint] = utxo
 	}
 
 	_, _, _, outskip := util.DedupeBlock(block)

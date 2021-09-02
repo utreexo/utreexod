@@ -115,7 +115,7 @@ func TestLeafDataSerialize(t *testing.T) {
 			name: "Testnet3 tx 061bb0bf... from block 1600000",
 			ld: LeafData{
 				BlockHash: newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
-				OutPoint: &OutPoint{
+				OutPoint: OutPoint{
 					Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
 					Index: 10,
 				},
@@ -129,7 +129,7 @@ func TestLeafDataSerialize(t *testing.T) {
 			name: "Mainnet coinbase tx fa201b65... from block 573123",
 			ld: LeafData{
 				BlockHash: newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
-				OutPoint: &OutPoint{
+				OutPoint: OutPoint{
 					Hash:  *newHashFromStr("fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2"),
 					Index: 0,
 				},
@@ -178,7 +178,7 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 			name: "Testnet3 tx 061bb0bf... from block 1600000",
 			ld: LeafData{
 				BlockHash: newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
-				OutPoint: &OutPoint{
+				OutPoint: OutPoint{
 					Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
 					Index: 10,
 				},
@@ -192,7 +192,7 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 			name: "Mainnet coinbase tx fa201b65... from block 573123",
 			ld: LeafData{
 				BlockHash: newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
-				OutPoint: &OutPoint{
+				OutPoint: OutPoint{
 					Hash:  *newHashFromStr("fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2"),
 					Index: 0,
 				},

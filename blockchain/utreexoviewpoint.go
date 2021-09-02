@@ -148,7 +148,7 @@ func BlockToAddLeaves(block *btcutil.Block,
 			var leaf = wire.LeafData{
 				// TODO put blockhash back in
 				//BlockHash: block.Hash(),
-				OutPoint:   &op,
+				OutPoint:   op,
 				Amount:     txOut.Value,
 				PkScript:   txOut.PkScript,
 				Height:     block.Height(),
@@ -201,7 +201,7 @@ func BlockToDelLeaves(stxos []SpentTxOut, block *btcutil.Block, inskip []uint32)
 				// TODO fetch block hash and add it to the data
 				// to be commited to.
 				//BlockHash: hash,
-				OutPoint:   &op,
+				OutPoint:   op,
 				Amount:     stxos[blockInIdx-1].Amount,
 				PkScript:   stxos[blockInIdx-1].PkScript,
 				Height:     stxos[blockInIdx-1].Height,

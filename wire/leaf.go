@@ -31,7 +31,7 @@ const (
 //               tx verification (script, signatures, etc).
 type LeafData struct {
 	BlockHash  *chainhash.Hash
-	OutPoint   *OutPoint
+	OutPoint   OutPoint
 	Height     int32
 	IsCoinBase bool
 	Amount     int64
@@ -163,7 +163,7 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 	//}
 
 	// Deserialize the outpoint.
-	l.OutPoint = &OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
+	l.OutPoint = OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
 	_, err := io.ReadFull(r, l.OutPoint.Hash[:])
 	if err != nil {
 		return err
@@ -299,6 +299,6 @@ func (l *LeafData) DeserializeCompact(r io.Reader) error {
 func NewLeafData() LeafData {
 	return LeafData{
 		BlockHash: new(chainhash.Hash),
-		OutPoint:  NewOutPoint(new(chainhash.Hash), 0),
+		OutPoint:  *NewOutPoint(new(chainhash.Hash), 0),
 	}
 }
