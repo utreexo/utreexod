@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
+	"runtime/trace"
 
 	"github.com/btcsuite/btcd/blockchain/indexers"
 	"github.com/btcsuite/btcd/database"
@@ -96,6 +97,18 @@ func btcdMain(serverChan chan<- *server) error {
 		}
 		defer f.Close()
 		defer pprof.WriteHeapProfile(f)
+	}
+
+	// Write trace profile if requested.
+	if cfg.TraceProfile != "" {
+		f, err := os.Create(cfg.TraceProfile)
+		if err != nil {
+			btcdLog.Errorf("Unable to create trace profile: %v", err)
+			return err
+		}
+		trace.Start(f)
+		defer f.Close()
+		defer trace.Stop()
 	}
 
 	// Perform upgrades to btcd as new versions require it.
