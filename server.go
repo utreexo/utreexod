@@ -2940,11 +2940,13 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		CalcSequenceLock: func(tx *btcutil.Tx, view *blockchain.UtxoViewpoint) (*blockchain.SequenceLock, error) {
 			return s.chain.CalcSequenceLock(tx, view, true)
 		},
-		IsDeploymentActive: s.chain.IsDeploymentActive,
-		SigCache:           s.sigCache,
-		HashCache:          s.hashCache,
-		AddrIndex:          s.addrIndex,
-		FeeEstimator:       s.feeEstimator,
+		IsDeploymentActive:  s.chain.IsDeploymentActive,
+		IsUtreexoViewActive: s.chain.IsUtreexoViewActive,
+		VerifyUData:         s.chain.VerifyUData,
+		SigCache:            s.sigCache,
+		HashCache:           s.hashCache,
+		AddrIndex:           s.addrIndex,
+		FeeEstimator:        s.feeEstimator,
 	}
 	s.txMemPool = mempool.New(&txC)
 

@@ -89,6 +89,16 @@ type Config struct {
 	// into the mempool or not.
 	IsDeploymentActive func(deploymentID uint32) (bool, error)
 
+	// Is UtreexoViewActive returns true if utreexo accumulator state is
+	// enabled.  Utreexo activated nodes have a different sequence of
+	// validating a tx.
+	IsUtreexoViewActive func() bool
+
+	// VerifyUData defines the function to use to verify the utreexo
+	// data.  This is only used when the node is run with the UtreexoView
+	// activated.
+	VerifyUData func(ud *wire.UData) error
+
 	// SigCache defines a signature cache to use.
 	SigCache *txscript.SigCache
 
@@ -807,6 +817,42 @@ func (mp *TxPool) fetchInputUtxos(tx *btcutil.Tx) (*blockchain.UtxoViewpoint, er
 	return utxoView, nil
 }
 
+// fetchInputUtxosFromUData extracts utxo details about the input transactions
+// provided in the UData for the passed transaction.  First, it extracts the
+// details from the udata, then it adjusts them based upon the contents of the
+// transaction pool.
+//
+// This function MUST be called with the mempool lock held (for reads).
+func (mp *TxPool) fetchInputUtxosFromUData(tx *btcutil.Tx, ud *wire.UData) *blockchain.UtxoViewpoint {
+	utxoView := blockchain.NewUtxoViewpoint()
+	viewEntries := utxoView.Entries()
+
+	// Loop through LeafDatas and convert them into UtxoEntries.
+	for _, ld := range ud.LeafDatas {
+		txo := wire.NewTxOut(ld.Amount, ld.PkScript)
+		utxo := blockchain.NewUtxoEntry(txo, ld.Height, ld.IsCoinBase)
+		viewEntries[ld.OutPoint] = utxo
+	}
+
+	// Attempt to populate any missing inputs from the transaction pool.
+	for _, txIn := range tx.MsgTx().TxIn {
+		prevOut := &txIn.PreviousOutPoint
+		entry := utxoView.LookupEntry(*prevOut)
+		if entry != nil && !entry.IsSpent() {
+			continue
+		}
+
+		if poolTxDesc, exists := mp.pool[prevOut.Hash]; exists {
+			// AddTxOut ignores out of range index values, so it is
+			// safe to call without bounds checking here.
+			utxoView.AddTxOut(poolTxDesc.Tx, prevOut.Index,
+				mining.UnminedHeight)
+		}
+	}
+
+	return utxoView
+}
+
 // FetchTransaction returns the requested transaction from the transaction pool.
 // This only fetches from the main transaction pool and does not include
 // orphans.
@@ -1020,16 +1066,34 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 		return nil, nil, err
 	}
 
-	// Fetch all of the unspent transaction outputs referenced by the inputs
-	// to this transaction.  This function also attempts to fetch the
-	// transaction itself to be used for detecting a duplicate transaction
-	// without needing to do a separate lookup.
-	utxoView, err := mp.fetchInputUtxos(tx)
-	if err != nil {
-		if cerr, ok := err.(blockchain.RuleError); ok {
-			return nil, nil, chainRuleError(cerr)
+	var utxoView *blockchain.UtxoViewpoint
+	// If utreexo accumulators are enabled, then we simply verify the
+	// included proof that was sent over with the transaction.
+	if mp.cfg.IsUtreexoViewActive != nil && mp.cfg.IsUtreexoViewActive() {
+		ud := tx.MsgTx().UData
+
+		// First verify the proof to ensure that the proof the peer has
+		// sent was over valid.
+		err := mp.cfg.VerifyUData(ud)
+		if err != nil {
+			return nil, nil, err
 		}
-		return nil, nil, err
+		log.Debugf("VerifyUData passed for tx %s", txHash.String())
+
+		// After the validation passes, turn that proof into a utxoView.
+		utxoView = mp.fetchInputUtxosFromUData(tx, ud)
+	} else {
+		// Fetch all of the unspent transaction outputs referenced by the inputs
+		// to this transaction.  This function also attempts to fetch the
+		// transaction itself to be used for detecting a duplicate transaction
+		// without needing to do a separate lookup.
+		utxoView, err = mp.fetchInputUtxos(tx)
+		if err != nil {
+			if cerr, ok := err.(blockchain.RuleError); ok {
+				return nil, nil, chainRuleError(cerr)
+			}
+			return nil, nil, err
+		}
 	}
 
 	// Don't allow the transaction if it exists in the main chain and is not
