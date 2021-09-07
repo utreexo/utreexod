@@ -20,7 +20,9 @@ type UtreexoViewpoint struct {
 	accumulator *accumulator.Pollard
 }
 
-// Modify takes an ublock and adds the utxos and deletes the stxos from the utreexo state
+// Modify takes an ublock and adds the utxos and deletes the stxos from the utreexo state.
+//
+// This function is NOT safe for concurrent access.
 func (uview *UtreexoViewpoint) Modify(block *btcutil.Block) error {
 	// Check that UData field isn't nil before doing anything else.
 	if block.MsgBlock().UData == nil {
@@ -309,4 +311,34 @@ func (b *BlockChain) IsUtreexoViewActive() bool {
 	b.chainLock.Unlock()
 
 	return utreexoActive
+}
+
+// VerifyUData processes the given UData and then verifies that the prove is correct. It does not modify the underlying UtreexoViewpoint.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) VerifyUData(ud *wire.UData) error {
+	if ud == nil {
+		return fmt.Errorf("BlockChain.VerifyUData(): passed in UData is nil. " +
+			"Cannot validate utreexo accumulator proof")
+	}
+
+	// make slice of hashes from leafdata. These are the hash commitments
+	// to be proven.
+	delHashes := make([]accumulator.Hash, len(ud.LeafDatas))
+	for i := range ud.LeafDatas {
+		delHashes[i] = ud.LeafDatas[i].LeafHash()
+	}
+
+	// Acquire read lock before accessing the accumulator state.
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	// IngestBatchProof first checks that the utreexo proofs are valid. If it is valid,
+	// it readys the utreexo accumulator for additions/deletions.
+	err := b.utreexoView.accumulator.VerifyBatchProof(delHashes, ud.AccProof)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
