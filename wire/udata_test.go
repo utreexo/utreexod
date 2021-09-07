@@ -384,8 +384,8 @@ func TestGenerateUData(t *testing.T) {
 	delHashes[1] = leafDatas[secondDelIdx].LeafHash()
 
 	// Test if the UData actually validates
-	ok := forest.VerifyBatchProof(delHashes, ud.AccProof)
-	if !ok {
+	err = forest.VerifyBatchProof(delHashes, ud.AccProof)
+	if err != nil {
 		t.Errorf("Generated UData not verifiable")
 	}
 
