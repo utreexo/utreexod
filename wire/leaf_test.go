@@ -151,6 +151,38 @@ func TestLeafDataSerialize(t *testing.T) {
 		checkLeaf := NewLeafData()
 		checkLeaf.Deserialize(writer)
 
+		if !bytes.Equal(test.ld.OutPoint.Hash[:], checkLeaf.OutPoint.Hash[:]) {
+			t.Errorf("%s: LeafData outpoint hash mismatch. expect %s, got %s",
+				test.name, test.ld.OutPoint.Hash.String(),
+				checkLeaf.OutPoint.Hash.String())
+		}
+
+		if test.ld.OutPoint.Index != checkLeaf.OutPoint.Index {
+			t.Errorf("%s: LeafData outpoint index mismatch. expect %v, got %v",
+				test.name, test.ld.OutPoint.Index,
+				checkLeaf.OutPoint.Index)
+		}
+
+		if test.ld.Amount != checkLeaf.Amount {
+			t.Errorf("%s: LeafData amount mismatch. expect %v, got %v",
+				test.name, test.ld.Amount, checkLeaf.Amount)
+		}
+
+		if test.ld.IsCoinBase != checkLeaf.IsCoinBase {
+			t.Errorf("%s: LeafData IsCoinBase mismatch. expect %v, got %v",
+				test.name, test.ld.IsCoinBase, checkLeaf.IsCoinBase)
+		}
+
+		if test.ld.Height != checkLeaf.Height {
+			t.Errorf("%s: LeafData height mismatch. expect %v, got %v",
+				test.name, test.ld.Height, checkLeaf.Height)
+		}
+
+		if !bytes.Equal(test.ld.PkScript[:], checkLeaf.PkScript[:]) {
+			t.Errorf("%s: LeafData pkscript mismatch. expect %x, got %x",
+				test.name, test.ld.PkScript, checkLeaf.PkScript)
+		}
+
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
 		checkLeaf.Serialize(afterWriter)
@@ -213,6 +245,27 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 		// Deserialize
 		checkLeaf := NewLeafData()
 		checkLeaf.DeserializeCompact(writer)
+
+		// Only amount, hcb, and pkscript is serialized with the compact serialization.
+		if test.ld.Amount != checkLeaf.Amount {
+			t.Errorf("%s: LeafData amount mismatch. expect %v, got %v",
+				test.name, test.ld.Amount, checkLeaf.Amount)
+		}
+
+		if test.ld.IsCoinBase != checkLeaf.IsCoinBase {
+			t.Errorf("%s: LeafData IsCoinBase mismatch. expect %v, got %v",
+				test.name, test.ld.IsCoinBase, checkLeaf.IsCoinBase)
+		}
+
+		if test.ld.Height != checkLeaf.Height {
+			t.Errorf("%s: LeafData height mismatch. expect %v, got %v",
+				test.name, test.ld.Height, checkLeaf.Height)
+		}
+
+		if !bytes.Equal(test.ld.PkScript[:], checkLeaf.PkScript[:]) {
+			t.Errorf("%s: LeafData pkscript mismatch. expect %x, got %x",
+				test.name, test.ld.PkScript, checkLeaf.PkScript)
+		}
 
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
