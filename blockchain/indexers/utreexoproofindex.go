@@ -24,13 +24,18 @@ const (
 )
 
 var (
-	// utreexoParentBucketKey is the name of the
+	// utreexoParentBucketKey is the name of the parent bucket of the
+	// utreexo proof index.  It contains the buckets for the proof and
+	// the undo data.
 	utreexoParentBucketKey = []byte("utreexoparentindexkey")
 
-	// utreexoProofIndexKey is the name of the
+	// utreexoProofIndexKey is the name of the utreexo proof data.  It
+	// is included in the utreexoParentBucketKey and contains utreexo proof
+	// data.
 	utreexoProofIndexKey = []byte("utreexoproofindexkey")
 
-	// utreexoUndoKey is the name of the
+	// utreexoUndoKey is the name of the utreexo undo data.  It is included
+	// in the utreexoParentBucketKey and contains the utreexo undo data.
 	utreexoUndoKey = []byte("utreexoundokey")
 )
 
@@ -48,9 +53,9 @@ type UtreexoProofIndex struct {
 	// mtx protects concurrent access to utreexoView.
 	mtx *sync.RWMutex
 
-	// utreexoView represents the Bitcoin UTXO set as a utreexo accumulator.
+	// utreexoState represents the Bitcoin UTXO set as a utreexo accumulator.
 	// It keeps all the elements of the forest in order to generate proofs.
-	utreexoView *accumulator.Forest
+	utreexoState *UtreexoState
 }
 
 // NeedsInputs signals that the index requires the referenced inputs in order
@@ -127,7 +132,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
 
 	idx.mtx.RLock()
-	ud, err := wire.GenerateUData(dels, idx.utreexoView, block.Height())
+	ud, err := wire.GenerateUData(dels, idx.utreexoState.state, block.Height())
 	idx.mtx.RUnlock()
 	if err != nil {
 		return err
@@ -139,7 +144,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 
 	idx.mtx.Lock()
-	undoBlock, err := idx.utreexoView.Modify(adds, ud.AccProof.Targets)
+	undoBlock, err := idx.utreexoState.state.Modify(adds, ud.AccProof.Targets)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -174,7 +179,7 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 	}
 
 	idx.mtx.Lock()
-	err = idx.utreexoView.Undo(*undoBlock)
+	err = idx.utreexoState.state.Undo(*undoBlock)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -219,7 +224,7 @@ func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UDa
 // the lastest block height for mempool tx proof generation.
 func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData, height int32) (*wire.UData, error) {
 	idx.mtx.RLock()
-	ud, err := wire.GenerateUData(dels, idx.utreexoView, height)
+	ud, err := wire.GenerateUData(dels, idx.utreexoState.state, height)
 	idx.mtx.RUnlock()
 	if err != nil {
 		return nil, err
@@ -233,13 +238,26 @@ func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData, height int32) 
 // It implements the Indexer interface which plugs into the IndexManager that in
 // turn is used by the blockchain package.  This allows the index to be
 // seamlessly maintained along with the chain.
-func NewUtreexoProofIndex(db database.DB, chainParams *chaincfg.Params, uView *accumulator.Forest) *UtreexoProofIndex {
-	return &UtreexoProofIndex{
+func NewUtreexoProofIndex(db database.DB, dataDir string, chainParams *chaincfg.Params) (*UtreexoProofIndex, error) {
+	idx := &UtreexoProofIndex{
 		db:          db,
 		chainParams: chainParams,
 		mtx:         new(sync.RWMutex),
-		utreexoView: uView,
 	}
+
+	uState, err := InitUtreexoState(&UtreexoConfig{
+		DataDir: dataDir,
+		Name:    db.Type(),
+		// Default to ram for now.
+		Type:   accumulator.RamForest,
+		Params: chainParams,
+	})
+	if err != nil {
+		return nil, err
+	}
+	idx.utreexoState = uState
+
+	return idx, nil
 }
 
 // DropUtreexoProofIndex drops the address index from the provided database if it
@@ -250,13 +268,18 @@ func DropUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan stru
 		return err
 	}
 
-	return deleteUtreexoState(dataDir)
+	path := utreexoBasePath(&UtreexoConfig{DataDir: dataDir, Name: db.Type()})
+	return deleteUtreexoState(path)
 }
 
-// Stores the utreexo proof in the database. It uses compact serialization.
+// Stores the utreexo proof in the database.
+// TODO Use the compact serialization.
 func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *wire.UData) error {
-	var buf bytes.Buffer
-	err := ud.Serialize(&buf)
+	// Pre-allocated the needed buffer.
+	udSize := ud.SerializeSize()
+	buf := bytes.NewBuffer(make([]byte, 0, udSize))
+
+	err := ud.Serialize(buf)
 	if err != nil {
 		return err
 	}

@@ -38,7 +38,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
-	"github.com/mit-dci/utreexo/accumulator"
 )
 
 const (
@@ -2841,16 +2840,14 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	}
 	if cfg.UtreexoProofIndex {
 		indxLog.Info("Utreexo Proof index is enabled")
-		utreexoView, err := indexers.InitUtreexoState(&indexers.UtreexoConfig{
-			DataDir: cfg.DataDir,
-			// Default to ram for now.
-			Type:   accumulator.RamForest,
-			Params: chainParams,
-		})
+
+		var err error
+		s.utreexoProofIndex, err = indexers.NewUtreexoProofIndex(
+			db, cfg.DataDir, chainParams)
 		if err != nil {
 			return nil, err
 		}
-		s.utreexoProofIndex = indexers.NewUtreexoProofIndex(db, chainParams, utreexoView)
+
 		indexes = append(indexes, s.utreexoProofIndex)
 	}
 

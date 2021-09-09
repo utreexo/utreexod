@@ -24,29 +24,16 @@ const (
 	defaultCowMaxCache         = 1000
 )
 
-var (
-	// TODO ugly global. But to get rid of this we need to change how the
-	// restores and inits work in the utreexo repo.
-	globalBasePath = ""
-)
-
-// UtreexoType specifies the utreexo state backend type. Each of the types
-// are explained in the package accumulator.
-type UtreexoType uint8
-
-const (
-	Ram UtreexoType = iota
-	Cached
-	Cow
-	Disk
-)
-
 // UtreexoConfig is a descriptor which specifies the Utreexo state instance configuration.
 type UtreexoConfig struct {
 	// DataDir is the base path of where all the data for this node will be stored.
 	// Utreexo has custom storage method and that data will be stored under this
 	// directory.
 	DataDir string
+
+	// Name is what the type of utreexo proof indexer this utreexo state is related
+	// to.
+	Name string
 
 	// Type specifies what type of UtreexoBackEnd should be created.
 	Type accumulator.ForestType
@@ -56,12 +43,23 @@ type UtreexoConfig struct {
 	Params *chaincfg.Params
 }
 
+// UtreexoState is a wrapper around the raw accumulator with configuration
+// information.  It contains the entire, non-pruned accumulator.
+type UtreexoState struct {
+	config *UtreexoConfig
+	state  *accumulator.Forest
+}
+
+// utreexoBasePath returns the base path of where the utreexo state should be
+// saved to with the with UtreexoConfig information.
+func utreexoBasePath(cfg *UtreexoConfig) string {
+	return filepath.Join(cfg.DataDir, utreexoDirName+"_"+cfg.Name)
+}
+
 // InitUtreexoState returns an initialized utreexo state. If there isn't an
 // existing state on disk, it creates one and returns it.
-func InitUtreexoState(cfg *UtreexoConfig) (*accumulator.Forest, error) {
-	basePath := filepath.Join(cfg.DataDir, utreexoDirName)
-	globalBasePath = basePath
-
+func InitUtreexoState(cfg *UtreexoConfig) (*UtreexoState, error) {
+	basePath := utreexoBasePath(cfg)
 	log.Infof("Initializing Utreexo state from '%s'", basePath)
 
 	var forest *accumulator.Forest
@@ -78,22 +76,23 @@ func InitUtreexoState(cfg *UtreexoConfig) (*accumulator.Forest, error) {
 		}
 	}
 
+	uState := &UtreexoState{cfg, forest}
+
 	log.Info("Utreexo state loaded")
 
-	return forest, nil
+	return uState, nil
 }
 
 // deleteUtreexoState removes the utreexo state directory and all the contents
 // in it.
-func deleteUtreexoState(dataDir string) error {
-	basePath := filepath.Join(dataDir, utreexoDirName)
-	_, err := os.Stat(basePath)
+func deleteUtreexoState(path string) error {
+	_, err := os.Stat(path)
 	if err == nil {
-		log.Infof("Deleting the utreexo state at directory %s", basePath)
+		log.Infof("Deleting the utreexo state at directory %s", path)
 	} else {
 		log.Infof("No utreexo state to delete")
 	}
-	return os.RemoveAll(basePath)
+	return os.RemoveAll(path)
 }
 
 // checkUtreexoExists checks that the data for this utreexo state type specified
@@ -113,27 +112,29 @@ func checkUtreexoExists(cfg *UtreexoConfig, basePath string) bool {
 
 // FlushUtreexoState saves the utreexo state to disk.
 func (idx *UtreexoProofIndex) FlushUtreexoState() error {
-	if _, err := os.Stat(globalBasePath); err != nil {
-		os.MkdirAll(globalBasePath, os.ModePerm)
+	basePath := utreexoBasePath(idx.utreexoState.config)
+
+	if _, err := os.Stat(basePath); err != nil {
+		os.MkdirAll(basePath, os.ModePerm)
 	}
-	forestFilePath := filepath.Join(globalBasePath, defaultUtreexoFileName)
+	forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
 	forestFile, err := os.OpenFile(forestFilePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
 	}
-	err = idx.utreexoView.WriteForestToDisk(forestFile, true, false)
+	err = idx.utreexoState.state.WriteForestToDisk(forestFile, true, false)
 	if err != nil {
 		return err
 	}
 
-	miscFilePath := filepath.Join(globalBasePath, defaultUtreexoMiscFileName)
+	miscFilePath := filepath.Join(basePath, defaultUtreexoMiscFileName)
 	// write other misc forest data
 	miscForestFile, err := os.OpenFile(
 		miscFilePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
 	}
-	err = idx.utreexoView.WriteMiscData(miscForestFile)
+	err = idx.utreexoState.state.WriteMiscData(miscForestFile)
 	if err != nil {
 		return err
 	}

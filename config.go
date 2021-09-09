@@ -959,6 +959,26 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
+	// --utreexoproofindex and --droputreexoproofindex do not mix.
+	if cfg.UtreexoProofIndex && cfg.DropUtreexoProofIndex {
+		err := fmt.Errorf("%s: the --utreexoproofindex and --droputreexoproofindex"+
+			"options may not be activated at the same time ",
+			funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	// --utreexo and --utreexoproofindex do not mix.
+	if cfg.Utreexo && cfg.UtreexoProofIndex {
+		err := fmt.Errorf("%s: the --utreexo and --utreexoproofindex "+
+			"options may not be activated at the same time ",
+			funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
 	// Check mining addresses are valid and saved parsed versions.
 	cfg.miningAddrs = make([]btcutil.Address, 0, len(cfg.MiningAddrs))
 	for _, strAddr := range cfg.MiningAddrs {
