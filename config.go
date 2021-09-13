@@ -193,17 +193,19 @@ type config struct {
 	BlockPrioritySize uint32   `long:"blockprioritysize" description:"Size in bytes for high-priority/low-fee transactions when creating a block"`
 
 	// Indexing options.
-	AddrIndex             bool `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
-	TxIndex               bool `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
-	TTLIndex              bool `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
-	UtreexoProofIndex     bool `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
-	NoCFilters            bool `long:"nocfilters" description:"Disable committed filtering (CF) support"`
-	NoPeerBloomFilters    bool `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
-	DropAddrIndex         bool `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
-	DropCfIndex           bool `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
-	DropTxIndex           bool `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
-	DropTTLIndex          bool `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
-	DropUtreexoProofIndex bool `long:"droputreexoproofindex" description:"Deletes the utreexo proof index from the database on start up and then exits."`
+	AddrIndex                 bool `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
+	TxIndex                   bool `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
+	TTLIndex                  bool `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
+	UtreexoProofIndex         bool `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
+	FlatUtreexoProofIndex     bool `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
+	NoCFilters                bool `long:"nocfilters" description:"Disable committed filtering (CF) support"`
+	NoPeerBloomFilters        bool `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
+	DropAddrIndex             bool `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
+	DropCfIndex               bool `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
+	DropTxIndex               bool `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
+	DropTTLIndex              bool `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
+	DropUtreexoProofIndex     bool `long:"droputreexoproofindex" description:"Deletes the utreexo proof index from the database on start up and then exits."`
+	DropFlatUtreexoProofIndex bool `long:"dropflatutreexoproofindex" description:"Deletes the flat utreexo proof index from the database on start up and then exits."`
 
 	// Cooked options ready for use.
 	lookup         func(string) ([]net.IP, error)
@@ -969,9 +971,29 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
+	// --flatutreexoproofindex and --dropflatutreexoproofindex do not mix.
+	if cfg.FlatUtreexoProofIndex && cfg.DropFlatUtreexoProofIndex {
+		err := fmt.Errorf("%s: the --flatutreexoproofindex and --dropflatutreexoproofindex"+
+			"options may not be activated at the same time ",
+			funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
 	// --utreexo and --utreexoproofindex do not mix.
 	if cfg.Utreexo && cfg.UtreexoProofIndex {
 		err := fmt.Errorf("%s: the --utreexo and --utreexoproofindex "+
+			"options may not be activated at the same time ",
+			funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	// --utreexo and --flatutreexoproofindex do not mix.
+	if cfg.Utreexo && cfg.FlatUtreexoProofIndex {
+		err := fmt.Errorf("%s: the --utreexo and --flatutreexoproofindex "+
 			"options may not be activated at the same time ",
 			funcName)
 		fmt.Fprintln(os.Stderr, err)

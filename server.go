@@ -234,11 +234,12 @@ type server struct {
 	// if the associated index is not enabled.  These fields are set during
 	// initial creation of the server and never changed afterwards, so they
 	// do not need to be protected for concurrent access.
-	txIndex           *indexers.TxIndex
-	addrIndex         *indexers.AddrIndex
-	cfIndex           *indexers.CfIndex
-	ttlIndex          *indexers.TTLIndex
-	utreexoProofIndex *indexers.UtreexoProofIndex
+	txIndex               *indexers.TxIndex
+	addrIndex             *indexers.AddrIndex
+	cfIndex               *indexers.CfIndex
+	ttlIndex              *indexers.TTLIndex
+	utreexoProofIndex     *indexers.UtreexoProofIndex
+	flatUtreexoProofIndex *indexers.FlatUtreexoProofIndex
 
 	// The fee estimator keeps track of how long transactions are left in
 	// the mempool before they are mined into blocks.
@@ -1471,7 +1472,7 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 	if encoding&wire.UtreexoEncoding == wire.UtreexoEncoding {
 		// If utreexo proof index is not present, we can't send the tx
 		// as we can't grab the proof for the tx.
-		if s.utreexoProofIndex == nil {
+		if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil {
 			err := fmt.Errorf("UtreexoProofIndex is nil. Cannot fetch utreexo accumulator proofs.")
 			srvrLog.Debugf(err.Error())
 			if doneChan != nil {
@@ -1522,13 +1523,28 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 		}
 
 		height := s.chain.BestSnapshot().Height
-		ud, err := s.utreexoProofIndex.GenerateUData(leafDatas, height)
-		if err != nil {
-			chanLog.Errorf(err.Error())
-			if doneChan != nil {
-				doneChan <- struct{}{}
+		var ud *wire.UData
+
+		// We already checked that at least one is active.  Pick one and
+		// generate the UData.
+		if s.utreexoProofIndex != nil {
+			ud, err = s.utreexoProofIndex.GenerateUData(leafDatas, height)
+			if err != nil {
+				chanLog.Errorf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
 			}
-			return err
+		} else {
+			ud, err = s.flatUtreexoProofIndex.GenerateUData(leafDatas, height)
+			if err != nil {
+				chanLog.Errorf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
 		}
 
 		tx.MsgTx().UData = ud
@@ -1551,7 +1567,7 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 
 	// Early check to see if Utreexo proof index is there if UtreexoEncoding is given.
 	doUtreexo := encoding&wire.UtreexoEncoding == wire.UtreexoEncoding
-	if doUtreexo && s.utreexoProofIndex == nil {
+	if doUtreexo && s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil {
 		err := fmt.Errorf("UtreexoProofIndex is nil. Cannot fetch utreexo accumulator proofs.")
 		peerLog.Tracef(err.Error())
 		if doneChan != nil {
@@ -1593,15 +1609,43 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 
 	// Fetch the Utreexo accumulator proof.
 	if doUtreexo {
-		ud, err := s.utreexoProofIndex.FetchUtreexoProof(hash)
-		if err != nil {
-			peerLog.Tracef("Unable to fetch requested utreexo data for block hash %v: %v",
-				hash, err)
+		var ud *wire.UData
 
-			if doneChan != nil {
-				doneChan <- struct{}{}
+		// We already checked that at least one is active.  Pick one and
+		// generate the UData.
+		if s.utreexoProofIndex != nil {
+			ud, err = s.utreexoProofIndex.FetchUtreexoProof(hash)
+			if err != nil {
+				peerLog.Debugf("Unable to fetch requested utreexo data for block hash %v: %v",
+					hash, err)
+
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
 			}
-			return err
+		} else {
+			btcdLog.Infof("Fetch from flatfiles")
+			height, err := s.chain.BlockHeightByHash(hash)
+			if err != nil {
+				chanLog.Debugf("Unable to fetch height for block hash %v: %v",
+					hash, err)
+
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
+			ud, err = s.flatUtreexoProofIndex.FetchUtreexoProof(height)
+			if err != nil {
+				peerLog.Debugf("Unable to fetch requested utreexo data for block hash %v: %v",
+					hash, err)
+
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
 		}
 
 		msgBlock.UData = ud
@@ -2329,6 +2373,14 @@ out:
 		}
 	}
 
+	// If flatUtreexoProofIndex option is on, flush it after closing down syncManager.
+	if s.flatUtreexoProofIndex != nil {
+		err := s.flatUtreexoProofIndex.FlushUtreexoState()
+		if err != nil {
+			btcdLog.Errorf("Error while flushing utreexo state: %v", err)
+		}
+	}
+
 	// Drain channels before exiting so nothing is left waiting around
 	// to send.
 cleanup:
@@ -2753,7 +2805,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if cfg.NoCFilters {
 		services &^= wire.SFNodeCF
 	}
-	if cfg.Utreexo || cfg.UtreexoProofIndex {
+	if cfg.Utreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
 		services |= wire.SFNodeUtreexo
 	}
 
@@ -2849,6 +2901,17 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		}
 
 		indexes = append(indexes, s.utreexoProofIndex)
+	}
+	if cfg.FlatUtreexoProofIndex {
+		indxLog.Info("Flat Utreexo Proof index is enabled")
+
+		var err error
+		s.flatUtreexoProofIndex, err = indexers.NewFlatUtreexoProofIndex(
+			cfg.DataDir, chainParams)
+		if err != nil {
+			return nil, err
+		}
+		indexes = append(indexes, s.flatUtreexoProofIndex)
 	}
 
 	// Create an index manager if any of the optional indexes are enabled.

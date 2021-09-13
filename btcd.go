@@ -184,6 +184,15 @@ func btcdMain(serverChan chan<- *server) error {
 		return nil
 	}
 
+	if cfg.DropFlatUtreexoProofIndex {
+		if err := indexers.DropFlatUtreexoProofIndex(db, cfg.DataDir, interrupt); err != nil {
+			btcdLog.Errorf("%v", err)
+			return err
+		}
+
+		return nil
+	}
+
 	// Create server and start it.
 	server, err := newServer(cfg.Listeners, cfg.AgentBlacklist,
 		cfg.AgentWhitelist, db, activeNetParams.Params, interrupt)
