@@ -1079,6 +1079,10 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 
 		case wire.InvTypeWitnessTx:
 			fallthrough
+		case wire.InvTypeUtreexoTx:
+			fallthrough
+		case wire.InvTypeWitnessUtreexoTx:
+			fallthrough
 		case wire.InvTypeTx:
 			if _, exists := state.requestedTxns[inv.Hash]; exists {
 				delete(state.requestedTxns, inv.Hash)
@@ -1107,6 +1111,10 @@ func (sm *SyncManager) haveInventory(invVect *wire.InvVect) (bool, error) {
 		return sm.chain.HaveBlock(&invVect.Hash)
 
 	case wire.InvTypeWitnessTx:
+		fallthrough
+	case wire.InvTypeUtreexoTx:
+		fallthrough
+	case wire.InvTypeWitnessUtreexoTx:
 		fallthrough
 	case wire.InvTypeTx:
 		// Ask the transaction memory pool if the transaction is known
@@ -1201,6 +1209,8 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeWitnessUtreexoBlock:
 		case wire.InvTypeUtreexoBlock:
 		case wire.InvTypeWitnessTx:
+		case wire.InvTypeUtreexoTx:
+		case wire.InvTypeWitnessUtreexoTx:
 		default:
 			continue
 		}
