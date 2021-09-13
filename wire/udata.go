@@ -121,7 +121,7 @@ func (ud *UData) Deserialize(r io.Reader) error {
 
 	err = ud.AccProof.Deserialize(r)
 	if err != nil {
-		returnErr := messageError("Deserialize", err.Error())
+		returnErr := messageError("Deserialize AccProof", err.Error())
 		return returnErr
 	}
 
