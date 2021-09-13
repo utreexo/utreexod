@@ -1625,7 +1625,6 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 				return err
 			}
 		} else {
-			btcdLog.Infof("Fetch from flatfiles")
 			height, err := s.chain.BlockHeightByHash(hash)
 			if err != nil {
 				chanLog.Debugf("Unable to fetch height for block hash %v: %v",
