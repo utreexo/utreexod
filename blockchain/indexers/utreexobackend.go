@@ -142,6 +142,37 @@ func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 	return nil
 }
 
+// FlushUtreexoState saves the utreexo state to disk.
+func (idx *FlatUtreexoProofIndex) FlushUtreexoState() error {
+	basePath := utreexoBasePath(idx.utreexoState.config)
+	if _, err := os.Stat(basePath); err != nil {
+		os.MkdirAll(basePath, os.ModePerm)
+	}
+	forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
+	forestFile, err := os.OpenFile(forestFilePath, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+	err = idx.utreexoState.state.WriteForestToDisk(forestFile, true, false)
+	if err != nil {
+		return err
+	}
+
+	miscFilePath := filepath.Join(basePath, defaultUtreexoMiscFileName)
+	// write other misc forest data
+	miscForestFile, err := os.OpenFile(
+		miscFilePath, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+	err = idx.utreexoState.state.WriteMiscData(miscForestFile)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // restoreUtreexoState restores forest fields based off the existing utreexo state
 // on disk.
 func restoreUtreexoState(cfg *UtreexoConfig, basePath string) (

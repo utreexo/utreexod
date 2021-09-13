@@ -412,6 +412,11 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 				if err != nil {
 					log.Errorf("Error while flushing utreexo state: %v", err)
 				}
+			case *FlatUtreexoProofIndex:
+				err := idxType.FlushUtreexoState()
+				if err != nil {
+					log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
+				}
 			}
 		}
 	}()
