@@ -33,7 +33,7 @@ func getLeafDatas() []leafDatas {
 			height: 104773,
 			leavesPerBlock: []LeafData{
 				{
-					BlockHash: newHashFromStr("000000000002bc1ddaae8ef976adf1c36db878b5f0711ec58c92ec0e4724277b"),
+					BlockHash: *newHashFromStr("000000000002bc1ddaae8ef976adf1c36db878b5f0711ec58c92ec0e4724277b"),
 					OutPoint: OutPoint{
 						Hash:  *newHashFromStr("43263e398303de72f5b8f5dd690c88cd87c31ec7c73cc98a567a4b73521428ea"),
 						Index: 0,
@@ -44,7 +44,7 @@ func getLeafDatas() []leafDatas {
 					IsCoinBase: false,
 				},
 				{
-					BlockHash: newHashFromStr("0000000000021ecac6ea6e14d61821b3ddcb8f4563c796957394e4181c261b4d"),
+					BlockHash: *newHashFromStr("0000000000021ecac6ea6e14d61821b3ddcb8f4563c796957394e4181c261b4d"),
 					OutPoint: OutPoint{
 						Hash:  *newHashFromStr("76c131357f1efc87434b3de49f9cf2660acaad5f360205ba390cb8726c01c948"),
 						Index: 0,
@@ -63,7 +63,7 @@ func getLeafDatas() []leafDatas {
 			height: 383,
 			leavesPerBlock: []LeafData{
 				{
-					BlockHash: newHashFromStr("00000000ff41b51f43141f3fd198016cead8c92355f7064849c4507f9e8914f8"),
+					BlockHash: *newHashFromStr("00000000ff41b51f43141f3fd198016cead8c92355f7064849c4507f9e8914f8"),
 					OutPoint: OutPoint{
 						Hash:  *newHashFromStr("58102e32e848fbd68c29480de00d653a88a6de077c46d8f6c37488290f2b4d43"),
 						Index: 0,
@@ -74,7 +74,7 @@ func getLeafDatas() []leafDatas {
 					IsCoinBase: true,
 				},
 				{
-					BlockHash: newHashFromStr("000000004a0cd08dbda8e47cbab13205ba9ae2f3e4b157c6b2539446db44aae9"),
+					BlockHash: *newHashFromStr("000000004a0cd08dbda8e47cbab13205ba9ae2f3e4b157c6b2539446db44aae9"),
 					OutPoint: OutPoint{
 						Hash:  *newHashFromStr("013e22e413cdf3e80eca36c058f0a31ac00ebcfbf547fa6a5688b5626d1739e7"),
 						Index: 0,
@@ -85,7 +85,7 @@ func getLeafDatas() []leafDatas {
 					IsCoinBase: true,
 				},
 				{
-					BlockHash: newHashFromStr("000000001a4c2c64beded987790ab0c00675b4bc467cd3574ad455b1397c967c"),
+					BlockHash: *newHashFromStr("000000001a4c2c64beded987790ab0c00675b4bc467cd3574ad455b1397c967c"),
 					OutPoint: OutPoint{
 						Hash:  *newHashFromStr("7e621eeb02874ab039a8566fd36f4591e65eca65313875221842c53de6907d6c"),
 						Index: 0,
@@ -96,7 +96,7 @@ func getLeafDatas() []leafDatas {
 					IsCoinBase: false,
 				},
 				{
-					BlockHash: newHashFromStr("0000000092907b867c2871a75a70de6d5e39c697eac57555a3896c19321c75b8"),
+					BlockHash: *newHashFromStr("0000000092907b867c2871a75a70de6d5e39c697eac57555a3896c19321c75b8"),
 					OutPoint: OutPoint{
 						Hash:  *newHashFromStr("6a2ea57b544fce1e36eafec6543486e3d49f66295ddc11f3ec2276295bf8eeaa"),
 						Index: 0,
@@ -343,12 +343,12 @@ func TestGenerateUData(t *testing.T) {
 		}
 		ld := leafVal.Interface().(LeafData)
 
-		outPointVal, ok := quick.Value(reflect.TypeOf(OutPoint{}), rand)
+		blockHashVal, ok := quick.Value(reflect.TypeOf(chainhash.Hash{}), rand)
 		if !ok {
 			t.Fatal("Could not create OutPoint")
 		}
-		op := outPointVal.Interface().(OutPoint)
-		ld.OutPoint = op
+		bh := blockHashVal.Interface().(chainhash.Hash)
+		ld.BlockHash = bh
 		leafDatas[i] = ld
 	}
 
