@@ -7,11 +7,13 @@ package indexers
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"testing/quick"
 	"time"
@@ -256,6 +258,29 @@ func getSizes(ff *FlatFileState) (int64, int64, error) {
 	return dataSize, offsetSize, nil
 }
 
+// ffStoreRandData generates and stores the data onto the map and the FlatFileState.
+// Returns the map with the newly generated data.
+func ffStoreRandData(blockCount int32, rnd *rand.Rand, ff *FlatFileState) (
+	map[int32][]byte, error) {
+
+	storedData := make(map[int32][]byte)
+
+	for i := int32(1); i <= blockCount; i++ {
+		data, err := createRandByteSlice(rnd)
+		if err != nil {
+			return nil, err
+		}
+		storedData[i] = data
+
+		err = ff.StoreData(i, data)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return storedData, nil
+}
+
 func TestDisconnectBlock(t *testing.T) {
 	t.Parallel()
 
@@ -267,21 +292,12 @@ func TestDisconnectBlock(t *testing.T) {
 
 	// Store random data to the flatfile.  Keep a copy of the stored
 	// data in a map.
-	storedData := make(map[int32][]byte)
+	blockCount := int32(1000)
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	blockCount := int32(1000)
-	for i := int32(1); i <= blockCount; i++ {
-		data, err := createRandByteSlice(rnd)
-		if err != nil {
-			t.Fatal(err)
-		}
-		storedData[i] = data
-
-		err = ff.StoreData(i, data)
-		if err != nil {
-			t.Fatal(err)
-		}
+	storedData, err := ffStoreRandData(blockCount, rnd, ff)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// Disconnect all blocks til height 1.
@@ -344,4 +360,94 @@ func TestDisconnectBlock(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// ffReader reads from the FlatFileState and compares it to the data stored
+// on the map.  Only fetches random values that are specified between minBlock
+// and maxBlock.
+func ffReader(readPerWorker, minBlock, maxBlock int, ff *FlatFileState,
+	wg *sync.WaitGroup, storedData map[int32][]byte) {
+
+	defer wg.Done()
+
+	randSource := rand.NewSource(time.Now().UnixNano())
+	rand := rand.New(randSource)
+	for i := 0; i < readPerWorker; i++ {
+		getHeight := int32(rand.Intn(maxBlock-minBlock) + minBlock)
+		gotBytes, err := ff.FetchData(getHeight)
+		if err != nil {
+			// TODO Would be better if we don't panic and do t.Error()
+			panic(err)
+		}
+
+		expectBytes := storedData[getHeight]
+
+		if !bytes.Equal(gotBytes, expectBytes) {
+			err := fmt.Errorf("TestMultipleFetchData: Expected %s but got %s for height %v",
+				hex.EncodeToString(expectBytes), hex.EncodeToString(gotBytes), getHeight)
+			// TODO Would be better if we don't panic and do t.Error()
+			panic(err)
+		}
+	}
+}
+
+func TestMultipleFetchData(t *testing.T) {
+	t.Parallel()
+
+	ff, tmpDir, err := initFF("TestMultipleFetchData")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir) // clean up. Always runs
+
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	blockCount := int32(1000)
+
+	// Store random data to the flatfile.  Keep a copy of the stored
+	// data in a map.
+	storedData, err := ffStoreRandData(blockCount, rnd, ff)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readWorkerCount := 100
+	readPerWorker := 1000
+	readBlockCount := blockCount
+	wg := new(sync.WaitGroup)
+
+	for i := 0; i < readWorkerCount; i++ {
+		wg.Add(1)
+		// Generating block 0 as min block read tests if FetchData
+		// correctly rejects block 0 reads.
+		go ffReader(readPerWorker, 0, int(readBlockCount), ff, wg, storedData)
+	}
+
+	// Generate new blocks and store it in a new map.  Tests concurrent
+	// writes while reads are still going.
+	addCount := int32(50)
+	newStoredData := make(map[int32][]byte)
+	newCount := blockCount + addCount
+	for i := blockCount + 1; i <= newCount; i++ {
+		data, err := createRandByteSlice(rnd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		newStoredData[i] = data
+
+		err = ff.StoreData(i, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Fetch only the newly generated blocks and see if they match up to
+	// the ones we have in the map.
+	maxBlk := int(newCount)
+	minBlk := int(blockCount) + 1
+	for i := 0; i < readWorkerCount; i++ {
+		wg.Add(1)
+		go ffReader(readPerWorker, minBlk, maxBlk, ff, wg, newStoredData)
+	}
+
+	wg.Wait()
 }

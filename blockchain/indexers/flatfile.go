@@ -151,7 +151,7 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 	defer ff.mtx.Unlock()
 
 	// We only accept the next block in seqence.
-	if height != ff.currentHeight+1 {
+	if height != ff.currentHeight+1 || height == 0 {
 		return fmt.Errorf("Passed in height not the next block in sequence. "+
 			"Expected height of %d but got %d", ff.currentHeight+1, height)
 	}
@@ -200,7 +200,8 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 }
 
 // FetchData fetches the data stored for the given block height.  Returns
-// nil if the requested height is greater than the one it stored.
+// nil if the requested height is greater than the one it stored.  Also
+// returns nil if asked to fetch height 0.
 //
 // This function is safe for concurrent access.
 func (ff *FlatFileState) FetchData(height int32) ([]byte, error) {
@@ -208,8 +209,8 @@ func (ff *FlatFileState) FetchData(height int32) ([]byte, error) {
 	defer ff.mtx.RUnlock()
 
 	// If the height requsted is greater than the one we have saved,
-	// just return nil.
-	if height > ff.currentHeight {
+	// just return nil.  Also return nil if asked for height 0.
+	if height > ff.currentHeight || height == 0 {
 		return nil, nil
 	}
 
