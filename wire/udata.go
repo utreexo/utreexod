@@ -5,6 +5,7 @@
 package wire
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
 
@@ -59,18 +60,44 @@ func (ud *UData) SerializeSize() int {
 		VarIntSerializeSize(uint64(ud.Height))
 }
 
+// -----------------------------------------------------------------------------
+// UData serialization includes all the data that is needed for a utreexo node to
+// verify a block or a tx with only the utreexo roots.
+//
+// The serialized format is:
+// [<block height><accumulator proof><leaf datas><txo time-to-live values>]
+//
+// Accumulator proof serialization can be found in github.com/mit-dci/utreexo.
+//
+// LeafData serialization can be found in wire/leaf.go.
+//
+// All together, the serialization looks like so:
+//
+// Field                    Type       Size
+// block height             int32      4
+// accumulator proof        []byte     variable
+// leaf datas               []byte     variable
+// txo time-to-live values  []int32    variable
+//
+// -----------------------------------------------------------------------------
+
 // Serialize encodes the UData to w using the UData serialization format.
 func (ud *UData) Serialize(w io.Writer) error {
-	err := WriteVarInt(w, 0, uint64(ud.Height))
+	bs := newSerializer()
+	defer bs.free()
+
+	err := bs.PutUint32(w, littleEndian, uint32(ud.Height))
 	if err != nil {
 		return err
 	}
+
 	err = WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
 	if err != nil {
 		return err
 	}
+
 	for _, ttlval := range ud.TxoTTLs {
-		err = WriteVarInt(w, 0, uint64(ttlval))
+		err = bs.PutUint32(w, littleEndian, uint32(ttlval))
 		if err != nil {
 			return err
 		}
@@ -82,7 +109,7 @@ func (ud *UData) Serialize(w io.Writer) error {
 		return returnErr
 	}
 
-	// write all the leafdatas
+	// Write all the leafDatas.
 	for _, ld := range ud.LeafDatas {
 		err = ld.Serialize(w)
 		if err != nil {
@@ -95,7 +122,10 @@ func (ud *UData) Serialize(w io.Writer) error {
 
 // Deserialize encodes the UData to w using the UData serialization format.
 func (ud *UData) Deserialize(r io.Reader) error {
-	height, err := ReadVarInt(r, 0)
+	bs := newSerializer()
+	defer bs.free()
+
+	height, err := bs.Uint32(r, littleEndian)
 	if err != nil {
 		returnErr := messageError("Deserialize height", err.Error())
 		return returnErr
@@ -110,7 +140,7 @@ func (ud *UData) Deserialize(r io.Reader) error {
 
 	ud.TxoTTLs = make([]int32, ttlCount)
 	for i := range ud.TxoTTLs {
-		ttl, err := ReadVarInt(r, 0)
+		ttl, err := bs.Uint32(r, littleEndian)
 		if err != nil {
 			returnErr := messageError("Deserialize ttl", err.Error())
 			return returnErr
@@ -150,23 +180,48 @@ func (ud *UData) SerializeSizeCompact() int {
 	}
 
 	// Size of all the time to live values.
-	var txoTTLSize int
-	for _, ttl := range ud.TxoTTLs {
-		txoTTLSize += VarIntSerializeSize(uint64(ttl))
-	}
+	txoTTLSize := len(ud.TxoTTLs) * 4
 
-	// Add on accumulator proof size and the varint serialized height size.
-	return txoTTLSize + ldSize + ud.AccProof.SerializeSize() +
-		VarIntSerializeSize(uint64(ud.Height))
+	// Add on accumulator proof size and the height size.
+	return txoTTLSize + ldSize + ud.AccProof.SerializeSize() + 4
 }
 
 // SerializeCompact encodes the UData to w using the compact UData
-// serialization format.
+// serialization format.  It follows the normal UData serialization format with
+// the exception that compact leaf data serialization is used.  Everything else
+// remains the same.
 func (ud *UData) SerializeCompact(w io.Writer) error {
-	err := ud.AccProof.Serialize(w)
+	bs := newSerializer()
+	defer bs.free()
+
+	err := bs.PutUint32(w, littleEndian, uint32(ud.Height))
+	if err != nil {
+		return err
+	}
+
+	err = WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
+	if err != nil {
+		return err
+	}
+	for _, ttlval := range ud.TxoTTLs {
+		err = bs.PutUint32(w, littleEndian, uint32(ttlval))
+		if err != nil {
+			return err
+		}
+	}
+
+	err = ud.AccProof.Serialize(w)
 	if err != nil {
 		returnErr := messageError("SerializeCompact", err.Error())
 		return returnErr
+	}
+
+	// Write all the leafDatas.
+	for _, ld := range ud.LeafDatas {
+		err = ld.SerializeCompact(w)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -175,10 +230,49 @@ func (ud *UData) SerializeCompact(w io.Writer) error {
 // DeserializeCompact decodes the UData from r using the compact UData
 // serialization format.
 func (ud *UData) DeserializeCompact(r io.Reader) error {
-	err := ud.AccProof.Deserialize(r)
+	bs := newSerializer()
+	defer bs.free()
+
+	height, err := bs.Uint32(r, littleEndian)
+	if err != nil {
+		returnErr := messageError("DeserializeCompact height", err.Error())
+		return returnErr
+	}
+	ud.Height = int32(height)
+
+	ttlCount, err := ReadVarInt(r, 0)
+	if err != nil {
+		returnErr := messageError("DeserializeCompact ttlCount", err.Error())
+		return returnErr
+	}
+
+	ud.TxoTTLs = make([]int32, ttlCount)
+	for i := range ud.TxoTTLs {
+		ttl, err := bs.Uint32(r, littleEndian)
+		if err != nil {
+			returnErr := messageError("DeserializeCompact ttl", err.Error())
+			return returnErr
+		}
+
+		ud.TxoTTLs[i] = int32(ttl)
+	}
+
+	err = ud.AccProof.Deserialize(r)
 	if err != nil {
 		returnErr := messageError("DeserializeCompact", err.Error())
 		return returnErr
+	}
+
+	// we've already gotten targets. 1 leafdata per target
+	ud.LeafDatas = make([]LeafData, len(ud.AccProof.Targets))
+	for i := range ud.LeafDatas {
+		err = ud.LeafDatas[i].DeserializeCompact(r)
+		if err != nil {
+			str := fmt.Sprintf("Height:%d, ttlCount:%d, targetCount:%d, Stxos[%d], err:%s\n",
+				ud.Height, ttlCount, len(ud.AccProof.Targets), i, err.Error())
+			returnErr := messageError("Deserialize stxos", str)
+			return returnErr
+		}
 	}
 
 	return nil
@@ -205,6 +299,20 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest, blockHeight int
 	var err error
 	ud.AccProof, err = forest.ProveBatch(delHashes)
 	if err != nil {
+		// Find out which exact one is causing the error.
+		for i, delHash := range delHashes {
+			_, err = forest.ProveBatch([]accumulator.Hash{delHash})
+			if err != nil {
+				ld := ud.LeafDatas[i]
+				return nil,
+					fmt.Errorf("LeafData couldn't be proven. "+
+						"BlockHash %s, Outpoint %s, height %v, "+
+						"IsCoinbase %v, Amount %v, PkScript %s",
+						ld.BlockHash.String(), ld.OutPoint.String(),
+						ld.Height, ld.IsCoinBase, ld.Amount,
+						hex.EncodeToString(ld.PkScript))
+			}
+		}
 		return nil, err
 	}
 

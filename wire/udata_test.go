@@ -6,14 +6,11 @@ package wire
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"reflect"
 	"testing"
 	"testing/quick"
-	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/mit-dci/utreexo/accumulator"
@@ -111,6 +108,80 @@ func getLeafDatas() []leafDatas {
 	}
 }
 
+func checkUDEqual(ud, checkUData *UData, name string) error {
+	if ud.Height != checkUData.Height {
+		return fmt.Errorf("%s: UData height mismatch. expect %v, got %v",
+			name, ud.Height, checkUData.Height)
+	}
+
+	for i := range ud.AccProof.Targets {
+		if ud.AccProof.Targets[i] != checkUData.AccProof.Targets[i] {
+			return fmt.Errorf("%s: UData.AccProof Target mismatch. expect %v, got %v",
+				name, ud.AccProof.Targets[i], checkUData.AccProof.Targets[i])
+		}
+	}
+
+	for i := range ud.AccProof.Proof {
+		if ud.AccProof.Proof[i] != checkUData.AccProof.Proof[i] {
+			return fmt.Errorf("%s: UData.AccProof Target mismatch. expect %v, got %v",
+				name, ud.AccProof.Proof[i], checkUData.AccProof.Proof[i])
+		}
+	}
+
+	for i := range ud.LeafDatas {
+		leaf := ud.LeafDatas[i]
+		checkLeaf := checkUData.LeafDatas[i]
+
+		// Only amount, hcb, and pkscript is serialized with the compact serialization.
+		if leaf.Amount != checkLeaf.Amount {
+			return fmt.Errorf("%s: LleafData amount mismatch. expect %v, got %v",
+				name, leaf.Amount, checkLeaf.Amount)
+		}
+
+		if leaf.IsCoinBase != checkLeaf.IsCoinBase {
+			return fmt.Errorf("%s: LleafData IsCoinBase mismatch. expect %v, got %v",
+				name, leaf.IsCoinBase, checkLeaf.IsCoinBase)
+		}
+
+		if leaf.Height != checkLeaf.Height {
+			return fmt.Errorf("%s: LleafData height mismatch. expect %v, got %v",
+				name, leaf.Height, checkLeaf.Height)
+		}
+
+		if !bytes.Equal(leaf.PkScript[:], checkLeaf.PkScript[:]) {
+			return fmt.Errorf("%s: LeafData pkscript mismatch. expect %x, got %x",
+				name, leaf.PkScript, checkLeaf.PkScript)
+		}
+
+	}
+
+	for i := range ud.TxoTTLs {
+		if ud.TxoTTLs[i] != checkUData.TxoTTLs[i] {
+			return fmt.Errorf("%s: UData TxoTTL mismatch. expect %v, got %v",
+				name, ud.TxoTTLs[i], checkUData.TxoTTLs[i])
+		}
+	}
+
+	if !reflect.DeepEqual(ud, checkUData) {
+		if ud.Height != checkUData.Height {
+			return fmt.Errorf("ud and checkUData height mismatch")
+		}
+		if !reflect.DeepEqual(ud.AccProof, checkUData.AccProof) {
+			return fmt.Errorf("ud and checkUData reflect.DeepEqual AccProof mismatch")
+		}
+
+		if !reflect.DeepEqual(ud.LeafDatas, checkUData.LeafDatas) {
+			return fmt.Errorf("ud and checkUData reflect.DeepEqual LeafDatas mismatch")
+		}
+		// TODO add this back in.  It fails for now as we're not initalizing the ttls.
+		//if !reflect.DeepEqual(ud.TxoTTLs, checkUData.TxoTTLs) {
+		//	return fmt.Errorf("ud and checkUData reflect.DeepEqual TxoTTLs mismatch")
+		//}
+	}
+
+	return nil
+}
+
 func TestUDataSerialize(t *testing.T) {
 	t.Parallel()
 
@@ -159,6 +230,8 @@ func TestUDataSerialize(t *testing.T) {
 		// Deserialize
 		checkUData := new(UData)
 		checkUData.Deserialize(writer)
+
+		checkUDEqual(&test.ud, checkUData, test.name)
 
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
@@ -233,95 +306,6 @@ func TestUDataSerializeCompact(t *testing.T) {
 			t.Errorf("%s: UData serialize/deserialize fail. "+
 				"Before len %d, after len %d", test.name,
 				len(test.before), len(test.after))
-		}
-	}
-}
-
-func createRandHash(rnd *rand.Rand) (*chainhash.Hash, error) {
-	hashVal, ok := quick.Value(reflect.TypeOf(chainhash.Hash{}), rnd)
-	if !ok {
-		err := fmt.Errorf("Failed to create hash")
-		return nil, err
-	}
-	h := hashVal.Interface().(chainhash.Hash)
-	return &h, nil
-}
-
-func generateLeaf(rnd uint32) *accumulator.Leaf {
-	bs := make([]byte, 4)
-	binary.LittleEndian.PutUint32(bs, rnd)
-	hash := sha256.Sum256(bs)
-
-	return &accumulator.Leaf{
-		Hash:     accumulator.Hash(hash),
-		Remember: (time.Now().UnixNano() % 2) == 1,
-	}
-}
-
-func generateLeaves(rnd, count uint32) []accumulator.Leaf {
-	leaves := make([]accumulator.Leaf, count)
-	for i := uint32(0); i < count; i++ {
-		leaf := generateLeaf(rnd)
-		leaves[i] = *leaf
-	}
-
-	return leaves
-}
-
-func generateCompactUData(rnd uint32) (*UData, error) {
-	forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
-
-	leaves := generateLeaves(rnd, 25)
-	forest.Modify(leaves, nil)
-
-	proveLeaves := generateLeaves(rnd, 5)
-	forest.Add(proveLeaves)
-
-	proveHashes := make([]accumulator.Hash, 0, len(proveLeaves))
-
-	for i := 0; i < len(proveLeaves); i++ {
-		proveHashes = append(proveHashes, proveLeaves[i].Hash)
-	}
-
-	bp, err := forest.ProveBatch(proveHashes)
-	if err != nil {
-		return nil, err
-	}
-	ud := UData{
-		Height:   2,
-		AccProof: bp,
-	}
-
-	return &ud, nil
-}
-
-func TestUDataSerializeCompactRand(t *testing.T) {
-	t.Parallel()
-
-	for i := uint32(0); i < 2; i++ {
-		ud, err := generateCompactUData(i)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Serialize
-		writer := &bytes.Buffer{}
-		ud.SerializeCompact(writer)
-		before := writer.Bytes()
-
-		// Deserialize
-		checkUData := new(UData)
-		checkUData.DeserializeCompact(writer)
-
-		// Re-serialize
-		afterWriter := &bytes.Buffer{}
-		checkUData.SerializeCompact(afterWriter)
-		after := afterWriter.Bytes()
-
-		// Check if before and after match.
-		if !bytes.Equal(before, after) {
-			t.Errorf("%s: UData compact serialize/deserialize fail. "+
-				"Before len %d, after len %d", "hi",
-				len(before), len(after))
 		}
 	}
 }
