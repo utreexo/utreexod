@@ -57,10 +57,12 @@ var _ NeedsInputser = (*FlatUtreexoProofIndex)(nil)
 // FlatUtreexoProofIndex implements a utreexo accumulator proof index for all the blocks.
 // In a flat file.
 type FlatUtreexoProofIndex struct {
-	proofState FlatFileState
-	undoState  FlatFileState
-
+	proofState  FlatFileState
+	undoState   FlatFileState
 	chainParams *chaincfg.Params
+
+	// chain is solely used to fetch the blockindex data.
+	chain *blockchain.BlockChain
 
 	// mtx protects concurrent access to the utreexoView .
 	mtx *sync.RWMutex
@@ -129,7 +131,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	_, outCount, inskip, outskip := util.DedupeBlock(block)
-	dels, err := blockchain.BlockToDelLeaves(stxos, block, inskip)
+	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip)
 	if err != nil {
 		return err
 	}
@@ -267,6 +269,11 @@ func (idx *FlatUtreexoProofIndex) GenerateUData(dels []wire.LeafData, height int
 	}
 
 	return ud, nil
+}
+
+// SetChain sets the given chain as the chain to be used for blockhash fetching.
+func (idx *FlatUtreexoProofIndex) SetChain(chain *blockchain.BlockChain) {
+	idx.chain = chain
 }
 
 // flatFilePath returns the path to the flatfile.

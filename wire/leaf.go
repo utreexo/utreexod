@@ -5,7 +5,6 @@
 package wire
 
 import (
-	"bytes"
 	"crypto/sha512"
 	"fmt"
 	"io"
@@ -22,6 +21,12 @@ const (
 	MaxScriptSize = 10000
 )
 
+var (
+	// empty is useful when comparing against BlockHash to see if it hasn't been
+	// initialized.
+	empty chainhash.Hash
+)
+
 // LeafData is all the data that goes into a leaf in the utreexo accumulator.
 // The data here serve two roles: commitments and data needed for verification.
 //
@@ -30,7 +35,7 @@ const (
 //               Height, IsCoinbase, Amount, and PkScript is the data needed for
 //               tx verification (script, signatures, etc).
 type LeafData struct {
-	BlockHash  *chainhash.Hash
+	BlockHash  chainhash.Hash
 	OutPoint   OutPoint
 	Height     int32
 	IsCoinBase bool
@@ -116,27 +121,26 @@ func (l *LeafData) SerializeSize() int {
 
 // Serialize encodes the LeafData to w using the LeafData serialization format.
 func (l *LeafData) Serialize(w io.Writer) error {
-	hcb := l.Height << 1
-	if l.IsCoinBase {
-		hcb |= 1
+	if l.BlockHash == empty {
+		return fmt.Errorf("LeafData Serialize Err: BlockHash is empty %s.",
+			l.BlockHash)
 	}
-
-	// TODO Add the Blockhash back in.
-	//_, err := w.Write(l.BlockHash[:])
-	//if err != nil {
-	//	return err
-	//}
-	var hash chainhash.Hash
-	if bytes.Equal(l.OutPoint.Hash[:], hash[:]) {
-		panic("l.OutPoint.Hash == hash")
+	_, err := w.Write(l.BlockHash[:])
+	if err != nil {
+		return err
 	}
-	_, err := w.Write(l.OutPoint.Hash[:])
+	_, err = w.Write(l.OutPoint.Hash[:])
 	if err != nil {
 		return err
 	}
 	err = WriteVarInt(w, 0, uint64(l.OutPoint.Index))
 	if err != nil {
 		return err
+	}
+
+	hcb := l.Height << 1
+	if l.IsCoinBase {
+		hcb |= 1
 	}
 	err = WriteVarInt(w, 0, uint64(hcb))
 	if err != nil {
@@ -155,16 +159,14 @@ func (l *LeafData) Serialize(w io.Writer) error {
 
 // Deserialize encodes the LeafData from r using the LeafData serialization format.
 func (l *LeafData) Deserialize(r io.Reader) error {
-	// TODO Deserialize the blockhash.
-	//l.BlockHash = new(chainhash.Hash)
-	//_, err := io.ReadFull(r, l.BlockHash[:])
-	//if err != nil {
-	//	return err
-	//}
+	_, err := io.ReadFull(r, l.BlockHash[:])
+	if err != nil {
+		return err
+	}
 
 	// Deserialize the outpoint.
 	l.OutPoint = OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
-	_, err := io.ReadFull(r, l.OutPoint.Hash[:])
+	_, err = io.ReadFull(r, l.OutPoint.Hash[:])
 	if err != nil {
 		return err
 	}
@@ -298,7 +300,6 @@ func (l *LeafData) DeserializeCompact(r io.Reader) error {
 // NewLeafData initializes and returns a zeroed out LeafData.
 func NewLeafData() LeafData {
 	return LeafData{
-		BlockHash: new(chainhash.Hash),
-		OutPoint:  *NewOutPoint(new(chainhash.Hash), 0),
+		OutPoint: *NewOutPoint(new(chainhash.Hash), 0),
 	}
 }

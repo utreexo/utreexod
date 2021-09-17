@@ -403,6 +403,16 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 	log.Infof("Catching up indexes from height %d to %d", lowestHeight,
 		bestHeight)
 
+	// For Utreexo proof indexes, we have to set the chain.
+	for _, indexer := range m.enabledIndexes {
+		switch idxType := indexer.(type) {
+		case *UtreexoProofIndex:
+			idxType.SetChain(chain)
+		case *FlatUtreexoProofIndex:
+			idxType.SetChain(chain)
+		}
+	}
+
 	// Needed for flushing the utreexo state in case of a sigint by the user.
 	defer func() {
 		for _, indexer := range m.enabledIndexes {

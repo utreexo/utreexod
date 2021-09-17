@@ -50,6 +50,9 @@ type UtreexoProofIndex struct {
 	db          database.DB
 	chainParams *chaincfg.Params
 
+	// chain is solely used to fetch the blockindex data.
+	chain *blockchain.BlockChain
+
 	// mtx protects concurrent access to utreexoView.
 	mtx *sync.RWMutex
 
@@ -123,8 +126,9 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 			block.Height())
 		return nil
 	}
+
 	_, outCount, inskip, outskip := util.DedupeBlock(block)
-	dels, err := blockchain.BlockToDelLeaves(stxos, block, inskip)
+	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip)
 	if err != nil {
 		return err
 	}
@@ -231,6 +235,11 @@ func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData, height int32) 
 	}
 
 	return ud, nil
+}
+
+// SetChain sets the given chain as the chain to be used for blockhash fetching.
+func (idx *UtreexoProofIndex) SetChain(chain *blockchain.BlockChain) {
+	idx.chain = chain
 }
 
 // NewUtreexoProofIndex returns a new instance of an indexer that is used to create a

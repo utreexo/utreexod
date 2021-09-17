@@ -1473,7 +1473,8 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 		// If utreexo proof index is not present, we can't send the tx
 		// as we can't grab the proof for the tx.
 		if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil {
-			err := fmt.Errorf("UtreexoProofIndex is nil. Cannot fetch utreexo accumulator proofs.")
+			err := fmt.Errorf("UtreexoProofIndex and FlatUtreexoProofIndex is nil. " +
+				"Cannot fetch utreexo accumulator proofs.")
 			srvrLog.Debugf(err.Error())
 			if doneChan != nil {
 				doneChan <- struct{}{}
@@ -1505,7 +1506,26 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 		// used to generate the accumulator proofs.
 		leafDatas := make([]wire.LeafData, 0, len(viewEntries))
 		for op, entry := range viewEntries {
+			blockHash, err := s.chain.BlockHashByHeight(entry.BlockHeight())
+			if err != nil {
+				chanLog.Debugf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
+			if blockHash == nil {
+				err := fmt.Errorf("Couldn't find blockhash for height %d",
+					entry.BlockHeight())
+
+				chanLog.Debugf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
 			leaf := wire.LeafData{
+				BlockHash:  *blockHash,
 				OutPoint:   op,
 				Amount:     entry.Amount(),
 				Height:     entry.BlockHeight(),
@@ -2948,6 +2968,13 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if s.utreexoProofIndex != nil {
+		s.utreexoProofIndex.SetChain(s.chain)
+	}
+	if s.flatUtreexoProofIndex != nil {
+		s.flatUtreexoProofIndex.SetChain(s.chain)
 	}
 
 	// Search for a FeeEstimator state in the database. If none can be found

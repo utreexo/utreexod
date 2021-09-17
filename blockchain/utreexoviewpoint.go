@@ -148,8 +148,7 @@ func BlockToAddLeaves(block *btcutil.Block,
 			}
 
 			var leaf = wire.LeafData{
-				// TODO put blockhash back in
-				//BlockHash: block.Hash(),
+				BlockHash:  *block.Hash(),
 				OutPoint:   op,
 				Amount:     txOut.Value,
 				PkScript:   txOut.PkScript,
@@ -174,9 +173,13 @@ func BlockToAddLeaves(block *btcutil.Block,
 
 // BlockToDelLeaves takes a non-utreexo block and stxos and turns the block into
 // leaves that are to be deleted.
-func BlockToDelLeaves(stxos []SpentTxOut, block *btcutil.Block, inskip []uint32) (
+func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Block, inskip []uint32) (
 	delLeaves []wire.LeafData, err error) {
-	var blockInputs int
+
+	if chain == nil {
+		return nil, fmt.Errorf("Passed in chain is nil. Cannot make delLeaves")
+	}
+
 	var blockInIdx uint32
 	for idx, tx := range block.Transactions() {
 		if idx == 0 {
@@ -186,7 +189,6 @@ func BlockToDelLeaves(stxos []SpentTxOut, block *btcutil.Block, inskip []uint32)
 		}
 
 		for _, txIn := range tx.MsgTx().TxIn {
-			blockInputs++
 			// Skip txos on the skip list
 			if len(inskip) > 0 && inskip[0] == blockInIdx {
 				inskip = inskip[1:]
@@ -199,27 +201,28 @@ func BlockToDelLeaves(stxos []SpentTxOut, block *btcutil.Block, inskip []uint32)
 				Index: txIn.PreviousOutPoint.Index,
 			}
 
+			stxo := stxos[blockInIdx-1]
+			blockHash, err := chain.BlockHashByHeight(stxo.Height)
+			if err != nil {
+				return nil, err
+			}
+			if blockHash == nil {
+				return nil, fmt.Errorf("Couldn't find blockhash for height %d",
+					stxo.Height)
+			}
+
 			var leaf = wire.LeafData{
-				// TODO fetch block hash and add it to the data
-				// to be commited to.
-				//BlockHash: hash,
+				BlockHash:  *blockHash,
 				OutPoint:   op,
-				Amount:     stxos[blockInIdx-1].Amount,
-				PkScript:   stxos[blockInIdx-1].PkScript,
-				Height:     stxos[blockInIdx-1].Height,
-				IsCoinBase: stxos[blockInIdx-1].IsCoinBase,
+				Amount:     stxo.Amount,
+				PkScript:   stxo.PkScript,
+				Height:     stxo.Height,
+				IsCoinBase: stxo.IsCoinBase,
 			}
 
 			delLeaves = append(delLeaves, leaf)
 			blockInIdx++
 		}
-	}
-
-	// just an assertion to check the code is correct. Should never happen
-	if blockInputs != len(stxos) {
-		return nil, fmt.Errorf(
-			"block height: %v, hash:%x, has %v txs but %v stxos",
-			block.Height(), block.Hash(), len(block.Transactions()), len(stxos))
 	}
 
 	return
