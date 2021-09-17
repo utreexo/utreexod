@@ -77,13 +77,128 @@ func initFF(testName string) (*FlatFileState, string, error) {
 	return ff, tmpDir, nil
 }
 
+func closeFF(ff *FlatFileState) (int32, int64, []int64, error) {
+	ff.mtx.Lock()
+	defer ff.mtx.Unlock()
+
+	err := ff.offsetFile.Close()
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	err = ff.dataFile.Close()
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	return ff.currentHeight, ff.currentOffset, ff.offsets, nil
+}
+
+func restartFF(tmpDir, testName string) (*FlatFileState, error) {
+	dir := testName
+	name := "data"
+	ffPath := filepath.Join(tmpDir, dir)
+
+	ff := NewFlatFileState()
+	err := ff.Init(ffPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return ff, nil
+}
+
+func TestRestart(t *testing.T) {
+	t.Parallel()
+
+	ff, tmpDir, err := initFF("TestRestart")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Store random data to the flatfile.  Keep a copy of the stored
+	// data in a map.
+	storedData := make(map[int32][]byte)
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	blockCount := int32(1000)
+	for i := int32(1); i <= blockCount; i++ {
+		data, err := createRandByteSlice(rnd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		storedData[i] = data
+
+		err = ff.StoreData(i, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	expectHeight, expectCurrentOffset, offsets, err := closeFF(ff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectOffsets := make([]int64, len(offsets))
+	copy(expectOffsets, offsets)
+
+	ff = nil
+
+	newff, err := restartFF(tmpDir, "TestRestart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if newff.currentHeight != expectHeight {
+		err := fmt.Errorf("TestRestart Err. Expect currentHeight of "+
+			"%d, got %d", expectHeight, newff.currentHeight)
+		t.Fatal(err)
+	}
+
+	if newff.currentOffset != expectCurrentOffset {
+		err := fmt.Errorf("TestRestart Err. Expect currentOffset of "+
+			"%d, got %d", expectCurrentOffset, newff.currentOffset)
+		t.Fatal(err)
+	}
+
+	if len(newff.offsets) != len(expectOffsets) {
+		err := fmt.Errorf("TestRestart Err. Expect offset length of "+
+			"%d, got %d", len(expectOffsets), len(newff.offsets))
+		t.Fatal(err)
+	}
+
+	for i, offset := range expectOffsets {
+		if offset != expectOffsets[i] {
+			err := fmt.Errorf("TestRestart Err. Expect offset at i of %d "+
+				"to be %d, got %d", i, expectOffsets[i], offset)
+			t.Fatal(err)
+		}
+	}
+}
+
 func createRandByteSlice(rnd *rand.Rand) ([]byte, error) {
-	arrayVal, ok := quick.Value(reflect.TypeOf([10]byte{}), rnd)
+	// Random value to differ up the array lengths.
+	arrayChooser := rand.Intn(2) == 1
+
+	// 10 byte arrays.
+	if arrayChooser {
+		arrayVal, ok := quick.Value(reflect.TypeOf([10]byte{}), rnd)
+		if !ok {
+			err := fmt.Errorf("Failed to create slice")
+			return nil, err
+		}
+		array := arrayVal.Interface().([10]byte)
+		return array[:], nil
+	}
+
+	// 13 byte arrays.
+	arrayVal, ok := quick.Value(reflect.TypeOf([13]byte{}), rnd)
 	if !ok {
 		err := fmt.Errorf("Failed to create slice")
 		return nil, err
 	}
-	array := arrayVal.Interface().([10]byte)
+	array := arrayVal.Interface().([13]byte)
 	return array[:], nil
 }
 
