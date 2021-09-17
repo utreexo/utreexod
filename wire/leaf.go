@@ -95,28 +95,25 @@ func (l *LeafData) ToString() (s string) {
 //
 // Field              Type       Size
 // block hash         [32]byte   32
-// outpoint           -          33-36
+// outpoint           -          36
 //   tx hash          [32]byte   32
-//   vout             VLQ        variable
-// stxo               -          variable
-//   header code      VLQ        variable
-//   amount           VLQ        variable
-//   pkscript length  VLQ        variable
-//   pkscript         []byte     variable
+//   vout             [4]byte    4
+// header code        int32      4
+// amount             int64      8
+// pkscript length    VLQ        variable
+// pkscript           []byte     variable
 //
 // -----------------------------------------------------------------------------
 
 // SerializeSize returns the number of bytes it would take to serialize the
 // LeafData.
 func (l *LeafData) SerializeSize() int {
-	var size int
-	size += VarIntSerializeSize(uint64(l.OutPoint.Index))
-	size += VarIntSerializeSize(uint64(l.Height))
-	size += VarIntSerializeSize(uint64(l.Amount))
-	size += VarIntSerializeSize(uint64(len(l.PkScript)))
+	// Block Hash 32 + OutPoint Hash 32 bytes + Outpoint index 4 bytes +
+	// header code 4 bytes + amount 8 bytes.
+	size := 80
 
-	// blockhash + txhash + pkscript size + others
-	return chainhash.HashSize + chainhash.HashSize + len(l.PkScript) + size
+	// Add pkscript size.
+	return size + VarIntSerializeSize(uint64(len(l.PkScript))) + len(l.PkScript)
 }
 
 // Serialize encodes the LeafData to w using the LeafData serialization format.
@@ -129,24 +126,24 @@ func (l *LeafData) Serialize(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	_, err = w.Write(l.OutPoint.Hash[:])
+	err = WriteOutPoint(w, 0, 0, &l.OutPoint)
 	if err != nil {
 		return err
 	}
-	err = WriteVarInt(w, 0, uint64(l.OutPoint.Index))
-	if err != nil {
-		return err
-	}
+
+	bs := newSerializer()
+	defer bs.free()
 
 	hcb := l.Height << 1
 	if l.IsCoinBase {
 		hcb |= 1
 	}
-	err = WriteVarInt(w, 0, uint64(hcb))
+	err = bs.PutUint32(w, littleEndian, uint32(hcb))
 	if err != nil {
 		return err
 	}
-	err = WriteVarInt(w, 0, uint64(l.Amount))
+
+	err = bs.PutUint64(w, littleEndian, uint64(l.Amount))
 	if err != nil {
 		return err
 	}
@@ -166,19 +163,16 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 
 	// Deserialize the outpoint.
 	l.OutPoint = OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
-	_, err = io.ReadFull(r, l.OutPoint.Hash[:])
+	err = readOutPoint(r, 0, 0, &l.OutPoint)
 	if err != nil {
 		return err
 	}
 
-	index, err := ReadVarInt(r, 0)
-	if err != nil {
-		return err
-	}
-	l.OutPoint.Index = uint32(index)
+	bs := newSerializer()
+	defer bs.free()
 
 	// Deserialize the stxo.
-	height, err := ReadVarInt(r, 0)
+	height, err := bs.Uint32(r, littleEndian)
 	if err != nil {
 		return err
 	}
@@ -189,7 +183,7 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 	}
 	l.Height >>= 1
 
-	amt, err := ReadVarInt(r, 0)
+	amt, err := bs.Uint64(r, littleEndian)
 	if err != nil {
 		return err
 	}
@@ -210,7 +204,7 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 // is still needed and must be fetched from the Bitcoin block.
 //
 // The serialized format is:
-// [<stxo>]
+// [<header code><amount><pkscript len><pkscript>]
 //
 // The serialized header code format is:
 //   bit 0 - containing transaction is a coinbase
@@ -223,56 +217,55 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 //   }
 //
 // Field              Type       Size
-// stxo               -          variable
-//   header code      VLQ        variable
-//   amount           VLQ        variable
-//   pkscript length  VLQ        variable
-//   pkscript         []byte     variable
+// header code        int32      4
+// amount             int64      8
+// pkscript length    VLQ        variable
+// pkscript           []byte     variable
 //
 // -----------------------------------------------------------------------------
 
 // SerializeSizeCompact returns the number of bytes it would take to serialize the
 // LeafData in the compact serialization format.
 func (l *LeafData) SerializeSizeCompact() int {
-	var size int
-	hcb := l.Height << 1
-	if l.IsCoinBase {
-		hcb |= 1
-	}
-	size += VarIntSerializeSize(uint64(hcb))
-	size += VarIntSerializeSize(uint64(l.Amount))
-	size += VarIntSerializeSize(uint64(len(l.PkScript)))
+	// header code 4 bytes + amount 8 bytes
+	size := 12
 
-	return size + len(l.PkScript)
+	// Add pkscript size.
+	return size + VarIntSerializeSize(uint64(len(l.PkScript))) + len(l.PkScript)
 }
 
 // SerializeCompact encodes the LeafData to w using the compact leaf data serialization format.
 func (l *LeafData) SerializeCompact(w io.Writer) error {
+	bs := newSerializer()
+	defer bs.free()
+
+	// Height & IsCoinBase.
 	hcb := l.Height << 1
 	if l.IsCoinBase {
 		hcb |= 1
 	}
-
-	// Height & IsCoinBase.
-	err := WriteVarInt(w, 0, uint64(hcb))
+	err := bs.PutUint32(w, littleEndian, uint32(hcb))
 	if err != nil {
 		return err
 	}
 
-	err = WriteVarInt(w, 0, uint64(l.Amount))
+	err = bs.PutUint64(w, littleEndian, uint64(l.Amount))
 	if err != nil {
 		return err
 	}
+
 	if uint32(len(l.PkScript)) > MaxScriptSize {
 		return messageError("LeafData.SerializeCompact", "pkScript too long")
 	}
-
 	return WriteVarBytes(w, 0, l.PkScript)
 }
 
 // DeserializeCompact encodes the LeafData to w using the compact leaf serialization format.
 func (l *LeafData) DeserializeCompact(r io.Reader) error {
-	height, err := ReadVarInt(r, 0)
+	bs := newSerializer()
+	defer bs.free()
+
+	height, err := bs.Uint32(r, littleEndian)
 	if err != nil {
 		return err
 	}
@@ -283,7 +276,7 @@ func (l *LeafData) DeserializeCompact(r io.Reader) error {
 	}
 	l.Height >>= 1
 
-	amt, err := ReadVarInt(r, 0)
+	amt, err := bs.Uint64(r, littleEndian)
 	if err != nil {
 		return err
 	}

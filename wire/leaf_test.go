@@ -7,6 +7,8 @@ package wire
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -31,6 +33,78 @@ func hexToBytes(s string) []byte {
 		panic("invalid hex in source file: " + s)
 	}
 	return b
+}
+
+func TestSerializeSize(t *testing.T) {
+	tests := []struct {
+		ld   LeafData
+		size int
+	}{
+		{
+			ld: LeafData{
+				BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
+					Index: 10,
+				},
+				Amount:     200000,
+				PkScript:   hexToBytes("a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"),
+				Height:     1599255,
+				IsCoinBase: false,
+			},
+			size: 104, //32 + 32 + 4 + 8 + 1 + 23 + 4
+		},
+	}
+
+	t.Logf("Running %d tests", len(tests))
+	for i, test := range tests {
+		serializedSize := test.ld.SerializeSize()
+		if serializedSize != test.size {
+			t.Errorf("MsgTx.SerializeSize: #%d got: %d, want: %d", i,
+				serializedSize, test.size)
+			continue
+		}
+	}
+}
+
+// Just a function that checks for LeafData equality that doesn't use reflect.
+func checkLeafEqual(ld, checkLeaf LeafData) error {
+	if !bytes.Equal(ld.BlockHash[:], checkLeaf.BlockHash[:]) {
+		return fmt.Errorf("LeafData BlockHash mismatch. expect %s, got %s",
+			ld.BlockHash.String(), checkLeaf.BlockHash.String())
+	}
+
+	if !bytes.Equal(ld.OutPoint.Hash[:], checkLeaf.OutPoint.Hash[:]) {
+		return fmt.Errorf("LeafData outpoint hash mismatch. expect %s, got %s",
+			ld.OutPoint.Hash.String(), checkLeaf.OutPoint.Hash.String())
+	}
+
+	if ld.OutPoint.Index != checkLeaf.OutPoint.Index {
+		return fmt.Errorf("LeafData outpoint index mismatch. expect %v, got %v",
+			ld.OutPoint.Index, checkLeaf.OutPoint.Index)
+	}
+
+	if ld.Amount != checkLeaf.Amount {
+		return fmt.Errorf("LeafData amount mismatch. expect %v, got %v",
+			ld.Amount, checkLeaf.Amount)
+	}
+
+	if ld.IsCoinBase != checkLeaf.IsCoinBase {
+		return fmt.Errorf("LeafData IsCoinBase mismatch. expect %v, got %v",
+			ld.IsCoinBase, checkLeaf.IsCoinBase)
+	}
+
+	if ld.Height != checkLeaf.Height {
+		return fmt.Errorf("LeafData height mismatch. expect %v, got %v",
+			ld.Height, checkLeaf.Height)
+	}
+
+	if !bytes.Equal(ld.PkScript[:], checkLeaf.PkScript[:]) {
+		return fmt.Errorf("LeafData pkscript mismatch. expect %x, got %x",
+			ld.PkScript, checkLeaf.PkScript)
+	}
+
+	return nil
 }
 
 func TestLeafDataSerialize(t *testing.T) {
@@ -82,42 +156,13 @@ func TestLeafDataSerialize(t *testing.T) {
 		checkLeaf := NewLeafData()
 		checkLeaf.Deserialize(writer)
 
-		if !bytes.Equal(test.ld.BlockHash[:], checkLeaf.BlockHash[:]) {
-			t.Errorf("%s: LeafData BlockHash mismatch. expect %s, got %s",
-				test.name, test.ld.BlockHash.String(),
-				checkLeaf.BlockHash.String())
+		err := checkLeafEqual(test.ld, checkLeaf)
+		if err != nil {
+			t.Errorf("%s: LeafData mismatch. err: %s", test.name, err.Error())
 		}
 
-		if !bytes.Equal(test.ld.OutPoint.Hash[:], checkLeaf.OutPoint.Hash[:]) {
-			t.Errorf("%s: LeafData outpoint hash mismatch. expect %s, got %s",
-				test.name, test.ld.OutPoint.Hash.String(),
-				checkLeaf.OutPoint.Hash.String())
-		}
-
-		if test.ld.OutPoint.Index != checkLeaf.OutPoint.Index {
-			t.Errorf("%s: LeafData outpoint index mismatch. expect %v, got %v",
-				test.name, test.ld.OutPoint.Index,
-				checkLeaf.OutPoint.Index)
-		}
-
-		if test.ld.Amount != checkLeaf.Amount {
-			t.Errorf("%s: LeafData amount mismatch. expect %v, got %v",
-				test.name, test.ld.Amount, checkLeaf.Amount)
-		}
-
-		if test.ld.IsCoinBase != checkLeaf.IsCoinBase {
-			t.Errorf("%s: LeafData IsCoinBase mismatch. expect %v, got %v",
-				test.name, test.ld.IsCoinBase, checkLeaf.IsCoinBase)
-		}
-
-		if test.ld.Height != checkLeaf.Height {
-			t.Errorf("%s: LeafData height mismatch. expect %v, got %v",
-				test.name, test.ld.Height, checkLeaf.Height)
-		}
-
-		if !bytes.Equal(test.ld.PkScript[:], checkLeaf.PkScript[:]) {
-			t.Errorf("%s: LeafData pkscript mismatch. expect %x, got %x",
-				test.name, test.ld.PkScript, checkLeaf.PkScript)
+		if !reflect.DeepEqual(test.ld, checkLeaf) {
+			t.Errorf("%s: LeafData mismatch.", test.name)
 		}
 
 		// Re-serialize
@@ -132,6 +177,64 @@ func TestLeafDataSerialize(t *testing.T) {
 				len(test.before), len(test.after))
 		}
 	}
+}
+
+func TestSerializeSizeCompact(t *testing.T) {
+	tests := []struct {
+		ld   LeafData
+		size int
+	}{
+		{
+			ld: LeafData{
+				BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
+					Index: 10,
+				},
+				Amount:     200000,
+				PkScript:   hexToBytes("a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"),
+				Height:     1599255,
+				IsCoinBase: false,
+			},
+			size: 36, // 8 + 1 + 23 + 4
+		},
+	}
+
+	t.Logf("Running %d tests", len(tests))
+	for i, test := range tests {
+		serializedSize := test.ld.SerializeSizeCompact()
+		if serializedSize != test.size {
+			t.Errorf("MsgTx.SerializeSizeCompact: #%d got: %d, want: %d", i,
+				serializedSize, test.size)
+			continue
+		}
+	}
+}
+
+// Just a function that checks for Compact LeafData equality that doesn't use reflect.
+func checkCompactLeafEqual(ld, checkLeaf LeafData) error {
+	// Only amount, hcb, and pkscript is serialized with the compact serialization.
+	if ld.Amount != checkLeaf.Amount {
+		return fmt.Errorf("LeafData amount mismatch. expect %v, got %v",
+			ld.Amount, checkLeaf.Amount)
+	}
+
+	if ld.IsCoinBase != checkLeaf.IsCoinBase {
+		return fmt.Errorf("LeafData IsCoinBase mismatch. expect %v, got %v",
+			ld.IsCoinBase, checkLeaf.IsCoinBase)
+	}
+
+	if ld.Height != checkLeaf.Height {
+		return fmt.Errorf("LeafData height mismatch. expect %v, got %v",
+			ld.Height, checkLeaf.Height)
+	}
+
+	if !bytes.Equal(ld.PkScript[:], checkLeaf.PkScript[:]) {
+		return fmt.Errorf("LeafData pkscript mismatch. expect %x, got %x",
+			ld.PkScript, checkLeaf.PkScript)
+	}
+
+	return nil
 }
 
 func TestLeafDataSerializeCompact(t *testing.T) {
@@ -183,25 +286,9 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 		checkLeaf := NewLeafData()
 		checkLeaf.DeserializeCompact(writer)
 
-		// Only amount, hcb, and pkscript is serialized with the compact serialization.
-		if test.ld.Amount != checkLeaf.Amount {
-			t.Errorf("%s: LeafData amount mismatch. expect %v, got %v",
-				test.name, test.ld.Amount, checkLeaf.Amount)
-		}
-
-		if test.ld.IsCoinBase != checkLeaf.IsCoinBase {
-			t.Errorf("%s: LeafData IsCoinBase mismatch. expect %v, got %v",
-				test.name, test.ld.IsCoinBase, checkLeaf.IsCoinBase)
-		}
-
-		if test.ld.Height != checkLeaf.Height {
-			t.Errorf("%s: LeafData height mismatch. expect %v, got %v",
-				test.name, test.ld.Height, checkLeaf.Height)
-		}
-
-		if !bytes.Equal(test.ld.PkScript[:], checkLeaf.PkScript[:]) {
-			t.Errorf("%s: LeafData pkscript mismatch. expect %x, got %x",
-				test.name, test.ld.PkScript, checkLeaf.PkScript)
+		err := checkCompactLeafEqual(test.ld, checkLeaf)
+		if err != nil {
+			t.Errorf("%s: LeafData mismatch. err: %s", test.name, err.Error())
 		}
 
 		// Re-serialize
