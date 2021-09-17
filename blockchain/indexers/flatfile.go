@@ -53,6 +53,9 @@ type FlatFileState struct {
 	// offsets contain all the byte offset information for the where each of the
 	// blocks can be found in the dataFile.  On exit, all the offsets are flushed
 	// to the offsetFile.
+	//
+	// NOTE Since we account for the genesis block in the offsets, to fetch data for
+	// height x, you'd do 'offsets[x]' and not 'offsets[x-1]'.
 	offsets []int64
 }
 
@@ -94,24 +97,24 @@ func (ff *FlatFileState) Init(path, dataName string) error {
 	// If the file size is bigger than 0, we're resuming and will read all
 	// existing offsets to ff.offsets.
 	if offsetFileSize > 0 {
-		maxHeight := int32(offsetFileSize / 8)
+		// -1 since we have to account for the genesis block.
+		maxHeight := int32(offsetFileSize/8) - 1
 
 		// seek back to the file start / block "0"
 		_, err := ff.offsetFile.Seek(0, 0)
 		if err != nil {
 			return err
 		}
-		ff.offsets = make([]int64, maxHeight)
+		ff.offsets = make([]int64, offsetFileSize/8)
 
 		// run through the file, read everything and push into the channel
-		for ff.currentHeight < maxHeight {
+		for ; ff.currentHeight < maxHeight; ff.currentHeight++ {
 			err = binary.Read(ff.offsetFile, binary.BigEndian, &ff.currentOffset)
 			if err != nil {
 				return err
 			}
 
 			ff.offsets[ff.currentHeight] = ff.currentOffset
-			ff.currentHeight++
 		}
 
 		// set currentOffset to the end of the data file
@@ -151,7 +154,7 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 	defer ff.mtx.Unlock()
 
 	// We only accept the next block in seqence.
-	if height != ff.currentHeight+1 || height == 0 {
+	if height != ff.currentHeight+1 || height <= 0 {
 		return fmt.Errorf("Passed in height not the next block in sequence. "+
 			"Expected height of %d but got %d", ff.currentHeight+1, height)
 	}
@@ -209,8 +212,8 @@ func (ff *FlatFileState) FetchData(height int32) ([]byte, error) {
 	defer ff.mtx.RUnlock()
 
 	// If the height requsted is greater than the one we have saved,
-	// just return nil.  Also return nil if asked for height 0.
-	if height > ff.currentHeight || height == 0 {
+	// just return nil.
+	if height > ff.currentHeight || height <= 0 {
 		return nil, nil
 	}
 
