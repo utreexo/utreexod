@@ -178,28 +178,16 @@ func TestRestart(t *testing.T) {
 }
 
 func createRandByteSlice(rnd *rand.Rand) ([]byte, error) {
+	const length = 20
 	// Random value to differ up the array lengths.
-	arrayChooser := rand.Intn(2) == 1
-
-	// 10 byte arrays.
-	if arrayChooser {
-		arrayVal, ok := quick.Value(reflect.TypeOf([10]byte{}), rnd)
-		if !ok {
-			err := fmt.Errorf("Failed to create slice")
-			return nil, err
-		}
-		array := arrayVal.Interface().([10]byte)
-		return array[:], nil
-	}
-
-	// 13 byte arrays.
-	arrayVal, ok := quick.Value(reflect.TypeOf([13]byte{}), rnd)
+	arrayVal, ok := quick.Value(reflect.TypeOf([length]byte{}), rnd)
 	if !ok {
 		err := fmt.Errorf("Failed to create slice")
 		return nil, err
 	}
-	array := arrayVal.Interface().([13]byte)
-	return array[:], nil
+	array := arrayVal.Interface().([length]byte)
+	sliceLen := rand.Intn(length)
+	return array[:sliceLen], nil
 }
 
 // tryToStoreUnallowed tries to store unallowed height to the flatFileState.

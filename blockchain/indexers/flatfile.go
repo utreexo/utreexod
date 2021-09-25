@@ -159,44 +159,38 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 			"Expected height of %d but got %d", ff.currentHeight+1, height)
 	}
 
-	// Pre-allocated the needed buffer.
-	buf := make([]byte, 8)
+	// Pre-allocate the needed buffer.
+	buf := make([]byte, len(data)+8)
 
-	// Write the offset to buffer.
+	// Slice the buffer to 8 bytes and encode the offset to it.
 	buf = buf[:8]
 	ff.offsets = append(ff.offsets, ff.currentOffset)
 	binary.BigEndian.PutUint64(buf, uint64(ff.currentOffset))
 
-	// Do the actual write.
+	// Do the actual currentOffset write to the offset file.
 	_, err := ff.offsetFile.WriteAt(buf, int64(height)*8)
 	if err != nil {
 		return err
 	}
 
-	_, err = ff.dataFile.WriteAt(magicBytes, ff.currentOffset)
+	// Re-slice the buffer to the total length.
+	buf = buf[:len(data)+8]
+
+	// Add the magic bytes, size, and the data to the buffer to be written.
+	copy(buf[:4], magicBytes)
+	binary.BigEndian.PutUint32(buf[4:8], uint32(len(data)))
+	copy(buf[8:], data)
+
+	// Write the magic+size+data to the dataFile.
+	_, err = ff.dataFile.WriteAt(buf, ff.currentOffset)
 	if err != nil {
 		return err
 	}
 
-	// prefix with size
-	buf = buf[:4]
-	binary.BigEndian.PutUint32(buf, uint32(len(data)))
-
-	// +4 to account for the 4 magic bytes
-	_, err = ff.dataFile.WriteAt(buf, ff.currentOffset+4)
-	if err != nil {
-		return err
-	}
-
-	// Write to the file
-	// +4 +4 to account for the 4 magic bytes and the 4 size bytes
-	_, err = ff.dataFile.WriteAt(data, ff.currentOffset+8)
-	if err != nil {
-		return err
-	}
-
-	// 4B magic & 4B size comes first
+	// Increment the current offset.  +8 to account for the magic bytes and size.
 	ff.currentOffset += int64(len(data)) + 8
+
+	// Finally, increment the currentHeight.
 	ff.currentHeight++
 
 	return nil
@@ -217,31 +211,31 @@ func (ff *FlatFileState) FetchData(height int32) ([]byte, error) {
 		return nil, nil
 	}
 
+	// Grab the offset for where the data is in the dataFile.
 	offset := ff.offsets[height]
-	buf := make([]byte, 8)
 
-	// Then read the actual proof from the prooffile and deserialize
+	// Read from the dataFile.  This read will grab the magic bytes and the
+	// size bytes.
+	buf := make([]byte, 8)
 	_, err := ff.dataFile.ReadAt(buf, offset)
 	if err != nil {
 		return nil, err
 	}
 
+	// Sanity check.  If wrong magic was read, then error out.
 	if !bytes.Equal(buf[:4], magicBytes) {
-		return nil, fmt.Errorf("read wrong magic of %x", buf[:4])
+		return nil, fmt.Errorf("Read wrong magic bytes. Expect %x but got %x",
+			magicBytes, buf[:4])
 	}
 
+	// Size of the actual data we want to fetch.
 	size := binary.BigEndian.Uint32(buf[4:])
 
+	// Now do the actual read of the data from the dataFile.
 	dataBuf := make([]byte, size)
-
-	read, err := ff.dataFile.ReadAt(dataBuf, offset+8)
+	_, err = ff.dataFile.ReadAt(dataBuf, offset+8)
 	if err != nil {
 		return nil, err
-	}
-
-	if read != int(size) {
-		return nil, fmt.Errorf("Expected to read %d bytes but read % bytes",
-			size, read)
 	}
 
 	return dataBuf, nil
