@@ -168,10 +168,10 @@ func TestRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i, offset := range expectOffsets {
-		if offset != expectOffsets[i] {
+	for i, expectOffset := range expectOffsets {
+		if expectOffset != newff.offsets[i] {
 			err := fmt.Errorf("TestRestart Err. Expect offset at i of %d "+
-				"to be %d, got %d", i, expectOffsets[i], offset)
+				"to be %d, got %d", i, expectOffset, newff.offsets[i])
 			t.Fatal(err)
 		}
 	}

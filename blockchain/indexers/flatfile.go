@@ -63,7 +63,7 @@ type FlatFileState struct {
 // If starting new, it creates an offsetFile and a dataFile along with the directories
 // those belong in.
 func (ff *FlatFileState) Init(path, dataName string) error {
-	// Call MkdirAll before doing anything.  This will just do nothin if
+	// Call MkdirAll before doing anything.  This will just do nothing if
 	// the directories are already there.
 	err := os.MkdirAll(path, 0700)
 	if err != nil {
@@ -82,7 +82,7 @@ func (ff *FlatFileState) Init(path, dataName string) error {
 		return err
 	}
 
-	// seek to end to get the number of offsets in the file (# of blocks)
+	// Seek to end to get the number of offsets in the file (# of blocks).
 	offsetFileSize, err := ff.offsetFile.Seek(0, 2)
 	if err != nil {
 		return err
@@ -97,27 +97,27 @@ func (ff *FlatFileState) Init(path, dataName string) error {
 	// If the file size is bigger than 0, we're resuming and will read all
 	// existing offsets to ff.offsets.
 	if offsetFileSize > 0 {
-		// -1 since we have to account for the genesis block.
-		maxHeight := int32(offsetFileSize/8) - 1
+		// -1 since we have to account for the genesis block of height 0.
+		ff.currentHeight = int32(offsetFileSize/8) - 1
 
-		// seek back to the file start / block "0"
+		// Seek back to the file start / block "0".
 		_, err := ff.offsetFile.Seek(0, 0)
 		if err != nil {
 			return err
 		}
 		ff.offsets = make([]int64, offsetFileSize/8)
 
-		// run through the file, read everything and push into the channel
-		for ; ff.currentHeight < maxHeight; ff.currentHeight++ {
+		// Go through the entire offset file and read&store every offset in memory.
+		for i := int32(0); i <= ff.currentHeight; i++ {
 			err = binary.Read(ff.offsetFile, binary.BigEndian, &ff.currentOffset)
 			if err != nil {
 				return err
 			}
 
-			ff.offsets[ff.currentHeight] = ff.currentOffset
+			ff.offsets[i] = ff.currentOffset
 		}
 
-		// set currentOffset to the end of the data file
+		// Set the currentOffset to the end of the data file.
 		ff.currentOffset, err = ff.dataFile.Seek(0, 2)
 		if err != nil {
 			return err
@@ -131,7 +131,7 @@ func (ff *FlatFileState) Init(path, dataName string) error {
 			return err
 		}
 
-		// do the same with the in-ram slice
+		// Oo the same with the in-ram slice.
 		ff.offsets = make([]int64, 1)
 	}
 
