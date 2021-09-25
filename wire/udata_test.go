@@ -231,7 +231,10 @@ func TestUDataSerialize(t *testing.T) {
 		checkUData := new(UData)
 		checkUData.Deserialize(writer)
 
-		checkUDEqual(&test.ud, checkUData, test.name)
+		err := checkUDEqual(&test.ud, checkUData, test.name)
+		if err != nil {
+			t.Error(err)
+		}
 
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
