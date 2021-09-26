@@ -1032,7 +1032,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 	if b.utreexoView != nil {
 		// Check that the block txOuts are valid by checking the utreexo proof and
 		// extra data.
-		err := b.utreexoView.Modify(block)
+		err := b.utreexoView.Modify(block, b.bestChain)
 		if err != nil {
 			return err
 		}
