@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2016 The btcsuite developers
+// Copyright (c) 2021 The utreexo developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -23,7 +23,7 @@ type UtreexoViewpoint struct {
 // Modify takes an ublock and adds the utxos and deletes the stxos from the utreexo state.
 //
 // This function is NOT safe for concurrent access.
-func (uview *UtreexoViewpoint) Modify(block *btcutil.Block) error {
+func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView) error {
 	// Check that UData field isn't nil before doing anything else.
 	if block.MsgBlock().UData == nil {
 		return fmt.Errorf("UtreexoViewpoint.Modify(): block.MsgBlock().UData is nil. " +
@@ -33,21 +33,25 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block) error {
 
 	// outskip is all the txOuts that are referenced by a txIn in the same block
 	// outCount is the count of all outskips.
-	_, outCount, _, outskip := util.DedupeBlock(block)
+	_, outCount, inskip, outskip := util.DedupeBlock(block)
 
-	// grab the "nl" (numLeaves) which is number of all the utxos currently in the
-	// utreexo accumulator. h is the height of the utreexo accumulator
-	nl, h := uview.accumulator.ReconstructStats()
-	err := ProofSanity(block, nl, h)
-	if err != nil {
-		return err
+	// Make slice of hashes from the LeafDatas. These are the hash commitments
+	// to be proven.
+	var delHashes []accumulator.Hash
+	if len(ud.LeafDatas) > 0 {
+		var err error
+		delHashes, err = generateCommitments(ud, block, bestChain, inskip)
+		if err != nil {
+			return err
+		}
 	}
 
-	// make slice of hashes from leafdata. These are the hash commitments
-	// to be proven.
-	delHashes := make([]accumulator.Hash, len(ud.LeafDatas))
-	for i := range ud.LeafDatas {
-		delHashes[i] = ud.LeafDatas[i].LeafHash()
+	// Grab the outpoints that need their existence proven and check that
+	// the udata matches up.
+	OPsToProve := util.BlockToDelOPs(block)
+	err := ProofSanity(ud, OPsToProve, block.Height())
+	if err != nil {
+		return err
 	}
 
 	// IngestBatchProof first checks that the utreexo proofs are valid. If it is valid,
@@ -83,37 +87,99 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block) error {
 	return nil
 }
 
-// ProofSanity checks the consistency of a UBlock.  Does the proof prove
-// all the inputs in the block?
-func ProofSanity(block *btcutil.Block, nl uint64, h uint8) error {
-	// get the outpoints that need proof
-	proveOPs := util.BlockToDelOPs(block)
-
-	ud := block.MsgBlock().UData
-	// ensure that all outpoints are provided in the extradata
-	if len(proveOPs) != len(ud.LeafDatas) {
-		err := fmt.Errorf("height %d %d outpoints need proofs but only %d proven\n",
-			ud.Height, len(proveOPs), len(ud.LeafDatas))
+// ProofSanity checks that the UData that was given proves the same outPoints that
+// is included in the corresponding block.
+func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint, blockHeight int32) error {
+	if ud.Height != blockHeight {
+		err := fmt.Errorf("ProofSanity error: height mismatch. Udata height %d, block height %d",
+			ud.Height, blockHeight)
 		return err
 	}
 
+	// Check that the length is the same.
+	if len(outPoints) != len(ud.LeafDatas) {
+		err := fmt.Errorf("ProofSanity error at height %d. %d outpoints need proofs but %d proven\n",
+			ud.Height, len(outPoints), len(ud.LeafDatas))
+		return err
+	}
+
+	// Check that all the outpoints match up.
 	for i := range ud.LeafDatas {
-		if proveOPs[i].Hash != ud.LeafDatas[i].OutPoint.Hash ||
-			proveOPs[i].Index != ud.LeafDatas[i].OutPoint.Index {
-			err := fmt.Errorf("block/utxoData mismatch %s v %s\n",
-				proveOPs[i].String(), ud.LeafDatas[i].OutPoint.String())
+		if outPoints[i].Hash != ud.LeafDatas[i].OutPoint.Hash ||
+			outPoints[i].Index != ud.LeafDatas[i].OutPoint.Index {
+			err := fmt.Errorf("ProofSanity err: OutPoint mismatch. Expect %s, got %s\n",
+				outPoints[i].String(), ud.LeafDatas[i].OutPoint.String())
 			return err
 		}
 	}
 
-	// make sure the udata is consistent, with the same number of leafDatas
-	// as targets in the accumulator batch proof
+	// Final check.  The length of the targets should be the same as the leafdata
+	// as targets represent the positions of each of the leafdata hash in the
+	// accumulator.
 	if len(ud.AccProof.Targets) != len(ud.LeafDatas) {
-		fmt.Printf("Verify failed: %d targets but %d leafdatas\n",
+		return fmt.Errorf("ProofSanity err: %d targets but %d leafdatas\n",
 			len(ud.AccProof.Targets), len(ud.LeafDatas))
 	}
 
 	return nil
+}
+
+// generateCommitments adds in missing information to the passed in compact UData and
+// hashes it to recreate the hashes that were commited into the accumulator.  This
+// function also fills in the missing outpoint and blockhash information to the compact
+// UData, making it full.
+//
+// This function is safe for concurrent access.
+func generateCommitments(ud *wire.UData, block *btcutil.Block, chainView *chainView,
+	inskip []uint32) ([]accumulator.Hash, error) {
+	if chainView == nil {
+		return nil, fmt.Errorf("Passed in chainView is nil. Cannot make compact udata to full")
+	}
+
+	// blockInIdx is used to get the indexes of the skips.  ldIdx is used
+	// as a separate idx for the LeafDatas.  We need both of them because
+	// LeafDatas have already been deduped while the transactions are not.
+	var blockInIdx, ldIdx uint32
+	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	for idx, tx := range block.Transactions() {
+		if idx == 0 {
+			// coinbase can have many inputs
+			blockInIdx += uint32(len(tx.MsgTx().TxIn))
+			continue
+		}
+		for _, txIn := range tx.MsgTx().TxIn {
+			// Skip txos on the skip list
+			if len(inskip) > 0 && inskip[0] == blockInIdx {
+				inskip = inskip[1:]
+				blockInIdx++
+				continue
+			}
+
+			ld := &ud.LeafDatas[ldIdx]
+
+			// Get BlockHash.
+			blockNode := chainView.NodeByHeight(ld.Height)
+			if blockNode == nil {
+				return nil, fmt.Errorf("Couldn't find blockNode for height %d",
+					ld.Height)
+			}
+			ld.BlockHash = blockNode.hash
+
+			// Get OutPoint.
+			op := wire.OutPoint{
+				Hash:  txIn.PreviousOutPoint.Hash,
+				Index: txIn.PreviousOutPoint.Index,
+			}
+			ld.OutPoint = op
+
+			delHashes = append(delHashes, ld.LeafHash())
+
+			blockInIdx++
+			ldIdx++
+		}
+	}
+
+	return delHashes, nil
 }
 
 // BlockToAdds turns all the new utxos in a msgblock into leafTxos
@@ -316,20 +382,57 @@ func (b *BlockChain) IsUtreexoViewActive() bool {
 	return utreexoActive
 }
 
-// VerifyUData processes the given UData and then verifies that the prove is correct. It does not modify the underlying UtreexoViewpoint.
+// VerifyUData processes the given UData and then verifies that the proof validates
+// with the underlying UtreexoViewpoint for the txIns that are given.
 //
+// NOTE: the caller must not include any txIns for tx that isn't already included
+// a block (ex: CPFP txs) as this will make the accumulator verification fail.
+//
+// The passed in txIns must be in the same order they appear in the transaction.
+// A mixed up ordering will make the verification fail.
+//
+// This function does not modify the underlying UtreexoViewpoint.
 // This function is safe for concurrent access.
-func (b *BlockChain) VerifyUData(ud *wire.UData) error {
+func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
+	// Nothing to prove.
+	if len(txIns) == 0 {
+		return nil
+	}
+
+	// If there is something to prove but ud is nil, return an error.
 	if ud == nil {
 		return fmt.Errorf("BlockChain.VerifyUData(): passed in UData is nil. " +
 			"Cannot validate utreexo accumulator proof")
 	}
 
-	// make slice of hashes from leafdata. These are the hash commitments
+	// Check that there are equal amount of txIns for LeafDatas.
+	if len(ud.LeafDatas) != len(txIns) {
+		return fmt.Errorf("BlockChain.VerifyUData(): length of txIns and LeafDatas differ. "+
+			"%d LeafDatas, but %d txIns", len(ud.LeafDatas), len(txIns))
+	}
+
+	// Make a slice of hashes from LeafDatas. These are the hash commitments
 	// to be proven.
-	delHashes := make([]accumulator.Hash, len(ud.LeafDatas))
-	for i := range ud.LeafDatas {
-		delHashes[i] = ud.LeafDatas[i].LeafHash()
+	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	for i, txIn := range txIns {
+		ld := &ud.LeafDatas[i]
+
+		// Get BlockHash.
+		blockNode := b.bestChain.NodeByHeight(ld.Height)
+		if blockNode == nil {
+			return fmt.Errorf("Couldn't find blockNode for height %d",
+				ld.Height)
+		}
+		ld.BlockHash = blockNode.hash
+
+		// Get OutPoint.
+		op := wire.OutPoint{
+			Hash:  txIn.PreviousOutPoint.Hash,
+			Index: txIn.PreviousOutPoint.Index,
+		}
+		ld.OutPoint = op
+
+		delHashes = append(delHashes, ld.LeafHash())
 	}
 
 	// Acquire read lock before accessing the accumulator state.

@@ -212,7 +212,7 @@ func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UDa
 		}
 		r := bytes.NewReader(proofBytes)
 
-		err = ud.Deserialize(r)
+		err = ud.DeserializeCompact(r)
 		if err != nil {
 			return err
 		}
@@ -285,10 +285,10 @@ func DropUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan stru
 // TODO Use the compact serialization.
 func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *wire.UData) error {
 	// Pre-allocated the needed buffer.
-	udSize := ud.SerializeSize()
+	udSize := ud.SerializeSizeCompact()
 	buf := bytes.NewBuffer(make([]byte, 0, udSize))
 
-	err := ud.Serialize(buf)
+	err := ud.SerializeCompact(buf)
 	if err != nil {
 		return err
 	}

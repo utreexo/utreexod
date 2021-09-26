@@ -145,8 +145,8 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSize()))
-	err = ud.Serialize(bytesBuf)
+	bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSizeCompact()))
+	err = ud.SerializeCompact(bytesBuf)
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (*wire.UData, 
 	r := bytes.NewReader(proofBytes)
 
 	ud := new(wire.UData)
-	err = ud.Deserialize(r)
+	err = ud.DeserializeCompact(r)
 	if err != nil {
 		return nil, err
 	}
