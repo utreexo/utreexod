@@ -97,7 +97,7 @@ type Config struct {
 	// VerifyUData defines the function to use to verify the utreexo
 	// data.  This is only used when the node is run with the UtreexoView
 	// activated.
-	VerifyUData func(ud *wire.UData) error
+	VerifyUData func(ud *wire.UData, txIns []*wire.TxIn) error
 
 	// SigCache defines a signature cache to use.
 	SigCache *txscript.SigCache
@@ -853,6 +853,32 @@ func (mp *TxPool) fetchInputUtxosFromUData(tx *btcutil.Tx, ud *wire.UData) *bloc
 	return utxoView
 }
 
+// filterMempoolTxs returns a slice of txIns that are commited in a block and
+// filters out all those that aren't.  Used to find which inputs should have
+// utreexo proofs.
+//
+// This function MUST be called with the mempool lock held (for reads).
+func (mp *TxPool) filterMempoolTxs(tx *btcutil.Tx) []*wire.TxIn {
+	var retTxIns []*wire.TxIn
+
+	// Coinbase inputs don't have a previous outpoint.  Return early.
+	if blockchain.IsCoinBaseTx(tx.MsgTx()) {
+		return retTxIns
+	}
+
+	for _, txIn := range tx.MsgTx().TxIn {
+		prevOut := &txIn.PreviousOutPoint
+
+		// Only append if it doesn't exist in the mempool.
+		_, exists := mp.pool[prevOut.Hash]
+		if !exists {
+			retTxIns = append(retTxIns, txIn)
+		}
+	}
+
+	return retTxIns
+}
+
 // FetchTransaction returns the requested transaction from the transaction pool.
 // This only fetches from the main transaction pool and does not include
 // orphans.
@@ -1074,7 +1100,8 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 
 		// First verify the proof to ensure that the proof the peer has
 		// sent was over valid.
-		err := mp.cfg.VerifyUData(ud)
+		txInsToProve := mp.filterMempoolTxs(tx)
+		err := mp.cfg.VerifyUData(ud, txInsToProve)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -382,20 +382,57 @@ func (b *BlockChain) IsUtreexoViewActive() bool {
 	return utreexoActive
 }
 
-// VerifyUData processes the given UData and then verifies that the prove is correct. It does not modify the underlying UtreexoViewpoint.
+// VerifyUData processes the given UData and then verifies that the proof validates
+// with the underlying UtreexoViewpoint for the txIns that are given.
 //
+// NOTE: the caller must not include any txIns for tx that isn't already included
+// a block (ex: CPFP txs) as this will make the accumulator verification fail.
+//
+// The passed in txIns must be in the same order they appear in the transaction.
+// A mixed up ordering will make the verification fail.
+//
+// This function does not modify the underlying UtreexoViewpoint.
 // This function is safe for concurrent access.
-func (b *BlockChain) VerifyUData(ud *wire.UData) error {
+func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
+	// Nothing to prove.
+	if len(txIns) == 0 {
+		return nil
+	}
+
+	// If there is something to prove but ud is nil, return an error.
 	if ud == nil {
 		return fmt.Errorf("BlockChain.VerifyUData(): passed in UData is nil. " +
 			"Cannot validate utreexo accumulator proof")
 	}
 
-	// make slice of hashes from leafdata. These are the hash commitments
+	// Check that there are equal amount of txIns for LeafDatas.
+	if len(ud.LeafDatas) != len(txIns) {
+		return fmt.Errorf("BlockChain.VerifyUData(): length of txIns and LeafDatas differ. "+
+			"%d LeafDatas, but %d txIns", len(ud.LeafDatas), len(txIns))
+	}
+
+	// Make a slice of hashes from LeafDatas. These are the hash commitments
 	// to be proven.
-	delHashes := make([]accumulator.Hash, len(ud.LeafDatas))
-	for i := range ud.LeafDatas {
-		delHashes[i] = ud.LeafDatas[i].LeafHash()
+	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	for i, txIn := range txIns {
+		ld := &ud.LeafDatas[i]
+
+		// Get BlockHash.
+		blockNode := b.bestChain.NodeByHeight(ld.Height)
+		if blockNode == nil {
+			return fmt.Errorf("Couldn't find blockNode for height %d",
+				ld.Height)
+		}
+		ld.BlockHash = blockNode.hash
+
+		// Get OutPoint.
+		op := wire.OutPoint{
+			Hash:  txIn.PreviousOutPoint.Hash,
+			Index: txIn.PreviousOutPoint.Index,
+		}
+		ld.OutPoint = op
+
+		delHashes = append(delHashes, ld.LeafHash())
 	}
 
 	// Acquire read lock before accessing the accumulator state.
