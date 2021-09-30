@@ -136,7 +136,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
 
 	idx.mtx.RLock()
-	ud, err := wire.GenerateUData(dels, idx.utreexoState.state, block.Height())
+	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
 	idx.mtx.RUnlock()
 	if err != nil {
 		return err
@@ -212,7 +212,7 @@ func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UDa
 		}
 		r := bytes.NewReader(proofBytes)
 
-		err = ud.DeserializeCompact(r)
+		err = ud.DeserializeCompact(r, udataSerializeBool, 0)
 		if err != nil {
 			return err
 		}
@@ -226,9 +226,9 @@ func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UDa
 // GenerateUData generates utreexo data for the dels passed in.  Height passed in
 // should either be of block height of where the deletions are happening or just
 // the lastest block height for mempool tx proof generation.
-func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData, height int32) (*wire.UData, error) {
+func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
 	idx.mtx.RLock()
-	ud, err := wire.GenerateUData(dels, idx.utreexoState.state, height)
+	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
 	idx.mtx.RUnlock()
 	if err != nil {
 		return nil, err
@@ -285,10 +285,10 @@ func DropUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan stru
 // TODO Use the compact serialization.
 func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *wire.UData) error {
 	// Pre-allocated the needed buffer.
-	udSize := ud.SerializeSizeCompact()
+	udSize := ud.SerializeSizeCompact(udataSerializeBool)
 	buf := bytes.NewBuffer(make([]byte, 0, udSize))
 
-	err := ud.SerializeCompact(buf)
+	err := ud.SerializeCompact(buf, udataSerializeBool)
 	if err != nil {
 		return err
 	}

@@ -1492,20 +1492,55 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 			return err
 		}
 
-		// Don't try to prove any entries that are nil or is already
-		// spent.
-		for op, entry := range confirmedUtxoView.Entries() {
-			if entry == nil || entry.IsSpent() {
-				confirmedUtxoView.RemoveEntry(op)
-			}
+		// TODO this is dumb since FetchUtxoView never needs to
+		// add the outputs.
+		prevOut := wire.OutPoint{Hash: *tx.Hash()}
+		for txOutIdx := range tx.MsgTx().TxOut {
+			prevOut.Index = uint32(txOutIdx)
+			confirmedUtxoView.RemoveEntry(prevOut)
 		}
 
-		viewEntries := confirmedUtxoView.Entries()
+		viewLen := len(confirmedUtxoView.Entries())
+
+		// We should have fetched the exact same count as there are txins
+		// since unconfimred txs will be in the map as well.
+		if viewLen != len(tx.MsgTx().TxIn) {
+			err = fmt.Errorf("utxoview fetch fail.  Have %d txIns but %d view entries",
+				len(tx.MsgTx().TxIn), viewLen)
+			chanLog.Errorf(err.Error())
+			if doneChan != nil {
+				doneChan <- struct{}{}
+			}
+			return err
+		}
 
 		// Prep the UDatas to be sent over.  These will also be
 		// used to generate the accumulator proofs.
-		leafDatas := make([]wire.LeafData, 0, len(viewEntries))
-		for op, entry := range viewEntries {
+		leafDatas := make([]wire.LeafData, 0, viewLen)
+		for _, txIn := range tx.MsgTx().TxIn {
+			entry := confirmedUtxoView.LookupEntry(txIn.PreviousOutPoint)
+			// Only initialize with height of -1 to mark that this
+			// tx has not yet been included in a block.
+			if entry == nil {
+				srvrLog.Debugf("Marking %s as uncomfirmed for tx %s",
+					txIn.PreviousOutPoint.String(), tx.Hash().String())
+				ld := wire.LeafData{}
+				ld.SetUnconfirmed()
+				leafDatas = append(leafDatas, ld)
+				continue
+			}
+			// Error out if the input being reference is already spent.
+			if entry.IsSpent() {
+				err := fmt.Errorf("Couldn't generate UData for tx %s "+
+					"as input %s being referenced is marked as spent",
+					tx.Hash().String(), txIn.PreviousOutPoint.String())
+				chanLog.Debugf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
+
 			blockHash, err := s.chain.BlockHashByHeight(entry.BlockHeight())
 			if err != nil {
 				chanLog.Debugf(err.Error())
@@ -1526,7 +1561,7 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 			}
 			leaf := wire.LeafData{
 				BlockHash:  *blockHash,
-				OutPoint:   op,
+				OutPoint:   txIn.PreviousOutPoint,
 				Amount:     entry.Amount(),
 				Height:     entry.BlockHeight(),
 				IsCoinBase: entry.IsCoinBase(),
@@ -1542,29 +1577,34 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 			leafDatas = append(leafDatas, leaf)
 		}
 
-		height := s.chain.BestSnapshot().Height
+		// The count of leaf datas and txins should always be the same as
+		// we account for unconfirmed referenced outputs for tx udata
+		// serialization.
+		if len(leafDatas) != len(tx.MsgTx().TxIn) {
+			err = fmt.Errorf("Failed to generate UData.  Have %d txins but %d leaf datas",
+				len(tx.MsgTx().TxIn), len(leafDatas))
+			chanLog.Errorf(err.Error())
+			if doneChan != nil {
+				doneChan <- struct{}{}
+			}
+			return err
+		}
+
 		var ud *wire.UData
 
 		// We already checked that at least one is active.  Pick one and
 		// generate the UData.
 		if s.utreexoProofIndex != nil {
-			ud, err = s.utreexoProofIndex.GenerateUData(leafDatas, height)
-			if err != nil {
-				chanLog.Errorf(err.Error())
-				if doneChan != nil {
-					doneChan <- struct{}{}
-				}
-				return err
-			}
+			ud, err = s.utreexoProofIndex.GenerateUData(leafDatas)
 		} else {
-			ud, err = s.flatUtreexoProofIndex.GenerateUData(leafDatas, height)
-			if err != nil {
-				chanLog.Errorf(err.Error())
-				if doneChan != nil {
-					doneChan <- struct{}{}
-				}
-				return err
+			ud, err = s.flatUtreexoProofIndex.GenerateUData(leafDatas)
+		}
+		if err != nil {
+			chanLog.Errorf(err.Error())
+			if doneChan != nil {
+				doneChan <- struct{}{}
 			}
+			return err
 		}
 
 		tx.MsgTx().UData = ud

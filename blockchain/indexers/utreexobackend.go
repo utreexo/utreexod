@@ -22,6 +22,10 @@ const (
 	defaultUtreexoCowDirName   = "cowstate"
 	defaultUtreexoCowFileName  = "CURRENT"
 	defaultCowMaxCache         = 1000
+
+	// udataSerializeBool defines the argument that should be passed to the
+	// serialize and deserialize functions for udata.
+	udataSerializeBool = false
 )
 
 // UtreexoConfig is a descriptor which specifies the Utreexo state instance configuration.

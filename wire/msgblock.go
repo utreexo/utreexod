@@ -110,7 +110,7 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 
 	if enc&UtreexoEncoding == UtreexoEncoding {
 		msg.UData = new(UData)
-		err = msg.UData.DeserializeCompact(r)
+		err = msg.UData.DeserializeCompact(r, false, 0)
 		if err != nil {
 			return err
 		}
@@ -221,7 +221,7 @@ func (msg *MsgBlock) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) er
 			str := "utreexo encoding specified but MsgBlock.UData field is nil"
 			return messageError("MsgBlock.BtcEncode", str)
 		}
-		err = msg.UData.SerializeCompact(w)
+		err = msg.UData.SerializeCompact(w, false)
 		if err != nil {
 			return err
 		}
