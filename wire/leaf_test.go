@@ -181,10 +181,14 @@ func TestLeafDataSerialize(t *testing.T) {
 
 func TestSerializeSizeCompact(t *testing.T) {
 	tests := []struct {
-		ld   LeafData
-		size int
+		name    string
+		isForTx bool
+		ld      LeafData
+		size    int
 	}{
 		{
+			name:    "For block",
+			isForTx: false,
 			ld: LeafData{
 				BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
 				OutPoint: OutPoint{
@@ -198,11 +202,43 @@ func TestSerializeSizeCompact(t *testing.T) {
 			},
 			size: 36, // 8 + 1 + 23 + 4
 		},
+		{
+			name:    "For tx",
+			isForTx: true,
+			ld: LeafData{
+				BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
+					Index: 10,
+				},
+				Amount:     200000,
+				PkScript:   hexToBytes("a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"),
+				Height:     1599255,
+				IsCoinBase: false,
+			},
+			size: 37, // 1 + 8 + 1 + 23 + 4
+		},
+		{
+			name:    "For tx && unconfirmed",
+			isForTx: true,
+			ld: LeafData{
+				BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
+					Index: 10,
+				},
+				Amount:     200000,
+				PkScript:   hexToBytes("a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"),
+				Height:     -1,
+				IsCoinBase: false,
+			},
+			size: 1, // 1
+		},
 	}
 
 	t.Logf("Running %d tests", len(tests))
 	for i, test := range tests {
-		serializedSize := test.ld.SerializeSizeCompact()
+		serializedSize := test.ld.SerializeSizeCompact(test.isForTx)
 		if serializedSize != test.size {
 			t.Errorf("MsgTx.SerializeSizeCompact: #%d got: %d, want: %d", i,
 				serializedSize, test.size)
@@ -213,6 +249,16 @@ func TestSerializeSizeCompact(t *testing.T) {
 
 // Just a function that checks for Compact LeafData equality that doesn't use reflect.
 func checkCompactLeafEqual(ld, checkLeaf LeafData) error {
+	if ld.IsUnconfirmed() {
+		if !checkLeaf.IsUnconfirmed() {
+			return fmt.Errorf("LeafData IsUnconfirmed mismatch. expect %v, got %v",
+				ld.IsUnconfirmed(), checkLeaf.IsUnconfirmed())
+		}
+
+		// Return early for unconfirmed leaf datas.
+		return nil
+	}
+
 	// Only amount, hcb, and pkscript is serialized with the compact serialization.
 	if ld.Amount != checkLeaf.Amount {
 		return fmt.Errorf("LeafData amount mismatch. expect %v, got %v",
@@ -241,13 +287,15 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		ld     LeafData
-		before []byte
-		after  []byte
+		name    string
+		isForTx bool
+		ld      LeafData
+		before  []byte
+		after   []byte
 	}{
 		{
-			name: "Testnet3 tx 061bb0bf... from block 1600000",
+			name:    "Testnet3 tx 061bb0bf... from block 1600000",
+			isForTx: false,
 			ld: LeafData{
 				BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
 				OutPoint: OutPoint{
@@ -261,7 +309,38 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 			},
 		},
 		{
-			name: "Mainnet coinbase tx fa201b65... from block 573123",
+			name:    "Mainnet coinbase tx fa201b65... from block 573123",
+			isForTx: false,
+			ld: LeafData{
+				BlockHash: *newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2"),
+					Index: 0,
+				},
+				Amount:     1315080370,
+				PkScript:   hexToBytes("76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"),
+				Height:     573123,
+				IsCoinBase: true,
+			},
+		},
+		{
+			name:    "unconfirmed",
+			isForTx: true,
+			ld: LeafData{
+				BlockHash: *newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2"),
+					Index: 0,
+				},
+				Amount:     1315080370,
+				PkScript:   hexToBytes("76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"),
+				Height:     -1,
+				IsCoinBase: true,
+			},
+		},
+		{
+			name:    "confirmed",
+			isForTx: true,
 			ld: LeafData{
 				BlockHash: *newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
 				OutPoint: OutPoint{
@@ -279,12 +358,12 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 	for _, test := range tests {
 		// Serialize
 		writer := &bytes.Buffer{}
-		test.ld.SerializeCompact(writer)
+		test.ld.SerializeCompact(writer, test.isForTx)
 		test.before = writer.Bytes()
 
 		// Deserialize
 		checkLeaf := NewLeafData()
-		checkLeaf.DeserializeCompact(writer)
+		checkLeaf.DeserializeCompact(writer, test.isForTx)
 
 		err := checkCompactLeafEqual(test.ld, checkLeaf)
 		if err != nil {
@@ -293,7 +372,7 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
-		checkLeaf.SerializeCompact(afterWriter)
+		checkLeaf.SerializeCompact(afterWriter, test.isForTx)
 		test.after = afterWriter.Bytes()
 
 		// Check if before and after match.

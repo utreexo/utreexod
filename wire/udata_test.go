@@ -6,6 +6,7 @@ package wire
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -108,12 +109,7 @@ func getLeafDatas() []leafDatas {
 	}
 }
 
-func checkUDEqual(ud, checkUData *UData, name string) error {
-	if ud.Height != checkUData.Height {
-		return fmt.Errorf("%s: UData height mismatch. expect %v, got %v",
-			name, ud.Height, checkUData.Height)
-	}
-
+func checkUDEqual(ud, checkUData *UData, isCompact bool, name string) error {
 	for i := range ud.AccProof.Targets {
 		if ud.AccProof.Targets[i] != checkUData.AccProof.Targets[i] {
 			return fmt.Errorf("%s: UData.AccProof Target mismatch. expect %v, got %v",
@@ -128,23 +124,45 @@ func checkUDEqual(ud, checkUData *UData, name string) error {
 		}
 	}
 
+	if len(ud.LeafDatas) != len(checkUData.LeafDatas) {
+		return fmt.Errorf("%s: LeafData length mismatch. expect %v, got %v",
+			name, len(ud.LeafDatas), len(checkUData.LeafDatas))
+	}
+
 	for i := range ud.LeafDatas {
 		leaf := ud.LeafDatas[i]
 		checkLeaf := checkUData.LeafDatas[i]
 
+		if !isCompact {
+			if leaf.BlockHash != checkLeaf.BlockHash {
+				return fmt.Errorf("%s: LeafData blockhash mismatch. expect %v, got %v",
+					name, hex.EncodeToString(leaf.BlockHash[:]),
+					hex.EncodeToString(checkLeaf.BlockHash[:]))
+			}
+			if leaf.OutPoint.Hash != checkLeaf.OutPoint.Hash {
+				return fmt.Errorf("%s: LeafData outpoint hash mismatch. expect %v, got %v",
+					name, hex.EncodeToString(leaf.OutPoint.Hash[:]),
+					hex.EncodeToString(checkLeaf.OutPoint.Hash[:]))
+			}
+			if leaf.OutPoint.Index != checkLeaf.OutPoint.Index {
+				return fmt.Errorf("%s: LeafData outpoint index mismatch. expect %v, got %v",
+					name, leaf.OutPoint.Index, checkLeaf.OutPoint.Index)
+			}
+		}
+
 		// Only amount, hcb, and pkscript is serialized with the compact serialization.
 		if leaf.Amount != checkLeaf.Amount {
-			return fmt.Errorf("%s: LleafData amount mismatch. expect %v, got %v",
+			return fmt.Errorf("%s: LeafData amount mismatch. expect %v, got %v",
 				name, leaf.Amount, checkLeaf.Amount)
 		}
 
 		if leaf.IsCoinBase != checkLeaf.IsCoinBase {
-			return fmt.Errorf("%s: LleafData IsCoinBase mismatch. expect %v, got %v",
+			return fmt.Errorf("%s: LeafData IsCoinBase mismatch. expect %v, got %v",
 				name, leaf.IsCoinBase, checkLeaf.IsCoinBase)
 		}
 
 		if leaf.Height != checkLeaf.Height {
-			return fmt.Errorf("%s: LleafData height mismatch. expect %v, got %v",
+			return fmt.Errorf("%s: LeafData height mismatch. expect %v, got %v",
 				name, leaf.Height, checkLeaf.Height)
 		}
 
@@ -152,7 +170,6 @@ func checkUDEqual(ud, checkUData *UData, name string) error {
 			return fmt.Errorf("%s: LeafData pkscript mismatch. expect %x, got %x",
 				name, leaf.PkScript, checkLeaf.PkScript)
 		}
-
 	}
 
 	for i := range ud.TxoTTLs {
@@ -162,24 +179,115 @@ func checkUDEqual(ud, checkUData *UData, name string) error {
 		}
 	}
 
-	if !reflect.DeepEqual(ud, checkUData) {
-		if ud.Height != checkUData.Height {
-			return fmt.Errorf("ud and checkUData height mismatch")
-		}
-		if !reflect.DeepEqual(ud.AccProof, checkUData.AccProof) {
-			return fmt.Errorf("ud and checkUData reflect.DeepEqual AccProof mismatch")
-		}
+	if !isCompact {
+		if !reflect.DeepEqual(ud, checkUData) {
+			if !reflect.DeepEqual(ud.AccProof, checkUData.AccProof) {
+				return fmt.Errorf("ud and checkUData reflect.DeepEqual AccProof mismatch")
+			}
 
-		if !reflect.DeepEqual(ud.LeafDatas, checkUData.LeafDatas) {
-			return fmt.Errorf("ud and checkUData reflect.DeepEqual LeafDatas mismatch")
+			if !reflect.DeepEqual(ud.LeafDatas, checkUData.LeafDatas) {
+				return fmt.Errorf("ud and checkUData reflect.DeepEqual LeafDatas mismatch")
+			}
+			// TODO add this back in.  It fails for now as we're not initalizing the ttls.
+			//if !reflect.DeepEqual(ud.TxoTTLs, checkUData.TxoTTLs) {
+			//	return fmt.Errorf("ud and checkUData reflect.DeepEqual TxoTTLs mismatch")
+			//}
 		}
-		// TODO add this back in.  It fails for now as we're not initalizing the ttls.
-		//if !reflect.DeepEqual(ud.TxoTTLs, checkUData.TxoTTLs) {
-		//	return fmt.Errorf("ud and checkUData reflect.DeepEqual TxoTTLs mismatch")
-		//}
 	}
 
 	return nil
+}
+
+func TestUDataSerializeSize(t *testing.T) {
+	t.Parallel()
+
+	type test struct {
+		name          string
+		ud            UData
+		size          int
+		sizeCompact   int
+		sizeCompactTx int
+	}
+
+	leafDatas := getLeafDatas()
+	tests := make([]test, 0, len(leafDatas))
+
+	for _, leafData := range leafDatas {
+		// New forest object.
+		forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
+
+		// Create hashes to add from the stxo data.
+		addHashes := make([]accumulator.Leaf, 0, len(leafData.leavesPerBlock))
+		for i, ld := range leafData.leavesPerBlock {
+			addHashes = append(addHashes, accumulator.Leaf{
+				Hash: ld.LeafHash(),
+				// Just half and half.
+				Remember: i%2 == 0,
+			})
+		}
+		// Add to the accumulator.
+		forest.Modify(addHashes, nil)
+
+		// Generate Proof.
+		ud, err := GenerateUData(leafData.leavesPerBlock, forest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ttlAndProofSize := (len(ud.TxoTTLs) * 4) + ud.AccProof.SerializeSize()
+
+		// Test size.
+		size := 0
+		for _, leaf := range leafData.leavesPerBlock {
+			size += leaf.SerializeSize()
+		}
+		size += ttlAndProofSize
+
+		// Test compact block size.
+		sizeCompact := 0
+		for _, leaf := range leafData.leavesPerBlock {
+			sizeCompact += leaf.SerializeSizeCompact(false)
+		}
+		sizeCompact += ttlAndProofSize
+
+		// Test compact tx size.
+		sizeCompactTx := 0
+		for _, leaf := range leafData.leavesPerBlock {
+			sizeCompactTx += leaf.SerializeSizeCompact(true)
+		}
+		sizeCompactTx += ttlAndProofSize
+
+		// Append to the tests.
+		tests = append(tests, test{
+			name:          leafData.name,
+			ud:            *ud,
+			size:          size,
+			sizeCompact:   sizeCompact,
+			sizeCompactTx: sizeCompactTx,
+		})
+	}
+
+	for _, test := range tests {
+		gotSize := test.ud.SerializeSize()
+		if gotSize != test.size {
+			t.Errorf("%s: UData serialize size fail. "+
+				"expect %d, got %d", test.name,
+				test.size, gotSize)
+		}
+
+		gotSize = test.ud.SerializeSizeCompact(false)
+		if gotSize != test.sizeCompact {
+			t.Errorf("%s: UData serialize size compact (false) fail. "+
+				"expect %d, got %d", test.name,
+				test.sizeCompact, gotSize)
+		}
+
+		gotSize = test.ud.SerializeSizeCompact(true)
+		if gotSize != test.sizeCompactTx {
+			t.Errorf("%s: UData serialize size compact (true) fail. "+
+				"expect %d, got %d", test.name,
+				test.sizeCompactTx, gotSize)
+		}
+	}
 }
 
 func TestUDataSerialize(t *testing.T) {
@@ -212,7 +320,7 @@ func TestUDataSerialize(t *testing.T) {
 		forest.Modify(addHashes, nil)
 
 		// Generate Proof.
-		ud, err := GenerateUData(leafData.leavesPerBlock, forest, leafData.height)
+		ud, err := GenerateUData(leafData.leavesPerBlock, forest)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -231,7 +339,7 @@ func TestUDataSerialize(t *testing.T) {
 		checkUData := new(UData)
 		checkUData.Deserialize(writer)
 
-		err := checkUDEqual(&test.ud, checkUData, test.name)
+		err := checkUDEqual(&test.ud, checkUData, false, test.name)
 		if err != nil {
 			t.Error(err)
 		}
@@ -254,10 +362,12 @@ func TestUDataSerializeCompact(t *testing.T) {
 	t.Parallel()
 
 	type test struct {
-		name   string
-		ud     UData
-		before []byte
-		after  []byte
+		name      string
+		isForTx   bool
+		leafCount int
+		ud        UData
+		before    []byte
+		after     []byte
 	}
 
 	leafDatas := getLeafDatas()
@@ -280,28 +390,47 @@ func TestUDataSerializeCompact(t *testing.T) {
 		forest.Modify(addHashes, nil)
 
 		// Generate Proof.
-		ud, err := GenerateUData(leafData.leavesPerBlock, forest, leafData.height)
+		ud, err := GenerateUData(leafData.leavesPerBlock, forest)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		// Append to the tests.
-		tests = append(tests, test{name: leafData.name, ud: *ud})
+		tests = append(tests, test{
+			name:    leafData.name,
+			isForTx: false,
+			ud:      *ud,
+		})
+		tests = append(tests, test{
+			name:      leafData.name + " + isForTx",
+			isForTx:   true,
+			leafCount: len(ud.LeafDatas),
+			ud:        *ud,
+		})
 	}
 
 	for _, test := range tests {
 		// Serialize
 		writer := &bytes.Buffer{}
-		test.ud.SerializeCompact(writer)
+		test.ud.SerializeCompact(writer, test.isForTx)
 		test.before = writer.Bytes()
 
 		// Deserialize
 		checkUData := new(UData)
-		checkUData.DeserializeCompact(writer)
+		if test.isForTx {
+			checkUData.DeserializeCompact(writer, test.isForTx, test.leafCount)
+		} else {
+			checkUData.DeserializeCompact(writer, test.isForTx, 0)
+		}
+
+		err := checkUDEqual(&test.ud, checkUData, true, test.name)
+		if err != nil {
+			t.Error(err)
+		}
 
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
-		checkUData.SerializeCompact(afterWriter)
+		checkUData.SerializeCompact(afterWriter, test.isForTx)
 		test.after = afterWriter.Bytes()
 
 		// Check if before and after match.
@@ -361,7 +490,7 @@ func TestGenerateUData(t *testing.T) {
 	delLeaves[0] = leafDatas[firstDelIdx]
 	delLeaves[1] = leafDatas[secondDelIdx]
 
-	ud, err := GenerateUData(delLeaves, forest, 0) // random blockheight is ok
+	ud, err := GenerateUData(delLeaves, forest)
 	if err != nil {
 		t.Fatal(err)
 	}

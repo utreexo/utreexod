@@ -49,7 +49,7 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView
 	// Grab the outpoints that need their existence proven and check that
 	// the udata matches up.
 	OPsToProve := util.BlockToDelOPs(block)
-	err := ProofSanity(ud, OPsToProve, block.Height())
+	err := ProofSanity(ud, OPsToProve)
 	if err != nil {
 		return err
 	}
@@ -89,17 +89,11 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView
 
 // ProofSanity checks that the UData that was given proves the same outPoints that
 // is included in the corresponding block.
-func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint, blockHeight int32) error {
-	if ud.Height != blockHeight {
-		err := fmt.Errorf("ProofSanity error: height mismatch. Udata height %d, block height %d",
-			ud.Height, blockHeight)
-		return err
-	}
-
+func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
 	// Check that the length is the same.
 	if len(outPoints) != len(ud.LeafDatas) {
-		err := fmt.Errorf("ProofSanity error at height %d. %d outpoints need proofs but %d proven\n",
-			ud.Height, len(outPoints), len(ud.LeafDatas))
+		err := fmt.Errorf("ProofSanity error. %d outpoints need proofs but %d proven\n",
+			len(outPoints), len(ud.LeafDatas))
 		return err
 	}
 
@@ -401,14 +395,20 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 
 	// If there is something to prove but ud is nil, return an error.
 	if ud == nil {
-		return fmt.Errorf("BlockChain.VerifyUData(): passed in UData is nil. " +
+		return fmt.Errorf("VerifyUData(): passed in UData is nil. " +
 			"Cannot validate utreexo accumulator proof")
 	}
 
-	// Check that there are equal amount of txIns for LeafDatas.
-	if len(ud.LeafDatas) != len(txIns) {
-		return fmt.Errorf("BlockChain.VerifyUData(): length of txIns and LeafDatas differ. "+
-			"%d LeafDatas, but %d txIns", len(ud.LeafDatas), len(txIns))
+	// Check that there are equal amount of LeafDatas for txIns.
+	if len(txIns) != len(ud.LeafDatas) {
+		str := fmt.Sprintf("VerifyUData(): length of txIns and LeafDatas differ. "+
+			"%d txIns, but %d LeafDatas. TxIns PreviousOutPoints are:\n",
+			len(txIns), len(ud.LeafDatas))
+		for _, txIn := range txIns {
+			str += fmt.Sprintf("%s\n", txIn.PreviousOutPoint.String())
+		}
+
+		return fmt.Errorf(str)
 	}
 
 	// Make a slice of hashes from LeafDatas. These are the hash commitments
@@ -417,14 +417,6 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 	for i, txIn := range txIns {
 		ld := &ud.LeafDatas[i]
 
-		// Get BlockHash.
-		blockNode := b.bestChain.NodeByHeight(ld.Height)
-		if blockNode == nil {
-			return fmt.Errorf("Couldn't find blockNode for height %d",
-				ld.Height)
-		}
-		ld.BlockHash = blockNode.hash
-
 		// Get OutPoint.
 		op := wire.OutPoint{
 			Hash:  txIn.PreviousOutPoint.Hash,
@@ -432,18 +424,36 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 		}
 		ld.OutPoint = op
 
-		delHashes = append(delHashes, ld.LeafHash())
+		// Only append and try to fetch blockHash for confirmed txs.  Skip
+		// all unconfirmed txs.
+		if !ld.IsUnconfirmed() {
+			// Get BlockHash.
+			blockNode := b.bestChain.NodeByHeight(ld.Height)
+			if blockNode == nil {
+				return fmt.Errorf("Couldn't find blockNode for height %d for outpoint %s",
+					ld.Height, txIn.PreviousOutPoint.String())
+			}
+			ld.BlockHash = blockNode.hash
+
+			delHashes = append(delHashes, ld.LeafHash())
+		}
 	}
 
 	// Acquire read lock before accessing the accumulator state.
 	b.chainLock.RLock()
 	defer b.chainLock.RUnlock()
 
-	// IngestBatchProof first checks that the utreexo proofs are valid. If it is valid,
-	// it readys the utreexo accumulator for additions/deletions.
+	// VerifyBatchProof checks that the utreexo proofs are valid without
+	// mutating the accumulator.
 	err := b.utreexoView.accumulator.VerifyBatchProof(delHashes, ud.AccProof)
 	if err != nil {
-		return err
+		str := "VerifyBatchProof fail. All txIns-leaf datas:\n"
+		for i, txIn := range txIns {
+			str += fmt.Sprintf("txIn: %s, leafdata: %s\n", txIn.PreviousOutPoint.String(),
+				ud.LeafDatas[i].ToString())
+		}
+		str += fmt.Sprintf("err: %s", err.Error())
+		return fmt.Errorf(str)
 	}
 
 	return nil

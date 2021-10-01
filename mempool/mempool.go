@@ -827,11 +827,20 @@ func (mp *TxPool) fetchInputUtxosFromUData(tx *btcutil.Tx, ud *wire.UData) *bloc
 	utxoView := blockchain.NewUtxoViewpoint()
 	viewEntries := utxoView.Entries()
 
-	// Loop through LeafDatas and convert them into UtxoEntries.
+	// Loop through leaf datas and convert them into UtxoEntries.
 	for _, ld := range ud.LeafDatas {
-		txo := wire.NewTxOut(ld.Amount, ld.PkScript)
-		utxo := blockchain.NewUtxoEntry(txo, ld.Height, ld.IsCoinBase)
-		viewEntries[ld.OutPoint] = utxo
+		// If the leaf data was marked to be unconfirmed, set as nil.
+		// The outpoint for the txIn that this LeafData is supposed to
+		// represent will be attempted to be fetched from the mempool
+		// by the for loop below.
+		if ld.IsUnconfirmed() {
+			viewEntries[ld.OutPoint] = nil
+		} else {
+			// For confirmed leaf datas, make a utxo.
+			txo := wire.NewTxOut(ld.Amount, ld.PkScript)
+			utxo := blockchain.NewUtxoEntry(txo, ld.Height, ld.IsCoinBase)
+			viewEntries[ld.OutPoint] = utxo
+		}
 	}
 
 	// Attempt to populate any missing inputs from the transaction pool.
@@ -851,32 +860,6 @@ func (mp *TxPool) fetchInputUtxosFromUData(tx *btcutil.Tx, ud *wire.UData) *bloc
 	}
 
 	return utxoView
-}
-
-// filterMempoolTxs returns a slice of txIns that are commited in a block and
-// filters out all those that aren't.  Used to find which inputs should have
-// utreexo proofs.
-//
-// This function MUST be called with the mempool lock held (for reads).
-func (mp *TxPool) filterMempoolTxs(tx *btcutil.Tx) []*wire.TxIn {
-	var retTxIns []*wire.TxIn
-
-	// Coinbase inputs don't have a previous outpoint.  Return early.
-	if blockchain.IsCoinBaseTx(tx.MsgTx()) {
-		return retTxIns
-	}
-
-	for _, txIn := range tx.MsgTx().TxIn {
-		prevOut := &txIn.PreviousOutPoint
-
-		// Only append if it doesn't exist in the mempool.
-		_, exists := mp.pool[prevOut.Hash]
-		if !exists {
-			retTxIns = append(retTxIns, txIn)
-		}
-	}
-
-	return retTxIns
 }
 
 // FetchTransaction returns the requested transaction from the transaction pool.
@@ -1100,8 +1083,7 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 
 		// First verify the proof to ensure that the proof the peer has
 		// sent was over valid.
-		txInsToProve := mp.filterMempoolTxs(tx)
-		err := mp.cfg.VerifyUData(ud, txInsToProve)
+		err := mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn)
 		if err != nil {
 			return nil, nil, err
 		}

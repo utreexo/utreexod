@@ -16,9 +16,6 @@ import (
 // for a Bitcoin block.  With this data, a full node may only keep the utreexo
 // roots and still be able to fully validate a block.
 type UData struct {
-	// Height is the height of the block this UData corresponds to.
-	Height int32
-
 	// AccProof is the utreexo accumulator proof for all the inputs.
 	AccProof accumulator.BatchProof
 
@@ -56,8 +53,7 @@ func (ud *UData) SerializeSize() int {
 	}
 
 	// Add on accumulator proof size and the varint serialized height size.
-	return txoTTLSize + ldSize + ud.AccProof.SerializeSize() +
-		VarIntSerializeSize(uint64(ud.Height))
+	return txoTTLSize + ldSize + ud.AccProof.SerializeSize()
 }
 
 // -----------------------------------------------------------------------------
@@ -65,7 +61,7 @@ func (ud *UData) SerializeSize() int {
 // verify a block or a tx with only the utreexo roots.
 //
 // The serialized format is:
-// [<block height><accumulator proof><leaf datas><txo time-to-live values>]
+// [<accumulator proof><leaf datas><txo time-to-live values>]
 //
 // Accumulator proof serialization can be found in github.com/mit-dci/utreexo.
 //
@@ -74,7 +70,6 @@ func (ud *UData) SerializeSize() int {
 // All together, the serialization looks like so:
 //
 // Field                    Type       Size
-// block height             int32      4
 // accumulator proof        []byte     variable
 // leaf datas               []byte     variable
 // txo time-to-live values  []int32    variable
@@ -83,18 +78,13 @@ func (ud *UData) SerializeSize() int {
 
 // Serialize encodes the UData to w using the UData serialization format.
 func (ud *UData) Serialize(w io.Writer) error {
+	err := WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
+	if err != nil {
+		return err
+	}
+
 	bs := newSerializer()
 	defer bs.free()
-
-	err := bs.PutUint32(w, littleEndian, uint32(ud.Height))
-	if err != nil {
-		return err
-	}
-
-	err = WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
-	if err != nil {
-		return err
-	}
 
 	for _, ttlval := range ud.TxoTTLs {
 		err = bs.PutUint32(w, littleEndian, uint32(ttlval))
@@ -122,21 +112,14 @@ func (ud *UData) Serialize(w io.Writer) error {
 
 // Deserialize encodes the UData to w using the UData serialization format.
 func (ud *UData) Deserialize(r io.Reader) error {
-	bs := newSerializer()
-	defer bs.free()
-
-	height, err := bs.Uint32(r, littleEndian)
-	if err != nil {
-		returnErr := messageError("Deserialize height", err.Error())
-		return returnErr
-	}
-	ud.Height = int32(height)
-
 	ttlCount, err := ReadVarInt(r, 0)
 	if err != nil {
 		returnErr := messageError("Deserialize ttlCount", err.Error())
 		return returnErr
 	}
+
+	bs := newSerializer()
+	defer bs.free()
 
 	ud.TxoTTLs = make([]int32, ttlCount)
 	for i := range ud.TxoTTLs {
@@ -160,8 +143,8 @@ func (ud *UData) Deserialize(r io.Reader) error {
 	for i := range ud.LeafDatas {
 		err = ud.LeafDatas[i].Deserialize(r)
 		if err != nil {
-			str := fmt.Sprintf("Height:%d, ttlCount:%d, targetCount:%d, Stxos[%d], err:%s\n",
-				ud.Height, ttlCount, len(ud.AccProof.Targets), i, err.Error())
+			str := fmt.Sprintf("ttlCount:%d, targetCount:%d, Stxos[%d], err:%s\n",
+				ttlCount, len(ud.AccProof.Targets), i, err.Error())
 			returnErr := messageError("Deserialize stxos", str)
 			return returnErr
 		}
@@ -170,39 +153,57 @@ func (ud *UData) Deserialize(r io.Reader) error {
 	return nil
 }
 
+// -----------------------------------------------------------------------------
+// UData compact serialization includes only the data that is missing for a
+// utreexo node to verify a block or a tx with only the utreexo roots.  The
+// compact serialization leaves out data that is able to be fetched locally
+// by a node.
+//
+// The serialized format is:
+// [<accumulator proof><leaf datas><txo time-to-live values>]
+//
+// Accumulator proof serialization can be found in github.com/mit-dci/utreexo.
+//
+// Compact LeafData serialization can be found in wire/leaf.go.
+//
+// All together, the serialization looks like so:
+//
+// Field                    Type       Size
+// accumulator proof        []byte     variable
+// leaf datas               []byte     variable
+// txo time-to-live values  []int32    variable
+//
+// -----------------------------------------------------------------------------
+
 // SerializeSizeCompact returns the number of bytes it would take to serialize the
 // UData using the compact UData serialization format.
-func (ud *UData) SerializeSizeCompact() int {
+func (ud *UData) SerializeSizeCompact(isForTx bool) int {
 	// Size of all the leafData.
 	var ldSize int
 	for _, l := range ud.LeafDatas {
-		ldSize += l.SerializeSizeCompact()
+		ldSize += l.SerializeSizeCompact(isForTx)
 	}
 
 	// Size of all the time to live values.
 	txoTTLSize := len(ud.TxoTTLs) * 4
 
 	// Add on accumulator proof size and the height size.
-	return txoTTLSize + ldSize + ud.AccProof.SerializeSize() + 4
+	return txoTTLSize + ldSize + ud.AccProof.SerializeSize()
 }
 
 // SerializeCompact encodes the UData to w using the compact UData
 // serialization format.  It follows the normal UData serialization format with
 // the exception that compact leaf data serialization is used.  Everything else
 // remains the same.
-func (ud *UData) SerializeCompact(w io.Writer) error {
+func (ud *UData) SerializeCompact(w io.Writer, isForTx bool) error {
+	err := WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
+	if err != nil {
+		return err
+	}
+
 	bs := newSerializer()
 	defer bs.free()
 
-	err := bs.PutUint32(w, littleEndian, uint32(ud.Height))
-	if err != nil {
-		return err
-	}
-
-	err = WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
-	if err != nil {
-		return err
-	}
 	for _, ttlval := range ud.TxoTTLs {
 		err = bs.PutUint32(w, littleEndian, uint32(ttlval))
 		if err != nil {
@@ -218,7 +219,7 @@ func (ud *UData) SerializeCompact(w io.Writer) error {
 
 	// Write all the leafDatas.
 	for _, ld := range ud.LeafDatas {
-		err = ld.SerializeCompact(w)
+		err = ld.SerializeCompact(w, isForTx)
 		if err != nil {
 			return err
 		}
@@ -229,22 +230,19 @@ func (ud *UData) SerializeCompact(w io.Writer) error {
 
 // DeserializeCompact decodes the UData from r using the compact UData
 // serialization format.
-func (ud *UData) DeserializeCompact(r io.Reader) error {
-	bs := newSerializer()
-	defer bs.free()
-
-	height, err := bs.Uint32(r, littleEndian)
-	if err != nil {
-		returnErr := messageError("DeserializeCompact height", err.Error())
-		return returnErr
-	}
-	ud.Height = int32(height)
-
+//
+// NOTE if deserializing for a transaction, a non zero txInCount MUST be passed
+// in as a correct txCount is critical for deserializing correctly.  When
+// deserializing a block, txInCount does not matter.
+func (ud *UData) DeserializeCompact(r io.Reader, isForTx bool, txInCount int) error {
 	ttlCount, err := ReadVarInt(r, 0)
 	if err != nil {
 		returnErr := messageError("DeserializeCompact ttlCount", err.Error())
 		return returnErr
 	}
+
+	bs := newSerializer()
+	defer bs.free()
 
 	ud.TxoTTLs = make([]int32, ttlCount)
 	for i := range ud.TxoTTLs {
@@ -263,14 +261,20 @@ func (ud *UData) DeserializeCompact(r io.Reader) error {
 		return returnErr
 	}
 
-	// we've already gotten targets. 1 leafdata per target
-	ud.LeafDatas = make([]LeafData, len(ud.AccProof.Targets))
+	// NOTE there may be more leafDatas vs targets for txs as unconfirmed
+	// txs will be included as leaf datas but not as targets.  For blocks
+	// the leaf data count will match the target count.
+	if isForTx {
+		ud.LeafDatas = make([]LeafData, txInCount)
+	} else {
+		ud.LeafDatas = make([]LeafData, len(ud.AccProof.Targets))
+	}
 	for i := range ud.LeafDatas {
-		err = ud.LeafDatas[i].DeserializeCompact(r)
+		err = ud.LeafDatas[i].DeserializeCompact(r, isForTx)
 		if err != nil {
-			str := fmt.Sprintf("Height:%d, ttlCount:%d, targetCount:%d, Stxos[%d], err:%s\n",
-				ud.Height, ttlCount, len(ud.AccProof.Targets), i, err.Error())
-			returnErr := messageError("Deserialize stxos", str)
+			str := fmt.Sprintf("ttlCount:%d, targetCount:%d, LeafDatas[%d], err:%s\n",
+				ttlCount, len(ud.AccProof.Targets), i, err.Error())
+			returnErr := messageError("Deserialize leaf datas", str)
 			return returnErr
 		}
 	}
@@ -282,17 +286,21 @@ func (ud *UData) DeserializeCompact(r io.Reader) error {
 // to get a batched inclusion proof from the accumulator. It then adds on the leaf data,
 // to create a block proof which both proves inclusion and gives all utxo data
 // needed for transaction verification.
-func GenerateUData(txIns []LeafData, forest *accumulator.Forest, blockHeight int32) (
+func GenerateUData(txIns []LeafData, forest *accumulator.Forest) (
 	*UData, error) {
 
 	ud := new(UData)
-	ud.Height = blockHeight
 	ud.LeafDatas = txIns
 
 	// make slice of hashes from leafdata
-	delHashes := make([]accumulator.Hash, len(ud.LeafDatas))
-	for i := range ud.LeafDatas {
-		delHashes[i] = ud.LeafDatas[i].LeafHash()
+	var unconfirmedCount int
+	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	for _, ld := range ud.LeafDatas {
+		if ld.IsUnconfirmed() {
+			unconfirmedCount++
+			continue
+		}
+		delHashes = append(delHashes, ld.LeafHash())
 	}
 
 	// Generate the utreexo accumulator proof for all the inputs.
@@ -316,9 +324,9 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest, blockHeight int
 		return nil, err
 	}
 
-	if len(ud.AccProof.Targets) != len(txIns) {
-		str := fmt.Sprintf("GenerateUData has %d txIns but has proofs for %d txIns",
-			len(txIns), len(ud.AccProof.Targets))
+	if len(ud.AccProof.Targets) != len(txIns)-unconfirmedCount {
+		str := fmt.Sprintf("GenerateUData has %d txIns that need to be proven but has proofs for %d txIns",
+			len(txIns)-unconfirmedCount, len(ud.AccProof.Targets))
 		return nil, messageError("GenerateUData", str)
 	}
 
