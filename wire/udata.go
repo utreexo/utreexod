@@ -53,7 +53,7 @@ func (ud *UData) SerializeSize() int {
 	}
 
 	// Add on accumulator proof size and the varint serialized height size.
-	return txoTTLSize + ldSize + ud.AccProof.SerializeSize()
+	return txoTTLSize + ldSize + BatchProofSerializeSize(&ud.AccProof)
 }
 
 // -----------------------------------------------------------------------------
@@ -63,16 +63,17 @@ func (ud *UData) SerializeSize() int {
 // The serialized format is:
 // [<accumulator proof><leaf datas><txo time-to-live values>]
 //
-// Accumulator proof serialization can be found in github.com/mit-dci/utreexo.
+// Accumulator proof serialization follows the batchproof serialization found
+// in wire/batchproof.go.
 //
 // LeafData serialization can be found in wire/leaf.go.
 //
 // All together, the serialization looks like so:
 //
 // Field                    Type       Size
+// txo time-to-live values  []int32    variable
 // accumulator proof        []byte     variable
 // leaf datas               []byte     variable
-// txo time-to-live values  []int32    variable
 //
 // -----------------------------------------------------------------------------
 
@@ -93,7 +94,7 @@ func (ud *UData) Serialize(w io.Writer) error {
 		}
 	}
 
-	err = ud.AccProof.Serialize(w)
+	err = BatchProofSerialize(w, &ud.AccProof)
 	if err != nil {
 		returnErr := messageError("Serialize", err.Error())
 		return returnErr
@@ -132,11 +133,12 @@ func (ud *UData) Deserialize(r io.Reader) error {
 		ud.TxoTTLs[i] = int32(ttl)
 	}
 
-	err = ud.AccProof.Deserialize(r)
+	proof, err := BatchProofDeserialize(r)
 	if err != nil {
 		returnErr := messageError("Deserialize AccProof", err.Error())
 		return returnErr
 	}
+	ud.AccProof = *proof
 
 	// we've already gotten targets. 1 leafdata per target
 	ud.LeafDatas = make([]LeafData, len(ud.AccProof.Targets))
@@ -162,16 +164,17 @@ func (ud *UData) Deserialize(r io.Reader) error {
 // The serialized format is:
 // [<accumulator proof><leaf datas><txo time-to-live values>]
 //
-// Accumulator proof serialization can be found in github.com/mit-dci/utreexo.
+// Accumulator proof serialization follows the batchproof serialization found
+// in wire/batchproof.go.
 //
 // Compact LeafData serialization can be found in wire/leaf.go.
 //
 // All together, the serialization looks like so:
 //
 // Field                    Type       Size
+// txo time-to-live values  []int32    variable
 // accumulator proof        []byte     variable
 // leaf datas               []byte     variable
-// txo time-to-live values  []int32    variable
 //
 // -----------------------------------------------------------------------------
 
@@ -188,7 +191,7 @@ func (ud *UData) SerializeSizeCompact(isForTx bool) int {
 	txoTTLSize := len(ud.TxoTTLs) * 4
 
 	// Add on accumulator proof size and the height size.
-	return txoTTLSize + ldSize + ud.AccProof.SerializeSize()
+	return txoTTLSize + ldSize + BatchProofSerializeSize(&ud.AccProof)
 }
 
 // SerializeCompact encodes the UData to w using the compact UData
@@ -211,7 +214,7 @@ func (ud *UData) SerializeCompact(w io.Writer, isForTx bool) error {
 		}
 	}
 
-	err = ud.AccProof.Serialize(w)
+	err = BatchProofSerialize(w, &ud.AccProof)
 	if err != nil {
 		returnErr := messageError("SerializeCompact", err.Error())
 		return returnErr
@@ -255,11 +258,12 @@ func (ud *UData) DeserializeCompact(r io.Reader, isForTx bool, txInCount int) er
 		ud.TxoTTLs[i] = int32(ttl)
 	}
 
-	err = ud.AccProof.Deserialize(r)
+	proof, err := BatchProofDeserialize(r)
 	if err != nil {
 		returnErr := messageError("DeserializeCompact", err.Error())
 		return returnErr
 	}
+	ud.AccProof = *proof
 
 	// NOTE there may be more leafDatas vs targets for txs as unconfirmed
 	// txs will be included as leaf datas but not as targets.  For blocks
