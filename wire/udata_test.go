@@ -233,7 +233,7 @@ func TestUDataSerializeSize(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ttlAndProofSize := (len(ud.TxoTTLs) * 4) + ud.AccProof.SerializeSize()
+		ttlAndProofSize := (len(ud.TxoTTLs) * 4) + BatchProofSerializeSize(&ud.AccProof)
 
 		// Test size.
 		size := 0
