@@ -7,7 +7,9 @@ package txscript
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 )
@@ -1087,4 +1089,66 @@ func ExtractAtomicSwapDataPushes(version uint16, pkScript []byte) (*AtomicSwapDa
 	copy(pushes.RecipientHash160[:], template[9].extractedData)
 	copy(pushes.RefundHash160[:], template[16].extractedData)
 	return &pushes, nil
+}
+
+// ReconstructScript reconstructs the script from the witness for standard
+// transactions.  This function only works for p2pkh, p2wpkh, p2sh and p2wsh.
+// Only version 0 witness scripts are supported.  Returns nil for types that
+// are not supported
+func ReconstructScript(sigScript []byte, witness wire.TxWitness, class ScriptClass) ([]byte, error) {
+	var script []byte
+	var err error
+
+	switch class {
+	case PubKeyHashTy:
+		var data []byte
+
+		tokenizer := MakeScriptTokenizer(0, sigScript)
+		for tokenizer.Next() {
+			data = tokenizer.Data()
+
+			// If we found the key, break immediately.  This prevents
+			// erroring out from OP_DUP OP_DROP opcodes that are appended
+			// to some redeem scripts.
+			if btcec.IsCompressedPubKey(data) {
+				break
+			}
+		}
+		hash := btcutil.Hash160(data)
+		script, err = payToPubKeyHashScript(hash)
+		if err != nil {
+			return nil, err
+		}
+	case ScriptHashTy:
+		var data []byte
+		tokenizer := MakeScriptTokenizer(0, sigScript)
+		for tokenizer.Next() {
+			data = tokenizer.Data()
+		}
+		hash := btcutil.Hash160(data)
+		script, err = payToScriptHashScript(hash)
+		if err != nil {
+			return nil, err
+		}
+	case WitnessV0PubKeyHashTy:
+		last := witness[len(witness)-1]
+		hash := hash160(last)
+
+		script, err = payToWitnessPubKeyHashScript(hash)
+		if err != nil {
+			return nil, err
+		}
+	case WitnessV0ScriptHashTy:
+		last := witness[len(witness)-1]
+		hash := chainhash.HashB(last)
+
+		script, err = payToWitnessScriptHashScript(hash)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, nil
+	}
+
+	return script, nil
 }
