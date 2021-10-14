@@ -1247,3 +1247,138 @@ func TestNewScriptClass(t *testing.T) {
 		})
 	}
 }
+
+func TestReconstructScript(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		sigScript string
+		pkScript  string
+		witness   []string
+		class     ScriptClass
+	}{
+		{
+			// 8ea059a12212dd6d2ca3a87b9550bbaa290211679a6be990e9ed8152094c987d:0 on testnet3
+			name: "p2pkh",
+			pkScript: "OP_DUP OP_HASH160 DATA_20 " +
+				"0x00da9fa0c8d40f1344f6488eef501096f05fa80e " +
+				"OP_EQUALVERIFY OP_CHECKSIG",
+			sigScript: "DATA_71 0x3044022100f2325e245f5b69723f7" +
+				"429bb280f0f43885b2a395992d82af6441e3c4cf5e" +
+				"916021f60e36487e2b7e86569a3d95896c54187d6b" +
+				"4a3b61f294d1cb681f182dd238101 " +
+				"DATA_33 0x037b80492279732766f5960bd3" +
+				"8b18a2ae7089a1efdaf188d2a536bffd3430c574 " +
+				"OP_DUP OP_DROP",
+			class: PubKeyHashTy,
+		},
+		{
+			// 37096812a90af1a8a3267d3f9d75111a25e2a8c5411770998e0ee5f75599c9cc:1 on mainnet
+			name: "p2sh",
+			pkScript: "OP_HASH160 DATA_20 0x31aeeadd4e385a424ee51e35e8297c38008f29ff " +
+				"OP_EQUAL",
+			sigScript: "DATA_22 0x0014844565543a8e39f50801c31659647c9256bb1ac5",
+			witness: []string{
+				"30440220388aa0e47897fcd8e57fc64fc678e8bb2e" +
+					"23e728e96a3143d2cec851757653d10220" +
+					"585031572ab678b453b85e844abd8d9d9a" +
+					"87c0e56dddf7eba00248601423c94701",
+				"03f7fda7194f762c315362487d2f65f3807d0cd34e" +
+					"285bab7c2a5db2155911ece3",
+			},
+			class: ScriptHashTy,
+		},
+		{
+			// 8127acdb257b70c74857be882e869e80f081f460f70dc8b6490cd32ecc14c55f:1 on mainnet
+			name: "p2wpkh",
+			witness: []string{
+				"304402201c9f9a478cb65b967336c1429bf3e18bbf" +
+					"ee3e24de7322a700d4a66f508ca04e022006367533" +
+					"2f989a732a8e2225a4327b71774c73d72fcb7558a4" +
+					"a3fa5317c569c701",
+				"0336bb8a29a7b167a865bc7537b9a192b45f29f772" +
+					"c1aed639fdfd818ac7028259"},
+			pkScript: "0 DATA_20 " +
+				"0x8d6046312c5c9d4bf42dc53e1b5a668a23d573eb",
+			class: WitnessV0PubKeyHashTy,
+		},
+		{
+			// b714a52258e3034e532a188433a4506ca806cf1885d21034fb26906cc4a1c3c3:1 on mainnet
+			name: "p2wsh",
+			pkScript: "0 DATA_32 0x701a8d401c84fb13e6baf169d5968" +
+				"4e17abd9fa216c8cc5b9fc63d622ff8c58d",
+			witness: []string{
+				"30440220770eaadb662c0c899c42ebad0af51870f1" +
+					"fef86619ded3a1d58ab749a35d24ac0220" +
+					"57af983c31a9ebf5ef512d65116d4b054c" +
+					"2dc8d201c390fffaac48ce5d8563ea01",
+				"30440220172cf970ebda9bfa1402e0afc075d6fba8" +
+					"39ed1195078a7143572e68c087ddd90220" +
+					"4eb655648a10229cb158adba184360ee3e" +
+					"d13ab8c405c2058f498cc7bac1325701",
+				"52210375e00eb72e29da82b89367947f29ef34afb7" +
+					"5e8654f6ea368e0acdfd92976b7c2103a1" +
+					"b26313f430c4b15bb1fdce663207659d8c" +
+					"ac749a0e53d70eff01874496feff2103c9" +
+					"6d495bfdd5ba4145e3e046fee45e84a8a4" +
+					"8ad05bd8dbb395c011a32cf9f88053ae",
+			},
+			class: WitnessV0ScriptHashTy,
+		},
+		{
+			// 4cd658ba8b5f10f2544becf4f1756d5e929d72f0a7372a120cc2affc16679e8d:0 on mainnet
+			name: "other",
+			pkScript: "DATA_65 0x04e76ce66264c3624c94e1a641b8f5" +
+				"d953c46866c2c2336506f4135758ae8b386a62767b" +
+				"902f98bce197a05a3471de35fd39cb11376482fd41" +
+				"ec8f14decced65d3 OP_CHECKSIG",
+			sigScript: "DATA_73 0x3046022100ea4af80b1926fe0b555" +
+				"f28ed45df7fb4d9f71764c9aaad3e46f4c36921934" +
+				"cc6022100ef76bcd57a871129836d7fe3b898e97bf" +
+				"6a241e7d81c2ae3b026567b9246c4dc01",
+			class: PubKeyTy,
+		},
+	}
+
+	for _, test := range tests {
+		sigScript := mustParseShortForm(test.sigScript)
+		pkScript := mustParseShortForm(test.pkScript)
+
+		var witness wire.TxWitness
+
+		for _, witElement := range test.witness {
+			wit, err := hex.DecodeString(witElement)
+			if err != nil {
+				t.Fatalf("%s: unable to decode witness "+
+					"element: %v", test.name, err)
+			}
+
+			witness = append(witness, wit)
+		}
+
+		reconScript, err := ReconstructScript(sigScript, witness, test.class)
+		if err != nil {
+			t.Errorf("%s: got unexpected error - %v",
+				test.name, err)
+		}
+
+		if (test.class == PubKeyHashTy) ||
+			(test.class == ScriptHashTy) ||
+			(test.class == WitnessV0PubKeyHashTy) ||
+			(test.class == WitnessV0ScriptHashTy) {
+
+			if !bytes.Equal(reconScript, pkScript) {
+				t.Errorf("%s: expect %s, got %s",
+					test.name,
+					hex.EncodeToString(pkScript),
+					hex.EncodeToString(reconScript))
+			}
+		} else {
+			if reconScript != nil {
+				t.Errorf("%s: expected nil reconstructed script"+
+					"for script class %v", test.name, test.class)
+			}
+		}
+	}
+}

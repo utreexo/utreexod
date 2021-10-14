@@ -37,12 +37,13 @@ var (
 //               Height, IsCoinbase, Amount, and PkScript is the data needed for
 //               tx verification (script, signatures, etc).
 type LeafData struct {
-	BlockHash  chainhash.Hash
-	OutPoint   OutPoint
-	Height     int32
-	IsCoinBase bool
-	Amount     int64
-	PkScript   []byte
+	BlockHash             chainhash.Hash
+	OutPoint              OutPoint
+	Height                int32
+	IsCoinBase            bool
+	Amount                int64
+	ReconstructablePkType PkType
+	PkScript              []byte
 }
 
 // LeafHash concats and hashes all the data in LeafData.
@@ -123,7 +124,8 @@ func (l *LeafData) SerializeSize() int {
 	size := 80
 
 	// Add pkscript size.
-	return size + VarIntSerializeSize(uint64(len(l.PkScript))) + len(l.PkScript)
+	return VarIntSerializeSize(uint64(len(l.PkScript))) +
+		len(l.PkScript) + size
 }
 
 // Serialize encodes the LeafData to w using the LeafData serialization format.
@@ -158,7 +160,12 @@ func (l *LeafData) Serialize(w io.Writer) error {
 		return err
 	}
 	if uint32(len(l.PkScript)) > MaxScriptSize {
-		return messageError("LeafData.Serialize", "pkScript too long")
+		return messageError("LeafData Serialize", "pkScript too long")
+	}
+	if l.ReconstructablePkType != OtherTy && l.PkScript == nil {
+		desc := fmt.Sprintf("pkscript of type %s, has not been reconstructed",
+			l.ReconstructablePkType.String())
+		return messageError("LeafData Serialize", desc)
 	}
 
 	return WriteVarBytes(w, 0, l.PkScript)
@@ -232,6 +239,7 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 // Field              Type       Size
 // header code        int32      4
 // amount             int64      8
+// pkType             byte       1
 // pkscript length    VLQ        variable
 // pkscript           []byte     variable
 //
@@ -246,10 +254,109 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 // unconfirmed marker  byte       1
 // header code         int32      4
 // amount              int64      8
+// pkType              byte       1
 // pkscript length     VLQ        variable
 // pkscript            []byte     variable
 //
 // -----------------------------------------------------------------------------
+
+// PkType is a list of different pkScript types that can be reconstructed.
+// The pkScripts that can not be reconstructed are specified as other. All
+// other types can be reconstructed.
+type PkType byte
+
+const (
+	OtherTy               PkType = iota
+	PubKeyHashTy                 // Pay pubkey hash.
+	WitnessV0PubKeyHashTy        // Pay witness pubkey hash.
+	ScriptHashTy                 // Pay to script hash.
+	WitnessV0ScriptHashTy        // Pay to witness script hash.
+)
+
+// pkTypeToName maps PkType to strings.
+var pkTypeToName = []string{
+	OtherTy:               "other",
+	PubKeyHashTy:          "pubkeyhash",
+	WitnessV0PubKeyHashTy: "witness_v0_keyhash",
+	ScriptHashTy:          "scripthash",
+	WitnessV0ScriptHashTy: "witness_v0_scripthash",
+}
+
+// String returns a string for the type of PkType.
+func (ty PkType) String() string {
+	if int(ty) > len(pkTypeToName) || int(ty) < 0 {
+		return "Invalid"
+	}
+
+	return pkTypeToName[ty]
+}
+
+// PkScriptSerializeSizeCompact returns the number of bytes it would take to
+// serialize the pkScript with the reconstructable method.
+func PkScriptSerializeSizeCompact(ty PkType, pkScript []byte) int {
+	if ty == OtherTy {
+		return len(pkScript) + VarIntSerializeSize(uint64(len(pkScript)))
+	}
+	return 1
+}
+
+// PkScriptSerializeCompact encodes the pkScript to w using the pkScript with the
+// reconstructable serialization format.
+func PkScriptSerializeCompact(w io.Writer, ty PkType, pkscript []byte) error {
+	var err error
+	switch ty {
+	case OtherTy:
+		_, err = w.Write([]byte{0x0})
+		if err != nil {
+			return err
+		}
+		err = WriteVarBytes(w, 0, pkscript)
+	case PubKeyHashTy:
+		_, err = w.Write([]byte{0x1})
+	case WitnessV0PubKeyHashTy:
+		_, err = w.Write([]byte{0x2})
+	case ScriptHashTy:
+		_, err = w.Write([]byte{0x3})
+	case WitnessV0ScriptHashTy:
+		_, err = w.Write([]byte{0x4})
+	}
+
+	return err
+}
+
+// PkScriptSerializeCompact encodes the pkScript to w using the pkScript with the
+// reconstructable serialization format.
+func PkScriptDeserializeCompact(r io.Reader) (PkType, []byte, error) {
+	buf := make([]byte, 1)
+	_, err := r.Read(buf)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	var ty PkType
+	var pkScript []byte
+
+	switch buf[0] {
+	case 0:
+		ty = OtherTy
+		pkScript, err = ReadVarBytes(r, 0, MaxScriptSize, "pkScript size")
+		if err != nil {
+			return 0, nil, err
+		}
+	case 1:
+		ty = PubKeyHashTy
+	case 2:
+		ty = WitnessV0PubKeyHashTy
+	case 3:
+		ty = ScriptHashTy
+	case 4:
+		ty = WitnessV0ScriptHashTy
+	default:
+		return 0, nil, fmt.Errorf("%v is not a valid type", buf[0])
+	}
+
+	return ty, pkScript, err
+}
 
 // SerializeSizeCompact returns the number of bytes it would take to serialize the
 // LeafData in the compact serialization format.
@@ -261,11 +368,13 @@ func (l *LeafData) SerializeSizeCompact(isForTx bool) int {
 			return 1
 		} else {
 			// header code 4 bytes + amount 8 bytes + unconfirmed marker + pkscript.
-			return 13 + VarIntSerializeSize(uint64(len(l.PkScript))) + len(l.PkScript)
+			return 13 + PkScriptSerializeSizeCompact(
+				l.ReconstructablePkType, l.PkScript)
 		}
 	}
 	// header code 4 bytes + amount 8 bytes + pkscript.
-	return 12 + VarIntSerializeSize(uint64(len(l.PkScript))) + len(l.PkScript)
+	return 12 + PkScriptSerializeSizeCompact(
+		l.ReconstructablePkType, l.PkScript)
 }
 
 // SerializeCompact encodes the LeafData to w using the compact leaf data serialization format.
@@ -309,9 +418,10 @@ func (l *LeafData) SerializeCompact(w io.Writer, isForTx bool) error {
 	}
 
 	if uint32(len(l.PkScript)) > MaxScriptSize {
-		return messageError("LeafData.SerializeCompact", "pkScript too long")
+		return messageError("LeafData SerializeCompact", "pkScript too long")
 	}
-	return WriteVarBytes(w, 0, l.PkScript)
+
+	return PkScriptSerializeCompact(w, l.ReconstructablePkType, l.PkScript)
 }
 
 // DeserializeCompact encodes the LeafData to w using the compact leaf serialization format.
@@ -354,10 +464,15 @@ func (l *LeafData) DeserializeCompact(r io.Reader, isForTx bool) error {
 	}
 	l.Amount = int64(amt)
 
-	l.PkScript, err = ReadVarBytes(r, 0, MaxScriptSize, "pkScript size")
+	ty, pkScript, err := PkScriptDeserializeCompact(r)
 	if err != nil {
 		return err
 	}
+	l.ReconstructablePkType = ty
+
+	// NOTE pkScript might be nil depending on if the type of
+	// the script.
+	l.PkScript = pkScript
 
 	return nil
 }
