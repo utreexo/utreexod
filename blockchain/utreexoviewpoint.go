@@ -330,6 +330,113 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 	return
 }
 
+// TxToDelLeaves takes a tx and generates the leaf datas for all the inputs.  The
+// leaf datas represent a utxoviewpoinnt just for the tx, along with the accumulator
+// proof that proves all the txIns' inclusion.
+func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]wire.LeafData, error) {
+	confirmedUtxoView, err := chain.FetchUtxoView(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO this is dumb since FetchUtxoView never needs to
+	// add the outputs.
+	prevOut := wire.OutPoint{Hash: *tx.Hash()}
+	for txOutIdx := range tx.MsgTx().TxOut {
+		prevOut.Index = uint32(txOutIdx)
+		confirmedUtxoView.RemoveEntry(prevOut)
+	}
+
+	viewLen := len(confirmedUtxoView.Entries())
+
+	// We should have fetched the exact same count as there are txins
+	// since unconfimred txs will be in the map as well.
+	if viewLen != len(tx.MsgTx().TxIn) {
+		err = fmt.Errorf("utxoview fetch fail.  Have %d txIns but %d view entries",
+			len(tx.MsgTx().TxIn), viewLen)
+		return nil, err
+	}
+
+	// Prep the UDatas to be sent over.  These will also be
+	// used to generate the accumulator proofs.
+	leafDatas := make([]wire.LeafData, 0, viewLen)
+	for _, txIn := range tx.MsgTx().TxIn {
+		entry := confirmedUtxoView.LookupEntry(txIn.PreviousOutPoint)
+		// Only initialize with height of -1 to mark that this
+		// tx has not yet been included in a block.
+		if entry == nil {
+			log.Debugf("Marking %s as uncomfirmed for tx %s",
+				txIn.PreviousOutPoint.String(), tx.Hash().String())
+			ld := wire.LeafData{}
+			ld.SetUnconfirmed()
+			leafDatas = append(leafDatas, ld)
+			continue
+		}
+		// Error out if the input being reference is already spent.
+		if entry.IsSpent() {
+			err := fmt.Errorf("Couldn't generate UData for tx %s "+
+				"as input %s being referenced is marked as spent",
+				tx.Hash().String(), txIn.PreviousOutPoint.String())
+			return nil, err
+		}
+
+		blockHash, err := chain.BlockHashByHeight(entry.BlockHeight())
+		if err != nil {
+			return nil, err
+		}
+		if blockHash == nil {
+			err := fmt.Errorf("Couldn't find blockhash for height %d",
+				entry.BlockHeight())
+			return nil, err
+		}
+
+		var pkType wire.PkType
+
+		scriptType := txscript.GetScriptClass(entry.PkScript())
+		switch scriptType {
+		case txscript.PubKeyHashTy:
+			pkType = wire.PubKeyHashTy
+		case txscript.WitnessV0PubKeyHashTy:
+			pkType = wire.WitnessV0PubKeyHashTy
+		case txscript.ScriptHashTy:
+			pkType = wire.ScriptHashTy
+		case txscript.WitnessV0ScriptHashTy:
+			pkType = wire.WitnessV0ScriptHashTy
+		default:
+			pkType = wire.OtherTy
+		}
+
+		leaf := wire.LeafData{
+			BlockHash:             *blockHash,
+			OutPoint:              txIn.PreviousOutPoint,
+			Amount:                entry.Amount(),
+			Height:                entry.BlockHeight(),
+			IsCoinBase:            entry.IsCoinBase(),
+			ReconstructablePkType: pkType,
+		}
+		// Copy the key over so it doesn't get dropped while
+		// we're still using it.
+		//
+		// TODO check if this copy actually needs to happen.
+		// Might not need it and could save a bit of memory.
+		leaf.PkScript = make([]byte, len(entry.PkScript()))
+		copy(leaf.PkScript, entry.PkScript())
+
+		leafDatas = append(leafDatas, leaf)
+	}
+
+	// The count of leaf datas and txins should always be the same as
+	// we account for unconfirmed referenced outputs for tx udata
+	// serialization.
+	if len(leafDatas) != len(tx.MsgTx().TxIn) {
+		err = fmt.Errorf("Failed to generate UData.  Have %d txins but %d leaf datas",
+			len(tx.MsgTx().TxIn), len(leafDatas))
+		return nil, err
+	}
+
+	return leafDatas, nil
+}
+
 // GetRoots returns the utreexo roots of the current UtreexoViewpoint.
 //
 // This function is NOT safe for concurrent access. GetRoots should not
