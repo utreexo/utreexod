@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/mit-dci/utreexo/accumulator"
@@ -166,6 +167,31 @@ func generateCommitments(ud *wire.UData, block *btcutil.Block, chainView *chainV
 			}
 			ld.OutPoint = op
 
+			if ld.ReconstructablePkType != wire.OtherTy &&
+				ld.PkScript == nil {
+
+				var class txscript.ScriptClass
+
+				switch ld.ReconstructablePkType {
+				case wire.PubKeyHashTy:
+					class = txscript.PubKeyHashTy
+				case wire.ScriptHashTy:
+					class = txscript.ScriptHashTy
+				case wire.WitnessV0PubKeyHashTy:
+					class = txscript.WitnessV0PubKeyHashTy
+				case wire.WitnessV0ScriptHashTy:
+					class = txscript.WitnessV0ScriptHashTy
+				}
+
+				scriptToUse, err := txscript.ReconstructScript(
+					txIn.SignatureScript, txIn.Witness, class)
+				if err != nil {
+					return nil, err
+				}
+
+				ld.PkScript = scriptToUse
+			}
+
 			delHashes = append(delHashes, ld.LeafHash())
 
 			blockInIdx++
@@ -231,8 +257,7 @@ func BlockToAddLeaves(block *btcutil.Block,
 	return
 }
 
-// BlockToDelLeaves takes a non-utreexo block and stxos and turns the block into
-// leaves that are to be deleted.
+// BlockToDelLeaves takes a non-utreexo block and stxos and turns the block into leaves that are to be deleted.
 func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Block, inskip []uint32) (
 	delLeaves []wire.LeafData, err error) {
 
@@ -271,13 +296,30 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 					stxo.Height)
 			}
 
+			var pkType wire.PkType
+
+			scriptType := txscript.GetScriptClass(stxo.PkScript)
+			switch scriptType {
+			case txscript.PubKeyHashTy:
+				pkType = wire.PubKeyHashTy
+			case txscript.WitnessV0PubKeyHashTy:
+				pkType = wire.WitnessV0PubKeyHashTy
+			case txscript.ScriptHashTy:
+				pkType = wire.ScriptHashTy
+			case txscript.WitnessV0ScriptHashTy:
+				pkType = wire.WitnessV0ScriptHashTy
+			default:
+				pkType = wire.OtherTy
+			}
+
 			var leaf = wire.LeafData{
-				BlockHash:  *blockHash,
-				OutPoint:   op,
-				Amount:     stxo.Amount,
-				PkScript:   stxo.PkScript,
-				Height:     stxo.Height,
-				IsCoinBase: stxo.IsCoinBase,
+				BlockHash:             *blockHash,
+				OutPoint:              op,
+				Amount:                stxo.Amount,
+				ReconstructablePkType: pkType,
+				PkScript:              stxo.PkScript,
+				Height:                stxo.Height,
+				IsCoinBase:            stxo.IsCoinBase,
 			}
 
 			delLeaves = append(delLeaves, leaf)
@@ -434,6 +476,31 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 					ld.Height, txIn.PreviousOutPoint.String())
 			}
 			ld.BlockHash = blockNode.hash
+
+			if ld.ReconstructablePkType != wire.OtherTy &&
+				ld.PkScript == nil {
+
+				var class txscript.ScriptClass
+
+				switch ld.ReconstructablePkType {
+				case wire.PubKeyHashTy:
+					class = txscript.PubKeyHashTy
+				case wire.ScriptHashTy:
+					class = txscript.ScriptHashTy
+				case wire.WitnessV0PubKeyHashTy:
+					class = txscript.WitnessV0PubKeyHashTy
+				case wire.WitnessV0ScriptHashTy:
+					class = txscript.WitnessV0ScriptHashTy
+				}
+
+				scriptToUse, err := txscript.ReconstructScript(
+					txIn.SignatureScript, txIn.Witness, class)
+				if err != nil {
+					return err
+				}
+
+				ld.PkScript = scriptToUse
+			}
 
 			delHashes = append(delHashes, ld.LeafHash())
 		}
