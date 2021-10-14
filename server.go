@@ -1559,12 +1559,30 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 				}
 				return err
 			}
+
+			var pkType wire.PkType
+
+			scriptType := txscript.GetScriptClass(entry.PkScript())
+			switch scriptType {
+			case txscript.PubKeyHashTy:
+				pkType = wire.PubKeyHashTy
+			case txscript.WitnessV0PubKeyHashTy:
+				pkType = wire.WitnessV0PubKeyHashTy
+			case txscript.ScriptHashTy:
+				pkType = wire.ScriptHashTy
+			case txscript.WitnessV0ScriptHashTy:
+				pkType = wire.WitnessV0ScriptHashTy
+			default:
+				pkType = wire.OtherTy
+			}
+
 			leaf := wire.LeafData{
-				BlockHash:  *blockHash,
-				OutPoint:   txIn.PreviousOutPoint,
-				Amount:     entry.Amount(),
-				Height:     entry.BlockHeight(),
-				IsCoinBase: entry.IsCoinBase(),
+				BlockHash:             *blockHash,
+				OutPoint:              txIn.PreviousOutPoint,
+				Amount:                entry.Amount(),
+				Height:                entry.BlockHeight(),
+				IsCoinBase:            entry.IsCoinBase(),
+				ReconstructablePkType: pkType,
 			}
 			// Copy the key over so it doesn't get dropped while
 			// we're still using it.
