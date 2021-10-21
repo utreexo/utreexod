@@ -391,3 +391,40 @@ func (c *Client) GetNetTotalsAsync() FutureGetNetTotalsResult {
 func (c *Client) GetNetTotals() (*btcjson.GetNetTotalsResult, error) {
 	return c.GetNetTotalsAsync().Receive()
 }
+
+// FutureGetTxTotalsResult is a future promise to deliver the result of a
+// GetTxTotalsAsync RPC invocation (or an applicable error).
+type FutureGetTxTotalsResult chan *Response
+
+// Receive waits for the Response promised by the future and returns network
+// traffic statistics.
+func (r FutureGetTxTotalsResult) Receive() (*btcjson.GetTxTotalsResult, error) {
+	res, err := ReceiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a getnettotals result object.
+	var totals btcjson.GetTxTotalsResult
+	err = json.Unmarshal(res, &totals)
+	if err != nil {
+		return nil, err
+	}
+
+	return &totals, nil
+}
+
+// GetTxTotalsAsync returns an instance of a type that can be used to get the
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See GetTxTotals for the blocking version and more details.
+func (c *Client) GetTxTotalsAsync() FutureGetTxTotalsResult {
+	cmd := btcjson.NewGetTxTotalsCmd()
+	return c.SendCmd(cmd)
+}
+
+// GetTxTotals returns network traffic statistics.
+func (c *Client) GetTxTotals() (*btcjson.GetTxTotalsResult, error) {
+	return c.GetTxTotalsAsync().Receive()
+}

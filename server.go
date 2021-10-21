@@ -193,6 +193,15 @@ type cfHeaderKV struct {
 	filterHeader chainhash.Hash
 }
 
+// txByteStats is a collection of variables used to keep track of bytes received
+// and sent for all tx messages and the utreexo proof needed to prove them.
+type txByteStats struct {
+	txBytesReceived    uint64 // Total bytes received since start
+	txBytesSent        uint64 // Total bytes sent since start
+	proofBytesReceived uint64 // Total bytes received for utreexo proofs
+	proofBytesSent     uint64 // Total bytes sent for utreexo proofs
+}
+
 // server provides a bitcoin server for handling communications to and from
 // bitcoin peers.
 type server struct {
@@ -200,6 +209,7 @@ type server struct {
 	// Putting the uint64s first makes them 64-bit aligned for 32-bit systems.
 	bytesReceived uint64 // Total bytes received from all peers since start.
 	bytesSent     uint64 // Total bytes sent by all peers since start.
+	txBytes       txByteStats
 	started       int32
 	shutdown      int32
 	shutdownSched int32
@@ -1313,12 +1323,32 @@ func (sp *serverPeer) OnAddr(_ *peer.Peer, msg *wire.MsgAddr) {
 // the bytes received by the server.
 func (sp *serverPeer) OnRead(_ *peer.Peer, bytesRead int, msg wire.Message, err error) {
 	sp.server.AddBytesReceived(uint64(bytesRead))
+
+	switch msgTx := msg.(type) {
+	case *wire.MsgTx:
+		err := sp.server.UpdateProofBytesRead(msgTx)
+		if err != nil {
+			srvrLog.Debugf("Couldn't update proof bytes read. err: %s",
+				err.Error())
+		}
+		sp.server.addTxBytesReceived(uint64(bytesRead))
+	}
 }
 
 // OnWrite is invoked when a peer sends a message and it is used to update
 // the bytes sent by the server.
 func (sp *serverPeer) OnWrite(_ *peer.Peer, bytesWritten int, msg wire.Message, err error) {
 	sp.server.AddBytesSent(uint64(bytesWritten))
+
+	switch msgTx := msg.(type) {
+	case *wire.MsgTx:
+		err := sp.server.UpdateProofBytesWritten(msgTx)
+		if err != nil {
+			srvrLog.Debugf("Couldn't update proof bytes written. err: %s",
+				err.Error())
+		}
+		sp.server.addTxBytesSent(uint64(bytesWritten))
+	}
 }
 
 // OnNotFound is invoked when a peer sends a notfound message.
@@ -2420,6 +2450,101 @@ func (s *server) AddBytesReceived(bytesReceived uint64) {
 func (s *server) NetTotals() (uint64, uint64) {
 	return atomic.LoadUint64(&s.bytesReceived),
 		atomic.LoadUint64(&s.bytesSent)
+}
+
+func (s *server) addTxBytesReceived(bytesReceived uint64) {
+	atomic.AddUint64(&s.txBytes.txBytesReceived, bytesReceived)
+}
+
+func (s *server) addTxBytesSent(bytesSent uint64) {
+	atomic.AddUint64(&s.txBytes.txBytesSent, bytesSent)
+}
+
+func (s *server) addProofBytesReceived(bytesReceived uint64) {
+	atomic.AddUint64(&s.txBytes.proofBytesReceived, bytesReceived)
+}
+
+func (s *server) addProofBytesSent(bytesReceived uint64) {
+	atomic.AddUint64(&s.txBytes.proofBytesSent, bytesReceived)
+}
+
+// GetProofSizeforTx calculates the size of the raw proof that would needed for
+// proving the tx to an utreexo node.
+func (s *server) GetProofSizeforTx(msgTx *wire.MsgTx) (int, error) {
+	// If utreexo proof index is not present, we can't calculate the
+	// proof size as we can't grab the proof for the tx.
+	if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil {
+		err := fmt.Errorf("UtreexoProofIndex and FlatUtreexoProofIndex is nil. "+
+			"Cannot calculate proof size for tx %s.", msgTx.TxHash().String())
+		return 0, err
+	}
+
+	tx := btcutil.NewTx(msgTx)
+	leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
+	if err != nil {
+		return 0, err
+	}
+
+	var ud *wire.UData
+
+	// We already checked that at least one is active.  Pick one and
+	// generate the UData.
+	if s.utreexoProofIndex != nil {
+		ud, err = s.utreexoProofIndex.GenerateUData(leafDatas)
+	} else {
+		ud, err = s.flatUtreexoProofIndex.GenerateUData(leafDatas)
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	return ud.SerializeSizeCompact(true), nil
+}
+
+// UpdateProofBytesRead updates the bytes for utreexo proofs that would have
+// been received from all peers for tx messages.
+func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
+	// If utreexo proof index is present, also grab the proof size.
+	if s.utreexoProofIndex != nil || s.flatUtreexoProofIndex != nil {
+		size, err := s.GetProofSizeforTx(msgTx)
+		if err != nil {
+			return err
+		}
+		s.addProofBytesReceived(uint64(size))
+
+	} else if s.chain.IsUtreexoViewActive() {
+		s.addProofBytesReceived(uint64(msgTx.UData.SerializeSizeCompact(true)))
+	}
+
+	return nil
+}
+
+// UpdateProofBytesWritten updates the bytes for utreexo proofs that would have
+// been sent to all peers for tx messages.
+func (s *server) UpdateProofBytesWritten(msgTx *wire.MsgTx) error {
+	// If utreexo proof index is present, also grab the proof size.
+	if s.utreexoProofIndex != nil || s.flatUtreexoProofIndex != nil {
+		size, err := s.GetProofSizeforTx(msgTx)
+		if err != nil {
+			return err
+		}
+		s.addProofBytesSent(uint64(size))
+
+	} else if s.chain.IsUtreexoViewActive() {
+		s.addProofBytesSent(uint64(msgTx.UData.SerializeSizeCompact(true)))
+	}
+
+	return nil
+}
+
+// TxTotals returns the sum of all bytes received and sent across the network
+// for all peers for tx messages with the utreexo proof sizes accounted for.
+// It is safe for concurrent access.
+func (s *server) TxTotals() (uint64, uint64, uint64, uint64) {
+	return atomic.LoadUint64(&s.txBytes.txBytesReceived),
+		atomic.LoadUint64(&s.txBytes.txBytesSent),
+		atomic.LoadUint64(&s.txBytes.proofBytesReceived),
+		atomic.LoadUint64(&s.txBytes.proofBytesSent)
 }
 
 // UpdatePeerHeights updates the heights of all peers who have have announced

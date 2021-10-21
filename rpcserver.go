@@ -158,6 +158,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getmempoolinfo":         handleGetMempoolInfo,
 	"getmininginfo":          handleGetMiningInfo,
 	"getnettotals":           handleGetNetTotals,
+	"gettxtotals":            handleGetTxTotals,
 	"getnetworkhashps":       handleGetNetworkHashPS,
 	"getnodeaddresses":       handleGetNodeAddresses,
 	"getpeerinfo":            handleGetPeerInfo,
@@ -274,6 +275,7 @@ var rpcLimited = map[string]struct{}{
 	"getheaders":            {},
 	"getinfo":               {},
 	"getnettotals":          {},
+	"gettxtotals":           {},
 	"getnetworkhashps":      {},
 	"getrawmempool":         {},
 	"getrawtransaction":     {},
@@ -2388,6 +2390,19 @@ func handleGetNetTotals(s *rpcServer, cmd interface{}, closeChan <-chan struct{}
 		TotalBytesRecv: totalBytesRecv,
 		TotalBytesSent: totalBytesSent,
 		TimeMillis:     time.Now().UTC().UnixNano() / int64(time.Millisecond),
+	}
+	return reply, nil
+}
+
+// handleGetTxTotals implements the gettxtotals command.
+func handleGetTxTotals(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	txBytesRecv, txBytesSent, proofBytesRecv, proofBytesSent := s.cfg.ConnMgr.TxTotals()
+	reply := &btcjson.GetTxTotalsResult{
+		TotalTxBytesRecv:    txBytesRecv,
+		TotalTxBytesSent:    txBytesSent,
+		TotalProofBytesRecv: proofBytesRecv,
+		TotalProofBytesSent: proofBytesSent,
+		TimeMillis:          time.Now().UTC().UnixNano() / int64(time.Millisecond),
 	}
 	return reply, nil
 }
@@ -4529,6 +4544,10 @@ type rpcserverConnManager interface {
 	// NetTotals returns the sum of all bytes received and sent across the
 	// network for all peers.
 	NetTotals() (uint64, uint64)
+
+	// TxTotals returns the sum of all bytes received and sent across the
+	// network for all peers for tx messages.
+	TxTotals() (uint64, uint64, uint64, uint64)
 
 	// ConnectedPeers returns an array consisting of all connected peers.
 	ConnectedPeers() []rpcserverPeer

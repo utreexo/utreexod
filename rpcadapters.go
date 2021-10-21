@@ -164,6 +164,16 @@ func (cm *rpcConnManager) NetTotals() (uint64, uint64) {
 	return cm.server.NetTotals()
 }
 
+// TxTotals returns the sum of all bytes received and sent across the network
+// for all peers for tx messages and the utreexo proof that would have been
+// needed to prove it.
+//
+// This function is safe for concurrent access and is part of the
+// rpcserverConnManager interface implementation.
+func (cm *rpcConnManager) TxTotals() (uint64, uint64, uint64, uint64) {
+	return cm.server.TxTotals()
+}
+
 // ConnectedPeers returns an array consisting of all connected peers.
 //
 // This function is safe for concurrent access and is part of the

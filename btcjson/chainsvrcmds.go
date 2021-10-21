@@ -585,6 +585,15 @@ func NewGetNetTotalsCmd() *GetNetTotalsCmd {
 	return &GetNetTotalsCmd{}
 }
 
+// GetTxTotalsCmd defines the gettxtotals JSON-RPC command.
+type GetTxTotalsCmd struct{}
+
+// NewGetTxTotalsCmd returns a new instance which can be used to issue a
+// gettxtotals JSON-RPC command.
+func NewGetTxTotalsCmd() *GetTxTotalsCmd {
+	return &GetTxTotalsCmd{}
+}
+
 // GetNetworkHashPSCmd defines the getnetworkhashps JSON-RPC command.
 type GetNetworkHashPSCmd struct {
 	Blocks *int `jsonrpcdefault:"120"`
@@ -1095,6 +1104,7 @@ func init() {
 	MustRegisterCmd("getmininginfo", (*GetMiningInfoCmd)(nil), flags)
 	MustRegisterCmd("getnetworkinfo", (*GetNetworkInfoCmd)(nil), flags)
 	MustRegisterCmd("getnettotals", (*GetNetTotalsCmd)(nil), flags)
+	MustRegisterCmd("gettxtotals", (*GetTxTotalsCmd)(nil), flags)
 	MustRegisterCmd("getnetworkhashps", (*GetNetworkHashPSCmd)(nil), flags)
 	MustRegisterCmd("getnodeaddresses", (*GetNodeAddressesCmd)(nil), flags)
 	MustRegisterCmd("getpeerinfo", (*GetPeerInfoCmd)(nil), flags)

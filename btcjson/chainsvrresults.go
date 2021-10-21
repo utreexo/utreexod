@@ -510,6 +510,15 @@ type GetNetTotalsResult struct {
 	TimeMillis     int64  `json:"timemillis"`
 }
 
+// GetTxTotalsResult models the data returned from the gettxtotals command.
+type GetTxTotalsResult struct {
+	TotalTxBytesRecv    uint64 `json:"totaltxbytesrecv"`
+	TotalTxBytesSent    uint64 `json:"totaltxbytessent"`
+	TotalProofBytesRecv uint64 `json:"totalproofbytesrecv"`
+	TotalProofBytesSent uint64 `json:"totalproofbytessent"`
+	TimeMillis          int64  `json:"timemillis"`
+}
+
 // ScriptSig models a signature script.  It is defined separately since it only
 // applies to non-coinbase.  Therefore the field in the Vin structure needs
 // to be a pointer.

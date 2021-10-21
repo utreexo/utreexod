@@ -451,10 +451,20 @@ var helpDescsEnUS = map[string]string{
 	// GetNetTotalsCmd help.
 	"getnettotals--synopsis": "Returns a JSON object containing network traffic statistics.",
 
+	// GetTxTotalsCmd help.
+	"gettxtotals--synopsis": "Returns a JSON object containing network traffic statistics for tx messages.",
+
 	// GetNetTotalsResult help.
 	"getnettotalsresult-totalbytesrecv": "Total bytes received",
 	"getnettotalsresult-totalbytessent": "Total bytes sent",
 	"getnettotalsresult-timemillis":     "Number of milliseconds since 1 Jan 1970 GMT",
+
+	// GetTxTotalsResult help.
+	"gettxtotalsresult-totaltxbytesrecv":    "Total tx bytes received",
+	"gettxtotalsresult-totaltxbytessent":    "Total tx bytes sent",
+	"gettxtotalsresult-totalproofbytesrecv": "Total proof bytes received",
+	"gettxtotalsresult-totalproofbytessent": "Total proof bytes sent",
+	"gettxtotalsresult-timemillis":          "Number of milliseconds since 1 Jan 1970 GMT",
 
 	// GetNodeAddressesResult help.
 	"getnodeaddressesresult-time":     "Timestamp in seconds since epoch (Jan 1 1970 GMT) keeping track of when the node was last seen",
@@ -748,6 +758,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getmempoolinfo":         {(*btcjson.GetMempoolInfoResult)(nil)},
 	"getmininginfo":          {(*btcjson.GetMiningInfoResult)(nil)},
 	"getnettotals":           {(*btcjson.GetNetTotalsResult)(nil)},
+	"gettxtotals":            {(*btcjson.GetTxTotalsResult)(nil)},
 	"getnetworkhashps":       {(*int64)(nil)},
 	"getnodeaddresses":       {(*[]btcjson.GetNodeAddressesResult)(nil)},
 	"getpeerinfo":            {(*[]btcjson.GetPeerInfoResult)(nil)},
