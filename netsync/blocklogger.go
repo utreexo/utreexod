@@ -68,7 +68,13 @@ func (b *blockProgressLogger) LogBlockHeight(block *btcutil.Block, chain *blockc
 	if b.receivedLogTx == 1 {
 		txStr = "transaction"
 	}
-	cacheSizeStr := fmt.Sprintf("~%d MiB", chain.CachedStateSize()/1024/1024)
+
+	// No cacheSizeStr exists for utreexo nodes.  Only try to get state for non-utreexo
+	// nodes.
+	cacheSizeStr := "N/A"
+	if !chain.IsUtreexoViewActive() {
+		cacheSizeStr = fmt.Sprintf("~%d MiB", chain.CachedStateSize()/1024/1024)
+	}
 	b.subsystemLogger.Infof("%s %d %s in the last %s (%d %s, height %d, %s, %s cache)",
 		b.progressAction, b.receivedLogBlocks, blockStr, tDuration, b.receivedLogTx,
 		txStr, block.Height(), block.MsgBlock().Header.Timestamp, cacheSizeStr)
