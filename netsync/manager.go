@@ -826,10 +826,14 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// flush the blockchain cache because we don't expect new blocks immediately.
 	// After that, there is nothing more to do.
 	if !sm.headersFirstMode {
-		if err := sm.chain.FlushCachedState(blockchain.FlushPeriodic); err != nil {
-			log.Errorf("Error while flushing the blockchain cache: %v", err)
+		// Only flush if utreexoView is not active since a utreexo node does
+		// not have a utxo cache.
+		if !sm.chain.IsUtreexoViewActive() {
+			if err := sm.chain.FlushCachedState(blockchain.FlushPeriodic); err != nil {
+				log.Errorf("Error while flushing the blockchain cache: %v", err)
+			}
+			return
 		}
-		return
 	}
 
 	// This is headers-first mode, so if the block is not a checkpoint
@@ -1131,6 +1135,14 @@ func (sm *SyncManager) haveInventory(invVect *wire.InvVect) (bool, error) {
 		// checked because the vast majority of transactions consist of
 		// two outputs where one is some form of "pay-to-somebody-else"
 		// and the other is a change output.
+		//
+		// If UtreexoView is active, then just return false.
+		// TODO This checking should really be replaced with a
+		// recently confirmed tx list like Bitcoin Core.
+		// github.com/bitcoin/bitcoin/blob/1847ce2d49e13f76824bb6b52985e8ef5fbcd1db/src/net_processing.cpp#L1640-L1661
+		if sm.chain.IsUtreexoViewActive() {
+			return false, nil
+		}
 		prevOut := wire.OutPoint{Hash: invVect.Hash}
 		for i := uint32(0); i < 2; i++ {
 			prevOut.Index = i
@@ -1457,9 +1469,13 @@ out:
 		}
 	}
 
-	log.Debug("Block handler shutting down: flushing blockchain caches...")
-	if err := sm.chain.FlushCachedState(blockchain.FlushRequired); err != nil {
-		log.Errorf("Error while flushing blockchain caches: %v", err)
+	// Only try to flush utxo cache if it exists.  A utreexo node doesn't have
+	// a utxo cache.
+	if !sm.chain.IsUtreexoViewActive() {
+		log.Debug("Block handler shutting down: flushing blockchain caches...")
+		if err := sm.chain.FlushCachedState(blockchain.FlushRequired); err != nil {
+			log.Errorf("Error while flushing blockchain caches: %v", err)
+		}
 	}
 
 	sm.wg.Done()

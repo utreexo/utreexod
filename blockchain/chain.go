@@ -675,13 +675,16 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 		return err
 	}
 
-	// Commit all modifications made to the view into the utxo state.  This also
-	// prunes these changes from the view.
-	b.stateLock.Lock()
-	if err := b.utxoCache.Commit(view); err != nil {
-		log.Errorf("error committing block %s(%d) to utxo cache: %s", block.Hash(), block.Height(), err.Error())
+	// Don't commit to the utxo set if we're a utreexo node.
+	if b.utreexoView == nil {
+		// Commit all modifications made to the view into the utxo state.  This also
+		// prunes these changes from the view.
+		b.stateLock.Lock()
+		if err := b.utxoCache.Commit(view); err != nil {
+			log.Errorf("error committing block %s(%d) to utxo cache: %s", block.Hash(), block.Height(), err.Error())
+		}
+		b.stateLock.Unlock()
 	}
-	b.stateLock.Unlock()
 
 	// This node is now the end of the best chain.
 	b.bestChain.SetTip(node)
@@ -702,11 +705,19 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 	b.sendNotification(NTBlockConnected, block)
 	b.chainLock.Lock()
 
-	// Since we just changed the UTXO cache, we make sure it didn't exceed its
-	// maximum size.
-	b.stateLock.Lock()
-	defer b.stateLock.Unlock()
-	return b.utxoCache.Flush(FlushIfNeeded, state)
+	// Don't try to flush the utxo set if we're a utreexo node.
+	if b.utreexoView == nil {
+		// Since we just changed the UTXO cache, we make sure it didn't exceed its
+		// maximum size.
+		b.stateLock.Lock()
+		err = b.utxoCache.Flush(FlushIfNeeded, state)
+		if err != nil {
+			return err
+		}
+		b.stateLock.Unlock()
+	}
+
+	return nil
 }
 
 // disconnectBlock handles disconnecting the passed node/block from the end of
@@ -1811,6 +1822,16 @@ func New(config *Config) (*BlockChain, error) {
 		}
 	}
 
+	// UtreexoView replaces utxo caches.  Only make them when UtreexoView is
+	// not set.
+	var utxoCache *utxoCache
+	utxoCachePresent := config.UtreexoView == nil
+
+	// Only set the utxo cache for non-utreexo nodes.
+	if utxoCachePresent {
+		utxoCache = newUtxoCache(config.DB, config.UtxoCacheMaxSize)
+	}
+
 	params := config.ChainParams
 	targetTimespan := int64(params.TargetTimespan / time.Second)
 	targetTimePerBlock := int64(params.TargetTimePerBlock / time.Second)
@@ -1827,7 +1848,7 @@ func New(config *Config) (*BlockChain, error) {
 		maxRetargetTimespan: targetTimespan * adjustmentFactor,
 		blocksPerRetarget:   int32(targetTimespan / targetTimePerBlock),
 		index:               newBlockIndex(config.DB, params),
-		utxoCache:           newUtxoCache(config.DB, config.UtxoCacheMaxSize),
+		utxoCache:           utxoCache,
 		utreexoView:         config.UtreexoView,
 		hashCache:           config.HashCache,
 		bestChain:           newChainView(nil),
@@ -1849,11 +1870,15 @@ func New(config *Config) (*BlockChain, error) {
 		return nil, err
 	}
 
-	// Make sure the utxo state is catched up if it was left in an inconsistent
-	// state.
 	bestNode := b.bestChain.Tip()
-	if err := b.utxoCache.InitConsistentState(bestNode, config.Interrupt); err != nil {
-		return nil, err
+
+	// Only check for the consistent state of the utxo cache if it exists.
+	if utxoCachePresent {
+		// Make sure the utxo state is catched up if it was left in an inconsistent
+		// state.
+		if err := b.utxoCache.InitConsistentState(bestNode, config.Interrupt); err != nil {
+			return nil, err
+		}
 	}
 
 	// Initialize and catch up all of the currently active optional indexes
