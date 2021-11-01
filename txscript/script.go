@@ -819,6 +819,9 @@ func getWitnessSigOps(pkScript []byte, witness wire.TxWitness) int {
 			witnessScript := witness[len(witness)-1]
 			return countSigOpsV0(witnessScript, true)
 		}
+	case 1:
+		// https://github.com/bitcoin/bitcoin/blob/368831371d97a642beb54b5c4eb6eb0fedaa16b4/src/script/interpreter.cpp#L2090
+		return 0
 	}
 
 	return 0
