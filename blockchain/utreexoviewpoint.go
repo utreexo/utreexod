@@ -7,11 +7,12 @@ package blockchain
 import (
 	"bytes"
 	"fmt"
+	"sort"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/mit-dci/utreexo/accumulator"
 	"github.com/mit-dci/utreexo/util"
 )
@@ -34,7 +35,7 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView
 
 	// outskip is all the txOuts that are referenced by a txIn in the same block
 	// outCount is the count of all outskips.
-	_, outCount, inskip, outskip := util.DedupeBlock(block)
+	_, outCount, inskip, outskip := DedupeBlock(block)
 
 	// Make slice of hashes from the LeafDatas. These are the hash commitments
 	// to be proven.
@@ -49,7 +50,7 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView
 
 	// Grab the outpoints that need their existence proven and check that
 	// the udata matches up.
-	OPsToProve := util.BlockToDelOPs(block)
+	OPsToProve := BlockToDelOPs(block)
 	err := ProofSanity(ud, OPsToProve)
 	if err != nil {
 		return err
@@ -86,6 +87,94 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView
 	}
 
 	return nil
+}
+
+// blockToDelOPs gives all the UTXOs in a block that need proofs in order to be
+// deleted.  All txinputs except for the coinbase input and utxos created
+// within the same block (on the skiplist)
+func BlockToDelOPs(
+	blk *btcutil.Block) []wire.OutPoint {
+
+	transactions := blk.Transactions()
+	inCount, _, inskip, _ := DedupeBlock(blk)
+
+	delOPs := make([]wire.OutPoint, 0, inCount-len(inskip))
+
+	var blockInIdx uint32
+	for txinblock, tx := range transactions {
+		if txinblock == 0 {
+			blockInIdx += uint32(len(tx.MsgTx().TxIn)) // coinbase can have many inputs
+			continue
+		}
+
+		// loop through inputs
+		for _, txin := range tx.MsgTx().TxIn {
+			// check if on skiplist.  If so, don't make leaf
+			if len(inskip) > 0 && inskip[0] == blockInIdx {
+				// fmt.Printf("skip %s\n", txin.PreviousOutPoint.String())
+				inskip = inskip[1:]
+				blockInIdx++
+				continue
+			}
+
+			delOPs = append(delOPs, txin.PreviousOutPoint)
+			blockInIdx++
+		}
+	}
+	return delOPs
+}
+
+// DedupeBlock takes a bitcoin block, and returns two int slices: the indexes of
+// inputs, and idexes of outputs which can be removed.  These are indexes
+// within the block as a whole, even the coinbase tx.
+// So the coinbase tx in & output numbers affect the skip lists even though
+// the coinbase ins/outs can never be deduped.  it's simpler that way.
+func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, outskip []uint32) {
+	var i uint32
+	// wire.Outpoints are comparable with == which is nice.
+	inmap := make(map[wire.OutPoint]uint32)
+
+	// go through txs then inputs building map
+	for coinbase, tx := range blk.Transactions() {
+		if coinbase == 0 { // coinbase tx can't be deduped
+			i += uint32(len(tx.MsgTx().TxIn)) // coinbase can have many inputs
+			continue
+		}
+		for _, in := range tx.MsgTx().TxIn {
+			inmap[in.PreviousOutPoint] = i
+			i++
+		}
+	}
+	inCount = int(i)
+
+	i = 0
+	// start over, go through outputs finding skips
+	for coinbase, tx := range blk.Transactions() {
+		txOut := tx.MsgTx().TxOut
+		if coinbase == 0 { // coinbase tx can't be deduped
+			i += uint32(len(txOut)) // coinbase can have multiple outputs
+			continue
+		}
+
+		for outidx := range txOut {
+			op := wire.OutPoint{Hash: *tx.Hash(), Index: uint32(outidx)}
+			inpos, exists := inmap[op]
+			if exists {
+				inskip = append(inskip, inpos)
+				outskip = append(outskip, i)
+			}
+			i++
+		}
+	}
+	outCount = int(i)
+	// sort inskip list, as it's built in order consumed not created
+	sortUint32s(inskip)
+	return
+}
+
+// it'd be cool if you just had .sort() methods on slices of builtin types...
+func sortUint32s(s []uint32) {
+	sort.Slice(s, func(a, b int) bool { return s[a] < s[b] })
 }
 
 // ProofSanity checks that the UData that was given proves the same outPoints that

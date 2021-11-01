@@ -7,10 +7,10 @@ package blockchain
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/mit-dci/utreexo/util"
 )
 
@@ -508,7 +508,7 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 		m[ld.OutPoint] = utxo
 	}
 
-	_, _, _, outskip := util.DedupeBlock(block)
+	_, _, _, outskip := DedupeBlock(block)
 
 	var txonum uint32
 	for coinbaseif0, tx := range block.Transactions() {

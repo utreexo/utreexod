@@ -11,12 +11,11 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/mit-dci/utreexo/accumulator"
-	"github.com/mit-dci/utreexo/util"
 )
 
 const (
@@ -130,7 +129,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return nil
 	}
 
-	_, outCount, inskip, outskip := util.DedupeBlock(block)
+	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
 	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip)
 	if err != nil {
 		return err
