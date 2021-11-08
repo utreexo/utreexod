@@ -18,9 +18,9 @@ import "github.com/btcsuite/btcd/database"
 // back to the original value upon completion.
 func TstRunWithMaxBlockFileSize(idb database.DB, size uint32, fn func()) {
 	ffldb := idb.(*db)
-	origSize := ffldb.store.maxBlockFileSize
+	origSize := ffldb.blkStore.maxBlockFileSize
 
-	ffldb.store.maxBlockFileSize = size
+	ffldb.blkStore.maxBlockFileSize = size
 	fn()
-	ffldb.store.maxBlockFileSize = origSize
+	ffldb.blkStore.maxBlockFileSize = origSize
 }

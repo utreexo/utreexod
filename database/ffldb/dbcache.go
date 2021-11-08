@@ -286,8 +286,8 @@ func (iter *dbCacheIterator) Error() error {
 // database at a particular point in time.
 type dbCacheSnapshot struct {
 	dbSnapshot    *leveldb.Snapshot
-	pendingKeys   *treap.Immutable
-	pendingRemove *treap.Immutable
+	pendingKeys   *treap.Mutable
+	pendingRemove *treap.Mutable
 }
 
 // Has returns whether or not the passed key exists.
@@ -357,8 +357,8 @@ type dbCache struct {
 	// ldb is the underlying leveldb DB for metadata.
 	ldb *leveldb.DB
 
-	// store is used to sync blocks to flat files.
-	store *blockStore
+	blkStore *blockStore
+	sjStore  *blockStore
 
 	// The following fields are related to flushing the cache to persistent
 	// storage.  Note that all flushing is performed in an opportunistic
@@ -387,8 +387,8 @@ type dbCache struct {
 	// the cached data.  The cacheLock is used to protect concurrent access
 	// for cache updates and snapshots.
 	cacheLock    sync.RWMutex
-	cachedKeys   *treap.Immutable
-	cachedRemove *treap.Immutable
+	cachedKeys   *treap.Mutable
+	cachedRemove *treap.Mutable
 }
 
 // Snapshot returns a snapshot of the database cache and underlying database at
@@ -492,7 +492,10 @@ func (c *dbCache) flush() error {
 	// necessary before writing the metadata to prevent the case where the
 	// metadata contains information about a block which actually hasn't
 	// been written yet in unexpected shutdown scenarios.
-	if err := c.store.syncBlocks(); err != nil {
+	if err := c.blkStore.syncBlocks(); err != nil {
+		return err
+	}
+	if err := c.sjStore.syncBlocks(); err != nil {
 		return err
 	}
 
@@ -516,8 +519,8 @@ func (c *dbCache) flush() error {
 
 	// Clear the cache since it has been flushed.
 	c.cacheLock.Lock()
-	c.cachedKeys = treap.NewImmutable()
-	c.cachedRemove = treap.NewImmutable()
+	c.cachedKeys = treap.NewMutable()
+	c.cachedRemove = treap.NewMutable()
 	c.cacheLock.Unlock()
 
 	return nil
@@ -597,16 +600,16 @@ func (c *dbCache) commitTx(tx *transaction) error {
 
 	// Apply every key to add in the database transaction to the cache.
 	tx.pendingKeys.ForEach(func(k, v []byte) bool {
-		newCachedRemove = newCachedRemove.Delete(k)
-		newCachedKeys = newCachedKeys.Put(k, v)
+		newCachedRemove.Delete(k)
+		newCachedKeys.Put(k, v)
 		return true
 	})
 	tx.pendingKeys = nil
 
 	// Apply every key to remove in the database transaction to the cache.
 	tx.pendingRemove.ForEach(func(k, v []byte) bool {
-		newCachedKeys = newCachedKeys.Delete(k)
-		newCachedRemove = newCachedRemove.Put(k, nil)
+		newCachedKeys.Delete(k)
+		newCachedRemove.Put(k, nil)
 		return true
 	})
 	tx.pendingRemove = nil
@@ -647,14 +650,15 @@ func (c *dbCache) Close() error {
 // leveldb instance.  The cache will be flushed to leveldb when the max size
 // exceeds the provided value or it has been longer than the provided interval
 // since the last flush.
-func newDbCache(ldb *leveldb.DB, store *blockStore, maxSize uint64, flushIntervalSecs uint32) *dbCache {
+func newDbCache(ldb *leveldb.DB, blkStore, sjStore *blockStore, maxSize uint64, flushIntervalSecs uint32) *dbCache {
 	return &dbCache{
 		ldb:           ldb,
-		store:         store,
+		blkStore:      blkStore,
+		sjStore:       sjStore,
 		maxSize:       maxSize,
 		flushInterval: time.Second * time.Duration(flushIntervalSecs),
 		lastFlush:     time.Now(),
-		cachedKeys:    treap.NewImmutable(),
-		cachedRemove:  treap.NewImmutable(),
+		cachedKeys:    treap.NewMutable(),
+		cachedRemove:  treap.NewMutable(),
 	}
 }

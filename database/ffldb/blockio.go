@@ -34,6 +34,9 @@ const (
 	// the future.
 	blockFilenameTemplate = "%09d.fdb"
 
+	// The name to be used for spend journals.
+	spendJournalFilenameTemplate = "%09d-undo.fdb"
+
 	// maxOpenFiles is the max number of open files to maintain in the
 	// open blocks cache.  Note that this does not include the current
 	// write file, so there will typically be one more than this value open.
@@ -174,6 +177,9 @@ type blockStore struct {
 	openFileFunc      func(fileNum uint32) (*lockableFile, error)
 	openWriteFileFunc func(fileNum uint32) (filer, error)
 	deleteFileFunc    func(fileNum uint32) error
+
+	// filePathFunc returns the file path of where the data is stored.
+	filePathFunc func(dbPath string, fileNum uint32) string
 }
 
 // blockLocation identifies a particular block file and location.
@@ -223,6 +229,13 @@ func blockFilePath(dbPath string, fileNum uint32) string {
 	return filepath.Join(dbPath, fileName)
 }
 
+// spendJournalFilePath return the file path for the provided spend journal
+// file number.
+func spendJournalFilePath(dbPath string, fileNum uint32) string {
+	fileName := fmt.Sprintf(spendJournalFilenameTemplate, fileNum)
+	return filepath.Join(dbPath, fileName)
+}
+
 // openWriteFile returns a file handle for the passed flat file number in
 // read/write mode.  The file will be created if needed.  It is typically used
 // for the current file that will have all new data appended.  Unlike openFile,
@@ -232,7 +245,7 @@ func (s *blockStore) openWriteFile(fileNum uint32) (filer, error) {
 	// The current block file needs to be read-write so it is possible to
 	// append to it.  Also, it shouldn't be part of the least recently used
 	// file.
-	filePath := blockFilePath(s.basePath, fileNum)
+	filePath := s.filePathFunc(s.basePath, fileNum)
 	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		str := fmt.Sprintf("failed to open file %q: %v", filePath, err)
@@ -251,7 +264,7 @@ func (s *blockStore) openWriteFile(fileNum uint32) (filer, error) {
 // for WRITES.
 func (s *blockStore) openFile(fileNum uint32) (*lockableFile, error) {
 	// Open the appropriate file as read-only.
-	filePath := blockFilePath(s.basePath, fileNum)
+	filePath := s.filePathFunc(s.basePath, fileNum)
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, makeDbErr(database.ErrDriverSpecific, err.Error(),
@@ -299,7 +312,7 @@ func (s *blockStore) openFile(fileNum uint32) (*lockableFile, error) {
 // must already be closed and it is the responsibility of the caller to do any
 // other state cleanup necessary.
 func (s *blockStore) deleteFile(fileNum uint32) error {
-	filePath := blockFilePath(s.basePath, fileNum)
+	filePath := s.filePathFunc(s.basePath, fileNum)
 	if err := os.Remove(filePath); err != nil {
 		return makeDbErr(database.ErrDriverSpecific, err.Error(), err)
 	}
@@ -518,7 +531,7 @@ func (s *blockStore) readBlock(hash *chainhash.Hash, loc blockLocation) ([]byte,
 	n, err := blockFile.file.ReadAt(serializedData, int64(loc.fileOffset))
 	blockFile.RUnlock()
 	if err != nil {
-		str := fmt.Sprintf("failed to read block %s from file %d, "+
+		str := fmt.Sprintf("failed to read data %s from file %d, "+
 			"offset %d: %v", hash, loc.blockFileNum, loc.fileOffset,
 			err)
 		return nil, makeDbErr(database.ErrDriverSpecific, str, err)
@@ -531,7 +544,7 @@ func (s *blockStore) readBlock(hash *chainhash.Hash, loc blockLocation) ([]byte,
 	serializedChecksum := binary.BigEndian.Uint32(serializedData[n-4:])
 	calculatedChecksum := crc32.Checksum(serializedData[:n-4], castagnoli)
 	if serializedChecksum != calculatedChecksum {
-		str := fmt.Sprintf("block data for block %s checksum "+
+		str := fmt.Sprintf("data for block %s checksum "+
 			"does not match - got %x, want %x", hash,
 			calculatedChecksum, serializedChecksum)
 		return nil, makeDbErr(database.ErrCorruption, str, nil)
@@ -542,7 +555,7 @@ func (s *blockStore) readBlock(hash *chainhash.Hash, loc blockLocation) ([]byte,
 	// wrong network in the directory.
 	serializedNet := byteOrder.Uint32(serializedData[:4])
 	if serializedNet != uint32(s.network) {
-		str := fmt.Sprintf("block data for block %s is for the "+
+		str := fmt.Sprintf("data for block %s is for the "+
 			"wrong network - got %d, want %d", hash, serializedNet,
 			uint32(s.network))
 		return nil, makeDbErr(database.ErrDriverSpecific, str, nil)
@@ -717,11 +730,13 @@ func (s *blockStore) handleRollback(oldBlockFileNum, oldBlockOffset uint32) {
 // current write cursor which is also stored in the metadata.  Thus, it is used
 // to detect unexpected shutdowns in the middle of writes so the block files
 // can be reconciled.
-func scanBlockFiles(dbPath string) (int, uint32) {
+func scanBlockFiles(dbPath string,
+	filePathFunc func(dbPath string, fileNum uint32) string) (int, uint32) {
+
 	lastFile := -1
 	fileLen := uint32(0)
 	for i := 0; ; i++ {
-		filePath := blockFilePath(dbPath, uint32(i))
+		filePath := filePathFunc(dbPath, uint32(i))
 		st, err := os.Stat(filePath)
 		if err != nil {
 			break
@@ -742,7 +757,7 @@ func newBlockStore(basePath string, network wire.BitcoinNet) *blockStore {
 	// Look for the end of the latest block to file to determine what the
 	// write cursor position is from the viewpoing of the block files on
 	// disk.
-	fileNum, fileOff := scanBlockFiles(basePath)
+	fileNum, fileOff := scanBlockFiles(basePath, blockFilePath)
 	if fileNum == -1 {
 		fileNum = 0
 		fileOff = 0
@@ -765,5 +780,39 @@ func newBlockStore(basePath string, network wire.BitcoinNet) *blockStore {
 	store.openFileFunc = store.openFile
 	store.openWriteFileFunc = store.openWriteFile
 	store.deleteFileFunc = store.deleteFile
+	store.filePathFunc = blockFilePath
+	return store
+}
+
+// newSJStore returns a new spend journal store with the current spend journal file
+// number and offset set and all fields initialized.
+func newSJStore(basePath string, network wire.BitcoinNet) *blockStore {
+	// Look for the end of the latest block to file to determine what the
+	// write cursor position is from the viewpoing of the block files on
+	// disk.
+	fileNum, fileOff := scanBlockFiles(basePath, spendJournalFilePath)
+	if fileNum == -1 {
+		fileNum = 0
+		fileOff = 0
+	}
+
+	store := &blockStore{
+		network:          network,
+		basePath:         basePath,
+		maxBlockFileSize: maxBlockFileSize,
+		openBlockFiles:   make(map[uint32]*lockableFile),
+		openBlocksLRU:    list.New(),
+		fileNumToLRUElem: make(map[uint32]*list.Element),
+
+		writeCursor: &writeCursor{
+			curFile:    &lockableFile{},
+			curFileNum: uint32(fileNum),
+			curOffset:  fileOff,
+		},
+	}
+	store.openFileFunc = store.openFile
+	store.openWriteFileFunc = store.openWriteFile
+	store.deleteFileFunc = store.deleteFile
+	store.filePathFunc = spendJournalFilePath
 	return store
 }

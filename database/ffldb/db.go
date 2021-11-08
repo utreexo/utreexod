@@ -67,13 +67,25 @@ var (
 	// It is the value 1 encoded as an unsigned big-endian uint32.
 	blockIdxBucketID = [4]byte{0x00, 0x00, 0x00, 0x01}
 
+	// sjIdxBucketID is the ID of the internal spend journal metadata bucket.
+	// It is the value 2 encoded as an unsigned big-endian uint32.
+	sjIdxBucketID = [4]byte{0x00, 0x00, 0x00, 0x02}
+
 	// blockIdxBucketName is the bucket used internally to track block
 	// metadata.
 	blockIdxBucketName = []byte("ffldb-blockidx")
 
-	// writeLocKeyName is the key used to store the current write file
+	// sjIdxBucketName is the bucket used internally to track spend journal
+	// metadata.
+	sjIdxBucketName = []byte("ffldb-sjidx")
+
+	// blkWriteLocKeyName is the key used to store the current block write file
 	// location.
-	writeLocKeyName = []byte("ffldb-writeloc")
+	blkWriteLocKeyName = []byte("ffldb-writeloc")
+
+	// sjWriteLocKeyName is the key used to store the current spend journal write
+	// file location.
+	sjWriteLocKeyName = []byte("ffldb-sjwriteloc")
 )
 
 // Common error strings.
@@ -647,6 +659,8 @@ func (b *bucket) CreateBucket(key []byte) (database.Bucket, error) {
 	var childID [4]byte
 	if b.id == metadataBucketID && bytes.Equal(key, blockIdxBucketName) {
 		childID = blockIdxBucketID
+	} else if b.id == metadataBucketID && bytes.Equal(key, sjIdxBucketName) {
+		childID = sjIdxBucketID
 	} else {
 		var err error
 		childID, err = b.tx.nextBucketID()
@@ -942,9 +956,9 @@ func (b *bucket) Delete(key []byte) error {
 	return nil
 }
 
-// pendingBlock houses a block that will be written to disk when the database
-// transaction is committed.
-type pendingBlock struct {
+// pendingData houses the raw bytes and the corresponding hash that will be written
+// to disk when the database transaction is committed.
+type pendingData struct {
 	hash  *chainhash.Hash
 	bytes []byte
 }
@@ -960,11 +974,17 @@ type transaction struct {
 	snapshot       *dbCacheSnapshot // Underlying snapshot for txns.
 	metaBucket     *bucket          // The root metadata bucket.
 	blockIdxBucket *bucket          // The block index bucket.
+	sjIdxBucket    *bucket          // The spend journal index bucket.
 
 	// Blocks that need to be stored on commit.  The pendingBlocks map is
 	// kept to allow quick lookups of pending data by block hash.
 	pendingBlocks    map[chainhash.Hash]int
-	pendingBlockData []pendingBlock
+	pendingBlockData []pendingData
+
+	// Spend journals that need to be stored on commit.  The pendingSpendJournal map is
+	// kept to allow quick lookups of pending spend journals by block hash.
+	pendingSpendJournals    map[chainhash.Hash]int
+	pendingSpendJournalData []pendingData
 
 	// Keys that need to be stored or deleted on commit.
 	pendingKeys   *treap.Mutable
@@ -1180,7 +1200,7 @@ func (tx *transaction) StoreBlock(block *btcutil.Block) error {
 		tx.pendingBlocks = make(map[chainhash.Hash]int)
 	}
 	tx.pendingBlocks[*blockHash] = len(tx.pendingBlockData)
-	tx.pendingBlockData = append(tx.pendingBlockData, pendingBlock{
+	tx.pendingBlockData = append(tx.pendingBlockData, pendingData{
 		hash:  blockHash,
 		bytes: blockBytes,
 	})
@@ -1233,6 +1253,18 @@ func (tx *transaction) fetchBlockRow(hash *chainhash.Hash) ([]byte, error) {
 	if blockRow == nil {
 		str := fmt.Sprintf("block %s does not exist", hash)
 		return nil, makeDbErr(database.ErrBlockNotFound, str, nil)
+	}
+
+	return blockRow, nil
+}
+
+// fetchSJRow fetches the metadata stored in the spend journal index for the provided
+// hash.  It will return ErrSpendJournalNotFound if there is no entry.
+func (tx *transaction) fetchSJRow(hash *chainhash.Hash) ([]byte, error) {
+	blockRow := tx.sjIdxBucket.Get(hash[:])
+	if blockRow == nil {
+		str := fmt.Sprintf("spend journal for %s does not exist", hash)
+		return nil, makeDbErr(database.ErrSpendJournalNotFound, str, nil)
 	}
 
 	return blockRow, nil
@@ -1326,7 +1358,7 @@ func (tx *transaction) FetchBlock(hash *chainhash.Hash) ([]byte, error) {
 
 	// Read the block from the appropriate location.  The function also
 	// performs a checksum over the data to detect data corruption.
-	blockBytes, err := tx.db.store.readBlock(hash, location)
+	blockBytes, err := tx.db.blkStore.readBlock(hash, location)
 	if err != nil {
 		return nil, err
 	}
@@ -1466,7 +1498,7 @@ func (tx *transaction) FetchBlockRegion(region *database.BlockRegion) ([]byte, e
 	}
 
 	// Read the region from the appropriate disk block file.
-	regionBytes, err := tx.db.store.readBlockRegion(location, region.Offset,
+	regionBytes, err := tx.db.blkStore.readBlockRegion(location, region.Offset,
 		region.Len)
 	if err != nil {
 		return nil, err
@@ -1572,7 +1604,7 @@ func (tx *transaction) FetchBlockRegions(regions []database.BlockRegion) ([][]by
 		ri := fetchData.replyIndex
 		region := &regions[ri]
 		location := fetchData.blockLocation
-		regionBytes, err := tx.db.store.readBlockRegion(*location,
+		regionBytes, err := tx.db.blkStore.readBlockRegion(*location,
 			region.Offset, region.Len)
 		if err != nil {
 			return nil, err
@@ -1583,7 +1615,6 @@ func (tx *transaction) FetchBlockRegions(regions []database.BlockRegion) ([][]by
 	return blockRegions, nil
 }
 
-// close marks the transaction closed then releases any pending data, the
 // underlying snapshot, the transaction read lock, and the write lock when the
 // transaction is writable.
 func (tx *transaction) close() {
@@ -1623,23 +1654,31 @@ func (tx *transaction) writePendingAndCommit() error {
 	// These variables are only updated here in this function and there can
 	// only be one write transaction active at a time, so it's safe to store
 	// them for potential rollback.
-	wc := tx.db.store.writeCursor
-	wc.RLock()
-	oldBlkFileNum := wc.curFileNum
-	oldBlkOffset := wc.curOffset
-	wc.RUnlock()
+	blkWC := tx.db.blkStore.writeCursor
+	blkWC.RLock()
+	oldBlkFileNum := blkWC.curFileNum
+	oldBlkOffset := blkWC.curOffset
+	blkWC.RUnlock()
+
+	// Do the same for the spend journal write cursor.
+	sjWC := tx.db.sjStore.writeCursor
+	sjWC.RLock()
+	oldSJFileNum := sjWC.curFileNum
+	oldSJOffset := sjWC.curOffset
+	sjWC.RUnlock()
 
 	// rollback is a closure that is used to rollback all writes to the
 	// block files.
 	rollback := func() {
 		// Rollback any modifications made to the block files if needed.
-		tx.db.store.handleRollback(oldBlkFileNum, oldBlkOffset)
+		tx.db.blkStore.handleRollback(oldBlkFileNum, oldBlkOffset)
+		tx.db.sjStore.handleRollback(oldSJFileNum, oldSJOffset)
 	}
 
 	// Loop through all of the pending blocks to store and write them.
 	for _, blockData := range tx.pendingBlockData {
 		log.Tracef("Storing block %s", blockData.hash)
-		location, err := tx.db.store.writeBlock(blockData.bytes)
+		location, err := tx.db.blkStore.writeBlock(blockData.bytes)
 		if err != nil {
 			rollback()
 			return err
@@ -1657,16 +1696,119 @@ func (tx *transaction) writePendingAndCommit() error {
 		}
 	}
 
-	// Update the metadata for the current write file and offset.
-	writeRow := serializeWriteRow(wc.curFileNum, wc.curOffset)
-	if err := tx.metaBucket.Put(writeLocKeyName, writeRow); err != nil {
+	// Loop through all of the pending undo blocks to store and write them.
+	for _, spendJournalData := range tx.pendingSpendJournalData {
+		log.Tracef("Storing spend journal %s", spendJournalData.hash)
+		location, err := tx.db.sjStore.writeBlock(spendJournalData.bytes)
+		if err != nil {
+			rollback()
+			return err
+		}
+
+		// Add a record in the spend journal index for the spend journal.
+		sjRow := serializeBlockLoc(location)
+		err = tx.sjIdxBucket.Put(spendJournalData.hash[:], sjRow)
+		if err != nil {
+			rollback()
+			return err
+		}
+	}
+
+	// Update the metadata for the current write block file and offset.
+	blkWriteRow := serializeWriteRow(blkWC.curFileNum, blkWC.curOffset)
+	if err := tx.metaBucket.Put(blkWriteLocKeyName, blkWriteRow); err != nil {
 		rollback()
-		return convertErr("failed to store write cursor", err)
+		return convertErr("failed to store block write cursor", err)
+	}
+
+	// Do the same and update the metadata for the current write spend journal
+	// file and offset.
+	sjWriteRow := serializeWriteRow(sjWC.curFileNum, sjWC.curOffset)
+	if err := tx.metaBucket.Put(sjWriteLocKeyName, sjWriteRow); err != nil {
+		rollback()
+		return convertErr("failed to store spend journal write cursor", err)
 	}
 
 	// Atomically update the database cache.  The cache automatically
 	// handles flushing to the underlying persistent storage database.
 	return tx.db.cache.commitTx(tx)
+}
+
+// StoreSpendJournal stores the provided spend journal into the database.
+// There's no checks to make sure the serialization is correct, it just
+// simply stores the serialized spend journal to the database.
+//
+// The interface contract guarantees at least the following errors will
+// be returned (other implementation-specific errors are possible):
+//   - ErrTxNotWritable if attempted against a read-only transaction
+//   - ErrTxClosed if the transaction has already been closed
+//
+// This function is part of the database.Tx interface implementation.
+func (tx *transaction) StoreSpendJournal(blockHash *chainhash.Hash, spendJournal []byte) error {
+	// Ensure transaction state is valid.
+	if err := tx.checkClosed(); err != nil {
+		return err
+	}
+
+	// Ensure the transaction is writable.
+	if !tx.writable {
+		str := "store spend journal requires a writable database transaction"
+		return makeDbErr(database.ErrTxNotWritable, str, nil)
+	}
+
+	if tx.pendingSpendJournals == nil {
+		tx.pendingSpendJournals = make(map[chainhash.Hash]int)
+	}
+	tx.pendingSpendJournals[*blockHash] = len(tx.pendingSpendJournalData)
+	tx.pendingSpendJournalData = append(tx.pendingSpendJournalData, pendingData{
+		hash:  blockHash,
+		bytes: spendJournal,
+	})
+	log.Tracef("Added store journal for block %s to pending store journals", blockHash)
+
+	return nil
+}
+
+// FetchSpendJournal returns the raw serialized bytes for the spend journal
+// identified by the given hash.  The raw bytes are in the format specified
+// by the blockchain package.
+//
+// The interface contract guarantees at least the following errors will
+// be returned (other implementation-specific errors are possible):
+//   - ErrSpendJournalNotFound if the any of the requested spend journal
+//     doesn't exist
+//   - ErrTxClosed if the transaction has already been closed
+//   - ErrCorruption if the database has somehow become corrupted
+//
+// This function is part of the database.Tx interface implementation.
+func (tx *transaction) FetchSpendJournal(hash *chainhash.Hash) ([]byte, error) {
+	// Ensure transaction state is valid.
+	if err := tx.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// When the spend journal is pending to be written on commit return the bytes
+	// from there.
+	if idx, exists := tx.pendingSpendJournals[*hash]; exists {
+		return tx.pendingSpendJournalData[idx].bytes, nil
+	}
+
+	// Lookup the location of the spend journal in the files from the
+	// spend journal index.
+	spendJournalRow, err := tx.fetchSJRow(hash)
+	if err != nil {
+		return nil, err
+	}
+	location := deserializeBlockLoc(spendJournalRow)
+
+	// Read the spend journal from the appropriate location.  The function also
+	// performs a checksum over the data to detect data corruption.
+	sjBytes, err := tx.db.sjStore.readBlock(hash, location)
+	if err != nil {
+		return nil, err
+	}
+
+	return sjBytes, nil
 }
 
 // Commit commits all changes that have been made to the root metadata bucket
@@ -1730,7 +1872,8 @@ type db struct {
 	writeLock sync.Mutex   // Limit to one write transaction at a time.
 	closeLock sync.RWMutex // Make database close block while txns active.
 	closed    bool         // Is the database closed?
-	store     *blockStore  // Handles read/writing blocks to flat files.
+	blkStore  *blockStore  // Handles read/writing blocks to flat files.
+	sjStore   *blockStore  // Handles read/writing spend journals to flat files.
 	cache     *dbCache     // Cache layer which wraps underlying leveldb DB.
 }
 
@@ -1797,6 +1940,7 @@ func (db *db) begin(writable bool) (*transaction, error) {
 	}
 	tx.metaBucket = &bucket{tx: tx, id: metadataBucketID}
 	tx.blockIdxBucket = &bucket{tx: tx, id: blockIdxBucketID}
+	tx.sjIdxBucket = &bucket{tx: tx, id: sjIdxBucketID}
 	return tx, nil
 }
 
@@ -1926,17 +2070,30 @@ func (db *db) Close() error {
 	closeErr := db.cache.Close()
 
 	// Close any open flat files that house the blocks.
-	wc := db.store.writeCursor
+	wc := db.blkStore.writeCursor
 	if wc.curFile.file != nil {
 		_ = wc.curFile.file.Close()
 		wc.curFile.file = nil
 	}
-	for _, blockFile := range db.store.openBlockFiles {
+	for _, blockFile := range db.blkStore.openBlockFiles {
 		_ = blockFile.file.Close()
 	}
-	db.store.openBlockFiles = nil
-	db.store.openBlocksLRU.Init()
-	db.store.fileNumToLRUElem = nil
+	db.blkStore.openBlockFiles = nil
+	db.blkStore.openBlocksLRU.Init()
+	db.blkStore.fileNumToLRUElem = nil
+
+	// Close any open flat files that house the blocks.
+	wc = db.sjStore.writeCursor
+	if wc.curFile.file != nil {
+		_ = wc.curFile.file.Close()
+		wc.curFile.file = nil
+	}
+	for _, sjFile := range db.sjStore.openBlockFiles {
+		_ = sjFile.file.Close()
+	}
+	db.sjStore.openBlockFiles = nil
+	db.sjStore.openBlocksLRU.Init()
+	db.sjStore.fileNumToLRUElem = nil
 
 	return closeErr
 }
@@ -1957,7 +2114,10 @@ func initDB(ldb *leveldb.DB) error {
 	// The starting block file write cursor location is file num 0, offset
 	// 0.
 	batch := new(leveldb.Batch)
-	batch.Put(bucketizedKey(metadataBucketID, writeLocKeyName),
+	batch.Put(bucketizedKey(metadataBucketID, blkWriteLocKeyName),
+		serializeWriteRow(0, 0))
+
+	batch.Put(bucketizedKey(metadataBucketID, sjWriteLocKeyName),
 		serializeWriteRow(0, 0))
 
 	// Create block index bucket and set the current bucket id.
@@ -1969,6 +2129,10 @@ func initDB(ldb *leveldb.DB) error {
 	batch.Put(bucketIndexKey(metadataBucketID, blockIdxBucketName),
 		blockIdxBucketID[:])
 	batch.Put(curBucketIDKeyName, blockIdxBucketID[:])
+
+	batch.Put(bucketIndexKey(metadataBucketID, sjIdxBucketName),
+		sjIdxBucketID[:])
+	batch.Put(curBucketIDKeyName, sjIdxBucketID[:])
 
 	// Write everything as a single batch.
 	if err := ldb.Write(batch, nil); err != nil {
@@ -2011,14 +2175,11 @@ func openDB(dbPath string, network wire.BitcoinNet, create bool) (database.DB, e
 		return nil, convertErr(err.Error(), err)
 	}
 
-	// Create the block store which includes scanning the existing flat
-	// block files to find what the current write cursor position is
-	// according to the data that is actually on disk.  Also create the
-	// database cache which wraps the underlying leveldb database to provide
-	// write caching.
-	store := newBlockStore(dbPath, network)
-	cache := newDbCache(ldb, store, defaultCacheSize, defaultFlushSecs)
-	pdb := &db{store: store, cache: cache}
+	blkStore := newBlockStore(dbPath, network)
+	sjStore := newSJStore(dbPath, network)
+
+	cache := newDbCache(ldb, blkStore, sjStore, defaultCacheSize, defaultFlushSecs)
+	pdb := &db{blkStore: blkStore, sjStore: sjStore, cache: cache}
 
 	// Perform any reconciliation needed between the block and metadata as
 	// well as database initialization, if needed.

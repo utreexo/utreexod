@@ -107,6 +107,10 @@ const (
 	// exist in the database.
 	ErrBlockNotFound
 
+	// ErrSpendJournalNotFound indicates a spend journal with the provided hash does not
+	// exist in the database.
+	ErrSpendJournalNotFound
+
 	// ErrBlockExists indicates a block with the provided hash already
 	// exists in the database.
 	ErrBlockExists
@@ -133,27 +137,28 @@ const (
 
 // Map of ErrorCode values back to their constant names for pretty printing.
 var errorCodeStrings = map[ErrorCode]string{
-	ErrDbTypeRegistered:   "ErrDbTypeRegistered",
-	ErrDbUnknownType:      "ErrDbUnknownType",
-	ErrDbDoesNotExist:     "ErrDbDoesNotExist",
-	ErrDbExists:           "ErrDbExists",
-	ErrDbNotOpen:          "ErrDbNotOpen",
-	ErrDbAlreadyOpen:      "ErrDbAlreadyOpen",
-	ErrInvalid:            "ErrInvalid",
-	ErrCorruption:         "ErrCorruption",
-	ErrTxClosed:           "ErrTxClosed",
-	ErrTxNotWritable:      "ErrTxNotWritable",
-	ErrBucketNotFound:     "ErrBucketNotFound",
-	ErrBucketExists:       "ErrBucketExists",
-	ErrBucketNameRequired: "ErrBucketNameRequired",
-	ErrKeyRequired:        "ErrKeyRequired",
-	ErrKeyTooLarge:        "ErrKeyTooLarge",
-	ErrValueTooLarge:      "ErrValueTooLarge",
-	ErrIncompatibleValue:  "ErrIncompatibleValue",
-	ErrBlockNotFound:      "ErrBlockNotFound",
-	ErrBlockExists:        "ErrBlockExists",
-	ErrBlockRegionInvalid: "ErrBlockRegionInvalid",
-	ErrDriverSpecific:     "ErrDriverSpecific",
+	ErrDbTypeRegistered:     "ErrDbTypeRegistered",
+	ErrDbUnknownType:        "ErrDbUnknownType",
+	ErrDbDoesNotExist:       "ErrDbDoesNotExist",
+	ErrDbExists:             "ErrDbExists",
+	ErrDbNotOpen:            "ErrDbNotOpen",
+	ErrDbAlreadyOpen:        "ErrDbAlreadyOpen",
+	ErrInvalid:              "ErrInvalid",
+	ErrCorruption:           "ErrCorruption",
+	ErrTxClosed:             "ErrTxClosed",
+	ErrTxNotWritable:        "ErrTxNotWritable",
+	ErrBucketNotFound:       "ErrBucketNotFound",
+	ErrBucketExists:         "ErrBucketExists",
+	ErrBucketNameRequired:   "ErrBucketNameRequired",
+	ErrKeyRequired:          "ErrKeyRequired",
+	ErrKeyTooLarge:          "ErrKeyTooLarge",
+	ErrValueTooLarge:        "ErrValueTooLarge",
+	ErrIncompatibleValue:    "ErrIncompatibleValue",
+	ErrBlockNotFound:        "ErrBlockNotFound",
+	ErrSpendJournalNotFound: "ErrSpendJournalNotFound",
+	ErrBlockExists:          "ErrBlockExists",
+	ErrBlockRegionInvalid:   "ErrBlockRegionInvalid",
+	ErrDriverSpecific:       "ErrDriverSpecific",
 }
 
 // String returns the ErrorCode as a human-readable name.

@@ -389,6 +389,32 @@ type Tx interface {
 	// implementations.
 	FetchBlockRegions(regions []BlockRegion) ([][]byte, error)
 
+	// StoreSpendJournal stores the provided spend journal into the database.
+	// There's no checks to make sure the serialization is correct, it just
+	// simply stores the serialized spend journal to the database.
+	//
+	// The interface contract guarantees at least the following errors will
+	// be returned (other implementation-specific errors are possible):
+	//   - ErrTxNotWritable if attempted against a read-only transaction
+	//   - ErrTxClosed if the transaction has already been closed
+	//
+	// This function is part of the database.Tx interface implementation.
+	StoreSpendJournal(blockHash *chainhash.Hash, spendJournal []byte) error
+
+	// FetchSpendJournal returns the raw serialized bytes for the spend journal
+	// identified by the given hash.  The raw bytes are in the format specified
+	// by the blockchain package.
+	//
+	// The interface contract guarantees at least the following errors will
+	// be returned (other implementation-specific errors are possible):
+	//   - ErrSpendJournalNotFound if the any of the requested spend journal
+	//     doesn't exist
+	//   - ErrTxClosed if the transaction has already been closed
+	//   - ErrCorruption if the database has somehow become corrupted
+	FetchSpendJournal(hash *chainhash.Hash) ([]byte, error)
+
+	//DisconnectBlock(height int32, hash *chainhash.Hash) error
+
 	// ******************************************************************
 	// Methods related to both atomic metadata storage and block storage.
 	// ******************************************************************

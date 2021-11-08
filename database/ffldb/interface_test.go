@@ -1210,6 +1210,83 @@ func testFetchBlockIOMissing(tc *testContext, tx database.Tx) bool {
 	return true
 }
 
+// testFetchSpendJournalIOMissing ensures that all of the spend journal retrieval API functions
+// work as expected when requesting spend journals that don't exist.
+func testFetchSpendJournalIOMissing(tc *testContext, tx database.Tx) bool {
+	wantErrCode := database.ErrSpendJournalNotFound
+
+	// Test the individual spend journal APIs one spend journal at a time to
+	// ensure they return the expected error.
+	for i, block := range tc.blocks {
+		// Ensure FetchBlock returns expected error.
+		testName := fmt.Sprintf("FetchSpendJournal #%d on missing spend journal", i)
+		_, err := tx.FetchSpendJournal(block.Hash())
+		if !checkDbError(tc.t, testName, err, wantErrCode) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// testFetchSpendJournalIO ensures all of the block retrieval API functions work as
+// expected for the provide set of blocks.  The blocks must already be stored in
+// the database, or at least stored into the the passed transaction.  It also
+// tests several error conditions such as ensuring the expected errors are
+// returned when fetching blocks, headers, and regions that don't exist.
+func testFetchSpendJournalIO(tc *testContext, tx database.Tx) bool {
+	// ---------------------
+	// Spend Journal IO API
+	// ---------------------
+
+	// Test the individual block APIs one block at a time.  Also, build the
+	// data needed to test the bulk APIs below while looping.
+	for i, block := range tc.blocks {
+		blockHash := block.Hash()
+
+		// We do this instead of actually getting the spend journal because
+		// the spend journal interface doesn't care what sort of bytes are
+		// saved.  For the sake of easy testing, just save the block bytes.
+		blockBytes, err := block.Bytes()
+		if err != nil {
+			tc.t.Errorf("block.Bytes(%d): unexpected error: %v", i,
+				err)
+			return false
+		}
+
+		// Ensure the spend journal data fetched from the database matches
+		// the expected bytes.
+		gotSpendJournalBytes, err := tx.FetchSpendJournal(blockHash)
+		if err != nil {
+			tc.t.Errorf("FetchSpendJournal(%s): unexpected error: %v",
+				blockHash, err)
+			return false
+		}
+		if !bytes.Equal(gotSpendJournalBytes, blockBytes) {
+			tc.t.Errorf("FetchSpendJournal(%s): bytes mismatch: got %x, "+
+				"want %x", blockHash, gotSpendJournalBytes, blockBytes)
+			return false
+		}
+
+		// -----------------------
+		// Invalid spend journals
+		// -----------------------
+
+		// Ensure fetching a block that doesn't exist returns the
+		// expected error.
+		badBlockHash := &chainhash.Hash{}
+		testName := fmt.Sprintf("FetchSpendJournal(%s) invalid spend journal",
+			badBlockHash)
+		wantErrCode := database.ErrSpendJournalNotFound
+		_, err = tx.FetchSpendJournal(badBlockHash)
+		if !checkDbError(tc.t, testName, err, wantErrCode) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // testFetchBlockIO ensures all of the block retrieval API functions work as
 // expected for the provide set of blocks.  The blocks must already be stored in
 // the database, or at least stored into the the passed transaction.  It also
@@ -1679,6 +1756,158 @@ func testBlockIOTxInterface(tc *testContext) bool {
 	return true
 }
 
+// testSpendJournalIOTxInterface ensures that the spend journal IO interface works
+// as expected for both managed read/write and manual transactions.  This function
+// leaves all of the stored spend journals in the database.
+func testSpendJournalIOTxInterface(tc *testContext) bool {
+	// Ensure attempting to store a spend journal with a read-only transaction fails
+	// with the expected error.
+	err := tc.db.View(func(tx database.Tx) error {
+		wantErrCode := database.ErrTxNotWritable
+		for i, block := range tc.blocks {
+			testName := fmt.Sprintf("StoreSpendJournal(%d) on ro tx", i)
+			err := tx.StoreSpendJournal(block.Hash(), []byte{0x0})
+			if !checkDbError(tc.t, testName, err, wantErrCode) {
+				return errSubTestFail
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		if err != errSubTestFail {
+			tc.t.Errorf("%v", err)
+		}
+		return false
+	}
+
+	// Populate the database with loaded blocks and ensure all of the data
+	// fetching APIs work properly on them within the transaction before a
+	// commit or rollback.  Then, force a rollback so the code below can
+	// ensure none of the data actually gets stored.
+	forceRollbackError := fmt.Errorf("force rollback")
+	err = tc.db.Update(func(tx database.Tx) error {
+		// Store all spend journals in the same transaction.
+		for i, block := range tc.blocks {
+			// We do this instead of actually getting the spend journal because
+			// the spend journal interface doesn't care what sort of bytes are
+			// saved.  For the sake of easy testing, just save the block bytes.
+			bytes, err := block.Bytes()
+			if err != nil {
+				return err
+			}
+			err = tx.StoreSpendJournal(block.Hash(), bytes)
+			if err != nil {
+				tc.t.Errorf("StoreSpendJournal #%d: unexpected error: "+
+					"%v", i, err)
+				return errSubTestFail
+			}
+		}
+
+		// Ensure that all data fetches from the stored blocks before
+		// the transaction has been committed work as expected.
+		if !testFetchSpendJournalIO(tc, tx) {
+			return errSubTestFail
+		}
+
+		return forceRollbackError
+	})
+	if err != forceRollbackError {
+		if err == errSubTestFail {
+			return false
+		}
+
+		tc.t.Errorf("Update: inner function error not returned - got "+
+			"%v, want %v", err, forceRollbackError)
+		return false
+	}
+
+	// Ensure rollback was successful
+	err = tc.db.View(func(tx database.Tx) error {
+		if !testFetchSpendJournalIOMissing(tc, tx) {
+			return errSubTestFail
+		}
+		return nil
+	})
+	if err != nil {
+		if err != errSubTestFail {
+			tc.t.Errorf("%v", err)
+		}
+		return false
+	}
+
+	// Populate the database with loaded blocks and ensure all of the data
+	// fetching APIs work properly.
+	err = tc.db.Update(func(tx database.Tx) error {
+		// Store a bunch of blocks in the same transaction.
+		for i, block := range tc.blocks {
+			// We do this instead of actually getting the spend journal because
+			// the spend journal interface doesn't care what sort of bytes are
+			// saved.  For the sake of easy testing, just save the block bytes.
+			bytes, err := block.Bytes()
+			if err != nil {
+				return err
+			}
+			err = tx.StoreSpendJournal(block.Hash(), bytes)
+			if err != nil {
+				tc.t.Errorf("StoreSpendJournal #%d: unexpected error: "+
+					"%v", i, err)
+				return errSubTestFail
+			}
+		}
+
+		// Ensure that all data fetches from the stored spend journals before
+		// the transaction has been committed work as expected.
+		if !testFetchSpendJournalIO(tc, tx) {
+			return errSubTestFail
+		}
+
+		return nil
+	})
+	if err != nil {
+		if err != errSubTestFail {
+			tc.t.Errorf("%v", err)
+		}
+		return false
+	}
+
+	// Ensure all data fetch tests work as expected using a managed
+	// read-only transaction after the data was successfully committed
+	// above.
+	err = tc.db.View(func(tx database.Tx) error {
+		if !testFetchSpendJournalIO(tc, tx) {
+			return errSubTestFail
+		}
+
+		return nil
+	})
+	if err != nil {
+		if err != errSubTestFail {
+			tc.t.Errorf("%v", err)
+		}
+		return false
+	}
+
+	// Ensure all data fetch tests work as expected using a managed
+	// read-write transaction after the data was successfully committed
+	// above.
+	err = tc.db.Update(func(tx database.Tx) error {
+		if !testFetchSpendJournalIO(tc, tx) {
+			return errSubTestFail
+		}
+
+		return nil
+	})
+	if err != nil {
+		if err != errSubTestFail {
+			tc.t.Errorf("%v", err)
+		}
+		return false
+	}
+
+	return true
+}
+
 // testClosedTxInterface ensures that both the metadata and block IO API
 // functions behave as expected when attempted against a closed transaction.
 func testClosedTxInterface(tc *testContext, tx database.Tx) bool {
@@ -2083,9 +2312,9 @@ func testConcurrecy(tc *testContext) bool {
 
 	// Start up a few readers and wait for them to acquire views.  Each
 	// reader waits for a signal from the writer to be finished to ensure
-	// that the data written by the writer is not seen by the view since it
-	// was started before the data was set.
-	concurrentKey := []byte("notthere")
+	// that the data written by the writer is seen by the view as the writer
+	// wrote the data before the reader reads it.
+	concurrentKey := []byte("shouldbethere")
 	concurrentVal := []byte("someval")
 	started := make(chan struct{})
 	writeComplete := make(chan struct{})
@@ -2096,11 +2325,11 @@ func testConcurrecy(tc *testContext) bool {
 			// Wait for the writer to complete.
 			<-writeComplete
 
-			// Since this reader was created before the write took
-			// place, the data it added should not be visible.
+			// Check that concurrentKey is visible as the writer finished writing
+			// before we read the key.
 			val := tx.Metadata().Get(concurrentKey)
-			if val != nil {
-				return fmt.Errorf("%s should not be visible",
+			if val == nil {
+				return fmt.Errorf("%s should be visible",
 					concurrentKey)
 			}
 			return nil
@@ -2277,6 +2506,10 @@ func testInterface(t *testing.T, db database.DB) {
 	// transactions.  This function leaves all of the stored blocks in the
 	// database since they're used later.
 	if !testBlockIOTxInterface(&context) {
+		return
+	}
+
+	if !testSpendJournalIOTxInterface(&context) {
 		return
 	}
 
