@@ -35,6 +35,7 @@ func TestErrorCodeStringer(t *testing.T) {
 		{database.ErrValueTooLarge, "ErrValueTooLarge"},
 		{database.ErrIncompatibleValue, "ErrIncompatibleValue"},
 		{database.ErrBlockNotFound, "ErrBlockNotFound"},
+		{database.ErrSpendJournalNotFound, "ErrSpendJournalNotFound"},
 		{database.ErrBlockExists, "ErrBlockExists"},
 		{database.ErrBlockRegionInvalid, "ErrBlockRegionInvalid"},
 		{database.ErrDriverSpecific, "ErrDriverSpecific"},

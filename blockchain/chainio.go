@@ -27,11 +27,6 @@ const (
 	// latestUtxoSetBucketVersion is the current version of the utxo set
 	// bucket that is used to track all unspent outputs.
 	latestUtxoSetBucketVersion = 2
-
-	// latestSpendJournalBucketVersion is the current version of the spend
-	// journal bucket that is used to track all spent transactions for use
-	// in reorgs.
-	latestSpendJournalBucketVersion = 1
 )
 
 var (
@@ -54,14 +49,6 @@ var (
 	// utxoStateConsistencyKeyName is the name of the db key used to store the
 	// consistency status of the utxo state.
 	utxoStateConsistencyKeyName = []byte("utxostateconsistency")
-
-	// spendJournalVersionKeyName is the name of the db key used to store
-	// the version of the spend journal currently in the database.
-	spendJournalVersionKeyName = []byte("spendjournalversion")
-
-	// spendJournalBucketName is the name of the db bucket used to house
-	// transactions outputs that are spent in each block.
-	spendJournalBucketName = []byte("spendjournal")
 
 	// utxoSetVersionKeyName is the name of the db key used to store the
 	// version of the utxo set currently in the database.
@@ -462,9 +449,10 @@ func serializeSpendJournalEntry(stxos []SpentTxOut) []byte {
 // was the final output spend in the containing transaction.  It is up to the
 // caller to handle this properly by looking the information up in the utxo set.
 func dbFetchSpendJournalEntry(dbTx database.Tx, block *btcutil.Block) ([]SpentTxOut, error) {
-	// Exclude the coinbase transaction since it can't spend anything.
-	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
-	serialized := spendBucket.Get(block.Hash()[:])
+	serialized, err := dbTx.FetchSpendJournal(block.Hash())
+	if err != nil {
+		return nil, err
+	}
 	blockTxns := block.MsgBlock().Transactions[1:]
 	stxos, err := deserializeSpendJournalEntry(serialized, blockTxns)
 	if err != nil {
@@ -490,16 +478,8 @@ func dbFetchSpendJournalEntry(dbTx database.Tx, block *btcutil.Block) ([]SpentTx
 // spent txouts.   The spent txouts slice must contain an entry for every txout
 // the transactions in the block spend in the order they are spent.
 func dbPutSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash, stxos []SpentTxOut) error {
-	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
 	serialized := serializeSpendJournalEntry(stxos)
-	return spendBucket.Put(blockHash[:], serialized)
-}
-
-// dbRemoveSpendJournalEntry uses an existing database transaction to remove the
-// spend journal entry for the passed block hash.
-func dbRemoveSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash) error {
-	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
-	return spendBucket.Delete(blockHash[:])
+	return dbTx.StoreSpendJournal(blockHash, serialized)
 }
 
 // -----------------------------------------------------------------------------
@@ -1211,12 +1191,6 @@ func (b *BlockChain) createChainState() error {
 			return err
 		}
 
-		// Create the bucket that houses the spend journal data and
-		// store its version.
-		_, err = meta.CreateBucket(spendJournalBucketName)
-		if err != nil {
-			return err
-		}
 		err = dbPutVersion(dbTx, utxoSetVersionKeyName,
 			latestUtxoSetBucketVersion)
 		if err != nil {
@@ -1228,11 +1202,6 @@ func (b *BlockChain) createChainState() error {
 		// intentionally not inserted here since it is not spendable by
 		// consensus rules.
 		_, err = meta.CreateBucket(utxoSetBucketName)
-		if err != nil {
-			return err
-		}
-		err = dbPutVersion(dbTx, spendJournalVersionKeyName,
-			latestSpendJournalBucketVersion)
 		if err != nil {
 			return err
 		}
@@ -1267,6 +1236,16 @@ func (b *BlockChain) createChainState() error {
 			if err != nil {
 				return err
 			}
+		}
+
+		// Store empty spend journal for the genesis block.  This is needed
+		// because indexers will try to fetch the spend journal for the genesis.
+		//
+		// TODO fix the above because indexers don't need to do that.  But like
+		// this works so eh.
+		err = dbTx.StoreSpendJournal(genesisBlock.Hash(), []byte{})
+		if err != nil {
+			return err
 		}
 
 		// Store the genesis block into the database.

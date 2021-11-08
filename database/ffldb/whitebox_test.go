@@ -207,7 +207,7 @@ func TestCornerCases(t *testing.T) {
 		t.Errorf("os.Mkdir: unexpected error: %v", err)
 		return
 	}
-	store := idb.(*db).store
+	store := idb.(*db).blkStore
 	_, err = store.writeBlock([]byte{0x00})
 	if !checkDbError(t, testName, err, database.ErrDriverSpecific) {
 		return
@@ -286,7 +286,7 @@ func resetDatabase(tc *testContext) bool {
 	}
 
 	// Reset the mock files.
-	store := tc.db.(*db).store
+	store := tc.db.(*db).blkStore
 	wc := store.writeCursor
 	wc.curFile.Lock()
 	if wc.curFile.file != nil {
@@ -311,7 +311,7 @@ func testWriteFailures(tc *testContext) bool {
 	}
 
 	// Ensure file sync errors during flush return the expected error.
-	store := tc.db.(*db).store
+	store := tc.db.(*db).blkStore
 	testName := "flush: file sync failure"
 	store.writeCursor.Lock()
 	oldFile := store.writeCursor.curFile
@@ -410,7 +410,7 @@ func testBlockFileErrors(tc *testContext) bool {
 
 	// Ensure errors in blockFile and openFile when requesting invalid file
 	// numbers.
-	store := tc.db.(*db).store
+	store := tc.db.(*db).blkStore
 	testName := "blockFile invalid file open"
 	_, err := store.blockFile(^uint32(0))
 	if !checkDbError(tc.t, testName, err, database.ErrDriverSpecific) {
@@ -625,7 +625,7 @@ func TestFailureScenarios(t *testing.T) {
 	// files with the test data set and replace the file-related functions
 	// to make use of mock files in memory.  This allows injection of
 	// various file-related errors.
-	store := idb.(*db).store
+	store := idb.(*db).blkStore
 	store.maxBlockFileSize = 1024 // 1KiB
 	store.openWriteFileFunc = func(fileNum uint32) (filer, error) {
 		if file, ok := tc.files[fileNum]; ok {

@@ -59,21 +59,42 @@ func reconcileDB(pdb *db, create bool) (database.DB, error) {
 	}
 
 	// Load the current write cursor position from the metadata.
-	var curFileNum, curOffset uint32
+	var blkCurFileNum, blkCurOffset uint32
+	var sjCurFileNum, sjCurOffset uint32
 	err := pdb.View(func(tx database.Tx) error {
-		writeRow := tx.Metadata().Get(writeLocKeyName)
-		if writeRow == nil {
-			str := "write cursor does not exist"
+		// Get write row for blocks.
+		blkWriteRow := tx.Metadata().Get(blkWriteLocKeyName)
+		if blkWriteRow == nil {
+			str := "block write cursor does not exist"
 			return makeDbErr(database.ErrCorruption, str, nil)
 		}
 
 		var err error
-		curFileNum, curOffset, err = deserializeWriteRow(writeRow)
+		blkCurFileNum, blkCurOffset, err = deserializeWriteRow(blkWriteRow)
+		if err != nil {
+			return err
+		}
+
+		// Get write row for spend journals.
+		sjWriteRow := tx.Metadata().Get(sjWriteLocKeyName)
+		if sjWriteRow == nil {
+			str := "spend journal write cursor does not exist"
+			return makeDbErr(database.ErrCorruption, str, nil)
+		}
+
+		sjCurFileNum, sjCurOffset, err = deserializeWriteRow(sjWriteRow)
+		if err != nil {
+			return err
+		}
+
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	// Bool to check if we need to roll back.
+	needsRollBack := false
 
 	// When the write cursor position found by scanning the block files on
 	// disk is AFTER the position the metadata believes to be true, truncate
@@ -82,16 +103,15 @@ func reconcileDB(pdb *db, create bool) (database.DB, error) {
 	// the middle of being written.  Since the metadata isn't updated until
 	// after the block data is written, this is effectively just a rollback
 	// to the known good point before the unclean shutdown.
-	wc := pdb.store.writeCursor
-	if wc.curFileNum > curFileNum || (wc.curFileNum == curFileNum &&
-		wc.curOffset > curOffset) {
+	blkWC := pdb.blkStore.writeCursor
+	if blkWC.curFileNum > blkCurFileNum || (blkWC.curFileNum == blkCurFileNum &&
+		blkWC.curOffset > blkCurOffset) {
 
-		log.Info("Detected unclean shutdown - Repairing...")
+		log.Info("Detected unclean shutdown for block files- Repairing...")
 		log.Debugf("Metadata claims file %d, offset %d. Block data is "+
-			"at file %d, offset %d", curFileNum, curOffset,
-			wc.curFileNum, wc.curOffset)
-		pdb.store.handleRollback(curFileNum, curOffset)
-		log.Infof("Database sync complete")
+			"at file %d, offset %d", blkCurFileNum, blkCurOffset,
+			blkWC.curFileNum, blkWC.curOffset)
+		needsRollBack = true
 	}
 
 	// When the write cursor position found by scanning the block files on
@@ -103,14 +123,41 @@ func reconcileDB(pdb *db, create bool) (database.DB, error) {
 	// possible to rescan and rebuild the metadata from the block files,
 	// however, that would need to happen with coordination from a higher
 	// layer since it could invalidate other metadata.
-	if wc.curFileNum < curFileNum || (wc.curFileNum == curFileNum &&
-		wc.curOffset < curOffset) {
+	if blkWC.curFileNum < blkCurFileNum || (blkWC.curFileNum == blkCurFileNum &&
+		blkWC.curOffset < blkCurOffset) {
 
 		str := fmt.Sprintf("metadata claims file %d, offset %d, but "+
-			"block data is at file %d, offset %d", curFileNum,
-			curOffset, wc.curFileNum, wc.curOffset)
+			"block data is at file %d, offset %d", blkCurFileNum,
+			blkCurOffset, blkWC.curFileNum, blkWC.curOffset)
 		log.Warnf("***Database corruption detected***: %v", str)
 		return nil, makeDbErr(database.ErrCorruption, str, nil)
+	}
+
+	// Same thing for undo block files.
+	sjWC := pdb.sjStore.writeCursor
+	if sjWC.curFileNum > sjCurFileNum || (sjWC.curFileNum == sjCurFileNum &&
+		sjWC.curOffset > sjCurOffset) {
+
+		log.Info("Detected unclean shutdown for undo files - Repairing...")
+		log.Debugf("Metadata claims file %d, offset %d. Spend journal data is "+
+			"at file %d, offset %d", sjCurFileNum, sjCurOffset,
+			sjWC.curFileNum, sjWC.curOffset)
+		needsRollBack = true
+	}
+	if sjWC.curFileNum < sjCurFileNum || (sjWC.curFileNum == sjCurFileNum &&
+		sjWC.curOffset < sjCurOffset) {
+
+		str := fmt.Sprintf("metadata claims file %d, offset %d, but "+
+			"spend journal data is at file %d, offset %d", sjCurFileNum,
+			sjCurOffset, sjWC.curFileNum, sjWC.curOffset)
+		log.Warnf("***Database corruption detected***: %v", str)
+		return nil, makeDbErr(database.ErrCorruption, str, nil)
+	}
+
+	if needsRollBack {
+		pdb.blkStore.handleRollback(blkCurFileNum, blkCurOffset)
+		pdb.sjStore.handleRollback(sjCurFileNum, sjCurOffset)
+		log.Infof("Database sync complete")
 	}
 
 	return pdb, nil
