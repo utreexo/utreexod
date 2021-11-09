@@ -350,7 +350,7 @@ func main() {
 	// limits the garbage collector from excessively overallocating during
 	// bursts.  This value was arrived at with the help of profiling live
 	// usage.
-	debug.SetGCPercent(10)
+	debug.SetGCPercent(30)
 
 	// Up some limits.
 	if err := limits.SetLimits(); err != nil {
