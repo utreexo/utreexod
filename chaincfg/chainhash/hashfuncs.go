@@ -35,8 +35,8 @@ func DoubleHashH(b []byte) Hash {
 	return Hash(sha256.Sum256(first[:]))
 }
 
-// DoubleHashBRaw calculates hash(hash(h)) and returns the resulting bytes.
-func DoubleHashBRaw(h hash.Hash) []byte {
+// DoubleHashRaw calculates hash(hash(h)) and returns the resulting bytes.
+func DoubleHashRaw(h hash.Hash) []byte {
 	first := h.Sum(nil)
 	h.Reset()
 	h.Write(first)

@@ -459,7 +459,7 @@ func calcWitnessSignatureHashRaw(scriptSig []byte, sigHashes *TxSigHashes,
 	binary.LittleEndian.PutUint32(bHashType[:], uint32(hashType))
 	sigHash.Write(bHashType[:])
 
-	return chainhash.DoubleHashBRaw(sigHash), nil
+	return chainhash.DoubleHashRaw(sigHash), nil
 }
 
 // CalcWitnessSigHash computes the sighash digest for the specified input of
@@ -626,7 +626,7 @@ func calcSignatureHash(sigScript []byte, hashType SigHashType, tx *wire.MsgTx, i
 	var bHashType [4]byte
 	binary.LittleEndian.PutUint32(bHashType[:], uint32(hashType))
 	sigHash.Write(bHashType[:])
-	return chainhash.DoubleHashBRaw(sigHash)
+	return chainhash.DoubleHashRaw(sigHash)
 }
 
 // asSmallInt returns the passed opcode, which must be true according to
