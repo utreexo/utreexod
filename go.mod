@@ -16,4 +16,9 @@ require (
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 )
 
-go 1.16
+require (
+	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce // indirect
+	github.com/golang/snappy v0.0.4 // indirect
+)
+
+go 1.17
