@@ -291,11 +291,11 @@ func (ff *FlatFileState) DisconnectBlock(height int32) error {
 		return err
 	}
 
+	// Set the currentOffset as the last offset.
+	ff.currentOffset = ff.offsets[len(ff.offsets)-1]
+
 	// Pop the offset in memory.
 	ff.offsets = ff.offsets[:len(ff.offsets)-1]
-
-	// Set the currentOffset as the last offset after the pop.
-	ff.currentOffset = ff.offsets[len(ff.offsets)-1]
 
 	// Go back one height.
 	ff.currentHeight--
