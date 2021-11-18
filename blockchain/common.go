@@ -9,8 +9,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -34,8 +36,37 @@ const (
 	blockDataNet = wire.MainNet
 )
 
-// filesExists returns whether or not the named file or directory exists.
-func fileExists(name string) bool {
+var (
+	// opTrueScript is simply a public key script that contains the OP_TRUE
+	// opcode.  It is defined here to reduce garbage creation.
+	opTrueScript = []byte{txscript.OP_TRUE}
+
+	// lowFee is a single satoshi and exists to make the test code more
+	// readable.
+	lowFee = btcutil.Amount(1)
+)
+
+// uniqueOpReturnScript returns a standard provably-pruneable OP_RETURN script
+// with a random uint64 encoded as the data.
+func uniqueOpReturnScript() []byte {
+	rand, err := wire.RandomUint64()
+	if err != nil {
+		panic(err)
+	}
+
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data[0:8], rand)
+
+	builder := txscript.NewScriptBuilder()
+	script, err := builder.AddOp(txscript.OP_RETURN).AddData(data).Script()
+	if err != nil {
+		panic(err)
+	}
+	return script
+}
+
+// FilesExists returns whether or not the named file or directory exists.
+func FileExists(name string) bool {
 	if _, err := os.Stat(name); err != nil {
 		if os.IsNotExist(err) {
 			return false
@@ -44,9 +75,9 @@ func fileExists(name string) bool {
 	return true
 }
 
-// isSupportedDbType returns whether or not the passed database type is
+// IsSupportedDbType returns whether or not the passed database type is
 // currently supported.
-func isSupportedDbType(dbType string) bool {
+func IsSupportedDbType(dbType string) bool {
 	supportedDrivers := database.SupportedDrivers()
 	for _, driver := range supportedDrivers {
 		if dbType == driver {
@@ -55,6 +86,183 @@ func isSupportedDbType(dbType string) bool {
 	}
 
 	return false
+}
+
+// SolveBlock attempts to find a nonce which makes the passed block header hash
+// to a value less than the target difficulty.  When a successful solution is
+// found true is returned and the nonce field of the passed header is updated
+// with the solution.  False is returned if no solution exists.
+func SolveBlock(header *wire.BlockHeader) bool {
+	// sbResult is used by the solver goroutines to send results.
+	type sbResult struct {
+		found bool
+		nonce uint32
+	}
+
+	// solver accepts a block header and a nonce range to test. It is
+	// intended to be run as a goroutine.
+	targetDifficulty := CompactToBig(header.Bits)
+	quit := make(chan bool)
+	results := make(chan sbResult)
+	solver := func(hdr wire.BlockHeader, startNonce, stopNonce uint32) {
+		// We need to modify the nonce field of the header, so make sure
+		// we work with a copy of the original header.
+		for i := startNonce; i >= startNonce && i <= stopNonce; i++ {
+			select {
+			case <-quit:
+				return
+			default:
+				hdr.Nonce = i
+				hash := hdr.BlockHash()
+				if HashToBig(&hash).Cmp(
+					targetDifficulty) <= 0 {
+
+					results <- sbResult{true, i}
+					return
+				}
+			}
+		}
+		results <- sbResult{false, 0}
+	}
+
+	startNonce := uint32(1)
+	stopNonce := uint32(math.MaxUint32)
+	numCores := uint32(runtime.NumCPU())
+	noncesPerCore := (stopNonce - startNonce) / numCores
+	for i := uint32(0); i < numCores; i++ {
+		rangeStart := startNonce + (noncesPerCore * i)
+		rangeStop := startNonce + (noncesPerCore * (i + 1)) - 1
+		if i == numCores-1 {
+			rangeStop = stopNonce
+		}
+		go solver(*header, rangeStart, rangeStop)
+	}
+	for i := uint32(0); i < numCores; i++ {
+		result := <-results
+		if result.found {
+			close(quit)
+			header.Nonce = result.nonce
+			return true
+		}
+	}
+
+	return false
+}
+
+// SpendableOut represents a transaction output that is spendable along with
+// additional metadata such as the block its in and how much it pays.
+type SpendableOut struct {
+	prevOut wire.OutPoint
+	amount  btcutil.Amount
+}
+
+// MakeSpendableOutForTx returns a spendable output for the given transaction
+// and transaction output index within the transaction.
+func MakeSpendableOutForTx(tx *wire.MsgTx, txOutIndex uint32) SpendableOut {
+	return SpendableOut{
+		prevOut: wire.OutPoint{
+			Hash:  tx.TxHash(),
+			Index: txOutIndex,
+		},
+		amount: btcutil.Amount(tx.TxOut[txOutIndex].Value),
+	}
+}
+
+// AddBlock adds a block to the blockchain that succeeds prev.  The blocks spends
+// all the provided spendable outputs.  The new block is returned, together with
+// the new spendable outputs created in the block.
+//
+// Panics on errors.
+func AddBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*btcutil.Block, []*SpendableOut) {
+	blockHeight := prev.Height() + 1
+	txns := make([]*wire.MsgTx, 0, 1+len(spends))
+
+	// Create and add coinbase tx.
+	coinbaseScript, err := txscript.NewScriptBuilder().
+		AddInt64(int64(blockHeight)).
+		AddInt64(int64(0)).Script()
+	if err != nil {
+		panic(err)
+	}
+	cb := wire.NewMsgTx(1)
+	cb.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: *wire.NewOutPoint(&chainhash.Hash{},
+			wire.MaxPrevOutIndex),
+		Sequence:        wire.MaxTxInSequenceNum,
+		SignatureScript: coinbaseScript,
+	})
+	cb.AddTxOut(&wire.TxOut{
+		Value:    CalcBlockSubsidy(blockHeight, chain.chainParams),
+		PkScript: opTrueScript,
+	})
+	txns = append(txns, cb)
+
+	// Spend all txs to be spent.
+	for _, spend := range spends {
+		spendTx := wire.NewMsgTx(1)
+		spendTx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: spend.prevOut,
+			Sequence:         wire.MaxTxInSequenceNum,
+			SignatureScript:  nil,
+		})
+		spendTx.AddTxOut(wire.NewTxOut(int64(spend.amount-lowFee),
+			opTrueScript))
+		// Add a random (prunable) OP_RETURN output to make the txid unique.
+		spendTx.AddTxOut(wire.NewTxOut(0, uniqueOpReturnScript()))
+
+		cb.TxOut[0].Value += int64(lowFee)
+		txns = append(txns, spendTx)
+	}
+
+	// Create spendable outs to return at the end.
+	outs := make([]*SpendableOut, len(txns))
+	for i, tx := range txns {
+		out := MakeSpendableOutForTx(tx, 0)
+		outs[i] = &out
+	}
+
+	// Build the block.
+
+	// Use a timestamp that is one second after the previous block unless
+	// this is the first block in which case the current time is used.
+	var ts time.Time
+	if blockHeight == 1 {
+		ts = time.Unix(time.Now().Unix(), 0)
+	} else {
+		ts = prev.MsgBlock().Header.Timestamp.Add(time.Second)
+	}
+
+	// Calculate merkle root.
+	utilTxns := make([]*btcutil.Tx, 0, len(txns))
+	for _, tx := range txns {
+		utilTxns = append(utilTxns, btcutil.NewTx(tx))
+	}
+	merkles := BuildMerkleTreeStore(utilTxns, false)
+
+	block := btcutil.NewBlock(&wire.MsgBlock{
+		Header: wire.BlockHeader{
+			Version:    1,
+			PrevBlock:  *prev.Hash(),
+			MerkleRoot: *merkles[len(merkles)-1],
+			Bits:       chain.chainParams.PowLimitBits,
+			Timestamp:  ts,
+			Nonce:      0, // To be solved.
+		},
+		Transactions: txns,
+	})
+	block.SetHeight(blockHeight)
+
+	// Solve the block.
+	if !SolveBlock(&block.MsgBlock().Header) {
+		panic(fmt.Sprintf("Unable to solve block at height %d", blockHeight))
+	}
+
+	_, _, err = chain.ProcessBlock(block, BFNone)
+	if err != nil {
+		panic(err)
+	}
+
+	return block, outs
 }
 
 // loadBlocks reads files containing bitcoin block data (gzipped but otherwise
@@ -119,7 +327,7 @@ func loadBlocks(filename string) (blocks []*btcutil.Block, err error) {
 // block already inserted.  In addition to the new chain instance, it returns
 // a teardown function the caller should invoke when done testing to clean up.
 func chainSetup(dbName string, params *chaincfg.Params) (*BlockChain, func(), error) {
-	if !isSupportedDbType(testDbType) {
+	if !IsSupportedDbType(testDbType) {
 		return nil, nil, fmt.Errorf("unsupported db type %v", testDbType)
 	}
 
@@ -141,7 +349,7 @@ func chainSetup(dbName string, params *chaincfg.Params) (*BlockChain, func(), er
 		}
 	} else {
 		// Create the root directory for test databases.
-		if !fileExists(testDbRoot) {
+		if !FileExists(testDbRoot) {
 			if err := os.MkdirAll(testDbRoot, 0700); err != nil {
 				err := fmt.Errorf("unable to create test db "+
 					"root: %v", err)
