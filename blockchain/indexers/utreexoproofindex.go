@@ -305,7 +305,7 @@ func dbFetchUtreexoProofEntry(dbTx database.Tx, hash *chainhash.Hash) ([]byte, e
 
 // Deletes the utreexo proof in the database.
 func dbDeleteUtreexoProofEntry(dbTx database.Tx, hash *chainhash.Hash) error {
-	idx := dbTx.Metadata().Bucket(cfIndexParentBucketKey).Bucket(utreexoProofIndexKey)
+	idx := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoProofIndexKey)
 	return idx.Delete(hash[:])
 }
 

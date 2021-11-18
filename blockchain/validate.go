@@ -1015,9 +1015,17 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 	// BIP0030 check is expensive since it involves a ton of cache misses in
 	// the utxoset.
 	if !isBIP0030Node(node) && (node.height < b.chainParams.BIP0034Height) {
-		err := b.checkBIP0030(block, view)
-		if err != nil {
-			return err
+		// For utreexo nodes, it's not possible to do this check.  However,
+		// BIP0030 violations are behind the latest checkpoint in Bitcoin Core
+		// as well as btcd.  Therefore, it's not possible for BIP0030 violations
+		// to happen and is safe to skip.
+		if b.utreexoView != nil {
+			// purposely left empty
+		} else {
+			err := b.checkBIP0030(block, view)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
