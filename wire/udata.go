@@ -328,11 +328,5 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest) (
 		return nil, err
 	}
 
-	if len(ud.AccProof.Targets) != len(txIns)-unconfirmedCount {
-		str := fmt.Sprintf("GenerateUData has %d txIns that need to be proven but has proofs for %d txIns",
-			len(txIns)-unconfirmedCount, len(ud.AccProof.Targets))
-		return nil, messageError("GenerateUData", str)
-	}
-
 	return ud, nil
 }

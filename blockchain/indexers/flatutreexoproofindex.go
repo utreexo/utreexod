@@ -163,7 +163,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	undoBlockSize := undoBlock.SerializeSize()
-	undoBuf := make([]byte, undoBlockSize)
+	undoBuf := make([]byte, 0, undoBlockSize)
 	undoBytesBuf := bytes.NewBuffer(undoBuf)
 	err = undoBlock.Serialize(undoBytesBuf)
 	if err != nil {

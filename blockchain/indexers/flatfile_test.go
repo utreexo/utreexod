@@ -384,6 +384,27 @@ func ffStoreRandData(blockCount int32, rnd *rand.Rand, ff *FlatFileState) (
 	return storedData, nil
 }
 
+// Given the lastHeight, check that all data from block 0 to block lastHeight
+// equals the data in the map.
+func checkDataStillFetches(lastHeight int32, ff *FlatFileState, storedData map[int32][]byte) error {
+	for i := int32(0); i < lastHeight; i++ {
+		gotBytes, err := ff.FetchData(i)
+		if err != nil {
+			return err
+		}
+
+		expectBytes := storedData[i]
+
+		if !bytes.Equal(expectBytes, gotBytes) {
+			err := fmt.Errorf("Expected to fetch %s but got %s",
+				hex.EncodeToString(expectBytes), hex.EncodeToString(gotBytes))
+			return err
+		}
+	}
+
+	return nil
+}
+
 func TestDisconnectBlock(t *testing.T) {
 	t.Parallel()
 
@@ -403,8 +424,8 @@ func TestDisconnectBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Disconnect all blocks til height 1.
-	for ; blockCount >= 1; blockCount-- {
+	// Disconnect blocks til height 100.
+	for ; blockCount > 100; blockCount-- {
 		// Check that we can get the latest block.
 		gotData, err := ff.FetchData(blockCount)
 		if err != nil {
@@ -428,9 +449,24 @@ func TestDisconnectBlock(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		offsetLen := len(ff.offsets)
+
 		// Disconnect the last block.
 		err = ff.DisconnectBlock(blockCount)
 		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = checkDataStillFetches(blockCount, ff, storedData)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Sanity check to make sure only one offset is added.
+		offsetLenAfter := len(ff.offsets)
+		if offsetLen-1 != offsetLenAfter {
+			err := fmt.Errorf("expected offset len of %d but got %d",
+				offsetLen-1, offsetLenAfter)
 			t.Fatal(err)
 		}
 
@@ -461,6 +497,65 @@ func TestDisconnectBlock(t *testing.T) {
 		if shouldBeNil != nil {
 			err := fmt.Errorf("Expected nil but fetched %v", shouldBeNil)
 			t.Fatal(err)
+		}
+	}
+
+	// Store 1000 blocks of new data from the current height after the disconnects.
+	newStoredData := make(map[int32][]byte)
+	for i := ff.currentHeight + 1; i <= 1000; i++ {
+		data, err := createRandByteSlice(rnd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		newStoredData[i] = data
+
+		err = ff.StoreData(i, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for j := int32(0); j <= 100; j++ {
+			gotBytes, err := ff.FetchData(j)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			expectBytes := storedData[j]
+
+			if !bytes.Equal(expectBytes, gotBytes) {
+				err := fmt.Errorf("Expected to fetch %s but got %s",
+					hex.EncodeToString(expectBytes), hex.EncodeToString(gotBytes))
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// Check that all the data in the flatfile fetches and equals the data stored
+	// in the map.
+	for i := int32(0); i <= ff.currentHeight; i++ {
+		gotBytes, err := ff.FetchData(i)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// The data from blocks 0-100 are in the storedData map.  All else
+		// are in the newStoredData map.
+		if i <= 100 {
+			expectBytes := storedData[i]
+
+			if !bytes.Equal(expectBytes, gotBytes) {
+				err := fmt.Errorf("Expected to fetch %s but got %s",
+					hex.EncodeToString(expectBytes), hex.EncodeToString(gotBytes))
+				t.Fatal(err)
+			}
+		} else {
+			expectBytes := newStoredData[i]
+
+			if !bytes.Equal(expectBytes, gotBytes) {
+				err := fmt.Errorf("Expected to fetch %s but got %s",
+					hex.EncodeToString(expectBytes), hex.EncodeToString(gotBytes))
+				t.Fatal(err)
+			}
 		}
 	}
 }
