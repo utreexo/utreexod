@@ -287,6 +287,14 @@ func TestUDataSerializeSize(t *testing.T) {
 				"expect %d, got %d", test.name,
 				test.sizeCompactTx, gotSize)
 		}
+
+		// Test that SerializeUxtoDataSizeCompact and SerializeUxtoDataSizeCompact
+		// sums up to the entire thing.
+		totals := test.ud.SerializeUxtoDataSizeCompact(true) + test.ud.SerializeAccSizeCompact()
+		if totals != test.ud.SerializeSizeCompact(true) {
+			t.Errorf("%s: expected %d for but got %d as the sum of utxodata and accumulator data",
+				test.name, test.ud.SerializeAccSizeCompact(), totals)
+		}
 	}
 }
 

@@ -516,6 +516,8 @@ type GetTxTotalsResult struct {
 	TotalTxBytesSent    uint64 `json:"totaltxbytessent"`
 	TotalProofBytesRecv uint64 `json:"totalproofbytesrecv"`
 	TotalProofBytesSent uint64 `json:"totalproofbytessent"`
+	TotalAccBytesRecv   uint64 `json:"totalaccbytesrecv"`
+	TotalAccBytesSent   uint64 `json:"totalaccbytessent"`
 	TimeMillis          int64  `json:"timemillis"`
 }
 

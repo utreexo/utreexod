@@ -170,7 +170,7 @@ func (cm *rpcConnManager) NetTotals() (uint64, uint64) {
 //
 // This function is safe for concurrent access and is part of the
 // rpcserverConnManager interface implementation.
-func (cm *rpcConnManager) TxTotals() (uint64, uint64, uint64, uint64) {
+func (cm *rpcConnManager) TxTotals() (uint64, uint64, uint64, uint64, uint64, uint64) {
 	return cm.server.TxTotals()
 }
 
