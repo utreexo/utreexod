@@ -462,8 +462,10 @@ var helpDescsEnUS = map[string]string{
 	// GetTxTotalsResult help.
 	"gettxtotalsresult-totaltxbytesrecv":    "Total tx bytes received",
 	"gettxtotalsresult-totaltxbytessent":    "Total tx bytes sent",
-	"gettxtotalsresult-totalproofbytesrecv": "Total proof bytes received",
-	"gettxtotalsresult-totalproofbytessent": "Total proof bytes sent",
+	"gettxtotalsresult-totalproofbytesrecv": "Total utxo data bytes received",
+	"gettxtotalsresult-totalproofbytessent": "Total utxo data bytes sent",
+	"gettxtotalsresult-totalaccbytesrecv":   "Total accumulator proof bytes received",
+	"gettxtotalsresult-totalaccbytessent":   "Total accumulator proof bytes sent",
 	"gettxtotalsresult-timemillis":          "Number of milliseconds since 1 Jan 1970 GMT",
 
 	// GetNodeAddressesResult help.

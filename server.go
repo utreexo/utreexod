@@ -198,8 +198,10 @@ type cfHeaderKV struct {
 type txByteStats struct {
 	txBytesReceived    uint64 // Total bytes received since start
 	txBytesSent        uint64 // Total bytes sent since start
-	proofBytesReceived uint64 // Total bytes received for utreexo proofs
-	proofBytesSent     uint64 // Total bytes sent for utreexo proofs
+	proofBytesReceived uint64 // Total bytes received for utxo data
+	proofBytesSent     uint64 // Total bytes received for utxo data
+	accBytesReceived   uint64 // Total bytes received for utreexo accumulator proofs
+	accBytesSent       uint64 // Total bytes sent for utreexo accumulator proofs
 }
 
 // server provides a bitcoin server for handling communications to and from
@@ -2464,25 +2466,33 @@ func (s *server) addProofBytesReceived(bytesReceived uint64) {
 	atomic.AddUint64(&s.txBytes.proofBytesReceived, bytesReceived)
 }
 
-func (s *server) addProofBytesSent(bytesReceived uint64) {
-	atomic.AddUint64(&s.txBytes.proofBytesSent, bytesReceived)
+func (s *server) addProofBytesSent(bytesSent uint64) {
+	atomic.AddUint64(&s.txBytes.proofBytesSent, bytesSent)
+}
+
+func (s *server) addAccBytesReceived(bytesReceived uint64) {
+	atomic.AddUint64(&s.txBytes.accBytesReceived, bytesReceived)
+}
+
+func (s *server) addAccBytesSent(bytesSent uint64) {
+	atomic.AddUint64(&s.txBytes.accBytesSent, bytesSent)
 }
 
 // GetProofSizeforTx calculates the size of the raw proof that would needed for
 // proving the tx to an utreexo node.
-func (s *server) GetProofSizeforTx(msgTx *wire.MsgTx) (int, error) {
+func (s *server) GetProofSizeforTx(msgTx *wire.MsgTx) (int, int, error) {
 	// If utreexo proof index is not present, we can't calculate the
 	// proof size as we can't grab the proof for the tx.
 	if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil {
 		err := fmt.Errorf("UtreexoProofIndex and FlatUtreexoProofIndex is nil. "+
 			"Cannot calculate proof size for tx %s.", msgTx.TxHash().String())
-		return 0, err
+		return 0, 0, err
 	}
 
 	tx := btcutil.NewTx(msgTx)
 	leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	var ud *wire.UData
@@ -2495,10 +2505,10 @@ func (s *server) GetProofSizeforTx(msgTx *wire.MsgTx) (int, error) {
 		ud, err = s.flatUtreexoProofIndex.GenerateUData(leafDatas)
 	}
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
-	return ud.SerializeSizeCompact(true), nil
+	return ud.SerializeAccSizeCompact(), ud.SerializeUxtoDataSizeCompact(true), nil
 }
 
 // UpdateProofBytesRead updates the bytes for utreexo proofs that would have
@@ -2506,14 +2516,16 @@ func (s *server) GetProofSizeforTx(msgTx *wire.MsgTx) (int, error) {
 func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
 	// If utreexo proof index is present, also grab the proof size.
 	if s.utreexoProofIndex != nil || s.flatUtreexoProofIndex != nil {
-		size, err := s.GetProofSizeforTx(msgTx)
+		accSize, utxoDataSize, err := s.GetProofSizeforTx(msgTx)
 		if err != nil {
 			return err
 		}
-		s.addProofBytesReceived(uint64(size))
+		s.addProofBytesReceived(uint64(utxoDataSize))
+		s.addAccBytesReceived(uint64(accSize))
 
 	} else if s.chain.IsUtreexoViewActive() {
 		s.addProofBytesReceived(uint64(msgTx.UData.SerializeSizeCompact(true)))
+		s.addAccBytesReceived(uint64(msgTx.UData.SerializeAccSizeCompact()))
 	}
 
 	return nil
@@ -2524,14 +2536,16 @@ func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
 func (s *server) UpdateProofBytesWritten(msgTx *wire.MsgTx) error {
 	// If utreexo proof index is present, also grab the proof size.
 	if s.utreexoProofIndex != nil || s.flatUtreexoProofIndex != nil {
-		size, err := s.GetProofSizeforTx(msgTx)
+		accSize, utxoDataSize, err := s.GetProofSizeforTx(msgTx)
 		if err != nil {
 			return err
 		}
-		s.addProofBytesSent(uint64(size))
+		s.addProofBytesSent(uint64(utxoDataSize))
+		s.addAccBytesSent(uint64(accSize))
 
 	} else if s.chain.IsUtreexoViewActive() {
 		s.addProofBytesSent(uint64(msgTx.UData.SerializeSizeCompact(true)))
+		s.addAccBytesSent(uint64(msgTx.UData.SerializeAccSizeCompact()))
 	}
 
 	return nil
@@ -2540,11 +2554,13 @@ func (s *server) UpdateProofBytesWritten(msgTx *wire.MsgTx) error {
 // TxTotals returns the sum of all bytes received and sent across the network
 // for all peers for tx messages with the utreexo proof sizes accounted for.
 // It is safe for concurrent access.
-func (s *server) TxTotals() (uint64, uint64, uint64, uint64) {
+func (s *server) TxTotals() (uint64, uint64, uint64, uint64, uint64, uint64) {
 	return atomic.LoadUint64(&s.txBytes.txBytesReceived),
 		atomic.LoadUint64(&s.txBytes.txBytesSent),
 		atomic.LoadUint64(&s.txBytes.proofBytesReceived),
-		atomic.LoadUint64(&s.txBytes.proofBytesSent)
+		atomic.LoadUint64(&s.txBytes.proofBytesSent),
+		atomic.LoadUint64(&s.txBytes.accBytesReceived),
+		atomic.LoadUint64(&s.txBytes.accBytesSent)
 }
 
 // UpdatePeerHeights updates the heights of all peers who have have announced

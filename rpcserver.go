@@ -2396,12 +2396,14 @@ func handleGetNetTotals(s *rpcServer, cmd interface{}, closeChan <-chan struct{}
 
 // handleGetTxTotals implements the gettxtotals command.
 func handleGetTxTotals(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
-	txBytesRecv, txBytesSent, proofBytesRecv, proofBytesSent := s.cfg.ConnMgr.TxTotals()
+	txBytesRecv, txBytesSent, proofBytesRecv, proofBytesSent, accBytesRecv, accBytesSent := s.cfg.ConnMgr.TxTotals()
 	reply := &btcjson.GetTxTotalsResult{
 		TotalTxBytesRecv:    txBytesRecv,
 		TotalTxBytesSent:    txBytesSent,
 		TotalProofBytesRecv: proofBytesRecv,
 		TotalProofBytesSent: proofBytesSent,
+		TotalAccBytesRecv:   accBytesRecv,
+		TotalAccBytesSent:   accBytesSent,
 		TimeMillis:          time.Now().UTC().UnixNano() / int64(time.Millisecond),
 	}
 	return reply, nil
@@ -4547,7 +4549,7 @@ type rpcserverConnManager interface {
 
 	// TxTotals returns the sum of all bytes received and sent across the
 	// network for all peers for tx messages.
-	TxTotals() (uint64, uint64, uint64, uint64)
+	TxTotals() (uint64, uint64, uint64, uint64, uint64, uint64)
 
 	// ConnectedPeers returns an array consisting of all connected peers.
 	ConnectedPeers() []rpcserverPeer

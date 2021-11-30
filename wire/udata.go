@@ -178,6 +178,27 @@ func (ud *UData) Deserialize(r io.Reader) error {
 //
 // -----------------------------------------------------------------------------
 
+// SerializeAccSizeCompact returns the number of bytes it would take to serialize
+// the accumulator with the compact accumulator serialization format.
+func (ud *UData) SerializeAccSizeCompact() int {
+	return BatchProofSerializeSize(&ud.AccProof)
+}
+
+// SerializeUxtoDataSizeCompact returns the number of bytes it would take to serialize
+// the utxo data and the ttl data with the compact serialization format.
+func (ud *UData) SerializeUxtoDataSizeCompact(isForTx bool) int {
+	// Size of all the leafData.
+	var ldSize int
+	for _, l := range ud.LeafDatas {
+		ldSize += l.SerializeSizeCompact(isForTx)
+	}
+
+	// Size of all the time to live values.
+	txoTTLSize := len(ud.TxoTTLs) * 4
+
+	return ldSize + txoTTLSize
+}
+
 // SerializeSizeCompact returns the number of bytes it would take to serialize the
 // UData using the compact UData serialization format.
 func (ud *UData) SerializeSizeCompact(isForTx bool) int {
