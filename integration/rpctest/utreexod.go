@@ -23,13 +23,13 @@ var (
 	executablePath string
 )
 
-// btcdExecutablePath returns a path to the btcd executable to be used by
+// utreexodExecutablePath returns a path to the utreexod executable to be used by
 // rpctests. To ensure the code tests against the most up-to-date version of
-// btcd, this method compiles btcd the first time it is called. After that, the
+// utreexod, this method compiles utreexod the first time it is called. After that, the
 // generated binary is used for subsequent test harnesses. The executable file
 // is not cleaned up, but since it lives at a static path in a temp directory,
 // it is not a big deal.
-func btcdExecutablePath() (string, error) {
+func utreexodExecutablePath() (string, error) {
 	compileMtx.Lock()
 	defer compileMtx.Unlock()
 
@@ -44,16 +44,16 @@ func btcdExecutablePath() (string, error) {
 	}
 
 	// Build btcd and output an executable in a static temp path.
-	outputPath := filepath.Join(testDir, "btcd")
+	outputPath := filepath.Join(testDir, "utreexod")
 	if runtime.GOOS == "windows" {
 		outputPath += ".exe"
 	}
 	cmd := exec.Command(
-		"go", "build", "-o", outputPath, "github.com/btcsuite/btcd",
+		"go", "build", "-o", outputPath, "github.com/utreexo/utreexod",
 	)
 	err = cmd.Run()
 	if err != nil {
-		return "", fmt.Errorf("Failed to build btcd: %v", err)
+		return "", fmt.Errorf("Failed to build utreexod: %v", err)
 	}
 
 	// Save executable path so future calls do not recompile.

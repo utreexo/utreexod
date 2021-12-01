@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
+	"github.com/utreexo/utreexod/btcutil"
 )
 
 func TestReorg(t *testing.T) {

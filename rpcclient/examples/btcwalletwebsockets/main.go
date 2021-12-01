@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/utreexo/utreexod/btcutil"
+	"github.com/utreexo/utreexod/rpcclient"
 )
 
 func main() {

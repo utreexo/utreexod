@@ -9,12 +9,11 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/mit-dci/utreexo/accumulator"
-	"github.com/mit-dci/utreexo/util"
+	"github.com/utreexo/utreexod/btcutil"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator
@@ -291,6 +290,19 @@ func generateCommitments(ud *wire.UData, block *btcutil.Block, chainView *chainV
 	return delHashes, nil
 }
 
+// IsUnspendable determines whether a tx is spendable or not.
+// returns true if spendable, false if unspendable.
+func IsUnspendable(o *wire.TxOut) bool {
+	switch {
+	case len(o.PkScript) > 10000: //len 0 is OK, spendable
+		return true
+	case len(o.PkScript) > 0 && o.PkScript[0] == 0x6a: // OP_RETURN is 0x6a
+		return true
+	default:
+		return false
+	}
+}
+
 // BlockToAdds turns all the new utxos in a msgblock into leafTxos
 // uses remember slice up to number of txos, but doesn't check that it's the
 // right length.  Similar with skiplist, doesn't check it.
@@ -306,7 +318,7 @@ func BlockToAddLeaves(block *btcutil.Block,
 	for coinbase, tx := range block.Transactions() {
 		for outIdx, txOut := range tx.MsgTx().TxOut {
 			// Skip all the OP_RETURNs
-			if util.IsUnspendable(txOut) {
+			if IsUnspendable(txOut) {
 				txonum++
 				continue
 			}

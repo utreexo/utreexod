@@ -7,8 +7,8 @@ package wire
 import (
 	"io"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // BatchProofSerializeSize returns the number of bytes it would tkae to serialize
