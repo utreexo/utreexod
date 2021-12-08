@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 const (

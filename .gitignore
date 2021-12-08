@@ -36,3 +36,5 @@ _testmain.go
 # Code coverage files
 profile.tmp
 profile.cov
+
+utreexod

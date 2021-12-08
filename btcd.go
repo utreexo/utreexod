@@ -16,9 +16,9 @@ import (
 	"runtime/pprof"
 	"runtime/trace"
 
-	"github.com/btcsuite/btcd/blockchain/indexers"
-	"github.com/btcsuite/btcd/database"
-	"github.com/btcsuite/btcd/limits"
+	"github.com/utreexo/utreexod/blockchain/indexers"
+	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/limits"
 )
 
 const (

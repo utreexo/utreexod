@@ -13,8 +13,8 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 type leafDatas struct {

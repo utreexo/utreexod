@@ -7,11 +7,10 @@ package blockchain
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/mit-dci/utreexo/util"
+	"github.com/utreexo/utreexod/btcutil"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // NewUtxoEntry returns a new UtxoEntry built from the arguments.
@@ -514,7 +513,7 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 	for coinbaseif0, tx := range block.Transactions() {
 		for idx, txOut := range tx.MsgTx().TxOut {
 			// Skip all the OP_RETURNs
-			if util.IsUnspendable(txOut) {
+			if IsUnspendable(txOut) {
 				txonum++
 				continue
 			}

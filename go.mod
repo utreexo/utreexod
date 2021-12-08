@@ -1,4 +1,4 @@
-module github.com/btcsuite/btcd
+module github.com/utreexo/utreexod
 
 require (
 	github.com/aead/siphash v1.0.1
@@ -17,6 +17,7 @@ require (
 )
 
 require (
+	github.com/btcsuite/btcd v0.21.0-beta.0.20201124191514-610bb55ae85c // indirect
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 )

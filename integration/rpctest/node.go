@@ -14,11 +14,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
-	rpc "github.com/btcsuite/btcd/rpcclient"
+	"github.com/utreexo/utreexod/btcutil"
+	rpc "github.com/utreexo/utreexod/rpcclient"
 )
 
-// nodeConfig contains all the args, and data required to launch a btcd process
+// nodeConfig contains all the args, and data required to launch a utreexod process
 // and connect the rpc client to it.
 type nodeConfig struct {
 	rpcUser    string
@@ -44,14 +44,14 @@ type nodeConfig struct {
 func newConfig(prefix, certFile, keyFile string, extra []string,
 	customExePath string) (*nodeConfig, error) {
 
-	var btcdPath string
+	var utreexodPath string
 	if customExePath != "" {
-		btcdPath = customExePath
+		utreexodPath = customExePath
 	} else {
 		var err error
-		btcdPath, err = btcdExecutablePath()
+		utreexodPath, err = utreexodExecutablePath()
 		if err != nil {
-			btcdPath = "btcd"
+			utreexodPath = "utreexod"
 		}
 	}
 
@@ -62,7 +62,7 @@ func newConfig(prefix, certFile, keyFile string, extra []string,
 		rpcPass:   "pass",
 		extra:     extra,
 		prefix:    prefix,
-		exe:       btcdPath,
+		exe:       utreexodPath,
 		endpoint:  "ws",
 		certFile:  certFile,
 		keyFile:   keyFile,
