@@ -79,6 +79,7 @@ func (ud *UData) SerializeSize() int {
 
 // Serialize encodes the UData to w using the UData serialization format.
 func (ud *UData) Serialize(w io.Writer) error {
+	// Write the count for the txo ttls.
 	err := WriteVarInt(w, 0, uint64(len(ud.TxoTTLs)))
 	if err != nil {
 		return err
@@ -87,6 +88,7 @@ func (ud *UData) Serialize(w io.Writer) error {
 	bs := newSerializer()
 	defer bs.free()
 
+	// Write the actual ttls.
 	for _, ttlval := range ud.TxoTTLs {
 		err = bs.PutUint32(w, littleEndian, uint32(ttlval))
 		if err != nil {
@@ -94,13 +96,20 @@ func (ud *UData) Serialize(w io.Writer) error {
 		}
 	}
 
+	// Write batch proof.
 	err = BatchProofSerialize(w, &ud.AccProof)
 	if err != nil {
 		returnErr := messageError("Serialize", err.Error())
 		return returnErr
 	}
 
-	// Write all the leafDatas.
+	// Write the size of the leaf datas.
+	err = WriteVarInt(w, 0, uint64(len(ud.LeafDatas)))
+	if err != nil {
+		return err
+	}
+
+	// Write the actual leaf datas.
 	for _, ld := range ud.LeafDatas {
 		err = ld.Serialize(w)
 		if err != nil {
@@ -140,8 +149,12 @@ func (ud *UData) Deserialize(r io.Reader) error {
 	}
 	ud.AccProof = *proof
 
-	// we've already gotten targets. 1 leafdata per target
-	ud.LeafDatas = make([]LeafData, len(ud.AccProof.Targets))
+	udCount, err := ReadVarInt(r, 0)
+	if err != nil {
+		return err
+	}
+
+	ud.LeafDatas = make([]LeafData, udCount)
 	for i := range ud.LeafDatas {
 		err = ud.LeafDatas[i].Deserialize(r)
 		if err != nil {
@@ -187,14 +200,19 @@ func (ud *UData) SerializeAccSizeCompact() int {
 // SerializeUxtoDataSizeCompact returns the number of bytes it would take to serialize
 // the utxo data and the ttl data with the compact serialization format.
 func (ud *UData) SerializeUxtoDataSizeCompact(isForTx bool) int {
+	// Size of the leaf data length.
+	ldSize := VarIntSerializeSize(uint64(len(ud.LeafDatas)))
+
 	// Size of all the leafData.
-	var ldSize int
 	for _, l := range ud.LeafDatas {
 		ldSize += l.SerializeSizeCompact(isForTx)
 	}
 
+	// Size of the txo ttl length.
+	txoTTLSize := VarIntSerializeSize(uint64(len(ud.TxoTTLs)))
+
 	// Size of all the time to live values.
-	txoTTLSize := len(ud.TxoTTLs) * 4
+	txoTTLSize += len(ud.TxoTTLs) * 4
 
 	return ldSize + txoTTLSize
 }
@@ -202,17 +220,10 @@ func (ud *UData) SerializeUxtoDataSizeCompact(isForTx bool) int {
 // SerializeSizeCompact returns the number of bytes it would take to serialize the
 // UData using the compact UData serialization format.
 func (ud *UData) SerializeSizeCompact(isForTx bool) int {
-	// Size of all the leafData.
-	var ldSize int
-	for _, l := range ud.LeafDatas {
-		ldSize += l.SerializeSizeCompact(isForTx)
-	}
-
-	// Size of all the time to live values.
-	txoTTLSize := len(ud.TxoTTLs) * 4
+	utxoDataSize := ud.SerializeUxtoDataSizeCompact(isForTx)
 
 	// Add on accumulator proof size and the height size.
-	return txoTTLSize + ldSize + BatchProofSerializeSize(&ud.AccProof)
+	return utxoDataSize + BatchProofSerializeSize(&ud.AccProof)
 }
 
 // SerializeCompact encodes the UData to w using the compact UData
@@ -239,6 +250,15 @@ func (ud *UData) SerializeCompact(w io.Writer, isForTx bool) error {
 	if err != nil {
 		returnErr := messageError("SerializeCompact", err.Error())
 		return returnErr
+	}
+
+	// Since transactions are given explicit leaf data count through
+	// the txIn count, we do not serialize the leaf data count.
+	if !isForTx {
+		err = WriteVarInt(w, 0, uint64(len(ud.LeafDatas)))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Write all the leafDatas.
@@ -287,12 +307,17 @@ func (ud *UData) DeserializeCompact(r io.Reader, isForTx bool, txInCount int) er
 	ud.AccProof = *proof
 
 	// NOTE there may be more leafDatas vs targets for txs as unconfirmed
-	// txs will be included as leaf datas but not as targets.  For blocks
-	// the leaf data count will match the target count.
+	// txs will be included as leaf datas but not as targets.  For blocks,
+	// the leaf data count need to be explicitly read.
 	if isForTx {
 		ud.LeafDatas = make([]LeafData, txInCount)
 	} else {
-		ud.LeafDatas = make([]LeafData, len(ud.AccProof.Targets))
+		// Grab the count for the udatas
+		udCount, err := ReadVarInt(r, 0)
+		if err != nil {
+			return err
+		}
+		ud.LeafDatas = make([]LeafData, udCount)
 	}
 	for i := range ud.LeafDatas {
 		err = ud.LeafDatas[i].DeserializeCompact(r, isForTx)

@@ -21,6 +21,9 @@ type leafDatas struct {
 	name           string
 	height         int32
 	leavesPerBlock []LeafData
+	size           int
+	sizeCompact    int
+	sizeCompactTx  int
 }
 
 func getLeafDatas() []leafDatas {
@@ -53,6 +56,9 @@ func getLeafDatas() []leafDatas {
 					IsCoinBase: false,
 				},
 			},
+			size:          230,
+			sizeCompact:   96,
+			sizeCompactTx: 98,
 		},
 
 		// Leaves 2
@@ -105,6 +111,9 @@ func getLeafDatas() []leafDatas {
 					IsCoinBase: true,
 				},
 			},
+			size:          488,
+			sizeCompact:   218,
+			sizeCompactTx: 222,
 		},
 	}
 }
@@ -233,36 +242,14 @@ func TestUDataSerializeSize(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ttlAndProofSize := (len(ud.TxoTTLs) * 4) + BatchProofSerializeSize(&ud.AccProof)
-
-		// Test size.
-		size := 0
-		for _, leaf := range leafData.leavesPerBlock {
-			size += leaf.SerializeSize()
-		}
-		size += ttlAndProofSize
-
-		// Test compact block size.
-		sizeCompact := 0
-		for _, leaf := range leafData.leavesPerBlock {
-			sizeCompact += leaf.SerializeSizeCompact(false)
-		}
-		sizeCompact += ttlAndProofSize
-
-		// Test compact tx size.
-		sizeCompactTx := 0
-		for _, leaf := range leafData.leavesPerBlock {
-			sizeCompactTx += leaf.SerializeSizeCompact(true)
-		}
-		sizeCompactTx += ttlAndProofSize
 
 		// Append to the tests.
 		tests = append(tests, test{
 			name:          leafData.name,
 			ud:            *ud,
-			size:          size,
-			sizeCompact:   sizeCompact,
-			sizeCompactTx: sizeCompactTx,
+			size:          leafData.size,
+			sizeCompact:   leafData.sizeCompact,
+			sizeCompactTx: leafData.sizeCompactTx,
 		})
 	}
 
@@ -426,9 +413,15 @@ func TestUDataSerializeCompact(t *testing.T) {
 		// Deserialize
 		checkUData := new(UData)
 		if test.isForTx {
-			checkUData.DeserializeCompact(writer, test.isForTx, test.leafCount)
+			err := checkUData.DeserializeCompact(writer, test.isForTx, test.leafCount)
+			if err != nil {
+				t.Fatal(err)
+			}
 		} else {
-			checkUData.DeserializeCompact(writer, test.isForTx, 0)
+			err := checkUData.DeserializeCompact(writer, test.isForTx, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 
 		err := checkUDEqual(&test.ud, checkUData, true, test.name)
