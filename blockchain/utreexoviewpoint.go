@@ -196,14 +196,6 @@ func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
 		}
 	}
 
-	// Final check.  The length of the targets should be the same as the leafdata
-	// as targets represent the positions of each of the leafdata hash in the
-	// accumulator.
-	if len(ud.AccProof.Targets) != len(ud.LeafDatas) {
-		return fmt.Errorf("ProofSanity err: %d targets but %d leafdatas\n",
-			len(ud.AccProof.Targets), len(ud.LeafDatas))
-	}
-
 	return nil
 }
 
