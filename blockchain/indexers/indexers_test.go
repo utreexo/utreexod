@@ -171,6 +171,116 @@ func csnTestChain(testName string) (*blockchain.BlockChain, *chaincfg.Params, fu
 	return chain, &params, tearDown, nil
 }
 
+// compareUtreexoIdx compares the indexed proof and the undo blocks from start
+// to end.
+func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes []Indexer) error {
+	// Check that the newly added data to both of the indexes are equal.
+	for b := start; b < end; b++ {
+		// Declare the utreexo data and the undo blocks that we'll be
+		// comparing.
+		var utreexoUD, flatUD *wire.UData
+		var undo, flatUndo *accumulator.UndoBlock
+
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *UtreexoProofIndex:
+				block, err := chain.BlockByHeight(b)
+				utreexoUD, err = idxType.FetchUtreexoProof(block.Hash())
+				if err != nil {
+					return err
+				}
+
+				err = idxType.db.View(func(dbTx database.Tx) error {
+					undoBytes, err := dbFetchUndoBlockEntry(dbTx, block.Hash())
+					r := bytes.NewReader(undoBytes)
+					undo = new(accumulator.UndoBlock)
+					err = undo.Deserialize(r)
+					if err != nil {
+						return err
+					}
+					return nil
+				})
+				if err != nil {
+					return err
+				}
+
+			case *FlatUtreexoProofIndex:
+				var err error
+				flatUD, err = idxType.FetchUtreexoProof(b)
+				if err != nil {
+					return err
+				}
+
+				flatUndo, err = idxType.fetchUndoBlock(b)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		if !reflect.DeepEqual(utreexoUD, flatUD) {
+			err := fmt.Errorf("Fetched utreexo data differ for "+
+				"utreexo proof index and flat utreexo proof index at height %d", b)
+			return err
+		}
+
+		if !reflect.DeepEqual(undo, flatUndo) {
+			err := fmt.Errorf("Fetched undo data differ for "+
+				"utreexo proof index and flat utreexo proof index at height %d", b)
+			return err
+		}
+	}
+
+	return nil
+}
+
+// syncCsnChain will take in two chains: one to sync from, one to sync.  Sync will
+// be done from start to end.
+func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockChain,
+	indexes []Indexer) error {
+
+	for b := start; b < end; b++ {
+		// Fetch the raw block bytes from the database.
+		block, err := chainToSyncFrom.BlockByHeight(b)
+		if err != nil {
+			str := fmt.Errorf("Fail at block height %d err:%s\n", b, err)
+			return str
+		}
+
+		var flatUD, ud *wire.UData
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				flatUD, err = idxType.FetchUtreexoProof(b)
+				if err != nil {
+					return err
+				}
+			case *UtreexoProofIndex:
+				ud, err = idxType.FetchUtreexoProof(block.Hash())
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		if !reflect.DeepEqual(ud, flatUD) {
+			err := fmt.Errorf("Fetched utreexo data differ for "+
+				"utreexo proof index and flat utreexo proof index at height %d", b)
+			return err
+		}
+
+		block.MsgBlock().UData = ud
+
+		_, _, err = csnChain.ProcessBlock(block, blockchain.BFNone)
+		if err != nil {
+			str := fmt.Errorf("ProcessBlock fail at block height %d err: %s\n", b, err)
+			return str
+		}
+	}
+
+	return nil
+}
+
 func TestUtreexoProofIndex(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
@@ -217,53 +327,23 @@ func TestUtreexoProofIndex(t *testing.T) {
 	}
 
 	// Check that the added 100 blocks are equal for both indexes.
-	for b := int32(1); b < 100; b++ {
-		var utreexoUD, flatUD *wire.UData
-		var undo, flatUndo *accumulator.UndoBlock
-		for _, indexer := range indexes {
-			switch idxType := indexer.(type) {
-			case *UtreexoProofIndex:
-				block, err := chain.BlockByHeight(b)
-				utreexoUD, err = idxType.FetchUtreexoProof(block.Hash())
-				if err != nil {
-					t.Fatal(err)
-				}
+	err := compareUtreexoIdx(1, 100, chain, indexes)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-				err = idxType.db.View(func(dbTx database.Tx) error {
-					undoBytes, err := dbFetchUndoBlockEntry(dbTx, block.Hash())
-					r := bytes.NewReader(undoBytes)
-					undo = new(accumulator.UndoBlock)
-					err = undo.Deserialize(r)
-					if err != nil {
-						return err
-					}
-					return nil
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
+	// Create a chain that consumes the data from the indexes and test that this
+	// chain is able to consume the data properly.
+	csnChain, _, csnTearDown, err := csnTestChain("TestUtreexoProofIndex-CsnChain")
+	defer csnTearDown()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			case *FlatUtreexoProofIndex:
-				var err error
-				flatUD, err = idxType.FetchUtreexoProof(b)
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				flatUndo, err = idxType.fetchUndoBlock(b)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-
-		if !reflect.DeepEqual(utreexoUD, flatUD) {
-			panic("uderr")
-		}
-
-		if !reflect.DeepEqual(undo, flatUndo) {
-			panic("undoerr")
-		}
+	// Sync the csn chain to the tip from block 1.
+	err = syncCsnChain(1, 100, chain, csnChain, indexes)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// We'll start adding a different chain starting from block 1. Once we reach block 102,
@@ -291,101 +371,14 @@ func TestUtreexoProofIndex(t *testing.T) {
 	}
 
 	// Check that the newly added data to both of the indexes are equal.
-	for b := int32(1); b < 100; b++ {
-		var utreexoUD, flatUD *wire.UData
-		var undo, flatUndo *accumulator.UndoBlock
-		for _, indexer := range indexes {
-			switch idxType := indexer.(type) {
-			case *UtreexoProofIndex:
-				block, err := chain.BlockByHeight(b)
-				utreexoUD, err = idxType.FetchUtreexoProof(block.Hash())
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				err = idxType.db.View(func(dbTx database.Tx) error {
-					undoBytes, err := dbFetchUndoBlockEntry(dbTx, block.Hash())
-					r := bytes.NewReader(undoBytes)
-					undo = new(accumulator.UndoBlock)
-					err = undo.Deserialize(r)
-					if err != nil {
-						return err
-					}
-					return nil
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-
-			case *FlatUtreexoProofIndex:
-				var err error
-				flatUD, err = idxType.FetchUtreexoProof(b)
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				flatUndo, err = idxType.fetchUndoBlock(b)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-
-		if !reflect.DeepEqual(utreexoUD, flatUD) {
-			err := fmt.Errorf("Udata at block %d doesn't match up.", b)
-			t.Fatal(err)
-		}
-
-		if !reflect.DeepEqual(undo, flatUndo) {
-			err := fmt.Errorf("Undo data at block %d doesn't match up.", b)
-			t.Fatal(err)
-		}
-	}
-
-	// Create a chain that consumes the data from the indexes and test that this
-	// chain is able to consume the data properly.
-	csnChain, _, csnTearDown, err := csnTestChain("csnChain")
-	defer csnTearDown()
+	err = compareUtreexoIdx(1, 100, chain, indexes)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for b := int32(1); b < 100; b++ {
-		// Fetch the raw block bytes from the database.
-		block, err := chain.BlockByHeight(b)
-		if err != nil {
-			str := fmt.Errorf("Fail at block height %d err:%s\n", b, err)
-			t.Fatal(str)
-		}
-
-		var ud, flatUD *wire.UData
-		for _, indexer := range indexes {
-			switch idxType := indexer.(type) {
-			case *UtreexoProofIndex:
-				ud, err = idxType.FetchUtreexoProof(block.Hash())
-				if err != nil {
-					t.Fatal(err)
-				}
-
-			case *FlatUtreexoProofIndex:
-				flatUD, err = idxType.FetchUtreexoProof(b)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-
-		if !reflect.DeepEqual(ud, flatUD) {
-			err := fmt.Errorf("Udata at block %d doesn't match up.", b)
-			t.Fatal(err)
-		}
-
-		block.MsgBlock().UData = ud
-
-		_, _, err = csnChain.ProcessBlock(block, blockchain.BFNone)
-		if err != nil {
-			str := fmt.Errorf("Fail at block height %d err:%s\n", b, err)
-			t.Fatal(str)
-		}
+	// Reorg the csn chain as well.
+	err = syncCsnChain(2, 100, chain, csnChain, indexes)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
