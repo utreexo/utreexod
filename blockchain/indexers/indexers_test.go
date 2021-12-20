@@ -281,6 +281,131 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 	return nil
 }
 
+// testUtreexoProof tests the generated proof on the exact same accumulator,
+// making sure that the verification code pass.
+func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexes []Indexer) error {
+	if len(indexes) != 2 {
+		err := fmt.Errorf("Expected 2 indexs but got %d", len(indexes))
+		return err
+	}
+
+	// Fetch the proofs from each of the indexes.
+	var flatUD, ud *wire.UData
+	var undo, flatUndo *accumulator.UndoBlock
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			var err error
+			flatUD, err = idxType.FetchUtreexoProof(block.Height())
+			if err != nil {
+				return err
+			}
+
+			flatUndo, err = idxType.fetchUndoBlock(block.Height())
+			if err != nil {
+				return err
+			}
+
+		case *UtreexoProofIndex:
+			var err error
+			ud, err = idxType.FetchUtreexoProof(block.Hash())
+			if err != nil {
+				return err
+			}
+
+			err = idxType.db.View(func(dbTx database.Tx) error {
+				undoBytes, err := dbFetchUndoBlockEntry(dbTx, block.Hash())
+				r := bytes.NewReader(undoBytes)
+				undo = new(accumulator.UndoBlock)
+				err = undo.Deserialize(r)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Sanity check.
+	if !reflect.DeepEqual(ud, flatUD) {
+		err := fmt.Errorf("Fetched utreexo data differ for "+
+			"utreexo proof index and flat utreexo proof "+
+			"index at height %d", block.Height())
+		return err
+	}
+	if !reflect.DeepEqual(undo, flatUndo) {
+		err := fmt.Errorf("Fetched undo data differ for "+
+			"utreexo proof index and flat utreexo proof "+
+			"index at height %d", block.Height())
+		return err
+	}
+
+	// Generate the additions and deletions to be made to the accumulator.
+	stxos, err := chain.FetchSpendJournal(block)
+	if err != nil {
+		return err
+	}
+
+	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
+	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
+
+	dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip)
+	if err != nil {
+		return err
+	}
+	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	for _, del := range dels {
+		if del.IsUnconfirmed() {
+			continue
+		}
+		delHashes = append(delHashes, del.LeafHash())
+	}
+
+	// Verify the proof on the accumulator.
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			// Undo back to the state where the proof was generated.
+			err := idxType.utreexoState.state.Undo(*flatUndo)
+			if err != nil {
+				return err
+			}
+			// Verify the proof.
+			err = idxType.utreexoState.state.VerifyBatchProof(delHashes, flatUD.AccProof)
+			if err != nil {
+				return err
+			}
+			// Go back to the original state.
+			_, err = idxType.utreexoState.state.Modify(adds, flatUD.AccProof.Targets)
+			if err != nil {
+				return err
+			}
+
+		case *UtreexoProofIndex:
+			// Undo back to the state where the proof was generated.
+			err := idxType.utreexoState.state.Undo(*undo)
+			if err != nil {
+				return err
+			}
+			// Verify the proof.
+			err = idxType.utreexoState.state.VerifyBatchProof(delHashes, ud.AccProof)
+			if err != nil {
+				return err
+			}
+			// Go back to the original state.
+			_, err = idxType.utreexoState.state.Modify(adds, ud.AccProof.Targets)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func TestUtreexoProofIndex(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
@@ -317,6 +442,13 @@ func TestUtreexoProofIndex(t *testing.T) {
 			nextSpendsTmp = append(nextSpendsTmp, spend)
 		}
 		nextSpends = nextSpendsTmp
+
+		// Test that the proof that the indexes generated verify on those
+		// same indexes.
+		err := testUtreexoProof(newBlock, chain, indexes)
+		if err != nil {
+			t.Fatal(fmt.Sprintf("TestUtreexoProofIndex failed testUtreexoProof. err: %v", err))
+		}
 
 		if b%10 == 0 {
 			// Commit the two base blocks to DB
