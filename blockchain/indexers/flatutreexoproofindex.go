@@ -170,7 +170,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	// UndoBlocks needed during reorgs.
+	// UndoBlocks are needed during reorgs.
 	err = idx.undoState.StoreData(block.Height(), undoBytesBuf.Bytes())
 	if err != nil {
 		return err
@@ -268,6 +268,65 @@ func (idx *FlatUtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*wire.UDa
 	}
 
 	return ud, nil
+}
+
+// ProveUtxos returns an accumulator proof of the outpoints passed in with
+// respect to the UTXO state at chaintip.
+//
+// NOTE The accumulator state differs at every block height.  The caller must
+// take into consideration that an accumulator proof at block X will not be valid
+// at block height X+1.
+//
+// This function is safe for concurrent access.
+func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
+	outpoints *[]wire.OutPoint) (*accumulator.BatchProof, []accumulator.Hash, error) {
+
+	// We'll turn the entries and outpoints into leaves that go in
+	// the accumulator.
+	leaves := make([]wire.LeafData, 0, len(utxos))
+	for i, utxo := range utxos {
+		if utxo == nil || utxo.IsSpent() {
+			err := fmt.Errorf("Passed in utxo at index %d is nil or is already spent", i)
+			return nil, nil, err
+		}
+
+		blockHash, err := idx.chain.BlockHashByHeight(utxo.BlockHeight())
+		if err != nil {
+			return nil, nil, err
+		}
+		if blockHash == nil {
+			err := fmt.Errorf("Couldn't find blockhash for height %d",
+				utxo.BlockHeight())
+			return nil, nil, err
+		}
+		leaf := wire.LeafData{
+			BlockHash:  *blockHash,
+			OutPoint:   (*outpoints)[i],
+			Amount:     utxo.Amount(),
+			PkScript:   utxo.PkScript(),
+			Height:     utxo.BlockHeight(),
+			IsCoinBase: utxo.IsCoinBase(),
+		}
+
+		leaves = append(leaves, leaf)
+	}
+
+	// Now we'll turn those leaves into hashes.  These are the hashes that are
+	// commited in the accumulator.
+	hashes := make([]accumulator.Hash, 0, len(leaves))
+	for _, leaf := range leaves {
+		hashes = append(hashes, leaf.LeafHash())
+	}
+
+	// Prove the commited hashes.
+	idx.mtx.RLock()
+	defer idx.mtx.RUnlock()
+	accProof, err := idx.utreexoState.state.ProveBatch(hashes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &accProof, hashes, nil
 }
 
 // SetChain sets the given chain as the chain to be used for blockhash fetching.

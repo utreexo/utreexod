@@ -577,6 +577,20 @@ func (uview *UtreexoViewpoint) Equal(compRoots []*chainhash.Hash) bool {
 	return true
 }
 
+// VerifyAccProof verifies the given accumulator proof.  Returns an error if the
+// verification failed.
+func (uview *UtreexoViewpoint) VerifyAccProof(toProve []accumulator.Hash,
+	proof *accumulator.BatchProof) error {
+	return uview.accumulator.VerifyBatchProof(toProve, *proof)
+}
+
+// ToString outputs a string of the underlying accumulator.  If the accumulator
+// is too big, a message stating that the accumulator is too big to turn into
+// a string will be returned instead.
+func (uview *UtreexoViewpoint) ToString() string {
+	return uview.accumulator.ToString()
+}
+
 // compareRoots is the underlying method that calls the utreexo accumulator code
 func (uview *UtreexoViewpoint) compareRoots(compRoot []accumulator.Hash) bool {
 	uviewRoots := uview.accumulator.GetRoots()
@@ -603,6 +617,11 @@ func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
 		accumulator: new(accumulator.Pollard),
 	}
+}
+
+// GetUtreexoView returns the underlying utreexo viewpoint.
+func (b *BlockChain) GetUtreexoView() *UtreexoViewpoint {
+	return b.utreexoView
 }
 
 // IsUtreexoViewActive returns true if the node depends on the utreexoView
