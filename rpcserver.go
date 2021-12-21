@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/websocket"
+	"github.com/mit-dci/utreexo/accumulator"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcec"
@@ -130,56 +131,57 @@ type commandHandler func(*rpcServer, interface{}, <-chan struct{}) (interface{},
 // a dependency loop.
 var rpcHandlers map[string]commandHandler
 var rpcHandlersBeforeInit = map[string]commandHandler{
-	"addnode":                handleAddNode,
-	"createrawtransaction":   handleCreateRawTransaction,
-	"debuglevel":             handleDebugLevel,
-	"decoderawtransaction":   handleDecodeRawTransaction,
-	"decodescript":           handleDecodeScript,
-	"estimatefee":            handleEstimateFee,
-	"generate":               handleGenerate,
-	"getaddednodeinfo":       handleGetAddedNodeInfo,
-	"getbestblock":           handleGetBestBlock,
-	"getbestblockhash":       handleGetBestBlockHash,
-	"getblock":               handleGetBlock,
-	"getblockchaininfo":      handleGetBlockChainInfo,
-	"getblockcount":          handleGetBlockCount,
-	"getblockhash":           handleGetBlockHash,
-	"getblockheader":         handleGetBlockHeader,
-	"getblocktemplate":       handleGetBlockTemplate,
-	"getcfilter":             handleGetCFilter,
-	"getcfilterheader":       handleGetCFilterHeader,
-	"getconnectioncount":     handleGetConnectionCount,
-	"getcurrentnet":          handleGetCurrentNet,
-	"getdifficulty":          handleGetDifficulty,
-	"getgenerate":            handleGetGenerate,
-	"gethashespersec":        handleGetHashesPerSec,
-	"getheaders":             handleGetHeaders,
-	"getinfo":                handleGetInfo,
-	"getmempoolinfo":         handleGetMempoolInfo,
-	"getmininginfo":          handleGetMiningInfo,
-	"getnettotals":           handleGetNetTotals,
-	"gettxtotals":            handleGetTxTotals,
-	"getnetworkhashps":       handleGetNetworkHashPS,
-	"getnodeaddresses":       handleGetNodeAddresses,
-	"getpeerinfo":            handleGetPeerInfo,
-	"getrawmempool":          handleGetRawMempool,
-	"getrawtransaction":      handleGetRawTransaction,
-	"getttl":                 handleGetTTL,
-	"gettxout":               handleGetTxOut,
-	"help":                   handleHelp,
-	"node":                   handleNode,
-	"ping":                   handlePing,
-	"searchrawtransactions":  handleSearchRawTransactions,
-	"sendrawtransaction":     handleSendRawTransaction,
-	"setgenerate":            handleSetGenerate,
-	"signmessagewithprivkey": handleSignMessageWithPrivKey,
-	"stop":                   handleStop,
-	"submitblock":            handleSubmitBlock,
-	"uptime":                 handleUptime,
-	"validateaddress":        handleValidateAddress,
-	"verifychain":            handleVerifyChain,
-	"verifymessage":          handleVerifyMessage,
-	"version":                handleVersion,
+	"addnode":                    handleAddNode,
+	"createrawtransaction":       handleCreateRawTransaction,
+	"debuglevel":                 handleDebugLevel,
+	"decoderawtransaction":       handleDecodeRawTransaction,
+	"decodescript":               handleDecodeScript,
+	"estimatefee":                handleEstimateFee,
+	"generate":                   handleGenerate,
+	"getaddednodeinfo":           handleGetAddedNodeInfo,
+	"getbestblock":               handleGetBestBlock,
+	"getbestblockhash":           handleGetBestBlockHash,
+	"getblock":                   handleGetBlock,
+	"getblockchaininfo":          handleGetBlockChainInfo,
+	"getblockcount":              handleGetBlockCount,
+	"getblockhash":               handleGetBlockHash,
+	"getblockheader":             handleGetBlockHeader,
+	"getblocktemplate":           handleGetBlockTemplate,
+	"getcfilter":                 handleGetCFilter,
+	"getcfilterheader":           handleGetCFilterHeader,
+	"getconnectioncount":         handleGetConnectionCount,
+	"getcurrentnet":              handleGetCurrentNet,
+	"getdifficulty":              handleGetDifficulty,
+	"getgenerate":                handleGetGenerate,
+	"gethashespersec":            handleGetHashesPerSec,
+	"getheaders":                 handleGetHeaders,
+	"getinfo":                    handleGetInfo,
+	"getmempoolinfo":             handleGetMempoolInfo,
+	"getmininginfo":              handleGetMiningInfo,
+	"getnettotals":               handleGetNetTotals,
+	"gettxtotals":                handleGetTxTotals,
+	"getnetworkhashps":           handleGetNetworkHashPS,
+	"getnodeaddresses":           handleGetNodeAddresses,
+	"getpeerinfo":                handleGetPeerInfo,
+	"getrawmempool":              handleGetRawMempool,
+	"getrawtransaction":          handleGetRawTransaction,
+	"getttl":                     handleGetTTL,
+	"gettxout":                   handleGetTxOut,
+	"help":                       handleHelp,
+	"node":                       handleNode,
+	"ping":                       handlePing,
+	"proveutxochaintipinclusion": handleProveUtxoChainTipInclusion,
+	"searchrawtransactions":      handleSearchRawTransactions,
+	"sendrawtransaction":         handleSendRawTransaction,
+	"setgenerate":                handleSetGenerate,
+	"signmessagewithprivkey":     handleSignMessageWithPrivKey,
+	"stop":                       handleStop,
+	"submitblock":                handleSubmitBlock,
+	"uptime":                     handleUptime,
+	"validateaddress":            handleValidateAddress,
+	"verifychain":                handleVerifyChain,
+	"verifymessage":              handleVerifyMessage,
+	"version":                    handleVersion,
 }
 
 // list of commands that we recognize, but for which btcd has no support because
@@ -258,35 +260,36 @@ var rpcLimited = map[string]struct{}{
 	"help": {},
 
 	// HTTP/S-only commands
-	"createrawtransaction":  {},
-	"decoderawtransaction":  {},
-	"decodescript":          {},
-	"estimatefee":           {},
-	"getbestblock":          {},
-	"getbestblockhash":      {},
-	"getblock":              {},
-	"getblockcount":         {},
-	"getblockhash":          {},
-	"getblockheader":        {},
-	"getcfilter":            {},
-	"getcfilterheader":      {},
-	"getcurrentnet":         {},
-	"getdifficulty":         {},
-	"getheaders":            {},
-	"getinfo":               {},
-	"getnettotals":          {},
-	"gettxtotals":           {},
-	"getnetworkhashps":      {},
-	"getrawmempool":         {},
-	"getrawtransaction":     {},
-	"gettxout":              {},
-	"searchrawtransactions": {},
-	"sendrawtransaction":    {},
-	"submitblock":           {},
-	"uptime":                {},
-	"validateaddress":       {},
-	"verifymessage":         {},
-	"version":               {},
+	"createrawtransaction":       {},
+	"decoderawtransaction":       {},
+	"decodescript":               {},
+	"estimatefee":                {},
+	"getbestblock":               {},
+	"getbestblockhash":           {},
+	"getblock":                   {},
+	"getblockcount":              {},
+	"getblockhash":               {},
+	"getblockheader":             {},
+	"getcfilter":                 {},
+	"getcfilterheader":           {},
+	"getcurrentnet":              {},
+	"getdifficulty":              {},
+	"getheaders":                 {},
+	"getinfo":                    {},
+	"getnettotals":               {},
+	"gettxtotals":                {},
+	"getnetworkhashps":           {},
+	"getrawmempool":              {},
+	"getrawtransaction":          {},
+	"gettxout":                   {},
+	"proveutxochaintipinclusion": {},
+	"searchrawtransactions":      {},
+	"sendrawtransaction":         {},
+	"submitblock":                {},
+	"uptime":                     {},
+	"validateaddress":            {},
+	"verifymessage":              {},
+	"version":                    {},
 }
 
 // builderScript is a convenience function which is used for hard-coded scripts
@@ -2908,6 +2911,115 @@ func handlePing(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (inter
 	return nil, nil
 }
 
+// handleProveUtxoChainTipInclusion implements the proveutxochaintipinclusion command.
+func handleProveUtxoChainTipInclusion(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (
+	interface{}, error) {
+	// Before doing anything, check that one of the indexes are active.
+	if s.cfg.UtreexoProofIndex == nil && s.cfg.FlatUtreexoProofIndex == nil {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: "A utreexo proof index must be enabled. " +
+				"(--utreexoproofindex) or (--flatutreexoproofindex).",
+		}
+	}
+	c := cmd.(*btcjson.ProveUtxoChainTipInclusionCmd)
+
+	if len(c.Txids) != len(c.Vouts) {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Must give same number of txids as vouts. "+
+				"Given %d txids but %d vouts", len(c.Txids), len(c.Vouts)),
+		}
+	}
+
+	// Prepare the outpoints from the given txid and vouts.
+	outpoints := make([]wire.OutPoint, 0, len(c.Txids))
+	for i, txid := range c.Txids {
+		// Convert the provided transaction hash hex to a Hash.
+		txHash, err := chainhash.NewHashFromStr(txid)
+		if err != nil {
+			return nil, rpcDecodeHexError(txid)
+		}
+		op := wire.NewOutPoint(txHash, c.Vouts[i])
+
+		outpoints = append(outpoints, *op)
+	}
+
+	// Fetch the utxos that we'll need to prove the outpoints.
+	utxos := make([]*blockchain.UtxoEntry, 0, len(c.Txids))
+	for _, outpoint := range outpoints {
+		utxo, err := s.cfg.Chain.FetchUtxoEntry(outpoint)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Requested UTXO with txid %s and vout %d "+
+					"does not exist in the UTXO set at chain tip height of %d",
+					outpoint.Hash.String(), outpoint.Index,
+					s.cfg.Chain.BestSnapshot().Height),
+			}
+		}
+
+		if utxo == nil || utxo.IsSpent() {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Requested UTXO with txid %s and vout %d "+
+					"does not exist in the UTXO set at chain tip height of %d",
+					outpoint.Hash.String(), outpoint.Index,
+					s.cfg.Chain.BestSnapshot().Height),
+			}
+		}
+
+		utxos = append(utxos, utxo)
+	}
+
+	// We already checked that at least one index is active.  Pick one and
+	// generate the inclusion proof.
+	var provedAtHeight int32
+	var provedAtHash *chainhash.Hash
+	var proof *accumulator.BatchProof
+	var hashesProven []accumulator.Hash
+	if s.cfg.UtreexoProofIndex != nil {
+		var err error
+		provedAtHeight, provedAtHash, proof, hashesProven, err = s.cfg.UtreexoProofIndex.ProveUtxos(
+			utxos, &outpoints)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+		provedAtHeight, provedAtHash, proof, hashesProven, err = s.cfg.FlatUtreexoProofIndex.ProveUtxos(
+			utxos, &outpoints)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Convert the hashes to string.
+	proofString := make([]string, 0, len(proof.Proof))
+	for _, singleProof := range proof.Proof {
+		// Convert to chainhash.Hash to access the String() method.
+		chainHash := chainhash.Hash(singleProof)
+		proofString = append(proofString, chainHash.String())
+	}
+
+	hashesProvenString := make([]string, 0, len(hashesProven))
+	for _, singleHash := range hashesProven {
+		// Convert to chainhash.Hash to access the String() method.
+		chainHash := chainhash.Hash(singleHash)
+		hashesProvenString = append(hashesProvenString, chainHash.String())
+	}
+
+	proveReply := &btcjson.ProveUtxoChainTipInclusionResult{
+		ProvedAtHeight: provedAtHeight,
+		ProvedAtHash:   provedAtHash.String(),
+		ProofHashes:    proofString,
+		ProofTargets:   proof.Targets,
+		HashesProven:   hashesProvenString,
+	}
+
+	return proveReply, nil
+}
+
 // retrievedTx represents a transaction that was either loaded from the
 // transaction memory pool or from the database.  When a transaction is loaded
 // from the database, it is loaded with the raw serialized bytes while the
@@ -4644,10 +4756,12 @@ type rpcserverConfig struct {
 
 	// These fields define any optional indexes the RPC server can make use
 	// of to provide additional data when queried.
-	TxIndex   *indexers.TxIndex
-	AddrIndex *indexers.AddrIndex
-	CfIndex   *indexers.CfIndex
-	TTLIndex  *indexers.TTLIndex
+	TxIndex               *indexers.TxIndex
+	AddrIndex             *indexers.AddrIndex
+	CfIndex               *indexers.CfIndex
+	TTLIndex              *indexers.TTLIndex
+	UtreexoProofIndex     *indexers.UtreexoProofIndex
+	FlatUtreexoProofIndex *indexers.FlatUtreexoProofIndex
 
 	// The fee estimator keeps track of how long transactions are left in
 	// the mempool before they are mined into blocks.

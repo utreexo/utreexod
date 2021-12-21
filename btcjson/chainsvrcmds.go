@@ -806,6 +806,22 @@ func NewPreciousBlockCmd(blockHash string) *PreciousBlockCmd {
 	}
 }
 
+// ProveUtxoChainTipInclusionCmd defines the proveutxochaintipinclusion JSON-RPC
+// command.
+type ProveUtxoChainTipInclusionCmd struct {
+	Txids []string
+	Vouts []uint32
+}
+
+// NewProveUtxoChainTipInclusionCmd returns a new instance which can be used
+// to issue a proveutxochaintipinclusion JSON-RPC command.
+func NewProveUtxoChainTipInclusionCmd(txids []string, vouts []uint32) *ProveUtxoChainTipInclusionCmd {
+	return &ProveUtxoChainTipInclusionCmd{
+		Txids: txids,
+		Vouts: vouts,
+	}
+}
+
 // ReconsiderBlockCmd defines the reconsiderblock JSON-RPC command.
 type ReconsiderBlockCmd struct {
 	BlockHash string
@@ -1119,6 +1135,7 @@ func init() {
 	MustRegisterCmd("invalidateblock", (*InvalidateBlockCmd)(nil), flags)
 	MustRegisterCmd("ping", (*PingCmd)(nil), flags)
 	MustRegisterCmd("preciousblock", (*PreciousBlockCmd)(nil), flags)
+	MustRegisterCmd("proveutxochaintipinclusion", (*ProveUtxoChainTipInclusionCmd)(nil), flags)
 	MustRegisterCmd("reconsiderblock", (*ReconsiderBlockCmd)(nil), flags)
 	MustRegisterCmd("searchrawtransactions", (*SearchRawTransactionsCmd)(nil), flags)
 	MustRegisterCmd("sendrawtransaction", (*SendRawTransactionCmd)(nil), flags)

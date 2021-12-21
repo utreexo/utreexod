@@ -14,6 +14,7 @@ import (
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -60,7 +61,7 @@ type FlatUtreexoProofIndex struct {
 	undoState   FlatFileState
 	chainParams *chaincfg.Params
 
-	// chain is solely used to fetch the blockindex data.
+	// The blockchain instance the index corresponds to.
 	chain *blockchain.BlockChain
 
 	// mtx protects concurrent access to the utreexoView .
@@ -278,8 +279,8 @@ func (idx *FlatUtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*wire.UDa
 // at block height X+1.
 //
 // This function is safe for concurrent access.
-func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
-	outpoints *[]wire.OutPoint) (*accumulator.BatchProof, []accumulator.Hash, error) {
+func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry, outpoints *[]wire.OutPoint) (
+	int32, *chainhash.Hash, *accumulator.BatchProof, []accumulator.Hash, error) {
 
 	// We'll turn the entries and outpoints into leaves that go in
 	// the accumulator.
@@ -287,17 +288,17 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 	for i, utxo := range utxos {
 		if utxo == nil || utxo.IsSpent() {
 			err := fmt.Errorf("Passed in utxo at index %d is nil or is already spent", i)
-			return nil, nil, err
+			return 0, nil, nil, nil, err
 		}
 
 		blockHash, err := idx.chain.BlockHashByHeight(utxo.BlockHeight())
 		if err != nil {
-			return nil, nil, err
+			return 0, nil, nil, nil, err
 		}
 		if blockHash == nil {
 			err := fmt.Errorf("Couldn't find blockhash for height %d",
 				utxo.BlockHeight())
-			return nil, nil, err
+			return 0, nil, nil, nil, err
 		}
 		leaf := wire.LeafData{
 			BlockHash:  *blockHash,
@@ -318,15 +319,22 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 		hashes = append(hashes, leaf.LeafHash())
 	}
 
-	// Prove the commited hashes.
+	// Get a read lock for the index.  This will prevent connectBlock from updating
+	// the beststate snapshot and the utreexo state.
 	idx.mtx.RLock()
 	defer idx.mtx.RUnlock()
+
 	accProof, err := idx.utreexoState.state.ProveBatch(hashes)
 	if err != nil {
-		return nil, nil, err
+		return 0, nil, nil, nil, err
 	}
 
-	return &accProof, hashes, nil
+	// Grab the height and the blockhash the proof was generated at.
+	snapshot := idx.chain.BestSnapshot()
+	provedAtHeight := snapshot.Height
+	provedAtHash := snapshot.Hash
+
+	return provedAtHeight, &provedAtHash, &accProof, hashes, nil
 }
 
 // SetChain sets the given chain as the chain to be used for blockhash fetching.

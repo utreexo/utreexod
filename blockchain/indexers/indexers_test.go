@@ -507,14 +507,14 @@ func TestProveUtxos(t *testing.T) {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
 				var err error
-				flatProof, flatHashesProven, err = idxType.ProveUtxos(utxos, &outpoints)
+				_, _, flatProof, flatHashesProven, err = idxType.ProveUtxos(utxos, &outpoints)
 				if err != nil {
 					t.Fatal(fmt.Sprintf("TestProveUtxos fail."+
 						"Failed to create proof. err: %v", err))
 				}
 			case *UtreexoProofIndex:
 				var err error
-				proof, hashesProven, err = idxType.ProveUtxos(utxos, &outpoints)
+				_, _, proof, hashesProven, err = idxType.ProveUtxos(utxos, &outpoints)
 				if err != nil {
 					t.Fatal(fmt.Sprintf("TestProveUtxos fail."+
 						"Failed to create proof. err: %v", err))

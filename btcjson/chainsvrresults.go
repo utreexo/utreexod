@@ -858,3 +858,13 @@ type LoadWalletResult struct {
 type DumpWalletResult struct {
 	Filename string `json:"filename"`
 }
+
+// ProveUtxoChainTipInclusionResult models the data from the
+// proveutxochaintipinclusion command.
+type ProveUtxoChainTipInclusionResult struct {
+	ProvedAtHeight int32    `json:"provedatheight"`
+	ProvedAtHash   string   `json:"provedathash"`
+	ProofHashes    []string `json:"proofhashes"`
+	ProofTargets   []uint64 `json:"prooftargets"`
+	HashesProven   []string `json:"hashesproven"`
+}
