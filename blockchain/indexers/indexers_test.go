@@ -406,6 +406,143 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	return nil
 }
 
+// TestProveUtxos tests that the utxos that are proven by the utreexo proof index are verifiable
+// by the compact state nodes.
+func TestProveUtxos(t *testing.T) {
+	// Always remove the root on return.
+	defer os.RemoveAll(testDbRoot)
+
+	source := rand.NewSource(time.Now().UnixNano())
+	rand := rand.New(source)
+
+	chain, indexes, params, tearDown := indexersTestChain("TestProveUtxos")
+	defer tearDown()
+
+	var allSpends []*blockchain.SpendableOut
+	var nextSpends []*blockchain.SpendableOut
+
+	// Create a chain with 101 blocks.
+	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	for i := 0; i < 100; i++ {
+		newBlock, newSpendableOuts := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		nextBlock = newBlock
+
+		allSpends = append(allSpends, newSpendableOuts...)
+
+		var nextSpendsTmp []*blockchain.SpendableOut
+		for j := 0; j < len(allSpends); j++ {
+			randIdx := rand.Intn(len(allSpends))
+
+			spend := allSpends[randIdx]                                       // get
+			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+			nextSpendsTmp = append(nextSpendsTmp, spend)
+		}
+		nextSpends = nextSpendsTmp
+
+		if i%10 == 0 {
+			// Commit the two base blocks to DB
+			if err := chain.FlushCachedState(blockchain.FlushRequired); err != nil {
+				t.Fatalf("TestProveUtxos fail. Unexpected error while flushing cache: %v", err)
+			}
+		}
+	}
+
+	// Check that the newly added data to both of the indexes are equal.
+	err := compareUtreexoIdx(1, 100, chain, indexes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a chain that consumes the data from the indexes and test that this
+	// chain is able to consume the data properly.
+	csnChain, _, csnTearDown, err := csnTestChain("TestProveUtxos-CsnChain")
+	defer csnTearDown()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Sync the csn chain to the tip from block 1.
+	err = syncCsnChain(1, 101, chain, csnChain, indexes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Sanity checking.  The chains need to be at the same height for the proofs
+	// to verify.
+	csnHeight := csnChain.BestSnapshot().Height
+	bridgeHeight := chain.BestSnapshot().Height
+	if csnHeight != bridgeHeight {
+		err := fmt.Errorf("TestProveUtxos fail. Height mismatch. csn chain is at %d "+
+			"while bridge chain is at %d", csnHeight, bridgeHeight)
+		t.Fatal(err)
+	}
+
+	// Repeat verify and prove from the chain 20 times.
+	for i := 0; i < 20; i++ {
+		// Grab a range of spendables.
+		min := 1
+		max := len(allSpends)
+		randIdxEnd := rand.Intn(max-min+1) + min
+		randIdxStart := rand.Intn(randIdxEnd)
+		spendables := allSpends[randIdxStart:randIdxEnd]
+
+		// Prep the spendables into utxos and outpoints.
+		var utxos []*blockchain.UtxoEntry
+		var outpoints []wire.OutPoint
+		for _, spendable := range spendables {
+			utxo, err := chain.FetchUtxoEntry(spendable.PrevOut)
+			if err != nil {
+				t.Fatal(fmt.Sprintf("TestProveUtxos fail. err: outpoint %s not found.",
+					spendable.PrevOut.String()))
+			}
+
+			utxos = append(utxos, utxo)
+			outpoints = append(outpoints, spendable.PrevOut)
+		}
+
+		// Generate the proof and the hashes of the utxos that are in the accumulator.
+		var proof, flatProof *accumulator.BatchProof
+		var hashesProven, flatHashesProven []accumulator.Hash
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				var err error
+				flatProof, flatHashesProven, err = idxType.ProveUtxos(utxos, &outpoints)
+				if err != nil {
+					t.Fatal(fmt.Sprintf("TestProveUtxos fail."+
+						"Failed to create proof. err: %v", err))
+				}
+			case *UtreexoProofIndex:
+				var err error
+				proof, hashesProven, err = idxType.ProveUtxos(utxos, &outpoints)
+				if err != nil {
+					t.Fatal(fmt.Sprintf("TestProveUtxos fail."+
+						"Failed to create proof. err: %v", err))
+				}
+			}
+		}
+
+		// Sanity check.
+		if !reflect.DeepEqual(proof, flatProof) {
+			err := fmt.Errorf("Generated utreexo proof differ for " +
+				"utreexo proof index and flat utreexo proof index")
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(hashesProven, flatHashesProven) {
+			err := fmt.Errorf("Hashes proven for differ for " +
+				"utreexo proof index and flat utreexo proof index")
+			t.Fatal(err)
+		}
+
+		// Verify the proof with the compact state node.
+		uView := csnChain.GetUtreexoView()
+		err = uView.VerifyAccProof(hashesProven, proof)
+		if err != nil {
+			t.Fatal(fmt.Sprintf("TestProveUtxos fail. Failed to verify proof err: %v", err))
+		}
+	}
+}
+
 func TestUtreexoProofIndex(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)

@@ -152,19 +152,19 @@ func SolveBlock(header *wire.BlockHeader) bool {
 // SpendableOut represents a transaction output that is spendable along with
 // additional metadata such as the block its in and how much it pays.
 type SpendableOut struct {
-	prevOut wire.OutPoint
-	amount  btcutil.Amount
+	PrevOut wire.OutPoint
+	Amount  btcutil.Amount
 }
 
 // MakeSpendableOutForTx returns a spendable output for the given transaction
 // and transaction output index within the transaction.
 func MakeSpendableOutForTx(tx *wire.MsgTx, txOutIndex uint32) SpendableOut {
 	return SpendableOut{
-		prevOut: wire.OutPoint{
+		PrevOut: wire.OutPoint{
 			Hash:  tx.TxHash(),
 			Index: txOutIndex,
 		},
-		amount: btcutil.Amount(tx.TxOut[txOutIndex].Value),
+		Amount: btcutil.Amount(tx.TxOut[txOutIndex].Value),
 	}
 }
 
@@ -201,11 +201,11 @@ func AddBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*
 	for _, spend := range spends {
 		spendTx := wire.NewMsgTx(1)
 		spendTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: spend.prevOut,
+			PreviousOutPoint: spend.PrevOut,
 			Sequence:         wire.MaxTxInSequenceNum,
 			SignatureScript:  nil,
 		})
-		spendTx.AddTxOut(wire.NewTxOut(int64(spend.amount-lowFee),
+		spendTx.AddTxOut(wire.NewTxOut(int64(spend.Amount-lowFee),
 			opTrueScript))
 		// Add a random (prunable) OP_RETURN output to make the txid unique.
 		spendTx.AddTxOut(wire.NewTxOut(0, uniqueOpReturnScript()))
