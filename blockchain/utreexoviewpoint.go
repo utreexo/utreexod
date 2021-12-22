@@ -57,7 +57,7 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView
 
 	// IngestBatchProof first checks that the utreexo proofs are valid. If it is valid,
 	// it readys the utreexo accumulator for additions/deletions.
-	err = uview.accumulator.IngestBatchProof(delHashes, ud.AccProof)
+	err = uview.accumulator.IngestBatchProof(delHashes, ud.AccProof, false)
 	if err != nil {
 		return err
 	}
