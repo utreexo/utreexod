@@ -310,6 +310,13 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 	return proof, nil
 }
 
+// VerifyAccProof verifies the given accumulator proof.  Returns an error if the
+// verification failed.
+func (idx *UtreexoProofIndex) VerifyAccProof(toProve []accumulator.Hash,
+	proof *accumulator.BatchProof) error {
+	return idx.utreexoState.state.VerifyBatchProof(toProve, *proof)
+}
+
 // SetChain sets the given chain as the chain to be used for blockhash fetching.
 func (idx *UtreexoProofIndex) SetChain(chain *blockchain.BlockChain) {
 	idx.chain = chain
