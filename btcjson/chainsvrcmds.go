@@ -809,16 +809,18 @@ func NewPreciousBlockCmd(blockHash string) *PreciousBlockCmd {
 // ProveUtxoChainTipInclusionCmd defines the proveutxochaintipinclusion JSON-RPC
 // command.
 type ProveUtxoChainTipInclusionCmd struct {
-	Txids []string
-	Vouts []uint32
+	Txids     []string
+	Vouts     []uint32
+	Verbosity *int `jsonrpcdefault:"1"`
 }
 
 // NewProveUtxoChainTipInclusionCmd returns a new instance which can be used
 // to issue a proveutxochaintipinclusion JSON-RPC command.
-func NewProveUtxoChainTipInclusionCmd(txids []string, vouts []uint32) *ProveUtxoChainTipInclusionCmd {
+func NewProveUtxoChainTipInclusionCmd(txids []string, vouts []uint32, verbosity *int) *ProveUtxoChainTipInclusionCmd {
 	return &ProveUtxoChainTipInclusionCmd{
-		Txids: txids,
-		Vouts: vouts,
+		Txids:     txids,
+		Vouts:     vouts,
+		Verbosity: verbosity,
 	}
 }
 

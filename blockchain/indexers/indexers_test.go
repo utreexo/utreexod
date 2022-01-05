@@ -501,20 +501,19 @@ func TestProveUtxos(t *testing.T) {
 		}
 
 		// Generate the proof and the hashes of the utxos that are in the accumulator.
-		var proof, flatProof *accumulator.BatchProof
-		var hashesProven, flatHashesProven []accumulator.Hash
+		var proof, flatProof *blockchain.ChainTipProof
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
 				var err error
-				_, _, flatProof, flatHashesProven, err = idxType.ProveUtxos(utxos, &outpoints)
+				flatProof, err = idxType.ProveUtxos(utxos, &outpoints)
 				if err != nil {
 					t.Fatal(fmt.Sprintf("TestProveUtxos fail."+
 						"Failed to create proof. err: %v", err))
 				}
 			case *UtreexoProofIndex:
 				var err error
-				_, _, proof, hashesProven, err = idxType.ProveUtxos(utxos, &outpoints)
+				proof, err = idxType.ProveUtxos(utxos, &outpoints)
 				if err != nil {
 					t.Fatal(fmt.Sprintf("TestProveUtxos fail."+
 						"Failed to create proof. err: %v", err))
@@ -528,7 +527,7 @@ func TestProveUtxos(t *testing.T) {
 				"utreexo proof index and flat utreexo proof index")
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(hashesProven, flatHashesProven) {
+		if !reflect.DeepEqual(proof.HashesProven, flatProof.HashesProven) {
 			err := fmt.Errorf("Hashes proven for differ for " +
 				"utreexo proof index and flat utreexo proof index")
 			t.Fatal(err)
@@ -536,7 +535,7 @@ func TestProveUtxos(t *testing.T) {
 
 		// Verify the proof with the compact state node.
 		uView := csnChain.GetUtreexoView()
-		err = uView.VerifyAccProof(hashesProven, proof)
+		err = uView.VerifyAccProof(proof.HashesProven, proof.AccProof)
 		if err != nil {
 			t.Fatal(fmt.Sprintf("TestProveUtxos fail. Failed to verify proof err: %v", err))
 		}

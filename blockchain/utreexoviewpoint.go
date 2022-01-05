@@ -6,7 +6,10 @@ package blockchain
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"sort"
 
 	"github.com/mit-dci/utreexo/accumulator"
@@ -740,6 +743,106 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 		}
 		str += fmt.Sprintf("err: %s", err.Error())
 		return fmt.Errorf(str)
+	}
+
+	return nil
+}
+
+// ChainTipProof represents all the information that is needed to prove that a
+// utxo exists in the chain tip with utreexo accumulator proof.
+type ChainTipProof struct {
+	ProvedAtHash *chainhash.Hash
+	AccProof     *accumulator.BatchProof
+	HashesProven []accumulator.Hash
+}
+
+// Serialize encodes the chain-tip proof into the passed in writer.
+func (ctp *ChainTipProof) Serialize(w io.Writer) error {
+	_, err := w.Write(ctp.ProvedAtHash[:])
+	if err != nil {
+		return err
+	}
+
+	err = wire.BatchProofSerialize(w, ctp.AccProof)
+	if err != nil {
+		return err
+	}
+
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, uint32(len(ctp.HashesProven)))
+
+	_, err = w.Write(buf)
+	if err != nil {
+		return err
+	}
+
+	for _, hash := range ctp.HashesProven {
+		_, err = w.Write(hash[:])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Deserialize decodes a chain-tip proof from the given reader.
+func (ctp *ChainTipProof) Deserialize(r io.Reader) error {
+	var provedAtHash chainhash.Hash
+	_, err := r.Read(provedAtHash[:])
+	if err != nil {
+		return err
+	}
+
+	ctp.ProvedAtHash = &provedAtHash
+
+	bp, err := wire.BatchProofDeserialize(r)
+	if err != nil {
+		return err
+	}
+	ctp.AccProof = bp
+
+	countBuf := make([]byte, 4)
+	_, err = r.Read(countBuf)
+	if err != nil {
+		return err
+	}
+
+	hashesProven := make([]accumulator.Hash, binary.LittleEndian.Uint32(countBuf))
+	for i := range hashesProven {
+		_, err = r.Read(hashesProven[i][:])
+		if err != nil {
+			return err
+		}
+	}
+	ctp.HashesProven = hashesProven
+
+	return nil
+}
+
+// String returns a hex encoded string of the chain-tip proof.
+func (ctp *ChainTipProof) String() string {
+	var buf bytes.Buffer
+	err := ctp.Serialize(&buf)
+	if err != nil {
+		return fmt.Sprintf("err: %v", err)
+	}
+
+	return hex.EncodeToString(buf.Bytes())
+}
+
+// DecodeString takes a string and decodes and deserializes the chain-tip proof
+// from the string.
+func (ctp *ChainTipProof) DecodeString(proof string) error {
+	proofBytes, err := hex.DecodeString(proof)
+	if err != nil {
+		return err
+	}
+
+	r := bytes.NewReader(proofBytes)
+	err = ctp.Deserialize(r)
+	if err != nil {
+		return err
 	}
 
 	return nil
