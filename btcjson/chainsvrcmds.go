@@ -1087,6 +1087,12 @@ func NewVerifyTxOutProofCmd(proof string) *VerifyTxOutProofCmd {
 	}
 }
 
+// VerifyUtxoChainTipInclusionProofCmd defines the verifyutxochaintipinclusionproof JSON-RPC
+// command.
+type VerifyUtxoChainTipInclusionProofCmd struct {
+	Proof string `json:"proof"`
+}
+
 func init() {
 	// No special flags for commands in this file.
 	flags := UsageFlag(0)
@@ -1150,4 +1156,5 @@ func init() {
 	MustRegisterCmd("verifychain", (*VerifyChainCmd)(nil), flags)
 	MustRegisterCmd("verifymessage", (*VerifyMessageCmd)(nil), flags)
 	MustRegisterCmd("verifytxoutproof", (*VerifyTxOutProofCmd)(nil), flags)
+	MustRegisterCmd("verifyutxochaintipinclusionproof", (*VerifyUtxoChainTipInclusionProofCmd)(nil), flags)
 }

@@ -130,57 +130,58 @@ type commandHandler func(*rpcServer, interface{}, <-chan struct{}) (interface{},
 // a dependency loop.
 var rpcHandlers map[string]commandHandler
 var rpcHandlersBeforeInit = map[string]commandHandler{
-	"addnode":                    handleAddNode,
-	"createrawtransaction":       handleCreateRawTransaction,
-	"debuglevel":                 handleDebugLevel,
-	"decoderawtransaction":       handleDecodeRawTransaction,
-	"decodescript":               handleDecodeScript,
-	"estimatefee":                handleEstimateFee,
-	"generate":                   handleGenerate,
-	"getaddednodeinfo":           handleGetAddedNodeInfo,
-	"getbestblock":               handleGetBestBlock,
-	"getbestblockhash":           handleGetBestBlockHash,
-	"getblock":                   handleGetBlock,
-	"getblockchaininfo":          handleGetBlockChainInfo,
-	"getblockcount":              handleGetBlockCount,
-	"getblockhash":               handleGetBlockHash,
-	"getblockheader":             handleGetBlockHeader,
-	"getblocktemplate":           handleGetBlockTemplate,
-	"getcfilter":                 handleGetCFilter,
-	"getcfilterheader":           handleGetCFilterHeader,
-	"getconnectioncount":         handleGetConnectionCount,
-	"getcurrentnet":              handleGetCurrentNet,
-	"getdifficulty":              handleGetDifficulty,
-	"getgenerate":                handleGetGenerate,
-	"gethashespersec":            handleGetHashesPerSec,
-	"getheaders":                 handleGetHeaders,
-	"getinfo":                    handleGetInfo,
-	"getmempoolinfo":             handleGetMempoolInfo,
-	"getmininginfo":              handleGetMiningInfo,
-	"getnettotals":               handleGetNetTotals,
-	"gettxtotals":                handleGetTxTotals,
-	"getnetworkhashps":           handleGetNetworkHashPS,
-	"getnodeaddresses":           handleGetNodeAddresses,
-	"getpeerinfo":                handleGetPeerInfo,
-	"getrawmempool":              handleGetRawMempool,
-	"getrawtransaction":          handleGetRawTransaction,
-	"getttl":                     handleGetTTL,
-	"gettxout":                   handleGetTxOut,
-	"help":                       handleHelp,
-	"node":                       handleNode,
-	"ping":                       handlePing,
-	"proveutxochaintipinclusion": handleProveUtxoChainTipInclusion,
-	"searchrawtransactions":      handleSearchRawTransactions,
-	"sendrawtransaction":         handleSendRawTransaction,
-	"setgenerate":                handleSetGenerate,
-	"signmessagewithprivkey":     handleSignMessageWithPrivKey,
-	"stop":                       handleStop,
-	"submitblock":                handleSubmitBlock,
-	"uptime":                     handleUptime,
-	"validateaddress":            handleValidateAddress,
-	"verifychain":                handleVerifyChain,
-	"verifymessage":              handleVerifyMessage,
-	"version":                    handleVersion,
+	"addnode":                          handleAddNode,
+	"createrawtransaction":             handleCreateRawTransaction,
+	"debuglevel":                       handleDebugLevel,
+	"decoderawtransaction":             handleDecodeRawTransaction,
+	"decodescript":                     handleDecodeScript,
+	"estimatefee":                      handleEstimateFee,
+	"generate":                         handleGenerate,
+	"getaddednodeinfo":                 handleGetAddedNodeInfo,
+	"getbestblock":                     handleGetBestBlock,
+	"getbestblockhash":                 handleGetBestBlockHash,
+	"getblock":                         handleGetBlock,
+	"getblockchaininfo":                handleGetBlockChainInfo,
+	"getblockcount":                    handleGetBlockCount,
+	"getblockhash":                     handleGetBlockHash,
+	"getblockheader":                   handleGetBlockHeader,
+	"getblocktemplate":                 handleGetBlockTemplate,
+	"getcfilter":                       handleGetCFilter,
+	"getcfilterheader":                 handleGetCFilterHeader,
+	"getconnectioncount":               handleGetConnectionCount,
+	"getcurrentnet":                    handleGetCurrentNet,
+	"getdifficulty":                    handleGetDifficulty,
+	"getgenerate":                      handleGetGenerate,
+	"gethashespersec":                  handleGetHashesPerSec,
+	"getheaders":                       handleGetHeaders,
+	"getinfo":                          handleGetInfo,
+	"getmempoolinfo":                   handleGetMempoolInfo,
+	"getmininginfo":                    handleGetMiningInfo,
+	"getnettotals":                     handleGetNetTotals,
+	"gettxtotals":                      handleGetTxTotals,
+	"getnetworkhashps":                 handleGetNetworkHashPS,
+	"getnodeaddresses":                 handleGetNodeAddresses,
+	"getpeerinfo":                      handleGetPeerInfo,
+	"getrawmempool":                    handleGetRawMempool,
+	"getrawtransaction":                handleGetRawTransaction,
+	"getttl":                           handleGetTTL,
+	"gettxout":                         handleGetTxOut,
+	"help":                             handleHelp,
+	"node":                             handleNode,
+	"ping":                             handlePing,
+	"proveutxochaintipinclusion":       handleProveUtxoChainTipInclusion,
+	"searchrawtransactions":            handleSearchRawTransactions,
+	"sendrawtransaction":               handleSendRawTransaction,
+	"setgenerate":                      handleSetGenerate,
+	"signmessagewithprivkey":           handleSignMessageWithPrivKey,
+	"stop":                             handleStop,
+	"submitblock":                      handleSubmitBlock,
+	"uptime":                           handleUptime,
+	"validateaddress":                  handleValidateAddress,
+	"verifychain":                      handleVerifyChain,
+	"verifymessage":                    handleVerifyMessage,
+	"verifyutxochaintipinclusionproof": handleVerifyUtxoChainTipInclusionProof,
+	"version":                          handleVersion,
 }
 
 // list of commands that we recognize, but for which btcd has no support because
@@ -3909,6 +3910,65 @@ func handleVersion(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (in
 		},
 	}
 	return result, nil
+}
+
+// handleVerifyUtxoChainTipInclusionProof implements the verifyutxochaintipinclusionproof command.
+func handleVerifyUtxoChainTipInclusionProof(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (
+	interface{}, error) {
+	// Before doing anything, check for an active utreexo index or a utreexo view.
+	if s.cfg.UtreexoProofIndex == nil && s.cfg.FlatUtreexoProofIndex == nil &&
+		!s.cfg.Chain.IsUtreexoViewActive() {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: "Utreexo index or utreexo must be enabled. (--utreexoproofindex) " +
+				"or (--flatutreexoproofindex) or (--utreexo).",
+		}
+	}
+
+	c := cmd.(*btcjson.VerifyUtxoChainTipInclusionProofCmd)
+
+	proof := new(blockchain.ChainTipProof)
+	err := proof.DecodeString(c.Proof)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Couldn't decode the given proof. Error: %v", err),
+		}
+	}
+
+	// Prove will not validate unless it's at the same block.  Check first to give the
+	// caller a more helpful message.
+	currentHash := s.cfg.Chain.BestSnapshot().Hash
+	if *proof.ProvedAtHash != currentHash {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Possibly stale proof. The current chain "+
+				"tip is at block %v but the given proof was generated at block %v",
+				currentHash.String(), proof.ProvedAtHash.String()),
+		}
+	}
+
+	// Any of these can verify the given proof.  We already checked that at least one is
+	// active so pick one and validate the proof.
+	if s.cfg.UtreexoProofIndex != nil {
+		err := s.cfg.UtreexoProofIndex.VerifyAccProof(proof.HashesProven, proof.AccProof)
+		if err != nil {
+			return false, nil
+		}
+	} else if s.cfg.FlatUtreexoProofIndex != nil {
+		err := s.cfg.FlatUtreexoProofIndex.VerifyAccProof(proof.HashesProven, proof.AccProof)
+		if err != nil {
+			return false, nil
+		}
+	} else {
+		uView := s.cfg.Chain.GetUtreexoView()
+		err := uView.VerifyAccProof(proof.HashesProven, proof.AccProof)
+		if err != nil {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // rpcServer provides a concurrent safe RPC server to a chain server.
