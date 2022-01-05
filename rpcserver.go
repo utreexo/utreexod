@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/websocket"
-	"github.com/mit-dci/utreexo/accumulator"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcec"
@@ -2974,47 +2973,46 @@ func handleProveUtxoChainTipInclusion(s *rpcServer, cmd interface{}, closeChan <
 
 	// We already checked that at least one index is active.  Pick one and
 	// generate the inclusion proof.
-	var provedAtHeight int32
-	var provedAtHash *chainhash.Hash
-	var proof *accumulator.BatchProof
-	var hashesProven []accumulator.Hash
+	var proof *blockchain.ChainTipProof
 	if s.cfg.UtreexoProofIndex != nil {
 		var err error
-		provedAtHeight, provedAtHash, proof, hashesProven, err = s.cfg.UtreexoProofIndex.ProveUtxos(
-			utxos, &outpoints)
+		proof, err = s.cfg.UtreexoProofIndex.ProveUtxos(utxos, &outpoints)
 		if err != nil {
 			return nil, err
 		}
 	} else {
 		var err error
-		provedAtHeight, provedAtHash, proof, hashesProven, err = s.cfg.FlatUtreexoProofIndex.ProveUtxos(
-			utxos, &outpoints)
+		proof, err = s.cfg.FlatUtreexoProofIndex.ProveUtxos(utxos, &outpoints)
 		if err != nil {
 			return nil, err
 		}
 	}
 
+	if *c.Verbosity == 0 {
+		return proof.String(), nil
+	}
+
 	// Convert the hashes to string.
-	proofString := make([]string, 0, len(proof.Proof))
-	for _, singleProof := range proof.Proof {
+	proofString := make([]string, 0, len(proof.AccProof.Proof))
+	for _, singleProof := range proof.AccProof.Proof {
 		// Convert to chainhash.Hash to access the String() method.
 		chainHash := chainhash.Hash(singleProof)
 		proofString = append(proofString, chainHash.String())
 	}
 
-	hashesProvenString := make([]string, 0, len(hashesProven))
-	for _, singleHash := range hashesProven {
+	hashesProvenString := make([]string, 0, len(proof.HashesProven))
+	for _, singleHash := range proof.HashesProven {
 		// Convert to chainhash.Hash to access the String() method.
 		chainHash := chainhash.Hash(singleHash)
 		hashesProvenString = append(hashesProvenString, chainHash.String())
 	}
 
-	proveReply := &btcjson.ProveUtxoChainTipInclusionResult{
-		ProvedAtHeight: provedAtHeight,
-		ProvedAtHash:   provedAtHash.String(),
-		ProofHashes:    proofString,
-		ProofTargets:   proof.Targets,
-		HashesProven:   hashesProvenString,
+	proveReply := &btcjson.ProveUtxoChainTipInclusionVerboseResult{
+		ProvedAtHash: proof.ProvedAtHash.String(),
+		ProofHashes:  proofString,
+		ProofTargets: proof.AccProof.Targets,
+		HashesProven: hashesProvenString,
+		Hex:          proof.String(),
 	}
 
 	return proveReply, nil

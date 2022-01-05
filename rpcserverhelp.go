@@ -569,16 +569,17 @@ var helpDescsEnUS = map[string]string{
 	"proveutxochaintipinclusion--synopsis": "Returns an utreexo accumulator proof for the chain tip inclusion of the given UTXOs",
 	"proveutxochaintipinclusion-txids":     "The hash of the transactions",
 	"proveutxochaintipinclusion-vouts":     "The index of the outputs of the txids given",
+	"proveutxochaintipinclusion-verbosity": "Returns a json of the utxochaintipinclusion proof",
 
-	// ProveUtxoChainTipInclusionResult help.
-	"proveutxochaintipinclusionresult-provedatheight": "The height at which the proof was generated at. The proof will not verify if the height is different",
-	"proveutxochaintipinclusionresult-provedathash":   "The blockhash at which the proof was generated at. The proof will not verify if the blockhash is different",
-	"proveutxochaintipinclusionresult-proofhashes": "One half of the utreexo accumulator proof (the other half being prooftargets).\n" +
+	// ProveUtxoChainTipInclusionVerboseResult help.
+	"proveutxochaintipinclusionverboseresult-provedathash": "The blockhash at which the proof was generated at. The proof will not verify if the blockhash is different",
+	"proveutxochaintipinclusionverboseresult-proofhashes": "One half of the utreexo accumulator proof (the other half being prooftargets).\n" +
 		"The proof hashes for the utreexo accumulator proof of the given UTXOs.",
-	"proveutxochaintipinclusionresult-prooftargets": "One half of the utreexo accumulator proof (the other half being proofhashes).\n" +
+	"proveutxochaintipinclusionverboseresult-prooftargets": "One half of the utreexo accumulator proof (the other half being proofhashes).\n" +
 		"The locations of the given UTXOs in the accumulator.",
-	"proveutxochaintipinclusionresult-hashesproven": "The hashes of the UTXOs that are committed in the accumulator.\n" +
+	"proveutxochaintipinclusionverboseresult-hashesproven": "The hashes of the UTXOs that are committed in the accumulator.\n" +
 		"Note that these are not purely hashes of txid:vout. The preimage also include Amount, PkScript, and other parts of the UTXO",
+	"proveutxochaintipinclusionverboseresult-hex": "The raw hash of the entire chain-tip inclusion proof",
 
 	// SearchRawTransactionsCmd help.
 	"searchrawtransactions--synopsis": "Returns raw data for transactions involving the passed address.\n" +
@@ -786,7 +787,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"node":                       nil,
 	"help":                       {(*string)(nil), (*string)(nil)},
 	"ping":                       nil,
-	"proveutxochaintipinclusion": {(*btcjson.ProveUtxoChainTipInclusionResult)(nil)},
+	"proveutxochaintipinclusion": {(*btcjson.ProveUtxoChainTipInclusionVerboseResult)(nil)},
 	"searchrawtransactions":      {(*string)(nil), (*[]btcjson.SearchRawTransactionsResult)(nil)},
 	"sendrawtransaction":         {(*string)(nil)},
 	"setgenerate":                nil,

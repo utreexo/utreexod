@@ -14,7 +14,6 @@ import (
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -279,26 +278,27 @@ func (idx *FlatUtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*wire.UDa
 // at block height X+1.
 //
 // This function is safe for concurrent access.
-func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry, outpoints *[]wire.OutPoint) (
-	int32, *chainhash.Hash, *accumulator.BatchProof, []accumulator.Hash, error) {
+func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
+	outpoints *[]wire.OutPoint) (*blockchain.ChainTipProof, error) {
 
 	// We'll turn the entries and outpoints into leaves that go in
 	// the accumulator.
 	leaves := make([]wire.LeafData, 0, len(utxos))
 	for i, utxo := range utxos {
 		if utxo == nil || utxo.IsSpent() {
-			err := fmt.Errorf("Passed in utxo at index %d is nil or is already spent", i)
-			return 0, nil, nil, nil, err
+			err := fmt.Errorf("Passed in utxo at index %d "+
+				"is nil or is already spent", i)
+			return nil, err
 		}
 
 		blockHash, err := idx.chain.BlockHashByHeight(utxo.BlockHeight())
 		if err != nil {
-			return 0, nil, nil, nil, err
+			return nil, err
 		}
 		if blockHash == nil {
 			err := fmt.Errorf("Couldn't find blockhash for height %d",
 				utxo.BlockHeight())
-			return 0, nil, nil, nil, err
+			return nil, err
 		}
 		leaf := wire.LeafData{
 			BlockHash:  *blockHash,
@@ -326,15 +326,20 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry, outp
 
 	accProof, err := idx.utreexoState.state.ProveBatch(hashes)
 	if err != nil {
-		return 0, nil, nil, nil, err
+		return nil, err
 	}
 
 	// Grab the height and the blockhash the proof was generated at.
 	snapshot := idx.chain.BestSnapshot()
-	provedAtHeight := snapshot.Height
 	provedAtHash := snapshot.Hash
 
-	return provedAtHeight, &provedAtHash, &accProof, hashes, nil
+	proof := &blockchain.ChainTipProof{
+		ProvedAtHash: &provedAtHash,
+		AccProof:     &accProof,
+		HashesProven: hashes,
+	}
+
+	return proof, nil
 }
 
 // SetChain sets the given chain as the chain to be used for blockhash fetching.

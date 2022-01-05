@@ -245,26 +245,27 @@ func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*wire.UData, 
 // at block height X+1.
 //
 // This function is safe for concurrent access.
-func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry, outpoints *[]wire.OutPoint) (
-	int32, *chainhash.Hash, *accumulator.BatchProof, []accumulator.Hash, error) {
+func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
+	outpoints *[]wire.OutPoint) (*blockchain.ChainTipProof, error) {
 
 	// We'll turn the entries and outpoints into leaves that go in
 	// the accumulator.
 	leaves := make([]wire.LeafData, 0, len(utxos))
 	for i, utxo := range utxos {
 		if utxo == nil || utxo.IsSpent() {
-			err := fmt.Errorf("Passed in utxo at index %d is nil or is already spent", i)
-			return 0, nil, nil, nil, err
+			err := fmt.Errorf("Passed in utxo at index %d "+
+				"is nil or is already spent", i)
+			return nil, err
 		}
 
 		blockHash, err := idx.chain.BlockHashByHeight(utxo.BlockHeight())
 		if err != nil {
-			return 0, nil, nil, nil, err
+			return nil, err
 		}
 		if blockHash == nil {
 			err := fmt.Errorf("Couldn't find blockhash for height %d",
 				utxo.BlockHeight())
-			return 0, nil, nil, nil, err
+			return nil, err
 		}
 		leaf := wire.LeafData{
 			BlockHash:  *blockHash,
@@ -293,15 +294,20 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry, outpoint
 	// Prove the commited hashes.
 	accProof, err := idx.utreexoState.state.ProveBatch(hashes)
 	if err != nil {
-		return 0, nil, nil, nil, err
+		return nil, err
 	}
 
 	// Grab the height and the blockhash the proof was generated at.
 	snapshot := idx.chain.BestSnapshot()
-	provedAtHeight := snapshot.Height
 	provedAtHash := snapshot.Hash
 
-	return provedAtHeight, &provedAtHash, &accProof, hashes, nil
+	proof := &blockchain.ChainTipProof{
+		ProvedAtHash: &provedAtHash,
+		AccProof:     &accProof,
+		HashesProven: hashes,
+	}
+
+	return proof, nil
 }
 
 // SetChain sets the given chain as the chain to be used for blockhash fetching.

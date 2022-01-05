@@ -1050,6 +1050,36 @@ func TestChainSvrCmds(t *testing.T) {
 			},
 		},
 		{
+			name: "proveutxochaintipinclusion",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("proveutxochaintipinclusion", `["012345"]`, "[0]", 0)
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewProveUtxoChainTipInclusionCmd([]string{"012345"}, []uint32{0}, btcjson.Int(0))
+			},
+			marshalled: `{"jsonrpc":"1.0","method":"proveutxochaintipinclusion","params":[["012345"],[0],0],"id":1}`,
+			unmarshalled: &btcjson.ProveUtxoChainTipInclusionCmd{
+				Txids:     []string{"012345"},
+				Vouts:     []uint32{0},
+				Verbosity: btcjson.Int(0),
+			},
+		},
+		{
+			name: "proveutxochaintipinclusion default verbosity",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("proveutxochaintipinclusion", `["012345"]`, "[0]")
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewProveUtxoChainTipInclusionCmd([]string{"012345"}, []uint32{0}, nil)
+			},
+			marshalled: `{"jsonrpc":"1.0","method":"proveutxochaintipinclusion","params":[["012345"],[0]],"id":1}`,
+			unmarshalled: &btcjson.ProveUtxoChainTipInclusionCmd{
+				Txids:     []string{"012345"},
+				Vouts:     []uint32{0},
+				Verbosity: btcjson.Int(1),
+			},
+		},
+		{
 			name: "reconsiderblock",
 			newCmd: func() (interface{}, error) {
 				return btcjson.NewCmd("reconsiderblock", "123")

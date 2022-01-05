@@ -859,12 +859,14 @@ type DumpWalletResult struct {
 	Filename string `json:"filename"`
 }
 
-// ProveUtxoChainTipInclusionResult models the data from the
-// proveutxochaintipinclusion command.
-type ProveUtxoChainTipInclusionResult struct {
-	ProvedAtHeight int32    `json:"provedatheight"`
-	ProvedAtHash   string   `json:"provedathash"`
-	ProofHashes    []string `json:"proofhashes"`
-	ProofTargets   []uint64 `json:"prooftargets"`
-	HashesProven   []string `json:"hashesproven"`
+// ProveUtxoChainTipInclusionVerboseResult models the data from the
+// proveutxochaintipinclusion command when the verbose flag is set.  When the
+// verbose flag is not set, just the hex-encoded string of the entire proof
+// is returned.
+type ProveUtxoChainTipInclusionVerboseResult struct {
+	ProvedAtHash string   `json:"provedathash"`
+	ProofHashes  []string `json:"proofhashes"`
+	ProofTargets []uint64 `json:"prooftargets"`
+	HashesProven []string `json:"hashesproven"`
+	Hex          string   `json:"hex"`
 }
