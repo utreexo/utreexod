@@ -34,6 +34,11 @@ const (
 	// flatUtreexoUndoName is the name given to the undo data of the flat utreexo
 	// proof index.  This name is used as the dataFile name in the flat files.
 	flatUtreexoUndoName = "undo"
+
+	// defaultProofGenInterval is the default value used to determine how often
+	// a utreexo accumulator proof should be generated.  An interval of 10 will
+	// make the proof be generated on blocks 10, 20, 30 and so on.
+	defaultProofGenInterval = 10
 )
 
 var (
@@ -56,9 +61,10 @@ var _ NeedsInputser = (*FlatUtreexoProofIndex)(nil)
 // FlatUtreexoProofIndex implements a utreexo accumulator proof index for all the blocks.
 // In a flat file.
 type FlatUtreexoProofIndex struct {
-	proofState  FlatFileState
-	undoState   FlatFileState
-	chainParams *chaincfg.Params
+	proofGenInterVal int32
+	proofState       FlatFileState
+	undoState        FlatFileState
+	chainParams      *chaincfg.Params
 
 	// The blockchain instance the index corresponds to.
 	chain *blockchain.BlockChain
@@ -130,27 +136,15 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip)
+	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip, -1)
 	if err != nil {
 		return err
 	}
-
 	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
 
 	idx.mtx.RLock()
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
 	idx.mtx.RUnlock()
-	if err != nil {
-		return err
-	}
-
-	bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSizeCompact(udataSerializeBool)))
-	err = ud.SerializeCompact(bytesBuf, udataSerializeBool)
-	if err != nil {
-		return err
-	}
-
-	err = idx.proofState.StoreData(block.Height(), bytesBuf.Bytes())
 	if err != nil {
 		return err
 	}
@@ -162,16 +156,174 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	undoBlockSize := undoBlock.SerializeSize()
-	undoBuf := make([]byte, 0, undoBlockSize)
-	undoBytesBuf := bytes.NewBuffer(undoBuf)
-	err = undoBlock.Serialize(undoBytesBuf)
+	err = idx.storeUndoBlock(block.Height(), *undoBlock)
 	if err != nil {
 		return err
 	}
 
-	// UndoBlocks are needed during reorgs.
-	err = idx.undoState.StoreData(block.Height(), undoBytesBuf.Bytes())
+	// If the interval is 1, then just save the utreexo proof and we're done.
+	if idx.proofGenInterVal == 1 {
+		err = idx.storeProof(block.Height(), ud)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Every proof generation interval, we'll make a multi-block proof.
+		if (block.Height() % idx.proofGenInterVal) == 0 {
+			err = idx.MakeMultiBlockProof(block.Height(), block.Height()-idx.proofGenInterVal,
+				block, stxos)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// fetchBlocks fetches the blocks and stxos from the given range of blocks.
+func (idx *FlatUtreexoProofIndex) fetchBlocks(start, end int32) (
+	[]*btcutil.Block, [][]blockchain.SpentTxOut, error) {
+
+	blocks := make([]*btcutil.Block, 0, end-start)
+	allStxos := make([][]blockchain.SpentTxOut, 0, end-start)
+	for i := start; i < end; i++ {
+		block, err := idx.chain.BlockByHeight(i)
+		if err != nil {
+			return nil, nil, err
+		}
+		blocks = append(blocks, block)
+
+		stxos, err := idx.chain.FetchSpendJournalUnsafe(block)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		allStxos = append(allStxos, stxos)
+	}
+
+	return blocks, allStxos, nil
+}
+
+// deletionsToProve returns all the deletions that need to be proven from the given
+// blocks and stxos.
+func (idx *FlatUtreexoProofIndex) deletionsToProve(blocks []*btcutil.Block,
+	stxos [][]blockchain.SpentTxOut) ([]wire.LeafData, error) {
+
+	// Check that the length is equal to prevent index errors in the below loop.
+	if len(blocks) != len(stxos) {
+		err := fmt.Errorf("Got %d blocks but %d stxos", len(blocks), len(stxos))
+		return nil, err
+	}
+
+	var delsToProve []wire.LeafData
+	for i, block := range blocks {
+		excludeAfter := block.Height() - (block.Height() % idx.proofGenInterVal)
+
+		_, _, inskip, _ := blockchain.DedupeBlock(block)
+		dels, err := blockchain.BlockToDelLeaves(stxos[i], idx.chain,
+			block, inskip, excludeAfter)
+		if err != nil {
+			return nil, err
+		}
+		delsToProve = append(delsToProve, dels...)
+	}
+
+	return delsToProve, nil
+}
+
+func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight int32,
+	block *btcutil.Block, stxos []blockchain.SpentTxOut) error {
+
+	idx.mtx.Lock()
+	defer idx.mtx.Unlock()
+
+	// Go back to the desired block to generate the multi-block proof.
+	for h := currentHeight; h > proveHeight; h-- {
+		undoBlock, err := idx.fetchUndoBlock(h)
+		if err != nil {
+			return err
+		}
+
+		err = idx.utreexoState.state.Undo(*undoBlock)
+		if err != nil {
+			return err
+		}
+	}
+
+	// TODO not sure if it should actually be proveHeight+1.  But GenerateUData
+	// fails if it doesn't.
+	blocks, allStxos, err := idx.fetchBlocks(proveHeight+1, currentHeight)
+	if err != nil {
+		return err
+	}
+
+	delsToProve, err := idx.deletionsToProve(blocks, allStxos)
+	if err != nil {
+		return err
+	}
+
+	ud, err := wire.GenerateUData(delsToProve, idx.utreexoState.state)
+	if err != nil {
+		return err
+	}
+
+	// The height used to store the multi-block proof is the actual block height
+	// divided by the proof generation interval.
+	//
+	// This is because the flatfile only takes in proofs in numerical order
+	// (1,2,3...).  By dividing by the interval, we get a height that
+	// increments up by one.  If the interval is every 10 blocks, then the
+	// resulting values will be 10/10, 20/10, 30/10, 40/10...
+	err = idx.storeProof(currentHeight/idx.proofGenInterVal, ud)
+	if err != nil {
+		return err
+	}
+
+	// Re-sync all the reorged blocks.
+	for h := proveHeight + 1; h < currentHeight; h++ {
+		blk, err := idx.chain.BlockByHeight(h)
+		if err != nil {
+			return err
+		}
+		_, outCount, inskip, outskip := blockchain.DedupeBlock(blk)
+
+		stxos, err := idx.chain.FetchSpendJournalUnsafe(blk)
+		if err != nil {
+			return err
+		}
+
+		dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, blk, inskip, -1)
+		if err != nil {
+			return err
+		}
+		adds := blockchain.BlockToAddLeaves(blk, nil, outskip, outCount)
+
+		ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
+		if err != nil {
+			return err
+		}
+
+		_, err = idx.utreexoState.state.Modify(adds, ud.AccProof.Targets)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Attach the current block.
+	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
+	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip, -1)
+	if err != nil {
+		return err
+	}
+	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
+
+	ud, err = wire.GenerateUData(dels, idx.utreexoState.state)
+	if err != nil {
+		return err
+	}
+
+	_, err = idx.utreexoState.state.Modify(adds, ud.AccProof.Targets)
 	if err != nil {
 		return err
 	}
@@ -198,9 +350,13 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 		return err
 	}
 
-	err = idx.proofState.DisconnectBlock(block.Height())
-	if err != nil {
-		return err
+	// Check if we're at a height where proof was generated.
+	if (block.Height() % idx.proofGenInterVal) == 0 {
+		height := block.Height() / idx.proofGenInterVal
+		err = idx.proofState.DisconnectBlock(height)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = idx.undoState.DisconnectBlock(block.Height())
@@ -233,6 +389,38 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (*wire.UData, 
 	}
 
 	return ud, nil
+}
+
+// storeProof serializes and stores the utreexo data in the proof state.
+func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error {
+	bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSizeCompact(udataSerializeBool)))
+	err := ud.SerializeCompact(bytesBuf, udataSerializeBool)
+	if err != nil {
+		return err
+	}
+
+	err = idx.proofState.StoreData(height, bytesBuf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// storeUndoBlock serializes and stores undo blocks in the undo state.
+func (idx *FlatUtreexoProofIndex) storeUndoBlock(height int32, undoBlock accumulator.UndoBlock) error {
+	undoBuf := bytes.NewBuffer(make([]byte, 0, undoBlock.SerializeSize()))
+	err := undoBlock.Serialize(undoBuf)
+	if err != nil {
+		return err
+	}
+
+	err = idx.undoState.StoreData(height, undoBuf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // fetchUndoBlock returns the undoblock for the given block height.
@@ -381,10 +569,21 @@ func loadFlatFileState(dataDir, name string) (*FlatFileState, error) {
 // It implements the Indexer interface which plugs into the IndexManager that in
 // turn is used by the blockchain package.  This allows the index to be
 // seamlessly maintained along with the chain.
-func NewFlatUtreexoProofIndex(dataDir string, chainParams *chaincfg.Params) (*FlatUtreexoProofIndex, error) {
+func NewFlatUtreexoProofIndex(dataDir string, chainParams *chaincfg.Params,
+	proofGenInterVal *int32) (*FlatUtreexoProofIndex, error) {
+
+	// If the proofGenInterVal argument is nil, use the default value.
+	var intervalToUse int32
+	if proofGenInterVal != nil {
+		intervalToUse = *proofGenInterVal
+	} else {
+		intervalToUse = defaultProofGenInterval
+	}
+
 	idx := &FlatUtreexoProofIndex{
-		chainParams: chainParams,
-		mtx:         new(sync.RWMutex),
+		proofGenInterVal: intervalToUse,
+		chainParams:      chainParams,
+		mtx:              new(sync.RWMutex),
 	}
 
 	// Init Utreexo State.
