@@ -65,22 +65,9 @@ func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView
 		return err
 	}
 
-	// Remember is used to keep some utxos that will be spent in the near future
-	// so that the node won't have to re-download those UTXOs over the wire.
-	remember := make([]bool, len(block.MsgBlock().UData.TxoTTLs))
-	for i, ttl := range block.MsgBlock().UData.TxoTTLs {
-		// If the time-to-live value is less than the chosen amount of blocks
-		// then remember it.
-		if ttl == 0 {
-			remember[i] = false
-		} else {
-			remember[i] = ttl < uview.accumulator.Lookahead
-		}
-	}
-
 	// Make the now verified utxos into 32 byte leaves ready to be added into the
 	// utreexo accumulator.
-	leaves := BlockToAddLeaves(block, remember, outskip, outCount)
+	leaves := BlockToAddLeaves(block, outskip, outCount)
 
 	// Add the utxos into the accumulator
 	err = uview.accumulator.Modify(leaves, ud.AccProof.Targets)
@@ -298,16 +285,17 @@ func IsUnspendable(o *wire.TxOut) bool {
 	}
 }
 
-// BlockToAdds turns all the new utxos in a msgblock into leafTxos
-// uses remember slice up to number of txos, but doesn't check that it's the
-// right length.  Similar with skiplist, doesn't check it.
-func BlockToAddLeaves(block *btcutil.Block,
-	remember []bool, skiplist []uint32,
-	outCount int) (leaves []accumulator.Leaf) {
-
+// BlockToAdds turns the newly created utxos in a block into leaves that will
+// be commited to the utreexo accumulator.
+//
+// skiplist will cause skip indexes of the utxos that match with the ones
+// included in the slice. For example, if [0, 3, 11] is given as the skiplist,
+// then utxos that appear in the 0th, 3rd, and 11th in the block will
+// be skipped over.
+func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []accumulator.Leaf {
 	// We're overallocating a little bit since all the unspendables
 	// won't be appended. It's ok though for the pre-allocation savings.
-	leaves = make([]accumulator.Leaf, 0, outCount-len(skiplist))
+	leaves := make([]accumulator.Leaf, 0, outCount-len(skiplist))
 
 	var txonum uint32
 	for coinbase, tx := range block.Transactions() {
@@ -342,15 +330,12 @@ func BlockToAddLeaves(block *btcutil.Block,
 				Hash: leaf.LeafHash(),
 			}
 
-			if len(remember) > int(txonum) {
-				uleaf.Remember = remember[txonum]
-			}
-
 			leaves = append(leaves, uleaf)
 			txonum++
 		}
 	}
-	return
+
+	return leaves
 }
 
 // BlockToDelLeaves takes a non-utreexo block and stxos and turns the block into

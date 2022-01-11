@@ -57,8 +57,8 @@ func getLeafDatas() []leafDatas {
 				},
 			},
 			size:          230,
-			sizeCompact:   96,
-			sizeCompactTx: 98,
+			sizeCompact:   95,
+			sizeCompactTx: 97,
 		},
 
 		// Leaves 2
@@ -112,8 +112,8 @@ func getLeafDatas() []leafDatas {
 				},
 			},
 			size:          488,
-			sizeCompact:   218,
-			sizeCompactTx: 222,
+			sizeCompact:   217,
+			sizeCompactTx: 221,
 		},
 	}
 }
@@ -178,13 +178,6 @@ func checkUDEqual(ud, checkUData *UData, isCompact bool, name string) error {
 		if !bytes.Equal(leaf.PkScript[:], checkLeaf.PkScript[:]) {
 			return fmt.Errorf("%s: LeafData pkscript mismatch. expect %x, got %x",
 				name, leaf.PkScript, checkLeaf.PkScript)
-		}
-	}
-
-	for i := range ud.TxoTTLs {
-		if ud.TxoTTLs[i] != checkUData.TxoTTLs[i] {
-			return fmt.Errorf("%s: UData TxoTTL mismatch. expect %v, got %v",
-				name, ud.TxoTTLs[i], checkUData.TxoTTLs[i])
 		}
 	}
 
