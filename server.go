@@ -3007,9 +3007,13 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if cfg.FlatUtreexoProofIndex {
 		indxLog.Info("Flat Utreexo Proof index is enabled")
 
+		// Create interval to pass to the flat utreexo proof index.
+		interval := new(int32)
+		*interval = 1
+
 		var err error
 		s.flatUtreexoProofIndex, err = indexers.NewFlatUtreexoProofIndex(
-			cfg.DataDir, chainParams)
+			cfg.DataDir, chainParams, interval)
 		if err != nil {
 			return nil, err
 		}

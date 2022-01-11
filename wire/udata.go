@@ -363,12 +363,14 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest) (
 			if err != nil {
 				ld := ud.LeafDatas[i]
 				return nil,
-					fmt.Errorf("LeafData couldn't be proven. "+
+					fmt.Errorf("LeafData hash %s couldn't be proven. "+
 						"BlockHash %s, Outpoint %s, height %v, "+
-						"IsCoinbase %v, Amount %v, PkScript %s",
+						"IsCoinbase %v, Amount %v, PkScript %s. "+
+						"err: %s",
+						hex.EncodeToString(delHash[:]),
 						ld.BlockHash.String(), ld.OutPoint.String(),
 						ld.Height, ld.IsCoinBase, ld.Amount,
-						hex.EncodeToString(ld.PkScript))
+						hex.EncodeToString(ld.PkScript), err.Error())
 			}
 		}
 		return nil, err

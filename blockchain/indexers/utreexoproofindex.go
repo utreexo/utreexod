@@ -128,7 +128,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip)
+	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip, -1)
 	if err != nil {
 		return err
 	}

@@ -72,7 +72,9 @@ func createDB(dbName string) (database.DB, string, error) {
 func initIndexes(dbPath string, db *database.DB, params *chaincfg.Params) (
 	*Manager, []Indexer, error) {
 
-	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(dbPath, params)
+	proofGenInterval := new(int32)
+	*proofGenInterval = int32(1)
+	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(dbPath, params, proofGenInterval)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -352,7 +354,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
 	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
 
-	dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip)
+	dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip, -1)
 	if err != nil {
 		return err
 	}
