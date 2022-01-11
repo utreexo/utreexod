@@ -140,7 +140,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	if err != nil {
 		return err
 	}
-	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
+	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 	idx.mtx.RLock()
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
@@ -297,7 +297,7 @@ func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight
 		if err != nil {
 			return err
 		}
-		adds := blockchain.BlockToAddLeaves(blk, nil, outskip, outCount)
+		adds := blockchain.BlockToAddLeaves(blk, outskip, outCount)
 
 		ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
 		if err != nil {
@@ -316,7 +316,7 @@ func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight
 	if err != nil {
 		return err
 	}
-	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
+	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 	ud, err = wire.GenerateUData(dels, idx.utreexoState.state)
 	if err != nil {

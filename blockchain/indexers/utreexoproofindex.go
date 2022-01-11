@@ -133,7 +133,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
-	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
+	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 	idx.mtx.RLock()
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)

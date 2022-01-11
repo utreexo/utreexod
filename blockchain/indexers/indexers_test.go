@@ -352,7 +352,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	}
 
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-	adds := blockchain.BlockToAddLeaves(block, nil, outskip, outCount)
+	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 	dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip, -1)
 	if err != nil {
