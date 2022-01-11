@@ -21,61 +21,24 @@ import (
 
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator
 type UtreexoViewpoint struct {
-	accumulator *accumulator.Pollard
+	proofInterval int32
+	accumulator   *accumulator.Pollard
 }
 
-// Modify takes an ublock and adds the utxos and deletes the stxos from the utreexo state.
+// IngestProof first checks that the utreexo proofs are valid. If it is valid,
+// it readys the utreexo accumulator for additions/deletions by ingesting the proof.
+func (uview *UtreexoViewpoint) IngestProof(rememberAll bool, delHashes []accumulator.Hash,
+	accProof *accumulator.BatchProof) error {
+	return uview.accumulator.IngestBatchProof(delHashes, *accProof, rememberAll)
+}
+
+// Modify modifies the utreexo state by adding and deleting elements from the utreexo state.
+// The deletions are marked by the accumulator proof in the utreexo data and the additions
+// are the leaves passed in.
 //
 // This function is NOT safe for concurrent access.
-func (uview *UtreexoViewpoint) Modify(block *btcutil.Block, bestChain *chainView) error {
-	// Check that UData field isn't nil before doing anything else.
-	if block.MsgBlock().UData == nil {
-		return fmt.Errorf("UtreexoViewpoint.Modify(): block.MsgBlock().UData is nil. " +
-			"Cannot validate utreexo accumulator proof")
-	}
-	ud := block.MsgBlock().UData
-
-	// outskip is all the txOuts that are referenced by a txIn in the same block
-	// outCount is the count of all outskips.
-	_, outCount, inskip, outskip := DedupeBlock(block)
-
-	// Make slice of hashes from the LeafDatas. These are the hash commitments
-	// to be proven.
-	var delHashes []accumulator.Hash
-	if len(ud.LeafDatas) > 0 {
-		var err error
-		delHashes, err = generateCommitments(ud, block, bestChain, inskip)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Grab the outpoints that need their existence proven and check that
-	// the udata matches up.
-	OPsToProve := BlockToDelOPs(block)
-	err := ProofSanity(ud, OPsToProve)
-	if err != nil {
-		return err
-	}
-
-	// IngestBatchProof first checks that the utreexo proofs are valid. If it is valid,
-	// it readys the utreexo accumulator for additions/deletions.
-	err = uview.accumulator.IngestBatchProof(delHashes, ud.AccProof, false)
-	if err != nil {
-		return err
-	}
-
-	// Make the now verified utxos into 32 byte leaves ready to be added into the
-	// utreexo accumulator.
-	leaves := BlockToAddLeaves(block, outskip, outCount)
-
-	// Add the utxos into the accumulator
-	err = uview.accumulator.Modify(leaves, ud.AccProof.Targets)
-	if err != nil {
-		return err
-	}
-
-	return nil
+func (uview *UtreexoViewpoint) Modify(ud *wire.UData, leaves []accumulator.Leaf) error {
+	return uview.accumulator.Modify(leaves, ud.AccProof.Targets)
 }
 
 // blockToDelOPs gives all the UTXOs in a block that need proofs in order to be
@@ -161,6 +124,52 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 	return
 }
 
+// ExtractAccumulatorAddDels extracts the additions and the deletions that will be
+// used to modify the utreexo accumulator.
+func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView) (
+	[]accumulator.Leaf, []accumulator.Hash, error) {
+
+	// Check that UData field isn't nil before doing anything else.
+	if block.MsgBlock().UData == nil {
+		return nil, nil, fmt.Errorf("ExtractAccumulatorAddDels(): block.MsgBlock().UData is nil. " +
+			"Cannot extract utreexo accumulator additions and deletions")
+	}
+
+	ud := block.MsgBlock().UData
+
+	// outskip is all the txOuts that are referenced by a txIn in the same block
+	// outCount is the count of all outskips.
+	_, outCount, inskip, outskip := DedupeBlock(block)
+
+	// Make the now verified utxos into 32 byte leaves ready to be added into the
+	// utreexo accumulator.
+	leaves := BlockToAddLeaves(block, outskip, outCount)
+
+	// Make slice of hashes from the LeafDatas. These are the hash commitments
+	// to be proven.
+	//
+	// NOTE Trying to call ProofSanity() before reconstructUData() will result
+	// in an error.
+	var delHashes []accumulator.Hash
+	if len(ud.LeafDatas) > 0 {
+		var err error
+		delHashes, err = reconstructUData(ud, block, bestChain, inskip)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// Grab the outpoints that need their existence proven and check that
+	// the udata matches up.
+	OPsToProve := BlockToDelOPs(block)
+	err := ProofSanity(ud, OPsToProve)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return leaves, delHashes, nil
+}
+
 // it'd be cool if you just had .sort() methods on slices of builtin types...
 func sortUint32s(s []uint32) {
 	sort.Slice(s, func(a, b int) bool { return s[a] < s[b] })
@@ -189,13 +198,12 @@ func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
 	return nil
 }
 
-// generateCommitments adds in missing information to the passed in compact UData and
-// hashes it to recreate the hashes that were commited into the accumulator.  This
-// function also fills in the missing outpoint and blockhash information to the compact
-// UData, making it full.
+// reconstructUData adds in missing information to the passed in compact UData and
+// makes it full. The hashes returned are the hashes of the individual leaf data
+// that were commited into the accumulator.
 //
 // This function is safe for concurrent access.
-func generateCommitments(ud *wire.UData, block *btcutil.Block, chainView *chainView,
+func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView,
 	inskip []uint32) ([]accumulator.Hash, error) {
 	if chainView == nil {
 		return nil, fmt.Errorf("Passed in chainView is nil. Cannot make compact udata to full")
@@ -620,10 +628,18 @@ func (uview *UtreexoViewpoint) compareRoots(compRoot []accumulator.Hash) bool {
 	return true
 }
 
+// SetProofInterval sets the interval of the utreexo proofs to be received by the node.
+// Ex: interval of 10 means that you receive a utreexo proof every 10 blocks.
+func (uview *UtreexoViewpoint) SetProofInterval(proofInterval int32) {
+	uview.proofInterval = proofInterval
+}
+
 // NewUtreexoViewpoint returns an empty UtreexoViewpoint
 func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
-		accumulator: new(accumulator.Pollard),
+		// Use 1 as a default value.
+		proofInterval: 1,
+		accumulator:   new(accumulator.Pollard),
 	}
 }
 
