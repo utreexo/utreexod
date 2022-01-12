@@ -1179,12 +1179,23 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		// this block.
 		if fastAdd {
 			if b.utreexoView != nil {
-				// Check that the block txOuts are valid by checking the utreexo proof and
-				// extra data.
-				err := b.utreexoView.Modify(block, b.bestChain)
+				adds, dels, err := ExtractAccumulatorAddDels(block, b.bestChain)
 				if err != nil {
 					return false, err
 				}
+
+				err = b.utreexoView.IngestProof(false, dels, &block.MsgBlock().UData.AccProof)
+				if err != nil {
+					return false, err
+				}
+
+				// Check that the block txOuts are valid by checking the utreexo proof and
+				// extra data.
+				err = b.utreexoView.Modify(block.MsgBlock().UData, adds)
+				if err != nil {
+					return false, err
+				}
+
 				err = view.BlockToUtxoView(block)
 				if err != nil {
 					return false, err
