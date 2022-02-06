@@ -64,6 +64,18 @@ func TestSerializeSize(t *testing.T) {
 				serializedSize, test.size)
 			continue
 		}
+
+		// Sanity check.  Actually serialize the data and compare against our hardcoded number.
+		var buf bytes.Buffer
+		err := test.ld.Serialize(&buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(buf.Bytes()) != test.size {
+			t.Errorf("MsgTx.SerializeSize: #%d serialized: %d, want: %d", i,
+				len(buf.Bytes()), test.size)
+			continue
+		}
 	}
 }
 
@@ -256,7 +268,7 @@ func TestSerializeSizeCompact(t *testing.T) {
 				Height:     319318,
 				IsCoinBase: false,
 			},
-			size: 101, // 8 + 1 + 88 + 4
+			size: 102, // 8 + 1 + 89 + 4
 		},
 		{
 			name:    "non-standard for tx",
@@ -277,7 +289,7 @@ func TestSerializeSizeCompact(t *testing.T) {
 				Height:     319318,
 				IsCoinBase: false,
 			},
-			size: 102, // 1 + 8 + 1 + 88 + 4
+			size: 103, // 1 + 8 + 1 + 89 + 4
 		},
 		{
 			name:    "non-standard for tx && unconfirmed",
@@ -308,6 +320,18 @@ func TestSerializeSizeCompact(t *testing.T) {
 		if serializedSize != test.size {
 			t.Errorf("MsgTx.SerializeSizeCompact: #%d got: %d, want: %d", i,
 				serializedSize, test.size)
+			continue
+		}
+
+		// Sanity check.  Actually serialize the data and compare against our hardcoded number.
+		var buf bytes.Buffer
+		err := test.ld.SerializeCompact(&buf, test.isForTx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(buf.Bytes()) != test.size {
+			t.Errorf("MsgTx.SerializeSizeCompact: #%d serialized: %d, want: %d", i,
+				len(buf.Bytes()), test.size)
 			continue
 		}
 	}
