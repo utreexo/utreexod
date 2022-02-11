@@ -25,6 +25,37 @@ type UtreexoViewpoint struct {
 	accumulator   *accumulator.Pollard
 }
 
+// ProcessUData checks that the accumulator proof and the utxo data included in the UData
+// passes consensus and then it updates the underlying accumulator.
+func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
+	bestChain *chainView, ud *wire.UData) error {
+
+	// Extracts the block into additions and deletions that will be processed.
+	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
+	adds, dels, err := ExtractAccumulatorAddDels(block, bestChain, ud.RememberIdx)
+	if err != nil {
+		return err
+	}
+
+	// If we're at a proof interval of 1, then we need to ingest the proof and ready
+	// the accumulator before we can update it.  For proof intervals of more than 1,
+	// the ingest will happen before ProcessUData is called.
+	if uview.proofInterval == 1 {
+		err = uview.IngestProof(false, dels, &ud.AccProof)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Update the underlying accumulator.
+	err = uview.Modify(ud, adds)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // IngestProof first checks that the utreexo proofs are valid. If it is valid,
 // it readys the utreexo accumulator for additions/deletions by ingesting the proof.
 func (uview *UtreexoViewpoint) IngestProof(rememberAll bool, delHashes []accumulator.Hash,
@@ -126,7 +157,7 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 
 // ExtractAccumulatorAddDels extracts the additions and the deletions that will be
 // used to modify the utreexo accumulator.
-func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView) (
+func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
 	[]accumulator.Leaf, []accumulator.Hash, error) {
 
 	// Check that UData field isn't nil before doing anything else.
@@ -143,7 +174,7 @@ func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView) (
 
 	// Make the now verified utxos into 32 byte leaves ready to be added into the
 	// utreexo accumulator.
-	leaves := BlockToAddLeaves(block, outskip, outCount)
+	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
 
 	// Make slice of hashes from the LeafDatas. These are the hash commitments
 	// to be proven.
@@ -300,7 +331,12 @@ func IsUnspendable(o *wire.TxOut) bool {
 // included in the slice. For example, if [0, 3, 11] is given as the skiplist,
 // then utxos that appear in the 0th, 3rd, and 11th in the block will
 // be skipped over.
-func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []accumulator.Leaf {
+func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, remembers []uint32,
+	outCount int) []accumulator.Leaf {
+
+	// Sort first as the below loop expects the remembers to be in order.
+	sortUint32s(remembers)
+
 	// We're overallocating a little bit since all the unspendables
 	// won't be appended. It's ok though for the pre-allocation savings.
 	leaves := make([]accumulator.Leaf, 0, outCount-len(skiplist))
@@ -334,8 +370,17 @@ func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []a
 				IsCoinBase: coinbase == 0,
 			}
 
+			// Set remember to be true if the current UTXO corresponds
+			// to an index that should be remembered.
+			remember := false
+			if len(remembers) > 0 && remembers[0] == txonum {
+				remembers = remembers[1:]
+				remember = true
+			}
+
 			uleaf := accumulator.Leaf{
-				Hash: leaf.LeafHash(),
+				Hash:     leaf.LeafHash(),
+				Remember: remember,
 			}
 
 			leaves = append(leaves, uleaf)
@@ -344,6 +389,17 @@ func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []a
 	}
 
 	return leaves
+}
+
+// ExcludedUtxo is the utxo that was excluded because it was spent and created
+// within a given block interval.  It includes the creation height and the outpoint
+// of the utxo.
+type ExcludedUtxo struct {
+	// Height is where this utxo was created.
+	Height int32
+
+	// Outpoint represents the utxo txid:vout.
+	Outpoint wire.OutPoint
 }
 
 // BlockToDelLeaves takes a non-utreexo block and stxos and turns the block into
@@ -361,10 +417,10 @@ func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []a
 // NOTE To opt out of the optional arguments inskip and excludeAfter, just pass nil
 // for inskip and -1 for excludeAfter.
 func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Block,
-	inskip []uint32, excludeAfter int32) (delLeaves []wire.LeafData, err error) {
+	inskip []uint32, excludeAfter int32) (delLeaves []wire.LeafData, excluded []ExcludedUtxo, err error) {
 
 	if chain == nil {
-		return nil, fmt.Errorf("Passed in chain is nil. Cannot make delLeaves")
+		return nil, nil, fmt.Errorf("Passed in chain is nil. Cannot make delLeaves")
 	}
 
 	var blockInIdx uint32
@@ -393,15 +449,17 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 			// Skip all those that have heights greater and equal to
 			// the excludeAfter height.
 			if excludeAfter >= 0 && stxo.Height >= excludeAfter {
+				blockInIdx++
+				excluded = append(excluded, ExcludedUtxo{stxo.Height, op})
 				continue
 			}
 
 			blockHash, err := chain.BlockHashByHeight(stxo.Height)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if blockHash == nil {
-				return nil, fmt.Errorf("Couldn't find blockhash for height %d",
+				return nil, nil, fmt.Errorf("Couldn't find blockhash for height %d",
 					stxo.Height)
 			}
 
@@ -634,6 +692,17 @@ func (uview *UtreexoViewpoint) SetProofInterval(proofInterval int32) {
 	uview.proofInterval = proofInterval
 }
 
+// GetProofInterval returns the proof interval of the current utreexo viewpoint.
+func (uview *UtreexoViewpoint) GetProofInterval() int32 {
+	return uview.proofInterval
+}
+
+// PruneAll deletes all the cached leaves in the utreexo viewpoint, leaving only the
+// roots of the accumulator.
+func (uview *UtreexoViewpoint) PruneAll() {
+	uview.accumulator.PruneAll()
+}
+
 // NewUtreexoViewpoint returns an empty UtreexoViewpoint
 func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
@@ -646,6 +715,17 @@ func NewUtreexoViewpoint() *UtreexoViewpoint {
 // GetUtreexoView returns the underlying utreexo viewpoint.
 func (b *BlockChain) GetUtreexoView() *UtreexoViewpoint {
 	return b.utreexoView
+}
+
+// PrintRemembers prints all the nodes and their remember status.  Useful for debugging.
+func (uview *UtreexoViewpoint) PrintRemembers() string {
+	str, _ := uview.accumulator.PrintRemembers()
+	return str
+}
+
+// NumLeaves returns the total number of elements (aka leaves) in the accumulator.
+func (uview *UtreexoViewpoint) NumLeaves() uint64 {
+	return uview.accumulator.NumLeaves()
 }
 
 // IsUtreexoViewActive returns true if the node depends on the utreexoView

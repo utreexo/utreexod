@@ -128,12 +128,12 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip, -1)
+	dels, _, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip, -1)
 	if err != nil {
 		return err
 	}
 
-	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
+	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
 
 	idx.mtx.RLock()
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
