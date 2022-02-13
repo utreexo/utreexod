@@ -5,19 +5,41 @@
 package wire
 
 import (
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/mit-dci/utreexo/accumulator"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
+// BatchProofSerializeTargetSize returns how many bytes it would take to serialize all
+// the targets in the batch proof.
+func BatchProofSerializeTargetSize(bp *accumulator.BatchProof) int {
+	size := VarIntSerializeSize(uint64(len(bp.Targets)))
+	for _, target := range bp.Targets {
+		size += VarIntSerializeSize(target)
+	}
+
+	return size
+}
+
+// BatchProofAccProofSize returns how many bytes it would take to serialize the
+// accumulator proof in the batch proof.
+func BatchProofSerializeAccProofSize(bp *accumulator.BatchProof) int {
+	size := VarIntSerializeSize(uint64(len(bp.Proof)))
+	size += chainhash.HashSize * len(bp.Proof)
+	return size
+}
+
 // BatchProofSerializeSize returns the number of bytes it would tkae to serialize
 // a BatchProof.
 func BatchProofSerializeSize(bp *accumulator.BatchProof) int {
-	size := VarIntSerializeSize(uint64(len(bp.Targets)))
-	size += VarIntSerializeSize(uint64(len(bp.Proof)))
-	size += chainhash.HashSize * len(bp.Proof)
-	return size + (8 * len(bp.Targets))
+	// First the targets.
+	size := BatchProofSerializeTargetSize(bp)
+
+	// Then the proofs.
+	return size + BatchProofSerializeAccProofSize(bp)
 }
 
 // -----------------------------------------------------------------------------
@@ -45,16 +67,13 @@ func BatchProofSerializeSize(bp *accumulator.BatchProof) int {
 // BatchProofSerialize encodes the BatchProof to w using the BatchProof
 // serialization format.
 func BatchProofSerialize(w io.Writer, bp *accumulator.BatchProof) error {
-	bs := newSerializer()
-	defer bs.free()
-
 	err := WriteVarInt(w, 0, uint64(len(bp.Targets)))
 	if err != nil {
 		return err
 	}
 
 	for _, t := range bp.Targets {
-		err = bs.PutUint64(w, littleEndian, t)
+		err = WriteVarInt(w, 0, t)
 		if err != nil {
 			return err
 		}
@@ -84,12 +103,9 @@ func BatchProofDeserialize(r io.Reader) (*accumulator.BatchProof, error) {
 		return nil, err
 	}
 
-	bs := newSerializer()
-	defer bs.free()
-
 	targets := make([]uint64, targetCount)
 	for i := range targets {
-		target, err := bs.Uint64(r, littleEndian)
+		target, err := ReadVarInt(r, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -111,4 +127,24 @@ func BatchProofDeserialize(r io.Reader) (*accumulator.BatchProof, error) {
 	}
 
 	return &accumulator.BatchProof{Targets: targets, Proof: proofs}, nil
+}
+
+// BatchProofToString converts a batchproof into a human-readable string.  Note
+// that the hashes are in little endian order.
+func BatchProofToString(bp *accumulator.BatchProof) string {
+	// First the targets.
+	str := "targets:" + strings.Join(strings.Fields(fmt.Sprint(bp.Targets)), ",") + " "
+
+	// Then the proofs.
+	str += "proofs: ["
+	for i, hash := range bp.Proof {
+		str += chainhash.Hash(hash).String()
+
+		if i != len(bp.Proof)-1 {
+			str += ","
+		}
+	}
+	str += "]"
+
+	return str
 }

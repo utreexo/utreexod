@@ -295,7 +295,8 @@ func (ty PkType) String() string {
 // serialize the pkScript with the reconstructable method.
 func PkScriptSerializeSizeCompact(ty PkType, pkScript []byte) int {
 	if ty == OtherTy {
-		return len(pkScript) + VarIntSerializeSize(uint64(len(pkScript)))
+		// pkType 1 byte + varint pkscript len + pkscript
+		return 1 + VarIntSerializeSize(uint64(len(pkScript))) + len(pkScript)
 	}
 	return 1
 }
