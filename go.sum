@@ -55,6 +55,8 @@ github.com/mit-dci/utreexo v0.0.0-20210906142813-04aac052621c h1:segR6H36KgHCVmw
 github.com/mit-dci/utreexo v0.0.0-20210906142813-04aac052621c/go.mod h1:NibmQNUXsfdOMYs0VGpfd9yH74Qw1Mlbr3kRC9dcwBw=
 github.com/mit-dci/utreexo v0.0.0-20211220151844-e89de3fd15c3 h1:zZb4O3cXtM5LES/J3V67rMXIIyOx2ffEic/lAaRTAHE=
 github.com/mit-dci/utreexo v0.0.0-20211220151844-e89de3fd15c3/go.mod h1:R+Q0W2P+wS3pnAPu54VrqZHCkwi3jDYdoqrEcqjaCEI=
+github.com/mit-dci/utreexo v0.0.0-20220214151910-1ff40de973fc h1:n/ozfrDZKUUrHawZct73Y01Y8IBrkgjR/wOhXLBcRvE=
+github.com/mit-dci/utreexo v0.0.0-20220214151910-1ff40de973fc/go.mod h1:R+Q0W2P+wS3pnAPu54VrqZHCkwi3jDYdoqrEcqjaCEI=
 github.com/nxadm/tail v1.4.4 h1:DQuhQpB1tVlglWS2hLQ5OV6B5r8aGxSrPc5Qo6uTN78=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
 github.com/onsi/ginkgo v1.6.0/go.mod h1:lLunBs/Ym6LB5Z9jYTR76FiuTmxDTDusOGeTQH+WWjE=
