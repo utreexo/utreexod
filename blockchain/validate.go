@@ -1038,19 +1038,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 	// If utreexo accumulators are enabled, then check that the accumulator
 	// proof is ok.  Then convert the msgBlock.UData into UtxoViewpoint.
 	if b.utreexoView != nil {
-		adds, dels, err := ExtractAccumulatorAddDels(block, b.bestChain)
-		if err != nil {
-			return err
-		}
-
-		err = b.utreexoView.IngestProof(false, dels, &block.MsgBlock().UData.AccProof)
-		if err != nil {
-			return err
-		}
-
-		// Check that the block txOuts are valid by checking the utreexo proof and
-		// extra data.
-		err = b.utreexoView.Modify(block.MsgBlock().UData, adds)
+		err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 		if err != nil {
 			return err
 		}

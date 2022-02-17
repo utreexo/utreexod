@@ -1179,19 +1179,9 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		// this block.
 		if fastAdd {
 			if b.utreexoView != nil {
-				adds, dels, err := ExtractAccumulatorAddDels(block, b.bestChain)
-				if err != nil {
-					return false, err
-				}
-
-				err = b.utreexoView.IngestProof(false, dels, &block.MsgBlock().UData.AccProof)
-				if err != nil {
-					return false, err
-				}
-
 				// Check that the block txOuts are valid by checking the utreexo proof and
-				// extra data.
-				err = b.utreexoView.Modify(block.MsgBlock().UData, adds)
+				// extra data and then update the accumulator.
+				err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 				if err != nil {
 					return false, err
 				}

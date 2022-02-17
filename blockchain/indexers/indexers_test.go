@@ -69,11 +69,11 @@ func createDB(dbName string) (database.DB, string, error) {
 	return db, dbPath, nil
 }
 
-func initIndexes(dbPath string, db *database.DB, params *chaincfg.Params) (
+func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincfg.Params) (
 	*Manager, []Indexer, error) {
 
 	proofGenInterval := new(int32)
-	*proofGenInterval = int32(1)
+	*proofGenInterval = interval
 	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(dbPath, params, proofGenInterval)
 	if err != nil {
 		return nil, nil, err
@@ -92,7 +92,7 @@ func initIndexes(dbPath string, db *database.DB, params *chaincfg.Params) (
 	return indexManager, indexes, nil
 }
 
-func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, func()) {
+func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, func()) {
 	params := chaincfg.RegressionNetParams
 	params.CoinbaseMaturity = 1
 
@@ -108,7 +108,7 @@ func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *cha
 	}
 
 	// Create the indexes to be used in the chain.
-	indexManager, indexes, err := initIndexes(dbPath, &db, &params)
+	indexManager, indexes, err := initIndexes(proofGenInterval, dbPath, &db, &params)
 	if err != nil {
 		tearDown()
 		os.RemoveAll(testDbRoot)
@@ -208,7 +208,7 @@ func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes [
 
 			case *FlatUtreexoProofIndex:
 				var err error
-				flatUD, err = idxType.FetchUtreexoProof(b)
+				flatUD, err = idxType.FetchUtreexoProof(b, false)
 				if err != nil {
 					return err
 				}
@@ -253,7 +253,7 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
-				flatUD, err = idxType.FetchUtreexoProof(b)
+				flatUD, err = idxType.FetchUtreexoProof(b, false)
 				if err != nil {
 					return err
 				}
@@ -283,6 +283,77 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 	return nil
 }
 
+// syncCsnChainMultiBlockProof will take in two chains: one to sync from, one to sync.
+// Sync will be done from start to end using multi-block proofs.
+func syncCsnChainMultiBlockProof(start, end, interval int32, chainToSyncFrom, csnChain *blockchain.BlockChain,
+	indexes []Indexer) error {
+
+	for b := start; b < end; b++ {
+		var err error
+		var ud, multiUd *wire.UData
+		var dels []accumulator.Hash
+		var remembers []uint32
+		if (b % interval) == 0 {
+			for _, indexer := range indexes {
+				switch idxType := indexer.(type) {
+				case *FlatUtreexoProofIndex:
+					_, multiUd, dels, err = idxType.FetchMultiUtreexoProof(b + csnChain.GetUtreexoView().GetProofInterval())
+					if err != nil {
+						return err
+					}
+
+					ud, _, _, err = idxType.FetchMultiUtreexoProof(b)
+					if err != nil {
+						return err
+					}
+
+					remembers, err = idxType.FetchRemembers(b)
+					if err != nil {
+						return err
+					}
+				}
+			}
+			err = csnChain.GetUtreexoView().IngestProof(true, dels, &multiUd.AccProof)
+			if err != nil {
+				return fmt.Errorf("syncCsnChainMultiBlockProof err at height %d. err: %v:", b, err)
+			}
+		} else {
+			for _, indexer := range indexes {
+				switch idxType := indexer.(type) {
+				case *FlatUtreexoProofIndex:
+					ud, err = idxType.FetchUtreexoProof(b, true)
+					if err != nil {
+						return err
+					}
+
+					remembers, err = idxType.FetchRemembers(b)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+
+		// Fetch the raw block bytes from the database.
+		block, err := chainToSyncFrom.BlockByHeight(b)
+		if err != nil {
+			str := fmt.Errorf("Fail at block height %d err:%s\n", b, err)
+			return str
+		}
+
+		ud.RememberIdx = remembers
+		block.MsgBlock().UData = ud
+
+		_, _, err = csnChain.ProcessBlock(block, blockchain.BFNone)
+		if err != nil {
+			str := fmt.Errorf("ProcessBlock fail at block height %d err: %s\n", b, err)
+			return str
+		}
+	}
+
+	return nil
+}
+
 // testUtreexoProof tests the generated proof on the exact same accumulator,
 // making sure that the verification code pass.
 func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexes []Indexer) error {
@@ -298,7 +369,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
 			var err error
-			flatUD, err = idxType.FetchUtreexoProof(block.Height())
+			flatUD, err = idxType.FetchUtreexoProof(block.Height(), false)
 			if err != nil {
 				return err
 			}
@@ -352,9 +423,9 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	}
 
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
+	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
 
-	dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip, -1)
+	dels, _, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip, -1)
 	if err != nil {
 		return err
 	}
@@ -417,7 +488,7 @@ func TestProveUtxos(t *testing.T) {
 	source := rand.NewSource(time.Now().UnixNano())
 	rand := rand.New(source)
 
-	chain, indexes, params, tearDown := indexersTestChain("TestProveUtxos")
+	chain, indexes, params, tearDown := indexersTestChain("TestProveUtxos", 1)
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -551,7 +622,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	source := rand.NewSource(time.Now().UnixNano())
 	rand := rand.New(source)
 
-	chain, indexes, params, tearDown := indexersTestChain("TestUtreexoProofIndex")
+	chain, indexes, params, tearDown := indexersTestChain("TestUtreexoProofIndex", 1)
 	defer tearDown()
 
 	tip := btcutil.NewBlock(params.GenesisBlock)
@@ -650,5 +721,72 @@ func TestUtreexoProofIndex(t *testing.T) {
 	err = syncCsnChain(2, 100, chain, csnChain, indexes)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMultiBlockProof(t *testing.T) {
+	// Always remove the root on return.
+	defer os.RemoveAll(testDbRoot)
+
+	// NOTE Use a fixed source to generate the same data.
+	source := rand.NewSource(time.Now().UnixNano())
+	rand := rand.New(source)
+
+	chain, indexes, params, tearDown := indexersTestChain("TestMultiBlockProof", defaultProofGenInterval)
+	defer tearDown()
+
+	tip := btcutil.NewBlock(params.GenesisBlock)
+
+	// Create block at height 1.
+	var emptySpendableOuts []*blockchain.SpendableOut
+	b1, spendableOuts1 := blockchain.AddBlock(chain, tip, emptySpendableOuts)
+
+	var allSpends []*blockchain.SpendableOut
+	nextBlock := b1
+	nextSpends := spendableOuts1
+
+	// Create a chain with 101 blocks.
+	for b := 0; b < defaultProofGenInterval*10; b++ {
+		newBlock, newSpendableOuts := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		nextBlock = newBlock
+
+		allSpends = append(allSpends, newSpendableOuts...)
+
+		var nextSpendsTmp []*blockchain.SpendableOut
+		for i := 0; i < len(allSpends); i++ {
+			randIdx := rand.Intn(len(allSpends))
+
+			spend := allSpends[randIdx]                                       // get
+			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+			nextSpendsTmp = append(nextSpendsTmp, spend)
+		}
+		nextSpends = nextSpendsTmp
+
+		if b%10 == 0 {
+			// Commit the two base blocks to DB
+			if err := chain.FlushCachedState(blockchain.FlushRequired); err != nil {
+				t.Fatalf("unexpected error while flushing cache: %v. Rand source %v",
+					err, source)
+			}
+		}
+	}
+
+	// Create a chain that consumes the data from the indexes and test that this
+	// chain is able to consume the data properly.
+	csnChain, _, csnTearDown, err := csnTestChain("TestMultiBlockProof-CsnChain")
+	defer csnTearDown()
+	if err != nil {
+		str := fmt.Errorf("TestMultiBlockProof: csnTestChain err: %v. Rand source: %v", err, source)
+		t.Fatal(str)
+	}
+
+	csnChain.GetUtreexoView().SetProofInterval(defaultProofGenInterval)
+
+	// Sync the csn chain to the tip from block 1.
+	err = syncCsnChainMultiBlockProof(1, defaultProofGenInterval*10, defaultProofGenInterval, chain, csnChain, indexes)
+	if err != nil {
+		str := fmt.Errorf("TestMultiBlockProof: syncCsnChainMultiBlockProof err: %v. "+
+			"Rand source: %v", err, source)
+		t.Fatal(str)
 	}
 }

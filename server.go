@@ -1629,7 +1629,7 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 				}
 				return err
 			}
-			ud, err = s.flatUtreexoProofIndex.FetchUtreexoProof(height)
+			ud, err = s.flatUtreexoProofIndex.FetchUtreexoProof(height, false)
 			if err != nil {
 				peerLog.Debugf("Unable to fetch requested utreexo data for block hash %v: %v",
 					hash, err)
