@@ -1240,6 +1240,18 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 		scriptFlags |= txscript.ScriptStrictMultiSig
 	}
 
+	// Before we execute the main scripts, we'll also check to see if
+	// taproot is active or not.
+	taprootState, err := b.deploymentState(
+		node.parent, chaincfg.DeploymentTaproot,
+	)
+	if err != nil {
+		return err
+	}
+	if taprootState == ThresholdActive {
+		scriptFlags |= txscript.ScriptVerifyTaproot
+	}
+
 	// Now that the inexpensive checks are done and have passed, verify the
 	// transactions are actually allowed to spend the coins by running the
 	// expensive ECDSA signature check scripts.  Doing this last helps
