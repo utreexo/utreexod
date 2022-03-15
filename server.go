@@ -62,7 +62,7 @@ const (
 var (
 	// userAgentName is the user agent name and is used to help identify
 	// ourselves to other bitcoin peers.
-	userAgentName = "btcd"
+	userAgentName = "utreexod"
 
 	// userAgentVersion is the user agent version and is used to help
 	// identify ourselves to other bitcoin peers.
@@ -450,6 +450,12 @@ func (sp *serverPeer) OnVersion(_ *peer.Peer, msg *wire.MsgVersion) *wire.MsgRej
 
 	// Reject outbound peers that are not full nodes.
 	wantServices := wire.SFNodeNetwork
+
+	// Reject non-Utreexo nodes if we're a utreexo node.
+	if sp.server.chain.IsUtreexoViewActive() {
+		wantServices |= wire.SFNodeUtreexo
+	}
+
 	if !isInbound && !hasServices(msg.Services, wantServices) {
 		missingServices := wantServices & ^msg.Services
 		srvrLog.Debugf("Rejecting peer %s with services %v due to not "+
@@ -1540,6 +1546,14 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 			}
 			return err
 		}
+		if ud == nil {
+			err := fmt.Errorf("Generated nil utreexo data")
+			chanLog.Errorf(err.Error())
+			if doneChan != nil {
+				doneChan <- struct{}{}
+			}
+			return err
+		}
 
 		tx.MsgTx().UData = ud
 	}
@@ -1639,6 +1653,15 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 				}
 				return err
 			}
+		}
+
+		if ud == nil {
+			err := fmt.Errorf("Fetched utreexo data for block hash %v is nil", hash)
+			peerLog.Debugf(err.Error())
+			if doneChan != nil {
+				doneChan <- struct{}{}
+			}
+			return err
 		}
 
 		msgBlock.UData = ud
@@ -2300,8 +2323,15 @@ func (s *server) peerHandler() {
 	}
 
 	if !cfg.DisableDNSSeed {
+		reqServices := defaultRequiredServices
+		if cfg.Utreexo {
+			// Only connect to utreexo archival nodes if the
+			// utreexo flag is on.
+			reqServices |= wire.SFNodeUtreexo
+		}
+
 		// Add peers discovered through DNS to the address manager.
-		connmgr.SeedFromDNS(activeNetParams.Params, defaultRequiredServices,
+		connmgr.SeedFromDNS(activeNetParams.Params, reqServices,
 			btcdLookup, func(addrs []*wire.NetAddress) {
 				// Bitcoind uses a lookup of the dns seeder here. This
 				// is rather strange since the values looked up by the
@@ -2524,8 +2554,10 @@ func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
 		s.addAccBytesReceived(uint64(accSize))
 
 	} else if s.chain.IsUtreexoViewActive() {
-		s.addProofBytesReceived(uint64(msgTx.UData.SerializeSizeCompact(true)))
-		s.addAccBytesReceived(uint64(msgTx.UData.SerializeAccSizeCompact()))
+		if msgTx.UData != nil {
+			s.addProofBytesReceived(uint64(msgTx.UData.SerializeSizeCompact(true)))
+			s.addAccBytesReceived(uint64(msgTx.UData.SerializeAccSizeCompact()))
+		}
 	}
 
 	return nil

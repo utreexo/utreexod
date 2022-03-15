@@ -30,6 +30,11 @@ type UtreexoViewpoint struct {
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	bestChain *chainView, ud *wire.UData) error {
 
+	if ud == nil {
+		return fmt.Errorf("Utreexo data is nil. Cannot validate block %s",
+			block.Hash())
+	}
+
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
 	adds, dels, err := ExtractAccumulatorAddDels(block, bestChain, ud.RememberIdx)
