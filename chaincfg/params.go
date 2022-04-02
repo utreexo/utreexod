@@ -615,7 +615,7 @@ var RegressionNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires.
 			),
-			CustomActivationThreshold: 1512, // 75%
+			CustomActivationThreshold: 108, // Only needs 75% hash rate.
 		},
 	},
 
@@ -921,7 +921,7 @@ var SimNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires.
 			),
-			CustomActivationThreshold: 1815, // 90%
+			CustomActivationThreshold: 75, // Only needs 75% hash rate.
 		},
 	},
 
