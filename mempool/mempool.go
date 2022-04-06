@@ -1097,7 +1097,7 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 	// Don't allow non-standard transactions if the network parameters
 	// forbid their acceptance.
 	if !mp.cfg.Policy.AcceptNonStd {
-		err = checkTransactionStandard(tx, nextBlockHeight,
+		err = CheckTransactionStandard(tx, nextBlockHeight,
 			medianTimePast, mp.cfg.Policy.MinRelayTxFee,
 			mp.cfg.Policy.MaxTxVersion)
 		if err != nil {
