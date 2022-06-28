@@ -565,8 +565,8 @@ func TestProveUtxos(t *testing.T) {
 		for _, spendable := range spendables {
 			utxo, err := chain.FetchUtxoEntry(spendable.PrevOut)
 			if err != nil {
-				t.Fatal(fmt.Sprintf("TestProveUtxos fail. err: outpoint %s not found.",
-					spendable.PrevOut.String()))
+				t.Fatalf("TestProveUtxos fail. err: outpoint %s not found.",
+					spendable.PrevOut.String())
 			}
 
 			utxos = append(utxos, utxo)
@@ -581,15 +581,15 @@ func TestProveUtxos(t *testing.T) {
 				var err error
 				flatProof, err = idxType.ProveUtxos(utxos, &outpoints)
 				if err != nil {
-					t.Fatal(fmt.Sprintf("TestProveUtxos fail."+
-						"Failed to create proof. err: %v", err))
+					t.Fatalf("TestProveUtxos fail."+
+						"Failed to create proof. err: %v", err)
 				}
 			case *UtreexoProofIndex:
 				var err error
 				proof, err = idxType.ProveUtxos(utxos, &outpoints)
 				if err != nil {
-					t.Fatal(fmt.Sprintf("TestProveUtxos fail."+
-						"Failed to create proof. err: %v", err))
+					t.Fatalf("TestProveUtxos fail."+
+						"Failed to create proof. err: %v", err)
 				}
 			}
 		}
@@ -610,7 +610,7 @@ func TestProveUtxos(t *testing.T) {
 		uView := csnChain.GetUtreexoView()
 		err = uView.VerifyAccProof(proof.HashesProven, proof.AccProof)
 		if err != nil {
-			t.Fatal(fmt.Sprintf("TestProveUtxos fail. Failed to verify proof err: %v", err))
+			t.Fatalf("TestProveUtxos fail. Failed to verify proof err: %v", err)
 		}
 	}
 }
@@ -656,7 +656,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 		// same indexes.
 		err := testUtreexoProof(newBlock, chain, indexes)
 		if err != nil {
-			t.Fatal(fmt.Sprintf("TestUtreexoProofIndex failed testUtreexoProof. err: %v", err))
+			t.Fatalf("TestUtreexoProofIndex failed testUtreexoProof. err: %v", err)
 		}
 
 		if b%10 == 0 {
