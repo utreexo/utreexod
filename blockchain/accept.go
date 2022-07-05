@@ -1,4 +1,5 @@
 // Copyright (c) 2013-2017 The btcsuite developers
+// Copyright (c) 2018-2021 The Decred developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // maybeAcceptBlock potentially accepts a block into the block chain and, if
@@ -89,4 +91,82 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	b.chainLock.Lock()
 
 	return isMainChain, nil
+}
+
+// maybeAcceptBlockHeader potentially accepts the header to the block index and,
+// if accepted, returns the block node associated with the header.  It performs
+// several context independent checks as well as those which depend on its
+// position within the chain.  It should be noted that some of the header fields
+// require the full block data to be available in order to be able to validate
+// them, so those fields are not included here.  This provides support for full
+// headers-first semantics.
+//
+// The flag for check header sanity allows the additional header sanity checks
+// to be skipped which is useful for the full block processing path which checks
+// the sanity of the entire block, including the header, before attempting to
+// accept its header in order to quickly eliminate blocks that are obviously
+// incorrect.
+//
+// In the case the block header is already known, the associated block node is
+// examined to determine if the block is already known to be invalid, in which
+// case an appropriate error will be returned.  Otherwise, the block node is
+// returned.
+//
+// This function MUST be called with the chain lock held (for writes).
+func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeaderSanity bool) (*blockNode, error) {
+	// Avoid validating the header again if its validation status is already
+	// known.  Invalid headers are never added to the block index, so if there
+	// is an entry for the block hash, the header itself is known to be valid.
+	// However, it might have since been marked invalid either due to the
+	// associated block, or an ancestor, later failing validation.
+	hash := header.BlockHash()
+	if node := b.index.LookupNode(&hash); node != nil {
+		if err := b.checkKnownInvalidBlock(node); err != nil {
+			return nil, err
+		}
+
+		return node, nil
+	}
+
+	// Perform context-free sanity checks on the block header.
+	if checkHeaderSanity {
+		err := checkBlockHeaderSanity(header, b.chainParams.PowLimit, b.timeSource, BFNone)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Orphan headers are not allowed and this function should never be called
+	// with the genesis block.
+	prevHash := &header.PrevBlock
+	prevNode := b.index.LookupNode(prevHash)
+	if prevNode == nil {
+		str := fmt.Sprintf("previous block %s is not known", prevHash)
+		return nil, ruleError(ErrMissingParent, str)
+	}
+
+	// There is no need to validate the header if an ancestor is already known
+	// to be invalid.
+	prevNodeStatus := b.index.NodeStatus(prevNode)
+	if prevNodeStatus.KnownInvalid() {
+		str := fmt.Sprintf("previous block %s is known to be invalid", prevHash)
+		return nil, ruleError(ErrInvalidAncestorBlock, str)
+	}
+
+	// The block must pass all of the validation rules which depend on the
+	// position of the block within the block chain.
+	err := b.checkBlockHeaderContext(header, prevNode, BFNone)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a new block node for the block and add it to the block index.
+	//
+	// Note that the additional information for the actual votes, tickets, and
+	// revocations in the block can't be populated until the full block data is
+	// known since that information is not available in the header.
+	newNode := newBlockNode(header, prevNode)
+	newNode.status = statusNone
+	b.index.AddNode(newNode)
+
+	return newNode, nil
 }
