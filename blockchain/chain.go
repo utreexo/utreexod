@@ -1364,6 +1364,20 @@ func (b *BlockChain) BlockLocatorFromHash(hash *chainhash.Hash) BlockLocator {
 	return locator
 }
 
+func (b *BlockChain) IndexLookupNode(hash *chainhash.Hash) *blockNode {
+	b.chainLock.RLock()
+	node := b.index.LookupNode(hash)
+	b.chainLock.RUnlock()
+	return node
+}
+
+func (b *BlockChain) IndexNodeStatus(node *blockNode) blockStatus {
+	b.chainLock.RLock()
+	status := b.index.NodeStatus(node)
+	b.chainLock.RUnlock()
+	return status
+}
+
 // LatestBlockLocator returns a block locator for the latest known tip of the
 // main (best) chain.
 //

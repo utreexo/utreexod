@@ -175,10 +175,10 @@ func makeSpendableOut(block *wire.MsgBlock, txIndex, txOutIndex uint32) spendabl
 	return makeSpendableOutForTx(block.Transactions[txIndex], txOutIndex)
 }
 
-// testGenerator houses state used to easy the process of generating test blocks
+// TestGenerator houses state used to easy the process of generating test blocks
 // that build from one another along with housing other useful things such as
 // available spendable outputs used throughout the tests.
-type testGenerator struct {
+type TestGenerator struct {
 	params       *chaincfg.Params
 	tip          *wire.MsgBlock
 	tipName      string
@@ -197,11 +197,11 @@ type testGenerator struct {
 
 // makeTestGenerator returns a test generator instance initialized with the
 // genesis block as the tip.
-func makeTestGenerator(params *chaincfg.Params) (testGenerator, error) {
+func MakeTestGenerator(params *chaincfg.Params) (TestGenerator, error) {
 	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), []byte{0x01})
 	genesis := params.GenesisBlock
 	genesisHash := genesis.BlockHash()
-	return testGenerator{
+	return TestGenerator{
 		params:       params,
 		blocks:       map[chainhash.Hash]*wire.MsgBlock{genesisHash: genesis},
 		blocksByName: map[string]*wire.MsgBlock{"genesis": genesis},
@@ -275,7 +275,7 @@ func uniqueOpReturnScript() []byte {
 // createCoinbaseTx returns a coinbase transaction paying an appropriate
 // subsidy based on the passed block height.  The coinbase signature script
 // conforms to the requirements of version 2 blocks.
-func (g *testGenerator) createCoinbaseTx(blockHeight int32) *wire.MsgTx {
+func (g *TestGenerator) createCoinbaseTx(blockHeight int32) *wire.MsgTx {
 	extraNonce := uint64(0)
 	coinbaseScript, err := standardCoinbaseScript(blockHeight, extraNonce)
 	if err != nil {
@@ -478,7 +478,7 @@ func createSpendTxForTx(tx *wire.MsgTx, fee btcutil.Amount) *wire.MsgTx {
 // applied after all munge functions have been invoked:
 // - The merkle root will be recalculated unless it was manually changed
 // - The block will be solved unless the nonce was changed
-func (g *testGenerator) nextBlock(blockName string, spend *spendableOut, mungers ...func(*wire.MsgBlock)) *wire.MsgBlock {
+func (g *TestGenerator) nextBlock(blockName string, spend *spendableOut, mungers ...func(*wire.MsgBlock)) *wire.MsgBlock {
 	// Create coinbase transaction for the block using any additional
 	// subsidy if specified.
 	nextHeight := g.tipHeight + 1
@@ -553,7 +553,7 @@ func (g *testGenerator) nextBlock(blockName string, spend *spendableOut, mungers
 // map references to a block via its old hash and insert new ones for the new
 // block hash.  This is useful if the test code has to manually change a block
 // after 'nextBlock' has returned.
-func (g *testGenerator) updateBlockState(oldBlockName string, oldBlockHash chainhash.Hash, newBlockName string, newBlock *wire.MsgBlock) {
+func (g *TestGenerator) updateBlockState(oldBlockName string, oldBlockHash chainhash.Hash, newBlockName string, newBlock *wire.MsgBlock) {
 	// Look up the height from the existing entries.
 	blockHeight := g.blockHeights[oldBlockName]
 
@@ -572,7 +572,7 @@ func (g *testGenerator) updateBlockState(oldBlockName string, oldBlockHash chain
 // setTip changes the tip of the instance to the block with the provided name.
 // This is useful since the tip is used for things such as generating subsequent
 // blocks.
-func (g *testGenerator) setTip(blockName string) {
+func (g *TestGenerator) setTip(blockName string) {
 	g.tip = g.blocksByName[blockName]
 	g.tipName = blockName
 	g.tipHeight = g.blockHeights[blockName]
@@ -580,7 +580,7 @@ func (g *testGenerator) setTip(blockName string) {
 
 // oldestCoinbaseOuts removes the oldest coinbase output that was previously
 // saved to the generator and returns the set as a slice.
-func (g *testGenerator) oldestCoinbaseOut() spendableOut {
+func (g *TestGenerator) oldestCoinbaseOut() spendableOut {
 	op := g.spendableOuts[0]
 	g.spendableOuts = g.spendableOuts[1:]
 	return op
@@ -588,7 +588,7 @@ func (g *testGenerator) oldestCoinbaseOut() spendableOut {
 
 // saveTipCoinbaseOut adds the coinbase tx output in the current tip block to
 // the list of spendable outputs.
-func (g *testGenerator) saveTipCoinbaseOut() {
+func (g *TestGenerator) saveTipCoinbaseOut() {
 	g.spendableOuts = append(g.spendableOuts, makeSpendableOut(g.tip, 0, 0))
 	g.prevCollectedHash = g.tip.BlockHash()
 }
@@ -598,7 +598,7 @@ func (g *testGenerator) saveTipCoinbaseOut() {
 // batch the collection of coinbase outputs once the tests reach a stable point
 // so they don't have to manually add them for the right tests which will
 // ultimately end up being the best chain.
-func (g *testGenerator) saveSpendableCoinbaseOuts() {
+func (g *TestGenerator) saveSpendableCoinbaseOuts() {
 	// Ensure tip is reset to the current one when done.
 	curTipName := g.tipName
 	defer g.setTip(curTipName)
@@ -691,7 +691,7 @@ func countBlockSigOps(block *wire.MsgBlock) int {
 
 // assertTipBlockSigOpsCount panics if the current tip block associated with the
 // generator does not have the specified number of signature operations.
-func (g *testGenerator) assertTipBlockSigOpsCount(expected int) {
+func (g *TestGenerator) assertTipBlockSigOpsCount(expected int) {
 	numSigOps := countBlockSigOps(g.tip)
 	if numSigOps != expected {
 		panic(fmt.Sprintf("generated number of sigops for block %q "+
@@ -702,7 +702,7 @@ func (g *testGenerator) assertTipBlockSigOpsCount(expected int) {
 
 // assertTipBlockSize panics if the if the current tip block associated with the
 // generator does not have the specified size when serialized.
-func (g *testGenerator) assertTipBlockSize(expected int) {
+func (g *TestGenerator) assertTipBlockSize(expected int) {
 	serializeSize := g.tip.SerializeSize()
 	if serializeSize != expected {
 		panic(fmt.Sprintf("block size of block %q (height %d) is %d "+
@@ -714,7 +714,7 @@ func (g *testGenerator) assertTipBlockSize(expected int) {
 // assertTipNonCanonicalBlockSize panics if the if the current tip block
 // associated with the generator does not have the specified non-canonical size
 // when serialized.
-func (g *testGenerator) assertTipNonCanonicalBlockSize(expected int) {
+func (g *TestGenerator) assertTipNonCanonicalBlockSize(expected int) {
 	serializeSize := len(encodeNonCanonicalBlock(g.tip))
 	if serializeSize != expected {
 		panic(fmt.Sprintf("block size of block %q (height %d) is %d "+
@@ -725,7 +725,7 @@ func (g *testGenerator) assertTipNonCanonicalBlockSize(expected int) {
 
 // assertTipBlockNumTxns panics if the number of transactions in the current tip
 // block associated with the generator does not match the specified value.
-func (g *testGenerator) assertTipBlockNumTxns(expected int) {
+func (g *TestGenerator) assertTipBlockNumTxns(expected int) {
 	numTxns := len(g.tip.Transactions)
 	if numTxns != expected {
 		panic(fmt.Sprintf("number of txns in block %q (height %d) is "+
@@ -736,7 +736,7 @@ func (g *testGenerator) assertTipBlockNumTxns(expected int) {
 
 // assertTipBlockHash panics if the current tip block associated with the
 // generator does not match the specified hash.
-func (g *testGenerator) assertTipBlockHash(expected chainhash.Hash) {
+func (g *TestGenerator) assertTipBlockHash(expected chainhash.Hash) {
 	hash := g.tip.BlockHash()
 	if hash != expected {
 		panic(fmt.Sprintf("block hash of block %q (height %d) is %v "+
@@ -747,7 +747,7 @@ func (g *testGenerator) assertTipBlockHash(expected chainhash.Hash) {
 
 // assertTipBlockMerkleRoot panics if the merkle root in header of the current
 // tip block associated with the generator does not match the specified hash.
-func (g *testGenerator) assertTipBlockMerkleRoot(expected chainhash.Hash) {
+func (g *TestGenerator) assertTipBlockMerkleRoot(expected chainhash.Hash) {
 	hash := g.tip.Header.MerkleRoot
 	if hash != expected {
 		panic(fmt.Sprintf("merkle root of block %q (height %d) is %v "+
@@ -756,10 +756,31 @@ func (g *testGenerator) assertTipBlockMerkleRoot(expected chainhash.Hash) {
 	}
 }
 
+// Params retuns the cahin params associated with the generator chain
+func (g *TestGenerator) Params() *chaincfg.Params {
+	return g.params
+}
+
+// BlockByName returns the block associated with the provided block name.  It
+// will panic if the specified block name does not exist.
+func (g *TestGenerator) BlockByName(blockName string) *wire.MsgBlock {
+	block, ok := g.blocksByName[blockName]
+	if !ok {
+		panic(fmt.Sprintf("block name %s does not exist", blockName))
+	}
+	return block
+}
+
+// Returning block Height of the block by its name
+func (g *TestGenerator) BlockHeightByName(blockName string) int32 {
+	height := g.blockHeights[blockName]
+	return height
+}
+
 // assertTipBlockTxOutOpReturn panics if the current tip block associated with
 // the generator does not have an OP_RETURN script for the transaction output at
 // the provided tx index and output index.
-func (g *testGenerator) assertTipBlockTxOutOpReturn(txIndex, txOutIndex uint32) {
+func (g *TestGenerator) assertTipBlockTxOutOpReturn(txIndex, txOutIndex uint32) {
 	if txIndex >= uint32(len(g.tip.Transactions)) {
 		panic(fmt.Sprintf("Transaction index %d in block %q "+
 			"(height %d) does not exist", txIndex, g.tipName,
@@ -811,7 +832,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 
 	// Create a test generator instance initialized with the genesis block
 	// as the tip.
-	g, err := makeTestGenerator(regressionNetParams)
+	g, err := MakeTestGenerator(regressionNetParams)
 	if err != nil {
 		return nil, err
 	}
@@ -2132,4 +2153,143 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	accepted()
 
 	return tests, nil
+}
+
+type TestHeaderInstance interface {
+	FullHeaderTestInstance()
+}
+
+type AcceptedHeader struct {
+	Name        string
+	BlockHeader *wire.MsgBlock
+	Height      int32
+	IsMainChain bool
+	IsOrphan    bool
+}
+
+var _ TestInstance = AcceptedHeader{}
+
+func (b AcceptedHeader) FullBlockTestInstance() {}
+
+type RejectedHeader struct {
+	Name        string
+	BlockHeader *wire.MsgBlock
+	Height      int32
+	RejectCode  blockchain.ErrorCode
+}
+
+var _ TestInstance = RejectedHeader{}
+
+func (b RejectedHeader) FullBlockTestInstance() {}
+
+func GenerateHeaders() (generator *TestGenerator, tests [][]TestInstance) {
+	// Create a new database and chain instance needed to create the generator
+	// populated with the desired blocks.
+	params := chaincfg.RegressionNetParams
+	// Create a test generator instance initialized with the genesis block
+	// as the tip.
+	g, err := MakeTestGenerator(regressionNetParams)
+	if err != nil {
+		return nil, nil
+	}
+	coinbaseMaturity := params.CoinbaseMaturity
+	acceptHeader := func(blockName string, blockHeader *wire.MsgBlock, isMainChain, isOrphan bool) TestInstance {
+		blockHeight := g.BlockHeightByName(blockName)
+		return AcceptedHeader{blockName, blockHeader, blockHeight, isMainChain, isOrphan}
+	}
+	rejectHeader := func(blockName string, blockHeader *wire.MsgBlock, code blockchain.ErrorCode) TestInstance {
+		blockHeight := g.BlockHeightByName(blockName)
+		return RejectedHeader{blockName, blockHeader, blockHeight, code}
+	}
+	accepted := func() {
+		tests = append(tests, []TestInstance{
+			acceptHeader(g.tipName, g.tip, false, false),
+		})
+	}
+	rejected := func(code blockchain.ErrorCode) {
+		tests = append(tests, []TestInstance{
+			rejectHeader(g.tipName, g.tip, code),
+		})
+	}
+	// ---------------------------------------------------------------------
+	// Generate enough blocks to have mature coinbase outputs to work with.
+	//
+	//   genesis -> bm0 -> bm1 -> ... -> bm99
+	// ---------------------------------------------------------------------
+	var testInstances []TestInstance
+	for i := uint16(0); i < coinbaseMaturity; i++ {
+		blockName := fmt.Sprintf("bm%d", i)
+		g.nextBlock(blockName, nil)
+		g.saveTipCoinbaseOut()
+		testInstances = append(testInstances, acceptHeader(g.tipName,
+			g.tip, true, false))
+	}
+	tests = append(tests, testInstances)
+
+	// Collect spendable outputs.  This simplifies the code below.
+	var outs []*spendableOut
+	for i := uint16(0); i < coinbaseMaturity; i++ {
+		op := g.oldestCoinbaseOut()
+		outs = append(outs, &op)
+	}
+	// Adding a block to the existing chain and accepting it
+	//
+	// ... -> b0
+	g.nextBlock("b0", nil)
+	accepted()
+	// Create a block with invalid proof of work and reject that header
+	//
+	//	 ... -> b0()
+	// 					\-> b1(1)
+	g.setTip("b0")
+	b1 := g.nextBlock("b1", outs[1])
+	// This can't be done inside a munge function passed to nextBlock
+	// because the block is solved after the function returns and this test
+	// requires an unsolved block.
+	{
+		origHash := b1.BlockHash()
+		for {
+			// Keep incrementing the nonce until the hash treated as
+			// a uint256 is higher than the limit.
+			b1.Header.Nonce++
+			blockHash := b1.BlockHash()
+			hashNum := blockchain.HashToBig(&blockHash)
+			if hashNum.Cmp(g.params.PowLimit) >= 0 {
+				break
+			}
+		}
+		g.updateBlockState("b46", origHash, "b46", b1)
+	}
+	rejected(blockchain.ErrHighHash)
+	// Create block with an invalid proof-of-work limit.
+	//
+	//   ... -> b0()
+	//                 \-> b2(2)
+	g.setTip("b0")
+	g.nextBlock("b2", outs[2], func(b *wire.MsgBlock) {
+		b.Header.Bits--
+	})
+	rejected(blockchain.ErrUnexpectedDifficulty)
+	// Create block with an invalid negative proof-of-work limit.
+	//
+	//   ... -> b0()
+	//                 \-> b3(3)
+	g.setTip("b0")
+	b3 := g.nextBlock("b3", outs[3])
+	// This can't be done inside a munge function passed to nextBlock
+	// because the block is solved after the function returns and this test
+	// involves an unsolvable block.
+	{
+		origHash := b3.BlockHash()
+		b3.Header.Bits = 0x01810000 // -1 in compact form.
+		g.updateBlockState("b3", origHash, "b3", b3)
+	}
+	rejected(blockchain.ErrUnexpectedDifficulty)
+	// Adding a block with valid header
+	//
+	// ... -> b0() -> b4(4)
+	g.setTip("b0")
+	g.nextBlock("b4", outs[4])
+	accepted()
+	return &g, tests
 }
