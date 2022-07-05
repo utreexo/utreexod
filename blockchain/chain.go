@@ -1364,6 +1364,20 @@ func (b *BlockChain) BlockLocatorFromHash(hash *chainhash.Hash) BlockLocator {
 	return locator
 }
 
+func (b *BlockChain) IndexLookupNode(hash *chainhash.Hash) *blockNode {
+	b.chainLock.RLock()
+	node := b.index.LookupNode(hash)
+	b.chainLock.RUnlock()
+	return node
+}
+
+func (b *BlockChain) IndexNodeStatus(node *blockNode) blockStatus {
+	b.chainLock.RLock()
+	status := b.index.NodeStatus(node)
+	b.chainLock.RUnlock()
+	return status
+}
+
 // LatestBlockLocator returns a block locator for the latest known tip of the
 // main (best) chain.
 //
@@ -1382,6 +1396,21 @@ func (b *BlockChain) LatestBlockLocator() (BlockLocator, error) {
 func (b *BlockChain) BlockHeightByHash(hash *chainhash.Hash) (int32, error) {
 	node := b.index.LookupNode(hash)
 	if node == nil || !b.bestChain.Contains(node) {
+		str := fmt.Sprintf("block %s is not in the main chain", hash)
+		return 0, errNotInMainChain(str)
+	}
+
+	return node.height, nil
+}
+
+// NodeHeightByHash returns the height of the block with the given hash in the
+// main chain. Does not check if the node is on the main chain, so returns height
+// of the node which is created by header validation
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) NodeHeightByHash(hash *chainhash.Hash) (int32, error) {
+	node := b.index.LookupNode(hash)
+	if node == nil {
 		str := fmt.Sprintf("block %s is not in the main chain", hash)
 		return 0, errNotInMainChain(str)
 	}
