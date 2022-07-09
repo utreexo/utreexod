@@ -927,6 +927,10 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 		})
 	}
 
+	// Checking that duplicate blocks are not allowed, done
+	// in order to check the changes made in the HaveBlock
+	// function
+	tests = append(tests, []TestInstance{rejectBlock("genesis", g.tip, blockchain.ErrDuplicateBlock)})
 	// ---------------------------------------------------------------------
 	// Generate enough blocks to have mature coinbase outputs to work with.
 	//

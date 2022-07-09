@@ -199,7 +199,7 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 	log.Tracef("Processing block %v", blockHash)
 
 	// The block must not already exist in the main chain or side chains.
-	exists, err := b.blockExists(blockHash)
+	exists, err := b.HaveBlock(blockHash)
 	if err != nil {
 		return false, false, err
 	}
@@ -214,11 +214,37 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 		return false, false, ruleError(ErrDuplicateBlock, str)
 	}
 
+	// Reject blocks that are already known to be invalid immediately to avoid
+	// additional work when possible.
+	node := b.index.LookupNode(block.Hash())
+	if node != nil {
+		if err := b.checkKnownInvalidBlock(node); err != nil {
+			return false, false, err
+		}
+	}
+
 	// Perform preliminary sanity checks on the block and its transactions.
 	err = checkBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
 	if err != nil {
 		return false, false, err
 	}
+
+	// // Potentially accept the header to the block index when it does not already
+	// // exist.
+	// //
+	// // This entails fully validating it according to both context independent
+	// // and context dependent checks and creating a block index entry for it.
+	// //
+	// // Note that the header sanity checks are skipped because they were just
+	// // performed above as part of the full block sanity checks.
+	// if node == nil {
+	// 	const checkHeaderSanity = false
+	// 	header := &block.MsgBlock().Header
+	// 	_, err = b.maybeAcceptBlockHeader(header, checkHeaderSanity)
+	// 	if err != nil {
+	// 		return false, false, err
+	// 	}
+	// }
 
 	// Find the previous checkpoint and perform some additional checks based
 	// on the checkpoint.  This provides a few nice properties such as

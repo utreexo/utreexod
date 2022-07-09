@@ -66,19 +66,23 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	// if the block ultimately gets connected to the main chain, it starts out
 	// on a side chain.
 	blockHeader := &block.MsgBlock().Header
-	newNode := newBlockNode(blockHeader, prevNode)
-	newNode.status = statusDataStored
-
-	b.index.AddNode(newNode)
-	err = b.index.flushToDB()
-	if err != nil {
-		return false, err
+	blockHash := blockHeader.BlockHash()
+	node := b.index.LookupNode(&blockHash)
+	if node == nil {
+		newNode := newBlockNode(blockHeader, prevNode)
+		b.index.AddNode(newNode)
+		err = b.index.flushToDB()
+		if err != nil {
+			return false, err
+		}
+		node = newNode
 	}
+	node.status = statusDataStored
 
 	// Connect the passed block to the chain while respecting proper chain
 	// selection according to the chain with the most proof of work.  This
 	// also handles validation of the transaction scripts.
-	isMainChain, err := b.connectBestChain(newNode, block, flags)
+	isMainChain, err := b.connectBestChain(node, block, flags)
 	if err != nil {
 		return false, err
 	}
