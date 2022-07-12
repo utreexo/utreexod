@@ -1,4 +1,5 @@
 // Copyright (c) 2013-2017 The btcsuite developers
+// Copyright (c) 2018-2021 The Decred developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -11,6 +12,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // BehaviorFlags is a bitmask defining tweaks to the normal behavior when
@@ -129,6 +131,54 @@ func (b *BlockChain) processOrphans(hash *chainhash.Hash, flags BehaviorFlags) e
 	return nil
 }
 
+// checkKnownInvalidBlock returns an appropriate error when the provided block
+// is known to be invalid either due to failing validation itself or due to
+// having a known invalid ancestor (aka being part of an invalid branch).
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) checkKnownInvalidBlock(node *blockNode) error {
+	status := b.index.NodeStatus(node)
+	if status.KnownValidateFailed() {
+		str := fmt.Sprintf("block %s is known to be invalid", node.hash)
+		return ruleError(ErrKnownInvalidBlock, str)
+	}
+	if status.KnownInvalidAncestor() {
+		str := fmt.Sprintf("block %s is known to be part of an invalid branch",
+			node.hash)
+		return ruleError(ErrInvalidAncestorBlock, str)
+	}
+
+	return nil
+}
+
+// ProcessBlockHeader is the main workhorse for handling insertion of new block
+// headers into the block chain using headers-first semantics.  It includes
+// functionality such as rejecting headers that do not connect to an existing
+// known header, ensuring headers follow all rules that do not depend on having
+// all ancestor block data available, and insertion into the block index.
+//
+// Block headers that have already been inserted are ignored, unless they have
+// subsequently been marked invalid, in which case an appropriate error is
+// returned.
+//
+// It should be noted that this function intentionally does not accept block
+// headers that do not connect to an existing known header or to headers which
+// are already known to be a part of an invalid branch.  This means headers must
+// be processed in order.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) ProcessBlockHeader(header *wire.BlockHeader) error {
+	b.chainLock.Lock()
+	defer b.chainLock.Unlock()
+	const checkHeaderSanity = true
+	_, err := b.maybeAcceptBlockHeader(header, checkHeaderSanity)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // ProcessBlock is the main workhorse for handling insertion of new blocks into
 // the block chain.  It includes functionality such as rejecting duplicate
 // blocks, ensuring blocks follow all rules, orphan handling, and insertion into
@@ -149,7 +199,7 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 	log.Tracef("Processing block %v", blockHash)
 
 	// The block must not already exist in the main chain or side chains.
-	exists, err := b.blockExists(blockHash)
+	exists, err := b.HaveBlock(blockHash)
 	if err != nil {
 		return false, false, err
 	}
@@ -164,11 +214,37 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 		return false, false, ruleError(ErrDuplicateBlock, str)
 	}
 
+	// Reject blocks that are already known to be invalid immediately to avoid
+	// additional work when possible.
+	node := b.index.LookupNode(block.Hash())
+	if node != nil {
+		if err := b.checkKnownInvalidBlock(node); err != nil {
+			return false, false, err
+		}
+	}
+
 	// Perform preliminary sanity checks on the block and its transactions.
 	err = checkBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
 	if err != nil {
 		return false, false, err
 	}
+
+	// // Potentially accept the header to the block index when it does not already
+	// // exist.
+	// //
+	// // This entails fully validating it according to both context independent
+	// // and context dependent checks and creating a block index entry for it.
+	// //
+	// // Note that the header sanity checks are skipped because they were just
+	// // performed above as part of the full block sanity checks.
+	// if node == nil {
+	// 	const checkHeaderSanity = false
+	// 	header := &block.MsgBlock().Header
+	// 	_, err = b.maybeAcceptBlockHeader(header, checkHeaderSanity)
+	// 	if err != nil {
+	// 		return false, false, err
+	// 	}
+	// }
 
 	// Find the previous checkpoint and perform some additional checks based
 	// on the checkpoint.  This provides a few nice properties such as

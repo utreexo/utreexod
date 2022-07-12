@@ -1,4 +1,5 @@
 // Copyright (c) 2013-2017 The btcsuite developers
+// Copyright (c) 2018-2021 The Decred developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -27,6 +28,10 @@ const (
 	// in the request queue for headers-first mode before requesting
 	// more.
 	minInFlightBlocks = 10
+
+	// maxInFlightBlocks is the maximum number of blocks to allow in the sync
+	// peer request queue.
+	maxInFlightBlocks = 16
 
 	// maxRejectedTxns is the maximum number of rejected transactions
 	// hashes to store in memory.
@@ -148,6 +153,8 @@ type headerNode struct {
 // peerSyncState stores additional information that the SyncManager tracks
 // about a peer.
 type peerSyncState struct {
+	*peerpkg.Peer
+
 	syncCandidate   bool
 	requestQueue    []*wire.InvVect
 	requestedTxns   map[chainhash.Hash]struct{}
@@ -203,6 +210,28 @@ type SyncManager struct {
 	headerList       *list.List
 	startHeader      *list.Element
 	nextCheckpoint   *chaincfg.Checkpoint
+
+	// The following fields are used to track the list of the next blocks to
+	// download in the branch leading up to the best known header.
+	//
+	// nextBlocksHeader is the hash of the best known header when the list was
+	// last updated.
+	//
+	// nextBlocksBuf houses an overall list of blocks needed (up to the size of
+	// the array) regardless of whether or not they have been requested and
+	// provides what is effectively a reusable lookahead buffer.  Note that
+	// since it is a fixed size and acts as a backing array, not all entries
+	// will necessarily refer to valid data, especially once the chain is
+	// synced.  nextNeededBlocks slices into the valid part of the array.
+	//
+	// nextNeededBlocks subslices into nextBlocksBuf such that it provides an
+	// upper bound on the entries of the backing array that are valid and also
+	// acts as a list of needed blocks that are not already known to be in
+	// flight.
+	// nextBlocksHeader chainhash.Hash
+	nextBlocksHeader chainhash.Hash
+	nextBlocksBuf    [1024]chainhash.Hash
+	nextNeededBlocks []chainhash.Hash
 
 	// An optional fee estimator.
 	feeEstimator *mempool.FeeEstimator
@@ -842,7 +871,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	if !isCheckpointBlock {
 		if sm.startHeader != nil &&
 			len(state.requestedBlocks) < minInFlightBlocks {
-			sm.fetchHeaderBlocks()
+			sm.fetchNextBlocks(peer, sm.peerStates[peer])
 		}
 		return
 	}
@@ -883,6 +912,71 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	}
 }
 
+func (sm *SyncManager) maybeUpdateNextNeededBlocks() {
+
+	// Update the list if the best known header changed since the last time it
+	// was updated or it is not empty, is getting short, does not already
+	// end at the best known header.
+	chain := sm.chain
+	bestHeader, _ := chain.BestHeader()
+	numNeeded := len(sm.nextNeededBlocks)
+	needsUpdate := sm.nextBlocksHeader != bestHeader || (numNeeded > 0 &&
+		numNeeded < minInFlightBlocks &&
+		sm.nextNeededBlocks[numNeeded-1] != bestHeader)
+	if needsUpdate {
+		sm.nextNeededBlocks = chain.PutNextNeededBlocks(sm.nextBlocksBuf[:])
+		sm.nextBlocksHeader = bestHeader
+	}
+}
+
+// fetchNextBlocks creates and sends a request to the provided peer for the next
+// blocks to be downloaded based on the current headers.
+func (m *SyncManager) fetchNextBlocks(peer *peerpkg.Peer, peerSync *peerSyncState) {
+	// Nothing to do if the target maximum number of blocks to request from the
+	// peer at the same time are already in flight.
+	numInFlight := len(peerSync.requestedBlocks)
+	if numInFlight >= maxInFlightBlocks {
+		return
+	}
+
+	// Potentially update the list of the next blocks to download in the branch
+	// leading up to the best known header.
+	m.maybeUpdateNextNeededBlocks()
+
+	// Build and send a getdata request for the needed blocks.
+	numNeeded := len(m.nextNeededBlocks)
+	if numNeeded == 0 {
+		return
+	}
+	maxNeeded := maxInFlightBlocks - numInFlight
+	if numNeeded > maxNeeded {
+		numNeeded = maxNeeded
+	}
+	gdmsg := wire.NewMsgGetDataSizeHint(uint(numNeeded))
+	for i := 0; i < numNeeded && len(gdmsg.InvList) < wire.MaxInvPerMsg; i++ {
+		// The block is either going to be skipped because it has already been
+		// requested or it will be requested, but in either case, the block is
+		// no longer needed for future iterations.
+		hash := &m.nextNeededBlocks[0]
+		m.nextNeededBlocks = m.nextNeededBlocks[1:]
+
+		// Skip blocks that have already been requested.  The needed blocks
+		// might have been updated above thereby potentially repopulating some
+		// blocks that are still in flight.
+		if _, ok := m.requestedBlocks[*hash]; ok {
+			continue
+		}
+
+		iv := wire.NewInvVect(wire.InvTypeBlock, hash)
+		m.requestedBlocks[*hash] = struct{}{}
+		peerSync.requestedBlocks[*hash] = struct{}{}
+		gdmsg.AddInvVect(iv)
+	}
+	if len(gdmsg.InvList) > 0 {
+		peer.QueueMessage(gdmsg, nil)
+	}
+}
+
 // fetchHeaderBlocks creates and sends a request to the syncPeer for the next
 // list of blocks to be downloaded based on the current list of headers.
 func (sm *SyncManager) fetchHeaderBlocks() {
@@ -905,13 +999,13 @@ func (sm *SyncManager) fetchHeaderBlocks() {
 		}
 
 		iv := wire.NewInvVect(wire.InvTypeBlock, node.hash)
-		haveInv, err := sm.haveInventory(iv)
+		haveBlock, err := sm.chain.HaveBlock(node.hash)
 		if err != nil {
 			log.Warnf("Unexpected failure when checking for "+
-				"existing inventory during header block "+
+				"existing block during header block "+
 				"fetch: %v", err)
 		}
-		if !haveInv {
+		if !haveBlock {
 			syncPeerState := sm.peerStates[sm.syncPeer]
 
 			sm.requestedBlocks[*node.hash] = struct{}{}
@@ -978,6 +1072,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	// previous and that checkpoints match.
 	receivedCheckpoint := false
 	var finalHash *chainhash.Hash
+	chain := sm.chain
 	for _, blockHeader := range msg.Headers {
 		blockHash := blockHeader.BlockHash()
 		finalHash = &blockHash
@@ -1009,6 +1104,16 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			return
 		}
 
+		err := chain.ProcessBlockHeader(blockHeader)
+		if err != nil {
+			// Note that there is no need to check for an orphan header here
+			// because they were already verified to connect above.
+
+			log.Debugf("Failed to process block header %s from peer %s: %v -- "+
+				"disconnecting", blockHeader.BlockHash(), peer, err)
+			peer.Disconnect()
+			return
+		}
 		// Verify the header at the next checkpoint height matches.
 		if node.height == sm.nextCheckpoint.Height {
 			if node.hash.IsEqual(sm.nextCheckpoint.Hash) {
@@ -1041,7 +1146,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		log.Infof("Received %v block headers: Fetching blocks",
 			sm.headerList.Len())
 		sm.progressLogger.SetLastLogTime(time.Now())
-		sm.fetchHeaderBlocks()
+		sm.fetchNextBlocks(peer, sm.peerStates[peer])
 		return
 	}
 

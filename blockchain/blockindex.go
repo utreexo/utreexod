@@ -1,4 +1,5 @@
 // Copyright (c) 2015-2017 The btcsuite developers
+// Copyright (c) 2018-2021 The Decred developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -60,6 +61,22 @@ func (status blockStatus) KnownInvalid() bool {
 	return status&(statusValidateFailed|statusInvalidAncestor) != 0
 }
 
+// KnownInvalidAncestor returns whether the block is known to have an invalid
+// ancestor.  A return value of false in no way implies the block only has valid
+// ancestors.  Thus, this will return false for blocks with invalid ancestors
+// that have not been proven invalid yet.
+func (status blockStatus) KnownInvalidAncestor() bool {
+	return status&(statusInvalidAncestor) != 0
+}
+
+// KnownValidateFailed returns whether the block is known to have failed
+// validation.  A return value of false in no way implies the block is valid.
+// Thus, this will return false for blocks that have not been proven to fail
+// validation yet.
+func (status blockStatus) KnownValidateFailed() bool {
+	return status&(statusValidateFailed) != 0
+}
+
 // blockNode represents a block within the block chain and is primarily used to
 // aid in selecting the best chain to be the main chain.  The main chain is
 // stored into the block database.
@@ -114,6 +131,7 @@ func initBlockNode(node *blockNode, blockHeader *wire.BlockHeader, parent *block
 		nonce:      blockHeader.Nonce,
 		timestamp:  blockHeader.Timestamp.Unix(),
 		merkleRoot: blockHeader.MerkleRoot,
+		status:     statusNone,
 	}
 	if parent != nil {
 		node.parent = parent
@@ -217,6 +235,68 @@ func (node *blockNode) CalcPastMedianTime() time.Time {
 	return time.Unix(medianTimestamp, 0)
 }
 
+// compareHashesAsUint256LE compares two raw hashes treated as if they were
+// little-endian uint256s in a way that is more efficient than converting them
+// to big integers first.  It returns 1 when a > b, -1 when a < b, and 0 when a
+// == b.
+func compareHashesAsUint256LE(a, b *chainhash.Hash) int {
+	// Find the index of the first byte that differs.
+	index := len(a) - 1
+	for ; index >= 0 && a[index] == b[index]; index-- {
+		// Nothing to do.
+	}
+	if index < 0 {
+		return 0
+	}
+	if a[index] > b[index] {
+		return 1
+	}
+	return -1
+}
+
+// betterCandidate returns whether node 'a' is a better candidate than 'b' for
+// the purposes of best chain selection.
+//
+// The criteria for determining what constitutes a better candidate, in order of
+// priority, is as follows:
+//
+// 1. More total cumulative work
+// 2. Having block data available
+// 3. Receiving data earlier
+// 4. Hash that represents more work (smaller value as a little-endian uint256)
+//
+// This function MUST be called with the block index lock held (for reads).
+func betterCandidate(a, b *blockNode) bool {
+	// First, sort by the total cumulative work.
+	//
+	// Blocks with more cumulative work are better candidates for best chain
+	// selection.
+	if workCmp := a.workSum.Cmp(b.workSum); workCmp != 0 {
+		return workCmp > 0
+	}
+
+	// Then sort according to block data availability.
+	//
+	// Blocks that already have all of their data available are better
+	// candidates than those that do not.  They have the same priority if either
+	// both have their data available or neither do.
+	if aHasData := a.status.HaveData(); aHasData != b.status.HaveData() {
+		return aHasData
+	}
+
+	// Finally, fall back to sorting based on the hash in the case the work,
+	// block data availability, and received order are all the same.  In
+	// practice, the order will typically only be the same for blocks loaded
+	// from disk since the received order is only stored in memory, however it
+	// can be the same when the block data for a given header is not yet known
+	// as well.
+	//
+	// Note that it is more difficult to find hashes with more leading zeros
+	// when treated as a little-endian uint256, so smaller values represent more
+	// work and are therefore better candidates.
+	return compareHashesAsUint256LE(&a.hash, &b.hash) < 0
+}
+
 // blockIndex provides facilities for keeping track of an in-memory index of the
 // block chain.  Although the name block chain suggests a single chain of
 // blocks, it is actually a tree-shaped structure where any node can have
@@ -228,6 +308,17 @@ type blockIndex struct {
 	// separate mutex.
 	db          database.DB
 	chainParams *chaincfg.Params
+
+	// bestHeader tracks the highest work block node in the index that is not
+	// known to be invalid.  This is not necessarily the same as the active best
+	// chain, especially when block data is not yet known.  However, since block
+	// nodes are only added to the index for block headers that pass all sanity
+	// and positional checks, which include checking proof of work, it does
+	// represent the tip of the header chain with the highest known work that
+	// has a reasonably high chance of becoming the best chain tip and is useful
+	// for things such as reporting progress and discovering the most suitable
+	// blocks to download.
+	bestHeader *blockNode
 
 	sync.RWMutex
 	index map[chainhash.Hash]*blockNode
@@ -251,7 +342,8 @@ func newBlockIndex(db database.DB, chainParams *chaincfg.Params) *blockIndex {
 // This function is safe for concurrent access.
 func (bi *blockIndex) HaveBlock(hash *chainhash.Hash) bool {
 	bi.RLock()
-	_, hasBlock := bi.index[*hash]
+	node := bi.LookupNode(hash)
+	hasBlock := node != nil && node.status.HaveData()
 	bi.RUnlock()
 	return hasBlock
 }
@@ -284,6 +376,11 @@ func (bi *blockIndex) AddNode(node *blockNode) {
 // This function is NOT safe for concurrent access.
 func (bi *blockIndex) addNode(node *blockNode) {
 	bi.index[node.hash] = node
+	if bi.bestHeader == nil {
+		bi.bestHeader = node
+	} else if !node.status.KnownInvalid() && betterCandidate(node, bi.bestHeader) {
+		bi.bestHeader = node
+	}
 }
 
 // NodeStatus provides concurrent-safe access to the status field of a node.
