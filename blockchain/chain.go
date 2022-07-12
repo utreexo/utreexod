@@ -1403,6 +1403,21 @@ func (b *BlockChain) BlockHeightByHash(hash *chainhash.Hash) (int32, error) {
 	return node.height, nil
 }
 
+// NodeHeightByHash returns the height of the block with the given hash in the
+// main chain. Does not check if the node is on the main chain, so returns height
+// of the node which is created by header validation
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) NodeHeightByHash(hash *chainhash.Hash) (int32, error) {
+	node := b.index.LookupNode(hash)
+	if node == nil {
+		str := fmt.Sprintf("block %s is not in the main chain", hash)
+		return 0, errNotInMainChain(str)
+	}
+
+	return node.height, nil
+}
+
 // BlockHashByHeight returns the hash of the block at the given height in the
 // main chain.
 //
