@@ -269,7 +269,8 @@ func newBlockIndex(db database.DB, chainParams *chaincfg.Params) *blockIndex {
 // This function is safe for concurrent access.
 func (bi *blockIndex) HaveBlock(hash *chainhash.Hash) bool {
 	bi.RLock()
-	_, hasBlock := bi.index[*hash]
+	node := bi.LookupNode(hash)
+	hasBlock := node != nil && node.status.HaveData()
 	bi.RUnlock()
 	return hasBlock
 }

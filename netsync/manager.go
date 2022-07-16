@@ -905,13 +905,13 @@ func (sm *SyncManager) fetchHeaderBlocks() {
 		}
 
 		iv := wire.NewInvVect(wire.InvTypeBlock, node.hash)
-		haveInv, err := sm.haveInventory(iv)
+		haveBlock, err := sm.chain.HaveBlock(node.hash)
 		if err != nil {
 			log.Warnf("Unexpected failure when checking for "+
-				"existing inventory during header block "+
+				"existing block during header block "+
 				"fetch: %v", err)
 		}
-		if !haveInv {
+		if !haveBlock {
 			syncPeerState := sm.peerStates[sm.syncPeer]
 
 			sm.requestedBlocks[*node.hash] = struct{}{}
@@ -978,6 +978,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	// previous and that checkpoints match.
 	receivedCheckpoint := false
 	var finalHash *chainhash.Hash
+	chain := sm.chain
 	for _, blockHeader := range msg.Headers {
 		blockHash := blockHeader.BlockHash()
 		finalHash = &blockHash
@@ -1009,6 +1010,16 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			return
 		}
 
+		err := chain.ProcessBlockHeader(blockHeader)
+		if err != nil {
+			// Note that there is no need to check for an orphan header here
+			// because they were already verified to connect above.
+
+			log.Debugf("Failed to process block header %s from peer %s: %v -- "+
+				"disconnecting", blockHeader.BlockHash(), peer, err)
+			peer.Disconnect()
+			return
+		}
 		// Verify the header at the next checkpoint height matches.
 		if node.height == sm.nextCheckpoint.Height {
 			if node.hash.IsEqual(sm.nextCheckpoint.Hash) {
