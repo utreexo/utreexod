@@ -607,6 +607,12 @@ func (sm *SyncManager) handleTxMsg(tmsg *txMsg) {
 		return
 	}
 
+	if sm.chain.IsUtreexoViewActive() && tmsg.tx.MsgTx().UData == nil {
+		log.Warnf("Is a utreexo node but didn't get udata with the tx")
+		peer.Disconnect()
+		return
+	}
+
 	// Process the transaction to include validation, insertion in the
 	// memory pool, orphan handling, etc.
 	acceptedTxs, err := sm.txMemPool.ProcessTransaction(tmsg.tx,
@@ -721,6 +727,12 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// will fail the insert and thus we'll retry next time we get an inv.
 	delete(state.requestedBlocks, *blockHash)
 	delete(sm.requestedBlocks, *blockHash)
+
+	if sm.chain.IsUtreexoViewActive() && bmsg.block.MsgBlock().UData == nil {
+		log.Warnf("Is a utreexo node but didn't get udata with the tx")
+		peer.Disconnect()
+		return
+	}
 
 	// Process the block to include validation, best chain selection, orphan
 	// handling, etc.
