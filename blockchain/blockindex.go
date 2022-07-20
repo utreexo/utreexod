@@ -1,4 +1,5 @@
 // Copyright (c) 2015-2017 The btcsuite developers
+// Copyright (c) 2018-2021 The Decred developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -60,6 +61,22 @@ func (status blockStatus) KnownInvalid() bool {
 	return status&(statusValidateFailed|statusInvalidAncestor) != 0
 }
 
+// KnownInvalidAncestor returns whether the block is known to have an invalid
+// ancestor.  A return value of false in no way implies the block only has valid
+// ancestors.  Thus, this will return false for blocks with invalid ancestors
+// that have not been proven invalid yet.
+func (status blockStatus) KnownInvalidAncestor() bool {
+	return status&(statusInvalidAncestor) != 0
+}
+
+// KnownValidateFailed returns whether the block is known to have failed
+// validation.  A return value of false in no way implies the block is valid.
+// Thus, this will return false for blocks that have not been proven to fail
+// validation yet.
+func (status blockStatus) KnownValidateFailed() bool {
+	return status&(statusValidateFailed) != 0
+}
+
 // blockNode represents a block within the block chain and is primarily used to
 // aid in selecting the best chain to be the main chain.  The main chain is
 // stored into the block database.
@@ -114,6 +131,7 @@ func initBlockNode(node *blockNode, blockHeader *wire.BlockHeader, parent *block
 		nonce:      blockHeader.Nonce,
 		timestamp:  blockHeader.Timestamp.Unix(),
 		merkleRoot: blockHeader.MerkleRoot,
+		status:     statusNone,
 	}
 	if parent != nil {
 		node.parent = parent
