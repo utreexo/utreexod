@@ -76,7 +76,7 @@ func assertNbEntriesOnDisk(t *testing.T, chain *BlockChain, expectedNumber int) 
 // the cache size limit to 10 MiB.
 func utxoCacheTestChain(testName string) (*BlockChain, *chaincfg.Params, func()) {
 	params := chaincfg.RegressionNetParams
-	chain, tearDown, err := chainSetup(testName, &params)
+	chain, tearDown, err := ChainSetup(testName, &params)
 	if err != nil {
 		panic(fmt.Sprintf("error loading blockchain with database: %v", err))
 	}
@@ -96,7 +96,7 @@ func TestUtxoCache_SimpleFlush(t *testing.T) {
 	cache := chain.utxoCache
 	tip := btcutil.NewBlock(params.GenesisBlock)
 
-	// The chainSetup init triggered write of consistency status of genesis.
+	// The ChainSetup init triggered write of consistency status of genesis.
 	assertConsistencyState(t, chain, ucsConsistent, params.GenesisHash)
 	assertNbEntriesOnDisk(t, chain, 0)
 
