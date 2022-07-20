@@ -1364,6 +1364,27 @@ func (b *BlockChain) BlockLocatorFromHash(hash *chainhash.Hash) BlockLocator {
 	return locator
 }
 
+// IndexLookupNode returns the block node identified by the provided hash.  It will
+// return nil if there is no entry for the hash.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) IndexLookupNode(hash *chainhash.Hash) *blockNode {
+	b.chainLock.RLock()
+	node := b.index.LookupNode(hash)
+	b.chainLock.RUnlock()
+	return node
+}
+
+// IndexNodeStatus provides concurrent-safe access to the status field of a node.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) IndexNodeStatus(node *blockNode) blockStatus {
+	b.chainLock.RLock()
+	status := b.index.NodeStatus(node)
+	b.chainLock.RUnlock()
+	return status
+}
+
 // LatestBlockLocator returns a block locator for the latest known tip of the
 // main (best) chain.
 //
