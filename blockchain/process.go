@@ -1,4 +1,5 @@
 // Copyright (c) 2013-2017 The btcsuite developers
+// Copyright (c) 2018-2021 The Decred developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -11,6 +12,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // BehaviorFlags is a bitmask defining tweaks to the normal behavior when
@@ -126,6 +128,54 @@ func (b *BlockChain) processOrphans(hash *chainhash.Hash, flags BehaviorFlags) e
 			processHashes = append(processHashes, orphanHash)
 		}
 	}
+	return nil
+}
+
+// checkKnownInvalidBlock returns an appropriate error when the provided block
+// is known to be invalid either due to failing validation itself or due to
+// having a known invalid ancestor (aka being part of an invalid branch).
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) checkKnownInvalidBlock(node *blockNode) error {
+	status := b.index.NodeStatus(node)
+	if status.KnownValidateFailed() {
+		str := fmt.Sprintf("block %s is known to be invalid", node.hash)
+		return ruleError(ErrKnownInvalidBlock, str)
+	}
+	if status.KnownInvalidAncestor() {
+		str := fmt.Sprintf("block %s is known to be part of an invalid branch",
+			node.hash)
+		return ruleError(ErrInvalidAncestorBlock, str)
+	}
+
+	return nil
+}
+
+// ProcessBlockHeader is the main workhorse for handling insertion of new block
+// headers into the block chain using headers-first semantics.  It includes
+// functionality such as rejecting headers that do not connect to an existing
+// known header, ensuring headers follow all rules that do not depend on having
+// all ancestor block data available, and insertion into the block index.
+//
+// Block headers that have already been inserted are ignored, unless they have
+// subsequently been marked invalid, in which case an appropriate error is
+// returned.
+//
+// It should be noted that this function intentionally does not accept block
+// headers that do not connect to an existing known header or to headers which
+// are already known to be a part of an invalid branch.  This means headers must
+// be processed in order.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) ProcessBlockHeader(header *wire.BlockHeader) error {
+	b.chainLock.Lock()
+	defer b.chainLock.Unlock()
+	const checkHeaderSanity = true
+	_, err := b.maybeAcceptBlockHeader(header, checkHeaderSanity)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
