@@ -98,6 +98,42 @@ var _ TestInstance = RejectedBlock{}
 // This implements the TestInstance interface.
 func (b RejectedBlock) FullBlockTestInstance() {}
 
+// AcceptedHeader defines a test instance that expects a header to be accepted to
+// the blockchain either by extending the main chain, on a side chain, but can't be
+// an orphan
+type AcceptedHeader struct {
+	Name   string
+	Block  *wire.MsgBlock
+	Height int32
+}
+
+// Ensure AcceptedHeader implements the TestInstance interface.
+var _ TestInstance = AcceptedHeader{}
+
+// FullBlockTestInstance only exists to allow AcceptedHeader to be treated as a
+// TestInstance.
+//
+// This implements the TestInstance interface.
+func (b AcceptedHeader) FullBlockTestInstance() {}
+
+// RejectedHeader defines a test instance that expects a header to be rejected by
+// the blockchain consensus rules.
+type RejectedHeader struct {
+	Name       string
+	Block      *wire.MsgBlock
+	Height     int32
+	RejectCode blockchain.ErrorCode
+}
+
+// Ensure RejectedHeader implements the TestInstance interface.
+var _ TestInstance = RejectedHeader{}
+
+// FullBlockTestInstance only exists to allow RejectedHeader to be treated as a
+// TestInstance.
+//
+// This implements the TestInstance interface.
+func (b RejectedHeader) FullBlockTestInstance() {}
+
 // OrphanOrRejectedBlock defines a test instance that expects a block to either
 // be accepted as an orphan or rejected.  This is useful since some
 // implementations might optimize the immediate rejection of orphan blocks when
@@ -756,6 +792,16 @@ func (g *testGenerator) assertTipBlockMerkleRoot(expected chainhash.Hash) {
 	}
 }
 
+// blockByName returns the block associated with the provided block name.  It
+// will panic if the specified block name does not exist.
+func (g *testGenerator) blockByName(blockName string) *wire.MsgBlock {
+	block, ok := g.blocksByName[blockName]
+	if !ok {
+		panic(fmt.Sprintf("block name %s does not exist", blockName))
+	}
+	return block
+}
+
 // assertTipBlockTxOutOpReturn panics if the current tip block associated with
 // the generator does not have an OP_RETURN script for the transaction output at
 // the provided tx index and output index.
@@ -887,7 +933,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	acceptedToSideChainWithExpectedTip := func(tipName string) {
 		tests = append(tests, []TestInstance{
 			acceptBlock(g.tipName, g.tip, false, false),
-			expectTipBlock(tipName, g.blocksByName[tipName]),
+			expectTipBlock(tipName, g.blockByName(tipName)),
 		})
 	}
 	rejected := func(code blockchain.ErrorCode) {
@@ -906,6 +952,8 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 		})
 	}
 
+	// Checking that duplicate blocks are not allowed
+	tests = append(tests, []TestInstance{rejectBlock("genesis", g.tip, blockchain.ErrDuplicateBlock)})
 	// ---------------------------------------------------------------------
 	// Generate enough blocks to have mature coinbase outputs to work with.
 	//
@@ -2107,7 +2155,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 			g.tip, false, false))
 	}
 	testInstances = append(testInstances, expectTipBlock(chain1TipName,
-		g.blocksByName[chain1TipName]))
+		g.blockByName(chain1TipName)))
 	tests = append(tests, testInstances)
 
 	// Extend the side chain by one to force the large reorg.
@@ -2132,4 +2180,148 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	accepted()
 
 	return tests, nil
+}
+
+// GenerateHeaders returns a slice of tests can be used to exercise the
+// concensus and validation rules on the headers. These tests consists
+// of blocks which only have header information that illustrates the header
+// vaidation
+func GenerateHeaders() (generator *testGenerator, tests [][]TestInstance) {
+	// Create a new database and chain instance needed to create the generator
+	// populated with the desired blocks.
+	params := chaincfg.RegressionNetParams
+	// Create a test generator instance initialized with the genesis block
+	// as the tip.
+	g, err := makeTestGenerator(regressionNetParams)
+	if err != nil {
+		return nil, nil
+	}
+	coinbaseMaturity := params.CoinbaseMaturity
+
+	// Define some convenience helper functions to return an individual test
+	// instance that has the described characteristics.
+	//
+	// acceptHeader creates a test instance that expects the provided header
+	// to be accepted by the consensus rules.
+	//
+	// rejectHeader creates a test instance that expects the provided header
+	// to be rejected by the consensus rules.
+	acceptHeader := func(blockName string, blockHeader *wire.MsgBlock) TestInstance {
+		blockHeight := g.blockHeights[blockName]
+		return AcceptedHeader{blockName, blockHeader, blockHeight}
+	}
+	rejectHeader := func(blockName string, blockHeader *wire.MsgBlock, code blockchain.ErrorCode) TestInstance {
+		blockHeight := g.blockHeights[blockName]
+		return RejectedHeader{blockName, blockHeader, blockHeight, code}
+	}
+
+	// Define some convenience helper functions to populate the tests slice
+	// with test instances that have the described characteristics.
+	//
+	// accepted creates and appends a single acceptHeader test instance for
+	// the current tip which expects the header to be accepted to the main
+	// chain.
+	//
+	// rejected creates and appends a single rejectHeader test instance for
+	// the current tip.
+	accepted := func() {
+		tests = append(tests, []TestInstance{
+			acceptHeader(g.tipName, g.tip),
+		})
+	}
+	rejected := func(code blockchain.ErrorCode) {
+		tests = append(tests, []TestInstance{
+			rejectHeader(g.tipName, g.tip, code),
+		})
+	}
+	// ---------------------------------------------------------------------
+	// Generate enough blocks to have mature coinbase outputs to work with.
+	//
+	//   genesis -> bm0 -> bm1 -> ... -> bm99
+	// ---------------------------------------------------------------------
+	var testInstances []TestInstance
+	for i := uint16(0); i < coinbaseMaturity; i++ {
+		blockName := fmt.Sprintf("bm%d", i)
+		g.nextBlock(blockName, nil)
+		g.saveTipCoinbaseOut()
+		testInstances = append(testInstances, acceptHeader(g.tipName,
+			g.tip))
+	}
+	tests = append(tests, testInstances)
+
+	// Collect spendable outputs.  This simplifies the code below.
+	var outs []*spendableOut
+	for i := uint16(0); i < coinbaseMaturity; i++ {
+		op := g.oldestCoinbaseOut()
+		outs = append(outs, &op)
+	}
+	// Adding a block to the existing chain and accepting it
+	//
+	// ... -> b0
+	g.nextBlock("b0", nil)
+	accepted()
+	// Create a block with invalid proof of work and reject that header
+	//
+	//	 ... -> b0()
+	// 					\-> b1(1)
+	g.setTip("b0")
+	b1 := g.nextBlock("b1", outs[1])
+
+	// Create a block with the parent as a header that will be rejected.
+	// This block's header will trigger the the error "missing parent".
+	g.nextBlock("b1a", outs[1])
+
+	// This can't be done inside a munge function passed to nextBlock
+	// because the block is solved after the function returns and this test
+	// requires an unsolved block.
+	{
+		origHash := b1.BlockHash()
+		for {
+			// Keep incrementing the nonce until the hash treated as
+			// a uint256 is higher than the limit.
+			b1.Header.Nonce++
+			blockHash := b1.BlockHash()
+			hashNum := blockchain.HashToBig(&blockHash)
+			if hashNum.Cmp(g.params.PowLimit) >= 0 {
+				break
+			}
+		}
+		g.updateBlockState("b46", origHash, "b46", b1)
+	}
+	g.setTip(("b1"))
+	rejected(blockchain.ErrHighHash)
+
+	g.setTip(("b1a"))
+	rejected(blockchain.ErrMissingParent)
+	// Create block with an invalid proof-of-work limit.
+	//
+	//   ... -> b0()
+	//                 \-> b2(1)
+	g.setTip("b0")
+	g.nextBlock("b2", outs[1], func(b *wire.MsgBlock) {
+		b.Header.Bits--
+	})
+	rejected(blockchain.ErrUnexpectedDifficulty)
+	// Create block with an invalid negative proof-of-work limit.
+	//
+	//   ... -> b0()
+	//                 \-> b3(1)
+	g.setTip("b0")
+	b3 := g.nextBlock("b3", outs[1])
+	// This can't be done inside a munge function passed to nextBlock
+	// because the block is solved after the function returns and this test
+	// involves an unsolvable block.
+	{
+		origHash := b3.BlockHash()
+		b3.Header.Bits = 0x01810000 // -1 in compact form.
+		g.updateBlockState("b3", origHash, "b3", b3)
+	}
+	rejected(blockchain.ErrUnexpectedDifficulty)
+	// Adding a block with valid header
+	//
+	// ... -> b0() -> b4(1)
+	g.setTip("b0")
+	g.nextBlock("b4", outs[1])
+	accepted()
+	return &g, tests
 }
