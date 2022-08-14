@@ -228,6 +228,39 @@ func (b *BlockChain) HaveBlock(hash *chainhash.Hash) (bool, error) {
 	return exists || b.IsKnownOrphan(hash), nil
 }
 
+// HaveBlockWithData returns whether or not the chain instance has the block
+// represented by the passed hash This includes checking the various places
+// a block can be like part of the main chain, on a side chain, or in the orphan
+// pool. In addition to this the function also checks for presence of block
+// data along with presence of node.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) HaveBlockWithData(hash *chainhash.Hash) (bool, error) {
+	// Checking if node exists in blockIndex or database.
+	exists, err := b.blockExists(hash)
+	if err != nil {
+		return false, err
+	}
+	if exists || b.IsKnownOrphan(hash) {
+		// Retrieving node from the blockIndex so that we can check the node
+		// status.
+		node := b.IndexLookupNode(hash)
+		// If the returned node is nil then the block is stored in the
+		// database and not present in block index, we return true here
+		// as presence of data in database means that we already have
+		// block data.
+		if node == nil {
+			return true, nil
+		}
+		// If block data is present then we return true, otherwise we would
+		// return false.
+		return node.status.HaveData(), nil
+	}
+	// If the block is not present in blockIndex or in database or is not known
+	// orphan, then we will return false.
+	return false, nil
+}
+
 // IsKnownOrphan returns whether the passed hash is currently a known orphan.
 // Keep in mind that only a limited number of orphans are held onto for a
 // limited amount of time, so this function must not be used as an absolute
