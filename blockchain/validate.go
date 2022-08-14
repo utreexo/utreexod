@@ -467,9 +467,15 @@ func checkBlockHeaderSanity(header *wire.BlockHeader, powLimit *big.Int, timeSou
 func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
 	msgBlock := block.MsgBlock()
 	header := &msgBlock.Header
-	err := checkBlockHeaderSanity(header, powLimit, timeSource, flags)
-	if err != nil {
-		return err
+
+	// If the third bit of the flag is set, then it means that the header
+	// is already been validated, so we don't need to revalidate it. So we
+	// check block header sanity, only when the second bit is not set to 1
+	if (flags >> 2 & 1) != 1 {
+		err := checkBlockHeaderSanity(header, powLimit, timeSource, flags)
+		if err != nil {
+			return err
+		}
 	}
 
 	// A block must have at least one transaction.
@@ -726,9 +732,15 @@ func (b *BlockChain) checkBlockHeaderContext(header *wire.BlockHeader, prevNode 
 func (b *BlockChain) checkBlockContext(block *btcutil.Block, prevNode *blockNode, flags BehaviorFlags) error {
 	// Perform all block header related validation checks.
 	header := &block.MsgBlock().Header
-	err := b.checkBlockHeaderContext(header, prevNode, flags)
-	if err != nil {
-		return err
+
+	// If the third bit of the flag is set, then it means that the header
+	// is already been validated, so we don't need to revalidate it. So we
+	// check block header context, only when the second bit is not set to 1
+	if (flags >> 2 & 1) != 1 {
+		err := b.checkBlockHeaderContext(header, prevNode, flags)
+		if err != nil {
+			return err
+		}
 	}
 
 	fastAdd := flags&BFFastAdd == BFFastAdd
