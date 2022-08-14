@@ -200,13 +200,20 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 
 	blockHash := block.Hash()
 	log.Tracef("Processing block %v", blockHash)
-
 	// The block must not already exist in the main chain or side chains.
 	exists, err := b.blockExists(blockHash)
 	if err != nil {
 		return false, false, err
 	}
-	if exists {
+	// Looking up for node and checking if it have block data or not
+	node := b.index.LookupNode(blockHash)
+	haveData := false
+	if node != nil {
+		haveData = node.status.HaveData()
+	}
+	// Returning error of duplicate block only if block data is already present
+	// at the node and we recieved duplicated block data.
+	if exists && haveData {
 		str := fmt.Sprintf("already have block %v", blockHash)
 		return false, false, ruleError(ErrDuplicateBlock, str)
 	}
@@ -217,7 +224,15 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 		return false, false, ruleError(ErrDuplicateBlock, str)
 	}
 
-	// Perform preliminary sanity checks on the block and its transactions.
+	// Reject blocks that are already known to be invalid immediately to avoid
+	// additional work when possible.
+	if node != nil {
+		if err := b.checkKnownInvalidBlock(node); err != nil {
+			return false, false, err
+		}
+	}
+
+	// Perform preliminary sanity checks on the block and its transactions.a
 	err = checkBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
 	if err != nil {
 		return false, false, err
