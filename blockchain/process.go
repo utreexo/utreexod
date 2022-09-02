@@ -31,6 +31,11 @@ const (
 	// not be performed.
 	BFNoPoWCheck
 
+	// BFHeaderValidated indicates the header has already been validated
+	// and the header validation can be skipped when block validation is
+	// being performed.
+	BFHeaderValidated
+
 	// BFNone is a convenience value to specifically indicate no flags.
 	BFNone BehaviorFlags = 0
 )
@@ -205,6 +210,12 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 	if err != nil {
 		return false, false, err
 	}
+	// If the block node is present, it means that the header is already verified.
+	// So we add this to the behavioural flag and the flag is then passed to further
+	// functions, so that we don't have to re-validate the header.
+	if exists {
+		flags |= BFHeaderValidated
+	}
 	// Look up the node and check if the block data is already stored.
 	node := b.index.LookupNode(blockHash)
 	haveData := false
@@ -230,7 +241,6 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 			return false, false, err
 		}
 	}
-
 	// Perform preliminary sanity checks on the block and its transactions.
 	err = checkBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
 	if err != nil {
