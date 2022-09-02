@@ -905,13 +905,13 @@ func (sm *SyncManager) fetchHeaderBlocks() {
 		}
 
 		iv := wire.NewInvVect(wire.InvTypeBlock, node.hash)
-		haveInv, err := sm.haveInventory(iv)
+		haveBlock, err := sm.chain.HaveBlockWithData(node.hash)
 		if err != nil {
 			log.Warnf("Unexpected failure when checking for "+
 				"existing inventory during header block "+
 				"fetch: %v", err)
 		}
-		if !haveInv {
+		if !haveBlock {
 			syncPeerState := sm.peerStates[sm.syncPeer]
 
 			sm.requestedBlocks[*node.hash] = struct{}{}
@@ -1008,24 +1008,23 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			peer.Disconnect()
 			return
 		}
-
+		// Process the block headers that are downloaded and if it passes
+		// all the checks, create a block node that only contains header.
+		err := sm.chain.ProcessBlockHeader(blockHeader)
+		if err != nil {
+			// Note that there is no need to check for an orphan header here
+			// because they were already verified to connect above.
+			log.Debugf("Failed to process block header %s from peer %s: %v -- "+
+				"disconnecting", blockHeader.BlockHash(), peer, err)
+			peer.Disconnect()
+			return
+		}
 		// Verify the header at the next checkpoint height matches.
 		if node.height == sm.nextCheckpoint.Height {
-			if node.hash.IsEqual(sm.nextCheckpoint.Hash) {
-				receivedCheckpoint = true
-				log.Infof("Verified downloaded block "+
-					"header against checkpoint at height "+
-					"%d/hash %s", node.height, node.hash)
-			} else {
-				log.Warnf("Block header at height %d/hash "+
-					"%s from peer %s does NOT match "+
-					"expected checkpoint hash of %s -- "+
-					"disconnecting", node.height,
-					node.hash, peer.Addr(),
-					sm.nextCheckpoint.Hash)
-				peer.Disconnect()
-				return
-			}
+			receivedCheckpoint = true
+			log.Infof("Verified downloaded block "+
+				"header against checkpoint at height "+
+				"%d/hash %s", node.height, node.hash)
 			break
 		}
 	}
