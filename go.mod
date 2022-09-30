@@ -22,4 +22,4 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 )
 
-go 1.17
+go 1.18
