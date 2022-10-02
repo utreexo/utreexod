@@ -142,11 +142,13 @@ func (ff *FlatFileState) Init(path, dataName string) error {
 // Two important things to note:
 //
 // 1: The height passed in should be of the corresponding Bitcoin block
-//    height and it is used as a key to later fetch the stored data.
+//
+//	height and it is used as a key to later fetch the stored data.
 //
 // 2: The height and data passed in should be for the next Bitcoin block in
-//    sequence.  If data for block 50 was stored last, then data for block
-//    51 should be passed in.
+//
+//	sequence.  If data for block 50 was stored last, then data for block
+//	51 should be passed in.
 //
 // This function is safe for concurrent access.
 func (ff *FlatFileState) StoreData(height int32, data []byte) error {
