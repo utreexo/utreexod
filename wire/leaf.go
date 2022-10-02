@@ -34,8 +34,9 @@ var (
 //
 // Commitment:   BlockHash is included in the LeafData to commit to a block.
 // Verification: OutPoint is the OutPoint for the utxo being referenced.
-//               Height, IsCoinbase, Amount, and PkScript is the data needed for
-//               tx verification (script, signatures, etc).
+//
+//	Height, IsCoinbase, Amount, and PkScript is the data needed for
+//	tx verification (script, signatures, etc).
 type LeafData struct {
 	BlockHash             chainhash.Hash
 	OutPoint              OutPoint
