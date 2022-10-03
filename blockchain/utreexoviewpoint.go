@@ -276,6 +276,25 @@ func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
 	return nil
 }
 
+// ReconstructUData is a wrapper around reconstructUData and provides a convenient
+// function for udata reconstruction.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) ReconstructUData(ud *wire.UData, blockHash chainhash.Hash) ([]utreexo.Hash, error) {
+	block, err := b.BlockByHash(&blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	_, _, inskip, _ := DedupeBlock(block)
+	delHashes, err := reconstructUData(ud, block, b.bestChain, inskip)
+	if err != nil {
+		return nil, err
+	}
+
+	return delHashes, nil
+}
+
 // reconstructUData adds in missing information to the passed in compact UData and
 // makes it full. The hashes returned are the hashes of the individual leaf data
 // that were commited into the accumulator.

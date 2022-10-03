@@ -166,6 +166,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getrawtransaction":                handleGetRawTransaction,
 	"getttl":                           handleGetTTL,
 	"gettxout":                         handleGetTxOut,
+	"getutreexoproof":                  handleGetUtreexoProof,
 	"help":                             handleHelp,
 	"node":                             handleNode,
 	"ping":                             handlePing,
@@ -282,6 +283,7 @@ var rpcLimited = map[string]struct{}{
 	"getrawmempool":              {},
 	"getrawtransaction":          {},
 	"gettxout":                   {},
+	"getutreexoproof":            {},
 	"proveutxochaintipinclusion": {},
 	"searchrawtransactions":      {},
 	"sendrawtransaction":         {},
@@ -3017,6 +3019,121 @@ func handleProveUtxoChainTipInclusion(s *rpcServer, cmd interface{}, closeChan <
 	}
 
 	return proveReply, nil
+}
+
+// handleGetUtreexoProof implements the getutreexoproof command.
+func handleGetUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (
+	interface{}, error) {
+	// Before doing anything, check that one of the indexes are active.
+	if s.cfg.UtreexoProofIndex == nil && s.cfg.FlatUtreexoProofIndex == nil {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: "A utreexo proof index must be enabled. " +
+				"(--utreexoproofindex) or (--flatutreexoproofindex).",
+		}
+	}
+	c := cmd.(*btcjson.GetUtreexoProofCmd)
+
+	// Convert the provided blockhash hex to a Hash.
+	blockHash, err := chainhash.NewHashFromStr(c.BlockHash)
+	if err != nil {
+		return nil, rpcDecodeHexError(c.BlockHash)
+	}
+
+	var height int32
+	height, err = s.cfg.Chain.BlockHeightByHash(blockHash)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Height of blockhash %s couldn't be fetched. "+
+				"Error %v", c.BlockHash, err),
+		}
+	}
+
+	if height == 0 {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Blockhash %s is the hash of the genesis "+
+				"block and thus doesn't have a utreexoproof.", c.BlockHash),
+		}
+	}
+
+	// We already checked that at least one index is active.  Pick one and
+	// generate the inclusion proof.
+	var udata *wire.UData
+	if s.cfg.UtreexoProofIndex != nil {
+		udata, err = s.cfg.UtreexoProofIndex.FetchUtreexoProof(blockHash)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't fetch the proof for blockhash %s from "+
+					"the utreexoproofindex. Error: %v", c.BlockHash, err),
+			}
+		}
+	} else {
+		udata, err = s.cfg.FlatUtreexoProofIndex.FetchUtreexoProof(height, false)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't fetch the proof for blockhash %s from "+
+					"the flatutreexoproofindex. Error: %v", c.BlockHash, err),
+			}
+		}
+	}
+
+	targetHashes, err := s.cfg.Chain.ReconstructUData(udata, *blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	serialized := bytes.NewBuffer(make([]byte, udata.SerializeSize()))
+	err = udata.Serialize(serialized)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Couldn't serialize the fetched utreexo data. Error: %v", err),
+		}
+	}
+
+	if *c.Verbosity == 0 {
+		return hex.EncodeToString(serialized.Bytes()), nil
+	}
+
+	// Convert the hashes to string.
+	proofString := make([]string, 0, len(udata.AccProof.Proof))
+	for _, singleProof := range udata.AccProof.Proof {
+		proofString = append(proofString, hex.EncodeToString(singleProof[:]))
+	}
+
+	// Convert the hashes to string.
+	targetHashString := make([]string, 0, len(targetHashes))
+	for _, targetHash := range targetHashes {
+		targetHashString = append(targetHashString, hex.EncodeToString(targetHash[:]))
+	}
+
+	// Convert the hashes to string.
+	targetPreimageString := make([]string, 0, len(udata.LeafDatas))
+	for _, ld := range udata.LeafDatas {
+		var buf bytes.Buffer
+		err = ld.Serialize(&buf)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't serialize the fetched target hashes. Error: %v", err),
+			}
+		}
+		targetPreimageString = append(targetPreimageString, hex.EncodeToString(buf.Bytes()))
+	}
+
+	getReply := &btcjson.GetUtreexoProofVerboseResult{
+		ProofHashes:     proofString,
+		RememberIndexes: udata.RememberIdx,
+		TargetHashes:    targetHashString,
+		TargetPreimages: targetPreimageString,
+		ProofTargets:    udata.AccProof.Targets,
+	}
+
+	return getReply, nil
 }
 
 // retrievedTx represents a transaction that was either loaded from the

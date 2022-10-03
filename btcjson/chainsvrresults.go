@@ -870,3 +870,15 @@ type ProveUtxoChainTipInclusionVerboseResult struct {
 	HashesProven []string `json:"hashesproven"`
 	Hex          string   `json:"hex"`
 }
+
+// GetUtreexoProofVerboseResult models the data from the
+// getutreexoproof when the verbose flag is set.  When the
+// verbose flag is not set, just the hex-encoded string of the entire proof
+// is returned.
+type GetUtreexoProofVerboseResult struct {
+	ProofHashes     []string `json:"proofhashes"`
+	RememberIndexes []uint32 `json:"rememberindexes"`
+	TargetHashes    []string `json:"targethashes"`
+	TargetPreimages []string `json:"targetpreimages"`
+	ProofTargets    []uint64 `json:"prooftargets"`
+}
