@@ -43,7 +43,7 @@ const (
 	// files.
 	flatRememberIdxName = "remember"
 
-	// flatRememberIdxName is the name given to the remember idx data of the flat
+	// flatUtreexoProofStatsName is the name given to the proof stats data of the flat
 	// utreexo proof index.  This name is used as the dataFile name in the flat
 	// files.
 	flatUtreexoProofStatsName = "utreexoproofstats"
