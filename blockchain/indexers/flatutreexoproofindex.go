@@ -1,4 +1,4 @@
-// Copyright (c) 221 The utreexo developers
+// Copyright (c) 2021 The utreexo developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -43,7 +43,7 @@ const (
 	// files.
 	flatRememberIdxName = "remember"
 
-	// flatRememberIdxName is the name given to the remember idx data of the flat
+	// flatUtreexoProofStatsName is the name given to the proof stats data of the flat
 	// utreexo proof index.  This name is used as the dataFile name in the flat
 	// files.
 	flatUtreexoProofStatsName = "utreexoproofstats"
