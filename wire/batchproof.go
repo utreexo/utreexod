@@ -9,13 +9,13 @@ import (
 	"io"
 	"strings"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // BatchProofSerializeTargetSize returns how many bytes it would take to serialize all
 // the targets in the batch proof.
-func BatchProofSerializeTargetSize(bp *accumulator.BatchProof) int {
+func BatchProofSerializeTargetSize(bp *utreexo.Proof) int {
 	size := VarIntSerializeSize(uint64(len(bp.Targets)))
 	for _, target := range bp.Targets {
 		size += VarIntSerializeSize(target)
@@ -26,7 +26,7 @@ func BatchProofSerializeTargetSize(bp *accumulator.BatchProof) int {
 
 // BatchProofAccProofSize returns how many bytes it would take to serialize the
 // accumulator proof in the batch proof.
-func BatchProofSerializeAccProofSize(bp *accumulator.BatchProof) int {
+func BatchProofSerializeAccProofSize(bp *utreexo.Proof) int {
 	size := VarIntSerializeSize(uint64(len(bp.Proof)))
 	size += chainhash.HashSize * len(bp.Proof)
 	return size
@@ -34,7 +34,7 @@ func BatchProofSerializeAccProofSize(bp *accumulator.BatchProof) int {
 
 // BatchProofSerializeSize returns the number of bytes it would tkae to serialize
 // a BatchProof.
-func BatchProofSerializeSize(bp *accumulator.BatchProof) int {
+func BatchProofSerializeSize(bp *utreexo.Proof) int {
 	// First the targets.
 	size := BatchProofSerializeTargetSize(bp)
 
@@ -66,7 +66,7 @@ func BatchProofSerializeSize(bp *accumulator.BatchProof) int {
 
 // BatchProofSerialize encodes the BatchProof to w using the BatchProof
 // serialization format.
-func BatchProofSerialize(w io.Writer, bp *accumulator.BatchProof) error {
+func BatchProofSerialize(w io.Writer, bp *utreexo.Proof) error {
 	err := WriteVarInt(w, 0, uint64(len(bp.Targets)))
 	if err != nil {
 		return err
@@ -97,7 +97,7 @@ func BatchProofSerialize(w io.Writer, bp *accumulator.BatchProof) error {
 
 // BatchProofSerialize decodes the BatchProof to r using the BatchProof
 // serialization format.
-func BatchProofDeserialize(r io.Reader) (*accumulator.BatchProof, error) {
+func BatchProofDeserialize(r io.Reader) (*utreexo.Proof, error) {
 	targetCount, err := ReadVarInt(r, 0)
 	if err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func BatchProofDeserialize(r io.Reader) (*accumulator.BatchProof, error) {
 		return nil, err
 	}
 
-	proofs := make([]accumulator.Hash, proofCount)
+	proofs := make([]utreexo.Hash, proofCount)
 	for i := range proofs {
 		_, err = io.ReadFull(r, proofs[i][:])
 		if err != nil {
@@ -126,12 +126,12 @@ func BatchProofDeserialize(r io.Reader) (*accumulator.BatchProof, error) {
 		}
 	}
 
-	return &accumulator.BatchProof{Targets: targets, Proof: proofs}, nil
+	return &utreexo.Proof{Targets: targets, Proof: proofs}, nil
 }
 
 // BatchProofToString converts a batchproof into a human-readable string.  Note
 // that the hashes are in little endian order.
-func BatchProofToString(bp *accumulator.BatchProof) string {
+func BatchProofToString(bp *utreexo.Proof) string {
 	// First the targets.
 	str := "targets:" + strings.Join(strings.Fields(fmt.Sprint(bp.Targets)), ",") + " "
 

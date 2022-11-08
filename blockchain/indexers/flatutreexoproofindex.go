@@ -7,12 +7,13 @@ package indexers
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"reflect"
 	"sync"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -48,6 +49,11 @@ const (
 	// files.
 	flatUtreexoProofStatsName = "utreexoproofstats"
 
+	// flatUtreexoRootsName is the name given to the roots data of the flat
+	// utreexo proof index.  This name is used as the dataFile name in the flat
+	// files.
+	flatUtreexoRootsName = "roots"
+
 	// defaultProofGenInterval is the default value used to determine how often
 	// a utreexo accumulator proof should be generated.  An interval of 10 will
 	// make the proof be generated on blocks 10, 20, 30 and so on.
@@ -79,6 +85,7 @@ type FlatUtreexoProofIndex struct {
 	undoState        FlatFileState
 	rememberIdxState FlatFileState
 	proofStatsState  FlatFileState
+	rootsState       FlatFileState
 	chainParams      *chaincfg.Params
 
 	// The blockchain instance the index corresponds to.
@@ -167,8 +174,29 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
+	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
+	for _, ld := range ud.LeafDatas {
+		delHashes = append(delHashes, ld.LeafHash())
+	}
+
+	err = idx.storeUndoBlock(block.Height(),
+		uint64(len(adds)), ud.AccProof.Targets, delHashes)
+	if err != nil {
+		return err
+	}
+
+	err = idx.storeRoots(block.Height(), idx.utreexoState.state)
+	if err != nil {
+		return err
+	}
+
+	addHashes := make([]utreexo.Hash, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, add.Hash)
+	}
+
 	idx.mtx.Lock()
-	undoBlock, err := idx.utreexoState.state.Modify(adds, ud.AccProof.Targets)
+	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof.Targets)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -176,11 +204,6 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 
 	idx.pStats.UpdateTotalDelCount(uint64(len(dels)))
 	idx.pStats.UpdateUDStats(false, ud)
-
-	err = idx.storeUndoBlock(block.Height(), *undoBlock)
-	if err != nil {
-		return err
-	}
 
 	// If the interval is 1, then just save the utreexo proof and we're done.
 	if idx.proofGenInterVal == 1 {
@@ -324,7 +347,12 @@ func (idx *FlatUtreexoProofIndex) attachBlock(blk *btcutil.Block, stxos []blockc
 		return err
 	}
 
-	_, err = idx.utreexoState.state.Modify(adds, ud.AccProof.Targets)
+	delHashes := make([]utreexo.Hash, len(dels))
+	for i, del := range dels {
+		delHashes[i] = del.LeafHash()
+	}
+
+	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof.Targets)
 	if err != nil {
 		return err
 	}
@@ -385,6 +413,20 @@ func (idx *FlatUtreexoProofIndex) reattachToUtreexoState(blocks []*btcutil.Block
 	return nil
 }
 
+// printHashes returns the hashes encoded to string.
+func printHashes(hashes []utreexo.Hash) string {
+	str := ""
+	for i, hash := range hashes {
+		str += " " + hex.EncodeToString(hash[:])
+
+		if i != len(hashes)-1 {
+			str += "\n"
+		}
+	}
+
+	return str
+}
+
 // undoUtreexoState reverses the utreexo accumulator state to the desired height.
 func (idx *FlatUtreexoProofIndex) undoUtreexoState(currentHeight, desiredHeight int32) error {
 	restoreState := func(start, finish int32, prevErr error) {
@@ -397,6 +439,16 @@ func (idx *FlatUtreexoProofIndex) undoUtreexoState(currentHeight, desiredHeight 
 		}
 	}
 
+	var desiredRoots []utreexo.Hash
+	if desiredHeight != 0 {
+		stump, err := idx.fetchRoots(desiredHeight)
+		if err != nil {
+			return fmt.Errorf("undoUtreexoState: cannot find roots at %d, err %v.", desiredHeight, err)
+		}
+
+		desiredRoots = stump.Roots
+	}
+
 	// Go back to the desired block to generate the multi-block proof.
 	for h := currentHeight; h >= desiredHeight; h-- {
 		if h == 0 {
@@ -404,17 +456,52 @@ func (idx *FlatUtreexoProofIndex) undoUtreexoState(currentHeight, desiredHeight 
 			continue
 		}
 
-		undoBlock, err := idx.fetchUndoBlock(h)
+		var stump utreexo.Stump
+		var err error
+		stump, err = idx.fetchRoots(h)
+		if err != nil {
+			restoreState(h, currentHeight, err)
+			return fmt.Errorf("undoUtreexoState: cannot find roots at %d, err %v.",
+				h, err)
+		}
+		numAdds, targets, delHashes, err := idx.fetchUndoBlock(h)
 		if err != nil {
 			restoreState(h, currentHeight, err)
 			return fmt.Errorf("undoUtreexoState: cannot find undoblock at %d, err %v.",
 				h, err)
 		}
 
-		err = idx.utreexoState.state.Undo(*undoBlock)
+		err = idx.utreexoState.state.Undo(numAdds, targets, delHashes, stump.Roots)
 		if err != nil {
 			restoreState(h, currentHeight, err)
 			return err
+		}
+
+		roots := idx.utreexoState.state.GetRoots()
+
+		if len(stump.Roots) != len(roots) {
+			err := fmt.Errorf("Error undoing height %d. Expected root length of %d but got %d\nExpected:\n%s\nGot:\n%s\n",
+				h, len(stump.Roots), len(roots), printHashes(stump.Roots), printHashes(roots))
+			return err
+		}
+		for i, desiredRoot := range stump.Roots {
+			if roots[i] != desiredRoot {
+				return fmt.Errorf("Error undoing height %d. Expected root of %s at index %d but got %s",
+					h, hex.EncodeToString(desiredRoot[:]), i, hex.EncodeToString(roots[i][:]))
+			}
+		}
+	}
+
+	gotRoots := idx.utreexoState.state.GetRoots()
+	if len(desiredRoots) != len(gotRoots) {
+		err := fmt.Errorf("Expected root length of %d but got %d\nExpected:\n%s\nGot:\n%s\n",
+			len(desiredRoots), len(gotRoots), printHashes(desiredRoots), printHashes(gotRoots))
+		return err
+	}
+	for i, desiredRoot := range desiredRoots {
+		if gotRoots[i] != desiredRoot {
+			return fmt.Errorf("Expected root of %s at index %d but got %s",
+				hex.EncodeToString(desiredRoot[:]), i, hex.EncodeToString(gotRoots[i][:]))
 		}
 	}
 
@@ -460,7 +547,7 @@ func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight
 		panic(err)
 	}
 
-	delHashes := make([]accumulator.Hash, 0, len(delsToProve))
+	delHashes := make([]utreexo.Hash, 0, len(delsToProve))
 	for _, del := range delsToProve {
 		delHashes = append(delHashes, del.LeafHash())
 	}
@@ -509,13 +596,26 @@ func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight
 func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
-	undoBlock, err := idx.fetchUndoBlock(block.Height())
+	ud, err := idx.FetchUtreexoProof(block.Height(), false)
+	if err != nil {
+		return err
+	}
+
+	_, outCount, _, outskip := blockchain.DedupeBlock(block)
+	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+
+	delHashes := make([]utreexo.Hash, len(ud.AccProof.Targets))
+	for i := range delHashes {
+		delHashes[i] = ud.LeafDatas[i].LeafHash()
+	}
+
+	state, err := idx.fetchRoots(block.Height())
 	if err != nil {
 		return err
 	}
 
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Undo(*undoBlock)
+	err = idx.utreexoState.state.Undo(uint64(len(adds)), ud.AccProof.Targets, delHashes, state.Roots)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -531,6 +631,11 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 	}
 
 	err = idx.undoState.DisconnectBlock(block.Height())
+	if err != nil {
+		return err
+	}
+
+	err = idx.rootsState.DisconnectBlock(block.Height())
 	if err != nil {
 		return err
 	}
@@ -575,7 +680,7 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32, excludeAccProo
 // the given height.  Attempting to fetch multi-block proof at a height where there weren't
 // any mulit-block proof generated will result in an error.
 func (idx *FlatUtreexoProofIndex) FetchMultiUtreexoProof(height int32) (
-	*wire.UData, *wire.UData, []accumulator.Hash, error) {
+	*wire.UData, *wire.UData, []utreexo.Hash, error) {
 
 	if height == 0 {
 		return nil, nil, nil, fmt.Errorf("No Utreexo Proof for height %d", height)
@@ -618,7 +723,7 @@ func (idx *FlatUtreexoProofIndex) FetchMultiUtreexoProof(height int32) (
 		return nil, nil, nil, err
 	}
 	count := binary.LittleEndian.Uint32(buf)
-	dels := make([]accumulator.Hash, count)
+	dels := make([]utreexo.Hash, count)
 	for i := range dels {
 		_, err = r.Read(dels[i][:])
 		if err != nil {
@@ -680,7 +785,7 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, excludeAccProof bool,
 // be generated.  The targets for the block, utreexo data for the block, and the mulit-block
 // accumulator proof for the upcoming block interval is stored.
 func (idx *FlatUtreexoProofIndex) storeMultiBlockProof(height int32, ud, multiUd *wire.UData,
-	dels []accumulator.Hash) error {
+	dels []utreexo.Hash) error {
 
 	size := ud.SerializeSizeCompactNoAccProof()
 	size += multiUd.SerializeSizeCompact(udataSerializeBool)
@@ -721,14 +826,30 @@ func (idx *FlatUtreexoProofIndex) storeMultiBlockProof(height int32, ud, multiUd
 }
 
 // storeUndoBlock serializes and stores undo blocks in the undo state.
-func (idx *FlatUtreexoProofIndex) storeUndoBlock(height int32, undoBlock accumulator.UndoBlock) error {
-	undoBuf := bytes.NewBuffer(make([]byte, 0, undoBlock.SerializeSize()))
-	err := undoBlock.Serialize(undoBuf)
+func (idx *FlatUtreexoProofIndex) storeUndoBlock(height int32,
+	numAdds uint64, targets []uint64, delHashes []utreexo.Hash) error {
+
+	bytes, err := serializeUndoBlock(numAdds, targets, delHashes)
 	if err != nil {
 		return err
 	}
 
-	err = idx.undoState.StoreData(height, undoBuf.Bytes())
+	err = idx.undoState.StoreData(height, bytes)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// storeRoots serializes and stores roots to the roots state.
+func (idx *FlatUtreexoProofIndex) storeRoots(height int32, p *utreexo.Pollard) error {
+	serialized, err := blockchain.SerializeUtreexoRoots(p.NumLeaves, p.GetRoots())
+	if err != nil {
+		return err
+	}
+
+	err = idx.rootsState.StoreData(height, serialized)
 	if err != nil {
 		return err
 	}
@@ -762,24 +883,35 @@ func (idx *FlatUtreexoProofIndex) storeRemembers(remembers [][]uint32, startHeig
 }
 
 // fetchUndoBlock returns the undoblock for the given block height.
-func (idx *FlatUtreexoProofIndex) fetchUndoBlock(height int32) (*accumulator.UndoBlock, error) {
+func (idx *FlatUtreexoProofIndex) fetchUndoBlock(height int32) (uint64, []uint64, []utreexo.Hash, error) {
 	if height == 0 {
-		return nil, fmt.Errorf("No Undo Block for height %d", height)
+		return 0, nil, nil, fmt.Errorf("No Undo Block for height %d", height)
 	}
 
 	undoBytes, err := idx.undoState.FetchData(height)
 	if err != nil {
-		return nil, err
+		return 0, nil, nil, err
 	}
-	r := bytes.NewReader(undoBytes)
 
-	undoBlock := new(accumulator.UndoBlock)
-	err = undoBlock.Deserialize(r)
+	return deserializeUndoBlock(undoBytes)
+}
+
+func (idx *FlatUtreexoProofIndex) fetchRoots(height int32) (utreexo.Stump, error) {
+	if height == 0 {
+		return utreexo.Stump{}, nil
+	}
+
+	undoBytes, err := idx.rootsState.FetchData(height)
 	if err != nil {
-		return nil, err
+		return utreexo.Stump{}, err
 	}
 
-	return undoBlock, nil
+	numLeaves, roots, err := blockchain.DeserializeUtreexoRoots(undoBytes)
+	if err != nil {
+		return utreexo.Stump{}, err
+	}
+
+	return utreexo.Stump{Roots: roots, NumLeaves: numLeaves}, nil
 }
 
 // GenerateUData generates utreexo data for the dels passed in.  Height passed in
@@ -840,7 +972,7 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 
 	// Now we'll turn those leaves into hashes.  These are the hashes that are
 	// commited in the accumulator.
-	hashes := make([]accumulator.Hash, 0, len(leaves))
+	hashes := make([]utreexo.Hash, 0, len(leaves))
 	for _, leaf := range leaves {
 		hashes = append(hashes, leaf.LeafHash())
 	}
@@ -850,7 +982,7 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 	idx.mtx.RLock()
 	defer idx.mtx.RUnlock()
 
-	accProof, err := idx.utreexoState.state.ProveBatch(hashes)
+	accProof, err := idx.utreexoState.state.Prove(hashes)
 	if err != nil {
 		return nil, err
 	}
@@ -870,9 +1002,9 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 
 // VerifyAccProof verifies the given accumulator proof.  Returns an error if the
 // verification failed.
-func (idx *FlatUtreexoProofIndex) VerifyAccProof(toProve []accumulator.Hash,
-	proof *accumulator.BatchProof) error {
-	return idx.utreexoState.state.VerifyBatchProof(toProve, *proof)
+func (idx *FlatUtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
+	proof *utreexo.Proof) error {
+	return idx.utreexoState.state.Verify(toProve, *proof)
 }
 
 // SetChain sets the given chain as the chain to be used for blockhash fetching.
@@ -929,7 +1061,6 @@ func NewFlatUtreexoProofIndex(dataDir string, chainParams *chaincfg.Params,
 		DataDir: dataDir,
 		Name:    flatUtreexoProofIndexType,
 		// Default to ram for now.
-		Type:   accumulator.RamForest,
 		Params: chainParams,
 	})
 	if err != nil {
@@ -963,6 +1094,12 @@ func NewFlatUtreexoProofIndex(dataDir string, chainParams *chaincfg.Params,
 		return nil, err
 	}
 	idx.proofStatsState = *proofStatsState
+
+	rootsState, err := loadFlatFileState(dataDir, flatUtreexoRootsName)
+	if err != nil {
+		return nil, err
+	}
+	idx.rootsState = *rootsState
 
 	err = idx.pStats.InitPStats(proofStatsState)
 	if err != nil {
@@ -1000,6 +1137,12 @@ func DropFlatUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan 
 
 	proofStatsPath := flatFilePath(dataDir, flatUtreexoProofStatsName)
 	err = deleteFlatFile(proofStatsPath)
+	if err != nil {
+		return err
+	}
+
+	rootsPath := flatFilePath(dataDir, flatUtreexoRootsName)
+	err = deleteFlatFile(rootsPath)
 	if err != nil {
 		return err
 	}

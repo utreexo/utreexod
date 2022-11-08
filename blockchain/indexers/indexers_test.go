@@ -1,7 +1,6 @@
 package indexers
 
 import (
-	"bytes"
 	"fmt"
 	"math/rand"
 	"os"
@@ -10,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -181,7 +180,7 @@ func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes [
 		// Declare the utreexo data and the undo blocks that we'll be
 		// comparing.
 		var utreexoUD, flatUD *wire.UData
-		var undo, flatUndo *accumulator.UndoBlock
+		var stump, flatStump utreexo.Stump
 
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
@@ -193,10 +192,7 @@ func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes [
 				}
 
 				err = idxType.db.View(func(dbTx database.Tx) error {
-					undoBytes, err := dbFetchUndoBlockEntry(dbTx, block.Hash())
-					r := bytes.NewReader(undoBytes)
-					undo = new(accumulator.UndoBlock)
-					err = undo.Deserialize(r)
+					stump, err = dbFetchUtreexoState(dbTx, block.Hash())
 					if err != nil {
 						return err
 					}
@@ -213,7 +209,7 @@ func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes [
 					return err
 				}
 
-				flatUndo, err = idxType.fetchUndoBlock(b)
+				flatStump, err = idxType.fetchRoots(b)
 				if err != nil {
 					return err
 				}
@@ -226,8 +222,8 @@ func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes [
 			return err
 		}
 
-		if !reflect.DeepEqual(undo, flatUndo) {
-			err := fmt.Errorf("Fetched undo data differ for "+
+		if !reflect.DeepEqual(stump, flatStump) {
+			err := fmt.Errorf("Fetched root data differ for "+
 				"utreexo proof index and flat utreexo proof index at height %d", b)
 			return err
 		}
@@ -291,12 +287,20 @@ func syncCsnChainMultiBlockProof(start, end, interval int32, chainToSyncFrom, cs
 	for b := start; b < end; b++ {
 		var err error
 		var ud, multiUd *wire.UData
-		var dels []accumulator.Hash
+		var dels []utreexo.Hash
 		var remembers []uint32
 		if (b % interval) == 0 {
 			for _, indexer := range indexes {
 				switch idxType := indexer.(type) {
 				case *FlatUtreexoProofIndex:
+					var roots utreexo.Stump
+					if b != 0 {
+						roots, err = idxType.fetchRoots(b)
+						if err != nil {
+							return err
+						}
+					}
+
 					_, multiUd, dels, err = idxType.FetchMultiUtreexoProof(b + csnChain.GetUtreexoView().GetProofInterval())
 					if err != nil {
 						return err
@@ -311,9 +315,14 @@ func syncCsnChainMultiBlockProof(start, end, interval int32, chainToSyncFrom, cs
 					if err != nil {
 						return err
 					}
+
+					_, err = utreexo.Verify(roots, dels, multiUd.AccProof)
+					if err != nil {
+						panic(err)
+					}
 				}
 			}
-			err = csnChain.GetUtreexoView().IngestProof(true, dels, &multiUd.AccProof)
+			err = csnChain.GetUtreexoView().AddProof(dels, &multiUd.AccProof)
 			if err != nil {
 				return fmt.Errorf("syncCsnChainMultiBlockProof err at height %d. err: %v:", b, err)
 			}
@@ -364,7 +373,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 
 	// Fetch the proofs from each of the indexes.
 	var flatUD, ud *wire.UData
-	var undo, flatUndo *accumulator.UndoBlock
+	var stump, flatStump utreexo.Stump
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
@@ -374,7 +383,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 				return err
 			}
 
-			flatUndo, err = idxType.fetchUndoBlock(block.Height())
+			flatStump, err = idxType.fetchRoots(block.Height())
 			if err != nil {
 				return err
 			}
@@ -387,10 +396,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 			}
 
 			err = idxType.db.View(func(dbTx database.Tx) error {
-				undoBytes, err := dbFetchUndoBlockEntry(dbTx, block.Hash())
-				r := bytes.NewReader(undoBytes)
-				undo = new(accumulator.UndoBlock)
-				err = undo.Deserialize(r)
+				stump, err = dbFetchUtreexoState(dbTx, block.Hash())
 				if err != nil {
 					return err
 				}
@@ -409,8 +415,8 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 			"index at height %d", block.Height())
 		return err
 	}
-	if !reflect.DeepEqual(undo, flatUndo) {
-		err := fmt.Errorf("Fetched undo data differ for "+
+	if !reflect.DeepEqual(stump, flatStump) {
+		err := fmt.Errorf("Fetched root data differ for "+
 			"utreexo proof index and flat utreexo proof "+
 			"index at height %d", block.Height())
 		return err
@@ -429,7 +435,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	if err != nil {
 		return err
 	}
-	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
 	for _, del := range dels {
 		if del.IsUnconfirmed() {
 			continue
@@ -441,37 +447,51 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
+			origRoots := idxType.utreexoState.state.GetRoots()
+
 			// Undo back to the state where the proof was generated.
-			err := idxType.utreexoState.state.Undo(*flatUndo)
+			err := idxType.utreexoState.state.Undo(uint64(len(adds)), flatUD.AccProof.Targets, delHashes, flatStump.Roots)
 			if err != nil {
 				return err
 			}
 			// Verify the proof.
-			err = idxType.utreexoState.state.VerifyBatchProof(delHashes, flatUD.AccProof)
+			err = idxType.utreexoState.state.Verify(delHashes, flatUD.AccProof)
 			if err != nil {
 				return err
 			}
 			// Go back to the original state.
-			_, err = idxType.utreexoState.state.Modify(adds, flatUD.AccProof.Targets)
+			err = idxType.utreexoState.state.Modify(adds, delHashes, flatUD.AccProof.Targets)
 			if err != nil {
 				return err
 			}
 
+			roots := idxType.utreexoState.state.GetRoots()
+			if !reflect.DeepEqual(origRoots, roots) {
+				return fmt.Errorf("Roots don't equal after undo")
+			}
+
 		case *UtreexoProofIndex:
+			origRoots := idxType.utreexoState.state.GetRoots()
+
 			// Undo back to the state where the proof was generated.
-			err := idxType.utreexoState.state.Undo(*undo)
+			err = idxType.utreexoState.state.Undo(uint64(len(adds)), ud.AccProof.Targets, delHashes, stump.Roots)
 			if err != nil {
 				return err
 			}
 			// Verify the proof.
-			err = idxType.utreexoState.state.VerifyBatchProof(delHashes, ud.AccProof)
+			err = idxType.utreexoState.state.Verify(delHashes, ud.AccProof)
 			if err != nil {
 				return err
 			}
 			// Go back to the original state.
-			_, err = idxType.utreexoState.state.Modify(adds, ud.AccProof.Targets)
+			err = idxType.utreexoState.state.Modify(adds, delHashes, ud.AccProof.Targets)
 			if err != nil {
 				return err
+			}
+
+			roots := idxType.utreexoState.state.GetRoots()
+			if !reflect.DeepEqual(origRoots, roots) {
+				return fmt.Errorf("Roots don't equal after undo")
 			}
 		}
 	}

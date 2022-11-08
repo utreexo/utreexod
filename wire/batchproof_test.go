@@ -15,11 +15,11 @@ import (
 	"testing/quick"
 	"time"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 )
 
-func leavesToHashes(leaves []accumulator.Leaf) []accumulator.Hash {
-	hashes := make([]accumulator.Hash, 0, len(leaves))
+func leavesToHashes(leaves []utreexo.Leaf) []utreexo.Hash {
+	hashes := make([]utreexo.Hash, 0, len(leaves))
 	for _, leaf := range leaves {
 		hashes = append(hashes, leaf.Hash)
 	}
@@ -27,20 +27,20 @@ func leavesToHashes(leaves []accumulator.Leaf) []accumulator.Hash {
 	return hashes
 }
 
-func makeBatchProofs() ([]*accumulator.BatchProof, error) {
+func makeBatchProofs() ([]*utreexo.Proof, error) {
 	// Create forest and add testLeaves.
-	f := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
-	_, err := f.Modify(testLeaves, nil)
+	p := utreexo.NewAccumulator(true)
+	err := p.Modify(testLeaves, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	leaves := leavesToHashes(testLeaves)
 
-	bps := []*accumulator.BatchProof{}
+	bps := []*utreexo.Proof{}
 
 	for i := 1; i < len(leaves); i++ {
-		batchProof, err := f.ProveBatch(leaves[:i])
+		batchProof, err := p.Prove(leaves[:i])
 		if err != nil {
 			return nil, err
 		}
@@ -50,40 +50,40 @@ func makeBatchProofs() ([]*accumulator.BatchProof, error) {
 	return bps, nil
 }
 
-func makeRandBatchProofs(leafCount, bpCount int) (int64, []accumulator.BatchProof, error) {
+func makeRandBatchProofs(leafCount, bpCount int) (int64, []utreexo.Proof, error) {
 	// Get random seed.
 	time := time.Now().UnixNano()
 	seed := rand.NewSource(time)
 	rand := rand.New(seed)
 
 	// Create forest.
-	f := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
-	leaves := make([]accumulator.Leaf, 0, leafCount)
+	p := utreexo.NewAccumulator(true)
+	leaves := make([]utreexo.Leaf, 0, leafCount)
 	for i := 0; i < leafCount; i++ {
-		leafVal, ok := quick.Value(reflect.TypeOf(accumulator.Leaf{}), rand)
+		leafVal, ok := quick.Value(reflect.TypeOf(utreexo.Leaf{}), rand)
 		if !ok {
 			return time, nil, fmt.Errorf("Couldn't create a random leaf")
 		}
-		leaf := leafVal.Interface().(accumulator.Leaf)
+		leaf := leafVal.Interface().(utreexo.Leaf)
 		leaf.Remember = true
 
 		leaves = append(leaves, leaf)
 	}
 
 	// Add all the leaves.
-	_, err := f.Modify(leaves, nil)
+	err := p.Modify(leaves, nil, nil)
 	if err != nil {
 		return time, nil, err
 	}
 
-	// Create all the requested batch proofs.
-	bps := make([]accumulator.BatchProof, 0, bpCount)
+	// Create all the requsted batch proofs.
+	bps := make([]utreexo.Proof, 0, bpCount)
 	for i := 0; i < bpCount; i++ {
 		// Get a random number of leaves to prove.
 		proveCount := rand.Intn(leafCount)
 
 		// Grab random leaves and add to the leaves to be proven.
-		leavesToProve := make([]accumulator.Leaf, 0, proveCount)
+		leavesToProve := make([]utreexo.Leaf, 0, proveCount)
 		for j := 0; j < proveCount; j++ {
 			idx := rand.Intn(leafCount)
 			leavesToProve = append(leavesToProve, leaves[idx])
@@ -91,7 +91,7 @@ func makeRandBatchProofs(leafCount, bpCount int) (int64, []accumulator.BatchProo
 
 		hashes := leavesToHashes(leavesToProve)
 
-		bp, err := f.ProveBatch(hashes)
+		bp, err := p.Prove(hashes)
 		if err != nil {
 			return time, nil, err
 		}
@@ -102,7 +102,7 @@ func makeRandBatchProofs(leafCount, bpCount int) (int64, []accumulator.BatchProo
 	return time, bps, nil
 }
 
-func compareBatchProof(bp, newBP *accumulator.BatchProof) error {
+func compareBatchProof(bp, newBP *utreexo.Proof) error {
 	if len(bp.Targets) != len(newBP.Targets) {
 		return fmt.Errorf("BatchProofs differ. Expect target length of %d, got %d",
 			len(bp.Targets), len(newBP.Targets))
@@ -247,7 +247,7 @@ func TestSerializeRandBatchProof(t *testing.T) {
 
 type batchProofTest struct {
 	name string
-	bp   accumulator.BatchProof
+	bp   utreexo.Proof
 	size int
 }
 
@@ -266,34 +266,34 @@ var testBatchProofs = []batchProofTest{
 	// 00  01  02  03  04  05  06  07  08  09  10  11  12  13  14  15
 	{
 		name: "15 leaves, prove 0",
-		bp: accumulator.BatchProof{Targets: []uint64{0},
-			Proof: []accumulator.Hash{
-				accumulator.Hash(*newHashFromStr("e76ed48f7d6a947c50841e00a37fdd3b0c562a767a4fca4de4c6fa45c3718b2a")),
-				accumulator.Hash(*newHashFromStr("1b719855236212adb6442f9b55909bfec484edd3236aa6021425cf8c4ae2e90f")),
-				accumulator.Hash(*newHashFromStr("846fa80f86d68d0143f6deba79fc5e4cc539b799a63ab6469845d47a38d98884")),
-				accumulator.Hash(*newHashFromStr("09859744ff2fc432c6d0348dab74c79f32f1afc569cc7e844396e05d65e88dec")),
+		bp: utreexo.Proof{Targets: []uint64{0},
+			Proof: []utreexo.Hash{
+				utreexo.Hash(*newHashFromStr("e76ed48f7d6a947c50841e00a37fdd3b0c562a767a4fca4de4c6fa45c3718b2a")),
+				utreexo.Hash(*newHashFromStr("1b719855236212adb6442f9b55909bfec484edd3236aa6021425cf8c4ae2e90f")),
+				utreexo.Hash(*newHashFromStr("846fa80f86d68d0143f6deba79fc5e4cc539b799a63ab6469845d47a38d98884")),
+				utreexo.Hash(*newHashFromStr("09859744ff2fc432c6d0348dab74c79f32f1afc569cc7e844396e05d65e88dec")),
 			},
 		},
 		size: 131, // 1 + 1 + 1 + 128
 	},
 	{
 		name: "15 leaves, prove 1-8",
-		bp: accumulator.BatchProof{
+		bp: utreexo.Proof{
 			Targets: []uint64{1, 2, 3, 4, 5, 6, 7, 8},
-			Proof: []accumulator.Hash{
-				accumulator.Hash(*newHashFromStr("a0f628257e495d20a8604f731ef1212393d422ecc93314950adec6feee3dfa72")),
-				accumulator.Hash(*newHashFromStr("4e7ab445b1165870d243a0f51ed54f74de2f11c625aac1eb7408218491248c40")),
-				accumulator.Hash(*newHashFromStr("f497452128c3af13f940a8b02aa5bf0868336316f6b38b15fa4e94047f62857c")),
+			Proof: []utreexo.Hash{
+				utreexo.Hash(*newHashFromStr("a0f628257e495d20a8604f731ef1212393d422ecc93314950adec6feee3dfa72")),
+				utreexo.Hash(*newHashFromStr("4e7ab445b1165870d243a0f51ed54f74de2f11c625aac1eb7408218491248c40")),
+				utreexo.Hash(*newHashFromStr("f497452128c3af13f940a8b02aa5bf0868336316f6b38b15fa4e94047f62857c")),
 			},
 		},
 		size: 106, // 1 + 8 + 1 + 96
 	},
 	{
 		name: "15 leaves, prove 0-14",
-		bp: accumulator.BatchProof{
+		bp: utreexo.Proof{
 			Targets: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-			Proof: []accumulator.Hash{
-				accumulator.Hash(*newHashFromStr("36b8f508a26a86902dcc5a325c0033e4ac56d641a628c835a28c930aa8efea14")),
+			Proof: []utreexo.Hash{
+				utreexo.Hash(*newHashFromStr("36b8f508a26a86902dcc5a325c0033e4ac56d641a628c835a28c930aa8efea14")),
 			},
 		},
 		size: 49, // 1 + 15 + 1 + 32
@@ -301,33 +301,20 @@ var testBatchProofs = []batchProofTest{
 	// The below was fetched from signet.
 	{
 		name: "signet batchproof 14872",
-		bp: accumulator.BatchProof{
-			Targets: []uint64{12042, 125690},
-			Proof: []accumulator.Hash{
-				accumulator.Hash(*newHashFromStr("bb1ef355ab967f8879183454c0dfefdb52d31eabfed2a0531974e76df72d4f4f")),
-				accumulator.Hash(*newHashFromStr("096130bd97984834f53a3691fd60c1f2a1ef682fda5bca5100c7e20ca7530fa9")),
-				accumulator.Hash(*newHashFromStr("d1f826d1c4e7285f8c0c5d38a90d76c6d0222dd7ab3919edecac5ce7161a66f7")),
-				accumulator.Hash(*newHashFromStr("e309134fc656838dff46266ae0a251e4c16d56253441e2c8b675cca1c007fc33")),
-				accumulator.Hash(*newHashFromStr("65ea664f530e4d59feea2b7ceaa1ff1d9f373a39e5c428b75d367bd50e05d6a8")),
-				accumulator.Hash(*newHashFromStr("92e0277312b1ff84d7a3d700fad30906586f313a9df85cc5d2fe3dcfc9ce9f57")),
-				accumulator.Hash(*newHashFromStr("51fefe9badf11426d6868d08f65c231d228caec82827d9126186fbd8fbef8f3a")),
-				accumulator.Hash(*newHashFromStr("d439c846256b79a81e7a78cedac687edc61c7df5ce2a7144f68297e4a7633be8")),
-				accumulator.Hash(*newHashFromStr("c823770de618684d16796e873fb0a1752fc515294b54788c7ee79a01a4827990")),
-				accumulator.Hash(*newHashFromStr("bcbb54d6dc471449e815077bc85ef3038af66e1daa7fdc0b3ac4d9f2301df379")),
-				accumulator.Hash(*newHashFromStr("05717dc54d7b04b18b124b76a76a4c9b8e25f6f56442600955eb591df03ad8fc")),
-				accumulator.Hash(*newHashFromStr("93d666021eb954e45d243a02eba6b45a5c5769928a3aeadd4daafbb30d96dfe4")),
-				accumulator.Hash(*newHashFromStr("bf9964abb64f4924c06d395c37996dda9a426ef9cd55559ec7518e49bfeba43f")),
-				accumulator.Hash(*newHashFromStr("26f41da695b37d472b147c66a62338e171a0d48ae63425d57d1cab004386cf3f")),
-				accumulator.Hash(*newHashFromStr("404267aa20916355e1a6f05cdfc41173c7d1231ea0542986be32723e605dfe53")),
-				accumulator.Hash(*newHashFromStr("bb5e9a70add55d582605b1d3747e8863ede1e93ba0f3581eb90d1771e061c386")),
-				accumulator.Hash(*newHashFromStr("64cd4acc1920f11eab803bcde2c7cdcee6182c07716e712fc725da079f3a0fd4")),
+		bp: utreexo.Proof{
+			Targets: []uint64{15474, 15478},
+			Proof: []utreexo.Hash{
+				utreexo.Hash(*newHashFromStr("7039d1916a1da960bcbd3762274fbde7231c020f6dc2cffd0693ce2915816e14")),
+				utreexo.Hash(*newHashFromStr("f5f358fedb0e26c40a8daa476a57b75c128513f968816de2e362a652ed2bcf9c")),
+				utreexo.Hash(*newHashFromStr("c9978759587c0beb3c543c80ac26fcbab2ff60a56725c412a1ad381eb88d3923")),
+				utreexo.Hash(*newHashFromStr("ae46f987bcb72a34ff83382341c4f00647940bb75a643ffa2287fe9bac1fe027")),
 			},
 		},
-		size: 554, // 1 + 8 + 1 + 544
+		size: 136, // 1 + 6 + 1 + 128
 	},
 }
 
-var testLeaves = []accumulator.Leaf{
+var testLeaves = []utreexo.Leaf{
 	{
 		Hash:     sha512.Sum512_256([]byte{0}),
 		Remember: true,
