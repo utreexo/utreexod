@@ -13,7 +13,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/wire"
@@ -845,15 +845,16 @@ func initUtreexoViewpoints() []*UtreexoViewpoint {
 	var leafCount int
 	for i := 0; i < len(uViews); i++ {
 		for j := 0; j < 10; j++ {
-			hash := accumulator.Hash(sha512.Sum512_256([]byte{byte(leafCount)}))
-			leaves := []accumulator.Leaf{
-				{
-					Hash: hash,
-				},
-			}
+			hash := utreexo.Hash(sha512.Sum512_256([]byte{byte(leafCount)}))
+			leaves := []utreexo.Hash{hash}
 			leafCount++
 
-			uViews[i].accumulator.Modify(leaves, nil)
+			_, err := uViews[i].accumulator.Update(nil, leaves, utreexo.Proof{})
+			if err != nil {
+				retErr := fmt.Errorf("initUtreexoViewpoints #%d unexpected "+
+					"error: %v", i, err)
+				panic(retErr)
+			}
 		}
 	}
 
@@ -893,17 +894,17 @@ func TestUtreexoViewSerialize(t *testing.T) {
 		{
 			name:       "first",
 			uView:      uViews[0],
-			serialized: hexToBytes("000000000000000a0692637b0a02630c81a9a31bbd420aecd368574bbc108d49c23c077e76518e59793da673181eb164c3243a17238499f1dff4f8a317175625f6f56950e8671071"),
+			serialized: hexToBytes("0a000000000000000692637b0a02630c81a9a31bbd420aecd368574bbc108d49c23c077e76518e59793da673181eb164c3243a17238499f1dff4f8a317175625f6f56950e8671071"),
 		},
 		{
 			name:       "second",
 			uView:      uViews[1],
-			serialized: hexToBytes("000000000000000aa5e23fdcfcd4700c60b85c830ad50443a7ff9020428ae488f4a0de7a5d8f10d06d2caf97109b1df49a41e5690498a9f37a8ab617e4148ccd65c16193fb4bb083"),
+			serialized: hexToBytes("0a00000000000000a5e23fdcfcd4700c60b85c830ad50443a7ff9020428ae488f4a0de7a5d8f10d06d2caf97109b1df49a41e5690498a9f37a8ab617e4148ccd65c16193fb4bb083"),
 		},
 		{
 			name:       "third",
 			uView:      uViews[2],
-			serialized: hexToBytes("000000000000000a3b2b0b094650bc2f1bac89eee152b55afc6a233c19f5e23e1166a22c041988d2d3ed620b0f7114b58a57f18f96f292384954e2690f7a7d6a38239cd172a1f256"),
+			serialized: hexToBytes("0a000000000000003b2b0b094650bc2f1bac89eee152b55afc6a233c19f5e23e1166a22c041988d2d3ed620b0f7114b58a57f18f96f292384954e2690f7a7d6a38239cd172a1f256"),
 		},
 	}
 

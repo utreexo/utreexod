@@ -13,7 +13,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
@@ -228,22 +228,25 @@ func TestUDataSerializeSize(t *testing.T) {
 
 	for _, testData := range testDatas {
 		// New forest object.
-		forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
+		p := utreexo.NewAccumulator(true)
 
 		// Create hashes to add from the stxo data.
-		addHashes := make([]accumulator.Leaf, 0, len(testData.leavesPerBlock))
+		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
 		for i, ld := range testData.leavesPerBlock {
-			addHashes = append(addHashes, accumulator.Leaf{
+			addHashes = append(addHashes, utreexo.Leaf{
 				Hash: ld.LeafHash(),
 				// Just half and half.
 				Remember: i%2 == 0,
 			})
 		}
 		// Add to the accumulator.
-		forest.Modify(addHashes, nil)
+		err := p.Modify(addHashes, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		// Generate Proof.
-		ud, err := GenerateUData(testData.leavesPerBlock, forest)
+		ud, err := GenerateUData(testData.leavesPerBlock, &p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -380,20 +383,23 @@ func TestUDataSerialize(t *testing.T) {
 
 	for _, testData := range testDatas {
 		// New forest object.
-		forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
+		p := utreexo.NewAccumulator(true)
 
 		// Create hashes to add from the stxo data.
-		addHashes := make([]accumulator.Leaf, 0, len(testData.leavesPerBlock))
+		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
 		for i, ld := range testData.leavesPerBlock {
-			add := accumulator.Leaf{Hash: ld.LeafHash(), Remember: i%2 == 0}
+			add := utreexo.Leaf{Hash: ld.LeafHash(), Remember: i%2 == 0}
 			addHashes = append(addHashes, add)
 		}
 
 		// Add to the accumulator.
-		forest.Modify(addHashes, nil)
+		err := p.Modify(addHashes, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		// Generate Proof.
-		ud, err := GenerateUData(testData.leavesPerBlock, forest)
+		ud, err := GenerateUData(testData.leavesPerBlock, &p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -450,22 +456,25 @@ func TestUDataSerializeCompact(t *testing.T) {
 
 	for _, testData := range testDatas {
 		// New forest object.
-		forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
+		p := utreexo.NewAccumulator(true)
 
 		// Create hashes to add from the stxo data.
-		addHashes := make([]accumulator.Leaf, 0, len(testData.leavesPerBlock))
+		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
 		for i, ld := range testData.leavesPerBlock {
-			addHashes = append(addHashes, accumulator.Leaf{
+			addHashes = append(addHashes, utreexo.Leaf{
 				Hash: ld.LeafHash(),
 				// Just half and half.
 				Remember: i%2 == 0,
 			})
 		}
 		// Add to the accumulator.
-		forest.Modify(addHashes, nil)
+		err := p.Modify(addHashes, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		// Generate Proof.
-		ud, err := GenerateUData(testData.leavesPerBlock, forest)
+		ud, err := GenerateUData(testData.leavesPerBlock, &p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -540,22 +549,25 @@ func TestSerializeNoAccProof(t *testing.T) {
 
 	for _, testData := range testDatas {
 		// New forest object.
-		forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
+		p := utreexo.NewAccumulator(true)
 
 		// Create hashes to add from the stxo data.
-		addHashes := make([]accumulator.Leaf, 0, len(testData.leavesPerBlock))
+		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
 		for i, ld := range testData.leavesPerBlock {
-			addHashes = append(addHashes, accumulator.Leaf{
+			addHashes = append(addHashes, utreexo.Leaf{
 				Hash: ld.LeafHash(),
 				// Just half and half.
 				Remember: i%2 == 0,
 			})
 		}
 		// Add to the accumulator.
-		forest.Modify(addHashes, nil)
+		err := p.Modify(addHashes, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		// Generate Proof.
-		ud, err := GenerateUData(testData.leavesPerBlock, forest)
+		ud, err := GenerateUData(testData.leavesPerBlock, &p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -631,15 +643,15 @@ func TestGenerateUData(t *testing.T) {
 	}
 
 	// Hash the leafData so that it can be added to the accumulator.
-	addLeaves := make([]accumulator.Leaf, leafCount)
+	addLeaves := make([]utreexo.Leaf, leafCount)
 	for i := range addLeaves {
-		addLeaves[i] = accumulator.Leaf{
+		addLeaves[i] = utreexo.Leaf{
 			Hash: leafDatas[i].LeafHash(),
 		}
 	}
 
-	forest := accumulator.NewForest(accumulator.RamForest, nil, "", 0)
-	_, err := forest.Modify(addLeaves, nil)
+	p := utreexo.NewAccumulator(true)
+	err := p.Modify(addLeaves, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -652,23 +664,23 @@ func TestGenerateUData(t *testing.T) {
 	delLeaves[0] = leafDatas[firstDelIdx]
 	delLeaves[1] = leafDatas[secondDelIdx]
 
-	ud, err := GenerateUData(delLeaves, forest)
+	ud, err := GenerateUData(delLeaves, &p)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	delHashes := make([]accumulator.Hash, delCount)
+	delHashes := make([]utreexo.Hash, delCount)
 	delHashes[0] = leafDatas[firstDelIdx].LeafHash()
 	delHashes[1] = leafDatas[secondDelIdx].LeafHash()
 
 	// Test if the UData actually validates
-	err = forest.VerifyBatchProof(delHashes, ud.AccProof)
+	err = p.Verify(delHashes, ud.AccProof)
 	if err != nil {
 		t.Errorf("Generated UData not verifiable")
 	}
 
 	// Use the udata.
-	_, err = forest.Modify(nil, ud.AccProof.Targets)
+	err = p.Modify(nil, delHashes, ud.AccProof.Targets)
 	if err != nil {
 		t.Fatal(err)
 	}

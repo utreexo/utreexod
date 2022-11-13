@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -34,9 +34,9 @@ var (
 	// data.
 	utreexoProofIndexKey = []byte("utreexoproofindexkey")
 
-	// utreexoUndoKey is the name of the utreexo undo data.  It is included
-	// in the utreexoParentBucketKey and contains the utreexo undo data.
-	utreexoUndoKey = []byte("utreexoundokey")
+	// utreexoStateKey is the name of the utreexo state data.  It is included
+	// in the utreexoParentBucketKey and contains the utreexo state data.
+	utreexoStateKey = []byte("utreexostatekey")
 )
 
 // Ensure the UtreexoProofIndex type implements the Indexer interface.
@@ -104,7 +104,7 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 		return err
 	}
 
-	_, err = utreexoParentBucket.CreateBucket(utreexoUndoKey)
+	_, err = utreexoParentBucket.CreateBucket(utreexoStateKey)
 	if err != nil {
 		return err
 	}
@@ -147,15 +147,19 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
-	idx.mtx.Lock()
-	undoBlock, err := idx.utreexoState.state.Modify(adds, ud.AccProof.Targets)
-	idx.mtx.Unlock()
+	err = dbStoreUtreexoState(dbTx, block.Hash(), idx.utreexoState.state)
 	if err != nil {
 		return err
 	}
 
-	// UndoBlocks needed during reorgs.
-	err = dbStoreUndoBlock(dbTx, block.Hash(), undoBlock)
+	delHashes := make([]utreexo.Hash, len(ud.LeafDatas))
+	for i := range delHashes {
+		delHashes[i] = ud.LeafDatas[i].LeafHash()
+	}
+
+	idx.mtx.Lock()
+	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof.Targets)
+	idx.mtx.Unlock()
 	if err != nil {
 		return err
 	}
@@ -170,31 +174,37 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
-	undoBlockBytes, err := dbFetchUndoBlockEntry(dbTx, block.Hash())
+	ud, err := idx.FetchUtreexoProof(block.Hash())
 	if err != nil {
 		return err
 	}
 
-	r := bytes.NewReader(undoBlockBytes)
-	undoBlock := new(accumulator.UndoBlock)
-	err = undoBlock.Deserialize(r)
+	state, err := dbFetchUtreexoState(dbTx, block.Hash())
 	if err != nil {
 		return err
+	}
+
+	_, outCount, _, outskip := blockchain.DedupeBlock(block)
+	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+
+	delHashes := make([]utreexo.Hash, len(ud.AccProof.Targets))
+	for i := range delHashes {
+		delHashes[i] = ud.LeafDatas[i].LeafHash()
 	}
 
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Undo(*undoBlock)
+	err = idx.utreexoState.state.Undo(uint64(len(adds)), ud.AccProof.Targets, delHashes, state.Roots)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
 	}
 
-	err = dbDeleteUndoBlockEntry(dbTx, block.Hash())
+	err = dbDeleteUtreexoProofEntry(dbTx, block.Hash())
 	if err != nil {
 		return err
 	}
 
-	err = dbDeleteUtreexoProofEntry(dbTx, block.Hash())
+	err = dbDeleteUtreexoState(dbTx, block.Hash())
 	if err != nil {
 		return err
 	}
@@ -281,7 +291,7 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 
 	// Now we'll turn those leaves into hashes.  These are the hashes that are
 	// commited in the accumulator.
-	hashes := make([]accumulator.Hash, 0, len(leaves))
+	hashes := make([]utreexo.Hash, 0, len(leaves))
 	for _, leaf := range leaves {
 		hashes = append(hashes, leaf.LeafHash())
 	}
@@ -292,7 +302,7 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 	defer idx.mtx.RUnlock()
 
 	// Prove the commited hashes.
-	accProof, err := idx.utreexoState.state.ProveBatch(hashes)
+	accProof, err := idx.utreexoState.state.Prove(hashes)
 	if err != nil {
 		return nil, err
 	}
@@ -312,9 +322,9 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 
 // VerifyAccProof verifies the given accumulator proof.  Returns an error if the
 // verification failed.
-func (idx *UtreexoProofIndex) VerifyAccProof(toProve []accumulator.Hash,
-	proof *accumulator.BatchProof) error {
-	return idx.utreexoState.state.VerifyBatchProof(toProve, *proof)
+func (idx *UtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
+	proof *utreexo.Proof) error {
+	return idx.utreexoState.state.Verify(toProve, *proof)
 }
 
 // SetChain sets the given chain as the chain to be used for blockhash fetching.
@@ -337,9 +347,7 @@ func NewUtreexoProofIndex(db database.DB, dataDir string, chainParams *chaincfg.
 	uState, err := InitUtreexoState(&UtreexoConfig{
 		DataDir: dataDir,
 		Name:    db.Type(),
-		// Default to ram for now.
-		Type:   accumulator.RamForest,
-		Params: chainParams,
+		Params:  chainParams,
 	})
 	if err != nil {
 		return nil, err
@@ -390,26 +398,32 @@ func dbDeleteUtreexoProofEntry(dbTx database.Tx, hash *chainhash.Hash) error {
 	return idx.Delete(hash[:])
 }
 
-// Stores the undo block for forest in the database.
-func dbStoreUndoBlock(dbTx database.Tx, hash *chainhash.Hash, undoBlock *accumulator.UndoBlock) error {
-	var buf bytes.Buffer
-	err := undoBlock.Serialize(&buf)
+// Stores the utreexo state in the database.
+func dbStoreUtreexoState(dbTx database.Tx, hash *chainhash.Hash, p *utreexo.Pollard) error {
+	bytes, err := blockchain.SerializeUtreexoRoots(p.NumLeaves, p.GetRoots())
 	if err != nil {
 		return err
 	}
 
-	undoBlockBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoUndoKey)
-	return undoBlockBucket.Put(hash[:], buf.Bytes())
+	stateBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoStateKey)
+	return stateBucket.Put(hash[:], bytes)
 }
 
-// Fetches the undo block for forest in the database.
-func dbFetchUndoBlockEntry(dbTx database.Tx, hash *chainhash.Hash) ([]byte, error) {
-	undoBlockBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoUndoKey)
-	return undoBlockBucket.Get(hash[:]), nil
+// Fetches the utreexo state from the database.
+func dbFetchUtreexoState(dbTx database.Tx, hash *chainhash.Hash) (utreexo.Stump, error) {
+	stateBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoStateKey)
+	serialized := stateBucket.Get(hash[:])
+
+	numLeaves, roots, err := blockchain.DeserializeUtreexoRoots(serialized)
+	if err != nil {
+		return utreexo.Stump{}, err
+	}
+
+	return utreexo.Stump{Roots: roots, NumLeaves: numLeaves}, nil
 }
 
-// Deletes the undo block in the database.
-func dbDeleteUndoBlockEntry(dbTx database.Tx, hash *chainhash.Hash) error {
-	undoBlockBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoUndoKey)
-	return undoBlockBucket.Delete(hash[:])
+// Deletes the utreexo state in the database.
+func dbDeleteUtreexoState(dbTx database.Tx, hash *chainhash.Hash) error {
+	idx := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoStateKey)
+	return idx.Delete(hash[:])
 }

@@ -5,23 +5,20 @@
 package indexers
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 
-	"github.com/mit-dci/utreexo/accumulator"
-	"github.com/mit-dci/utreexo/util"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 const (
 	// utreexoDirName is the name of the directory in which the utreexo state
 	// is stored.
-	utreexoDirName             = "utreexostate"
-	defaultUtreexoFileName     = "forest.dat"
-	defaultUtreexoMiscFileName = "miscforestfile.dat"
-	defaultUtreexoCowDirName   = "cowstate"
-	defaultUtreexoCowFileName  = "CURRENT"
-	defaultCowMaxCache         = 1000
+	utreexoDirName         = "utreexostate"
+	defaultUtreexoFileName = "forest.dat"
 
 	// udataSerializeBool defines the argument that should be passed to the
 	// serialize and deserialize functions for udata.
@@ -39,9 +36,6 @@ type UtreexoConfig struct {
 	// to.
 	Name string
 
-	// Type specifies what type of UtreexoBackEnd should be created.
-	Type accumulator.ForestType
-
 	// Params are the Bitcoin network parameters. This is used to separately store
 	// different accumulators.
 	Params *chaincfg.Params
@@ -51,7 +45,7 @@ type UtreexoConfig struct {
 // information.  It contains the entire, non-pruned accumulator.
 type UtreexoState struct {
 	config *UtreexoConfig
-	state  *accumulator.Forest
+	state  *utreexo.Pollard
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -66,21 +60,21 @@ func InitUtreexoState(cfg *UtreexoConfig) (*UtreexoState, error) {
 	basePath := utreexoBasePath(cfg)
 	log.Infof("Initializing Utreexo state from '%s'", basePath)
 
-	var forest *accumulator.Forest
+	var p *utreexo.Pollard
 	var err error
 	if checkUtreexoExists(cfg, basePath) {
-		forest, err = restoreUtreexoState(cfg, basePath)
+		p, err = restoreUtreexoState(cfg, basePath)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		forest, err = createUtreexoState(cfg, basePath)
+		p, err = createUtreexoState(cfg, basePath)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	uState := &UtreexoState{cfg, forest}
+	uState := &UtreexoState{config: cfg, state: p}
 
 	log.Info("Utreexo state loaded")
 
@@ -102,16 +96,12 @@ func deleteUtreexoState(path string) error {
 // checkUtreexoExists checks that the data for this utreexo state type specified
 // in the config is present and should be resumed off of.
 func checkUtreexoExists(cfg *UtreexoConfig, basePath string) bool {
-	var path string
-	switch cfg.Type {
-	case accumulator.CowForest:
-		cowPath := filepath.Join(basePath, defaultUtreexoCowDirName)
-		path = filepath.Join(cowPath, defaultUtreexoCowFileName)
-	default:
-		path = filepath.Join(basePath, defaultUtreexoFileName)
+	path := filepath.Join(basePath, defaultUtreexoFileName)
+	_, err := os.Stat(path)
+	if err != nil && os.IsNotExist(err) {
+		return false
 	}
-
-	return util.HasAccess(path)
+	return true
 }
 
 // FlushUtreexoState saves the utreexo state to disk.
@@ -126,19 +116,7 @@ func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 	if err != nil {
 		return err
 	}
-	err = idx.utreexoState.state.WriteForestToDisk(forestFile, true, false)
-	if err != nil {
-		return err
-	}
-
-	miscFilePath := filepath.Join(basePath, defaultUtreexoMiscFileName)
-	// write other misc forest data
-	miscForestFile, err := os.OpenFile(
-		miscFilePath, os.O_RDWR|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	err = idx.utreexoState.state.WriteMiscData(miscForestFile)
+	_, err = idx.utreexoState.state.WriteTo(forestFile)
 	if err != nil {
 		return err
 	}
@@ -157,19 +135,7 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState() error {
 	if err != nil {
 		return err
 	}
-	err = idx.utreexoState.state.WriteForestToDisk(forestFile, true, false)
-	if err != nil {
-		return err
-	}
-
-	miscFilePath := filepath.Join(basePath, defaultUtreexoMiscFileName)
-	// write other misc forest data
-	miscForestFile, err := os.OpenFile(
-		miscFilePath, os.O_RDWR|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	err = idx.utreexoState.state.WriteMiscData(miscForestFile)
+	_, err = idx.utreexoState.state.WriteTo(forestFile)
 	if err != nil {
 		return err
 	}
@@ -177,91 +143,141 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState() error {
 	return nil
 }
 
-// restoreUtreexoState restores forest fields based off the existing utreexo state
-// on disk.
-func restoreUtreexoState(cfg *UtreexoConfig, basePath string) (
-	*accumulator.Forest, error) {
+// serializeUndoBlock serializes all the data that's needed for undoing a full utreexo state
+// into a slice of bytes.
+func serializeUndoBlock(numAdds uint64, targets []uint64, delHashes []utreexo.Hash) ([]byte, error) {
+	numAddsSize := 8
+	targetCountSize := 4
+	targetsSize := len(targets) * 8
+	delHashesCountSize := 4
+	delHashesSize := len(delHashes) * chainhash.HashSize
 
-	var forest *accumulator.Forest
+	w := bytes.NewBuffer(make([]byte, 0, numAddsSize+targetCountSize+targetsSize+delHashesCountSize+delHashesSize))
 
-	switch cfg.Type {
-	case accumulator.CowForest:
-		cowPath := filepath.Join(basePath, defaultUtreexoCowDirName)
-		miscForestFilePath := filepath.Join(basePath, defaultUtreexoMiscFileName)
-
-		// Where the misc forest data exists
-		miscForestFile, err := os.OpenFile(
-			miscForestFilePath, os.O_RDONLY, 0400)
-		if err != nil {
-			return nil, err
-		}
-		forest, err = accumulator.RestoreForest(
-			miscForestFile, nil, false, false, cowPath, defaultCowMaxCache)
-		if err != nil {
-			return nil, err
-		}
-
-	default:
-		var (
-			inRam bool
-			cache bool
-		)
-		switch cfg.Type {
-		case accumulator.RamForest:
-			inRam = true
-		case accumulator.CacheForest:
-			cache = true
-		}
-
-		forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
-
-		// Where the forestfile exists
-		forestFile, err := os.OpenFile(forestFilePath, os.O_RDWR, 0400)
-		if err != nil {
-			return nil, err
-		}
-		miscFilePath := filepath.Join(basePath, defaultUtreexoMiscFileName)
-		// Where the misc forest data exists
-		miscForestFile, err := os.OpenFile(miscFilePath, os.O_RDONLY, 0400)
-		if err != nil {
-			return nil, err
-		}
-
-		forest, err = accumulator.RestoreForest(
-			miscForestFile, forestFile, inRam, cache, "", 0)
-		if err != nil {
-			return nil, err
-		}
-
+	// Write numAdds.
+	buf := make([]byte, numAddsSize)
+	byteOrder.PutUint64(buf[:], numAdds)
+	_, err := w.Write(buf[:])
+	if err != nil {
+		return nil, err
 	}
 
-	return forest, nil
+	// Write the targets.
+	//
+	// Targets are prefixed with the count in uint32.
+	buf = buf[:targetCountSize]
+	byteOrder.PutUint32(buf[:], uint32(len(targets)))
+	_, err = w.Write(buf[:])
+	if err != nil {
+		return nil, err
+	}
+	buf = buf[:8]
+	for _, targ := range targets {
+		byteOrder.PutUint64(buf[:], targ)
+
+		_, err = w.Write(buf[:])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Write the delHashes.
+	//
+	// DelHashes are prefixed with the count in uint32.
+	buf = buf[:delHashesCountSize]
+	byteOrder.PutUint32(buf[:], uint32(len(delHashes)))
+	_, err = w.Write(buf[:])
+	if err != nil {
+		return nil, err
+	}
+	for _, hash := range delHashes {
+		_, err = w.Write(hash[:])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
+// deserializeUndoBlock deserializes all the data that's needed to undo a full utreexo
+// state from a slice of serialized bytes.
+func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, error) {
+	r := bytes.NewReader(serialized)
+
+	// Read the numAdds.
+	buf := make([]byte, chainhash.HashSize)
+	buf = buf[:8]
+	_, err := r.Read(buf)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+
+	numAdds := byteOrder.Uint64(buf)
+
+	// Read the targets.
+	buf = buf[:4]
+	_, err = r.Read(buf)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+
+	targLen := byteOrder.Uint32(buf)
+	targets := make([]uint64, targLen)
+
+	buf = buf[:8]
+	for i := range targets {
+		_, err = r.Read(buf)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+
+		targets[i] = byteOrder.Uint64(buf)
+	}
+
+	// Read the delHashes.
+	buf = buf[:4]
+	_, err = r.Read(buf)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	hashLen := byteOrder.Uint32(buf)
+	delHashes := make([]utreexo.Hash, hashLen)
+
+	buf = buf[:chainhash.HashSize]
+	for i := range delHashes {
+		_, err = r.Read(buf)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+
+		delHashes[i] = *(*utreexo.Hash)(buf)
+	}
+
+	return numAdds, targets, delHashes, nil
+}
+
+// restoreUtreexoState restores forest fields based off the existing utreexo state
+// on disk.
+func restoreUtreexoState(cfg *UtreexoConfig, basePath string) (*utreexo.Pollard, error) {
+	forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
+
+	// Where the forestfile exists
+	file, err := os.OpenFile(forestFilePath, os.O_RDWR, 0400)
+	if err != nil {
+		return nil, err
+	}
+
+	_, p, err := utreexo.RestorePollardFrom(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
 }
 
 // createUtreexoState creates a new utreexo state and returns it.
-func createUtreexoState(cfg *UtreexoConfig, basePath string) (
-	*accumulator.Forest, error) {
-
-	var forest *accumulator.Forest
-	switch cfg.Type {
-	case accumulator.RamForest:
-		forest = accumulator.NewForest(cfg.Type, nil, "", 0)
-	case accumulator.CowForest:
-		// Default to 1000MB of cache for now.
-		forest = accumulator.NewForest(cfg.Type, nil, basePath, 1000)
-	default:
-		forestFileName := filepath.Join(basePath, defaultUtreexoFileName)
-
-		// Where the forestfile exists
-		forestFile, err := os.OpenFile(
-			forestFileName, os.O_CREATE|os.O_RDWR, 0600)
-		if err != nil {
-			return nil, err
-		}
-
-		// Restores all the forest data
-		forest = accumulator.NewForest(cfg.Type, forestFile, "", 0)
-	}
-
-	return forest, nil
+func createUtreexoState(cfg *UtreexoConfig, basePath string) (*utreexo.Pollard, error) {
+	p := utreexo.NewAccumulator(true)
+	return &p, nil
 }

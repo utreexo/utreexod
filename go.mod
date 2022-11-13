@@ -12,14 +12,15 @@ require (
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/jrick/logrotate v1.0.0
 	github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23
-	github.com/mit-dci/utreexo v0.0.0-20220214151910-1ff40de973fc
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	github.com/utreexo/utreexo v0.0.0-20221107064738-9b865117b9e4
+	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
 )
 
 require (
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	golang.org/x/exp v0.0.0-20220414153411-bcd21879b8fd // indirect
 )
 
 go 1.18

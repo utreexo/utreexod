@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
@@ -1105,22 +1106,77 @@ func dbFetchUtxoStateConsistency(dbTx database.Tx) (byte, *chainhash.Hash, error
 	return deserializeUtxoStateConsistency(serialized)
 }
 
-// serializeUtreexoView returns a serialized byte slice of the utreexo accumulator roots.
-func serializeUtreexoView(uView *UtreexoViewpoint) ([]byte, error) {
-	serializedAcc, err := uView.accumulator.Serialize()
+// SerializeUtreexoRoots serializes the numLeaves and the roots into a byte slice.
+func SerializeUtreexoRoots(numLeaves uint64, roots []utreexo.Hash) ([]byte, error) {
+	// 8 byte NumLeaves + (32 byte roots * len(roots))
+	w := bytes.NewBuffer(make([]byte, 0, 8+(len(roots)*chainhash.HashSize)))
+
+	// Write the NumLeaves first.
+	var buf [8]byte
+	byteOrder.PutUint64(buf[:], numLeaves)
+	_, err := w.Write(buf[:])
 	if err != nil {
 		return nil, err
 	}
 
-	return serializedAcc, nil
+	// Then write the roots.
+	for _, root := range roots {
+		_, err = w.Write(root[:])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
+// DeserializeUtreexoRoots deserializes the provided byte slice into numLeaves and roots.
+func DeserializeUtreexoRoots(serializedUView []byte) (uint64, []utreexo.Hash, error) {
+	totalLen := len(serializedUView)
+	// Need to subtract 8 bytes of NumLeaves length from the entire length.
+	numRoots := (totalLen - 8) / chainhash.HashSize
+
+	r := bytes.NewReader(serializedUView)
+
+	buf := make([]byte, chainhash.HashSize)
+	buf = buf[:8]
+	_, err := r.Read(buf)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	numLeaves := byteOrder.Uint64(buf)
+
+	buf = buf[:chainhash.HashSize]
+	roots := make([]utreexo.Hash, numRoots)
+	for i := range roots {
+		_, err = r.Read(buf)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		roots[i] = *(*utreexo.Hash)(buf)
+	}
+
+	return numLeaves, roots, nil
+}
+
+// serializeUtreexoView returns a serialized byte slice of the utreexo accumulator roots.
+//
+// TODO in the future perhaps consider serializing other things in the utreexo viewpoint.
+func serializeUtreexoView(uView *UtreexoViewpoint) ([]byte, error) {
+	return SerializeUtreexoRoots(uView.accumulator.NumLeaves, uView.accumulator.Roots)
 }
 
 // deserializeUtreexoView deserializes the provided byte slice into the provided uView.
 func deserializeUtreexoView(uView *UtreexoViewpoint, serializedUView []byte) error {
-	err := uView.accumulator.Deserialize(serializedUView)
+	numLeaves, roots, err := DeserializeUtreexoRoots(serializedUView)
 	if err != nil {
 		return err
 	}
+
+	uView.accumulator.NumLeaves = numLeaves
+	uView.accumulator.Roots = roots
 
 	return nil
 }

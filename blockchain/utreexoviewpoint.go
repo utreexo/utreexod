@@ -12,7 +12,7 @@ import (
 	"io"
 	"sort"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/txscript"
@@ -21,8 +21,26 @@ import (
 
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator
 type UtreexoViewpoint struct {
+	// proofInterval is the interval of block in which to receive the
+	// accumulator proofs. Only relevant when in multiblock proof mode.
 	proofInterval int32
-	accumulator   *accumulator.Pollard
+
+	// accumulator is the bare-minimum accumulator for the utxo set.
+	// It only holds the root hashes and the number of elements in the
+	// accumulator.
+	accumulator utreexo.Stump
+
+	// cached is the cached proof that keeps track proofs for recently created
+	// utxos that'll be spent quickly.
+	//
+	// NOTE during a reorg, the cached proof and the leaf hashes will be cleared.
+	cached utreexo.Proof
+
+	// cachedLeafHashes are the hashes for the elements being cached in the
+	// cached proof.
+	//
+	// NOTE during a reorg, the cached proof and the leaf hashes will be cleared.
+	cachedLeafHashes []utreexo.Hash
 }
 
 // ProcessUData checks that the accumulator proof and the utxo data included in the UData
@@ -37,18 +55,8 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 		return err
 	}
 
-	// If we're at a proof interval of 1, then we need to ingest the proof and ready
-	// the accumulator before we can update it.  For proof intervals of more than 1,
-	// the ingest will happen before ProcessUData is called.
-	if uview.proofInterval == 1 {
-		err = uview.IngestProof(false, dels, &ud.AccProof)
-		if err != nil {
-			return err
-		}
-	}
-
 	// Update the underlying accumulator.
-	err = uview.Modify(ud, adds)
+	err = uview.Modify(ud, adds, dels, ud.RememberIdx)
 	if err != nil {
 		return err
 	}
@@ -56,11 +64,17 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	return nil
 }
 
-// IngestProof first checks that the utreexo proofs are valid. If it is valid,
+// AddProof first checks that the utreexo proofs are valid. If it is valid,
 // it readys the utreexo accumulator for additions/deletions by ingesting the proof.
-func (uview *UtreexoViewpoint) IngestProof(rememberAll bool, delHashes []accumulator.Hash,
-	accProof *accumulator.BatchProof) error {
-	return uview.accumulator.IngestBatchProof(delHashes, *accProof, rememberAll)
+func (uview *UtreexoViewpoint) AddProof(delHashes []utreexo.Hash, accProof *utreexo.Proof) error {
+	_, err := utreexo.Verify(uview.accumulator, delHashes, *accProof)
+	if err != nil {
+		return err
+	}
+	uview.cachedLeafHashes, uview.cached = utreexo.AddProof(
+		uview.cached, *accProof, uview.cachedLeafHashes, delHashes, uview.accumulator.NumLeaves)
+
+	return nil
 }
 
 // Modify modifies the utreexo state by adding and deleting elements from the utreexo state.
@@ -68,8 +82,41 @@ func (uview *UtreexoViewpoint) IngestProof(rememberAll bool, delHashes []accumul
 // are the leaves passed in.
 //
 // This function is NOT safe for concurrent access.
-func (uview *UtreexoViewpoint) Modify(ud *wire.UData, leaves []accumulator.Leaf) error {
-	return uview.accumulator.Modify(leaves, ud.AccProof.Targets)
+func (uview *UtreexoViewpoint) Modify(ud *wire.UData, adds []utreexo.Leaf, dels []utreexo.Hash, remembers []uint32) error {
+	addHashes := make([]utreexo.Hash, len(adds))
+	remembers = make([]uint32, len(adds))
+	for i, add := range adds {
+		addHashes[i] = add.Hash
+		remembers[i] = uint32(i)
+	}
+
+	var err error
+	if uview.proofInterval == 1 {
+		_, err = uview.accumulator.Update(dels, addHashes, ud.AccProof)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Extract only the necessary targets and proof hashes for this block.
+		blockHashes, blockProof, err := utreexo.GetProofSubset(uview.cached, uview.cachedLeafHashes, ud.AccProof.Targets, uview.accumulator.NumLeaves)
+		if err != nil {
+			return err
+		}
+
+		// Update the accumulator.
+		updateData, err := uview.accumulator.Update(blockHashes, addHashes, blockProof)
+		if err != nil {
+			return err
+		}
+
+		// Update the cached proof.
+		uview.cachedLeafHashes, err = uview.cached.Update(uview.cachedLeafHashes, addHashes, blockProof.Targets, remembers, updateData)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // blockToDelOPs gives all the UTXOs in a block that need proofs in order to be
@@ -158,7 +205,7 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 // ExtractAccumulatorAddDels extracts the additions and the deletions that will be
 // used to modify the utreexo accumulator.
 func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
-	[]accumulator.Leaf, []accumulator.Hash, error) {
+	[]utreexo.Leaf, []utreexo.Hash, error) {
 
 	// Check that UData field isn't nil before doing anything else.
 	if block.MsgBlock().UData == nil {
@@ -181,7 +228,7 @@ func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remem
 	//
 	// NOTE Trying to call ProofSanity() before reconstructUData() will result
 	// in an error.
-	var delHashes []accumulator.Hash
+	var delHashes []utreexo.Hash
 	if len(ud.LeafDatas) > 0 {
 		var err error
 		delHashes, err = reconstructUData(ud, block, bestChain, inskip)
@@ -235,7 +282,7 @@ func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
 //
 // This function is safe for concurrent access.
 func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView,
-	inskip []uint32) ([]accumulator.Hash, error) {
+	inskip []uint32) ([]utreexo.Hash, error) {
 	if chainView == nil {
 		return nil, fmt.Errorf("Passed in chainView is nil. Cannot make compact udata to full")
 	}
@@ -244,7 +291,7 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 	// as a separate idx for the LeafDatas.  We need both of them because
 	// LeafDatas have already been deduped while the transactions are not.
 	var blockInIdx, ldIdx uint32
-	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
 	for idx, tx := range block.Transactions() {
 		if idx == 0 {
 			// coinbase can have many inputs
@@ -332,14 +379,14 @@ func IsUnspendable(o *wire.TxOut) bool {
 // then utxos that appear in the 0th, 3rd, and 11th in the block will
 // be skipped over.
 func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, remembers []uint32,
-	outCount int) []accumulator.Leaf {
+	outCount int) []utreexo.Leaf {
 
 	// Sort first as the below loop expects the remembers to be in order.
 	sortUint32s(remembers)
 
 	// We're overallocating a little bit since all the unspendables
 	// won't be appended. It's ok though for the pre-allocation savings.
-	leaves := make([]accumulator.Leaf, 0, outCount-len(skiplist))
+	leaves := make([]utreexo.Leaf, 0, outCount-len(skiplist))
 
 	var txonum uint32
 	for coinbase, tx := range block.Transactions() {
@@ -378,7 +425,7 @@ func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, remembers []uint3
 				remember = true
 			}
 
-			uleaf := accumulator.Leaf{
+			uleaf := utreexo.Leaf{
 				Hash:     leaf.LeafHash(),
 				Remember: remember,
 			}
@@ -609,7 +656,7 @@ func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]wire.LeafData, error) {
 // This function is NOT safe for concurrent access. GetRoots should not
 // be called when the UtreexoViewpoint is being modified.
 func (uview *UtreexoViewpoint) GetRoots() []*chainhash.Hash {
-	roots := uview.accumulator.GetRoots()
+	roots := uview.accumulator.Roots
 
 	chainhashRoots := make([]*chainhash.Hash, len(roots))
 
@@ -627,17 +674,17 @@ func (uview *UtreexoViewpoint) GetRoots() []*chainhash.Hash {
 // This function is NOT safe for concurrent access. Equal should not be called
 // when the UtreexoViewpoint is being modified.
 func (uview *UtreexoViewpoint) Equal(compRoots []*chainhash.Hash) bool {
-	uViewRoots := uview.accumulator.GetRoots()
+	uViewRoots := uview.accumulator.Roots
 	if len(uViewRoots) != len(compRoots) {
 		log.Criticalf("Length of the given roots differs from the one" +
 			"fetched from the utreexoViewpoint.")
 		return false
 	}
 
-	passedInRoots := make([]accumulator.Hash, len(compRoots))
+	passedInRoots := make([]utreexo.Hash, len(compRoots))
 
 	for i, compRoot := range compRoots {
-		passedInRoots[i] = accumulator.Hash(*compRoot)
+		passedInRoots[i] = utreexo.Hash(*compRoot)
 	}
 
 	for i, root := range passedInRoots {
@@ -653,21 +700,20 @@ func (uview *UtreexoViewpoint) Equal(compRoots []*chainhash.Hash) bool {
 
 // VerifyAccProof verifies the given accumulator proof.  Returns an error if the
 // verification failed.
-func (uview *UtreexoViewpoint) VerifyAccProof(toProve []accumulator.Hash,
-	proof *accumulator.BatchProof) error {
-	return uview.accumulator.VerifyBatchProof(toProve, *proof)
+func (uview *UtreexoViewpoint) VerifyAccProof(toProve []utreexo.Hash,
+	proof *utreexo.Proof) error {
+	_, err := utreexo.Verify(uview.accumulator, toProve, *proof)
+	return err
 }
 
-// ToString outputs a string of the underlying accumulator.  If the accumulator
-// is too big, a message stating that the accumulator is too big to turn into
-// a string will be returned instead.
+// ToString outputs a string of the underlying accumulator.
 func (uview *UtreexoViewpoint) ToString() string {
-	return uview.accumulator.ToString()
+	return uview.accumulator.String()
 }
 
 // compareRoots is the underlying method that calls the utreexo accumulator code
-func (uview *UtreexoViewpoint) compareRoots(compRoot []accumulator.Hash) bool {
-	uviewRoots := uview.accumulator.GetRoots()
+func (uview *UtreexoViewpoint) compareRoots(compRoot []utreexo.Hash) bool {
+	uviewRoots := uview.accumulator.Roots
 
 	if len(uviewRoots) != len(compRoot) {
 		log.Criticalf("Length of the given roots differs from the one" +
@@ -700,7 +746,9 @@ func (uview *UtreexoViewpoint) GetProofInterval() int32 {
 // PruneAll deletes all the cached leaves in the utreexo viewpoint, leaving only the
 // roots of the accumulator.
 func (uview *UtreexoViewpoint) PruneAll() {
-	uview.accumulator.PruneAll()
+	uview.cached.Targets = uview.cached.Targets[:0]
+	uview.cached.Proof = uview.cached.Proof[:0]
+	uview.cachedLeafHashes = uview.cachedLeafHashes[:0]
 }
 
 // NewUtreexoViewpoint returns an empty UtreexoViewpoint
@@ -708,7 +756,6 @@ func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
 		// Use 1 as a default value.
 		proofInterval: 1,
-		accumulator:   new(accumulator.Pollard),
 	}
 }
 
@@ -717,15 +764,9 @@ func (b *BlockChain) GetUtreexoView() *UtreexoViewpoint {
 	return b.utreexoView
 }
 
-// PrintRemembers prints all the nodes and their remember status.  Useful for debugging.
-func (uview *UtreexoViewpoint) PrintRemembers() string {
-	str, _ := uview.accumulator.PrintRemembers()
-	return str
-}
-
 // NumLeaves returns the total number of elements (aka leaves) in the accumulator.
 func (uview *UtreexoViewpoint) NumLeaves() uint64 {
-	return uview.accumulator.NumLeaves()
+	return uview.accumulator.NumLeaves
 }
 
 // IsUtreexoViewActive returns true if the node depends on the utreexoView
@@ -778,7 +819,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 
 	// Make a slice of hashes from LeafDatas. These are the hash commitments
 	// to be proven.
-	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
 	for i, txIn := range txIns {
 		ld := &ud.LeafDatas[i]
 
@@ -835,9 +876,9 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 
 	// VerifyBatchProof checks that the utreexo proofs are valid without
 	// mutating the accumulator.
-	err := b.utreexoView.accumulator.VerifyBatchProof(delHashes, ud.AccProof)
+	_, err := utreexo.Verify(b.utreexoView.accumulator, delHashes, ud.AccProof)
 	if err != nil {
-		str := "VerifyBatchProof fail. All txIns-leaf datas:\n"
+		str := "Verify fail. All txIns-leaf datas:\n"
 		for i, txIn := range txIns {
 			str += fmt.Sprintf("txIn: %s, leafdata: %s\n", txIn.PreviousOutPoint.String(),
 				ud.LeafDatas[i].ToString())
@@ -853,8 +894,8 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 // utxo exists in the chain tip with utreexo accumulator proof.
 type ChainTipProof struct {
 	ProvedAtHash *chainhash.Hash
-	AccProof     *accumulator.BatchProof
-	HashesProven []accumulator.Hash
+	AccProof     *utreexo.Proof
+	HashesProven []utreexo.Hash
 }
 
 // Serialize encodes the chain-tip proof into the passed in writer.
@@ -909,7 +950,7 @@ func (ctp *ChainTipProof) Deserialize(r io.Reader) error {
 		return err
 	}
 
-	hashesProven := make([]accumulator.Hash, binary.LittleEndian.Uint32(countBuf))
+	hashesProven := make([]utreexo.Hash, binary.LittleEndian.Uint32(countBuf))
 	for i := range hashesProven {
 		_, err = r.Read(hashesProven[i][:])
 		if err != nil {

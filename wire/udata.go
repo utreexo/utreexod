@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/mit-dci/utreexo/accumulator"
+	"github.com/utreexo/utreexo"
 )
 
 // UData contains data needed to prove the existence and validity of all inputs
@@ -17,7 +17,7 @@ import (
 // roots and still be able to fully validate a block.
 type UData struct {
 	// AccProof is the utreexo accumulator proof for all the inputs.
-	AccProof accumulator.BatchProof
+	AccProof utreexo.Proof
 
 	// LeafDatas are the tx validation data for every input.
 	LeafDatas []LeafData
@@ -28,8 +28,8 @@ type UData struct {
 
 // StxosHashes returns the hash of all stxos in this UData.  The hashes returned
 // here represent the hash commitments of the stxos.
-func (ud *UData) StxoHashes() []accumulator.Hash {
-	leafHashes := make([]accumulator.Hash, len(ud.LeafDatas))
+func (ud *UData) StxoHashes() []utreexo.Hash {
+	leafHashes := make([]utreexo.Hash, len(ud.LeafDatas))
 	for i, stxo := range ud.LeafDatas {
 		leafHashes[i] = stxo.LeafHash()
 	}
@@ -359,7 +359,7 @@ func (ud *UData) DeserializeCompactNoAccProof(r io.Reader) error {
 
 		targets[i] = target
 	}
-	ud.AccProof = accumulator.BatchProof{Targets: targets}
+	ud.AccProof = utreexo.Proof{Targets: targets}
 
 	// Grab the count for the udatas
 	udCount, err := ReadVarInt(r, 0)
@@ -432,7 +432,7 @@ func DeserializeRemembers(r io.Reader) ([]uint32, error) {
 // to get a batched inclusion proof from the accumulator. It then adds on the leaf data,
 // to create a block proof which both proves inclusion and gives all utxo data
 // needed for transaction verification.
-func GenerateUData(txIns []LeafData, forest *accumulator.Forest) (
+func GenerateUData(txIns []LeafData, pollard *utreexo.Pollard) (
 	*UData, error) {
 
 	ud := new(UData)
@@ -440,7 +440,7 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest) (
 
 	// make slice of hashes from leafdata
 	var unconfirmedCount int
-	delHashes := make([]accumulator.Hash, 0, len(ud.LeafDatas))
+	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
 	for _, ld := range ud.LeafDatas {
 		if ld.IsUnconfirmed() {
 			unconfirmedCount++
@@ -451,11 +451,11 @@ func GenerateUData(txIns []LeafData, forest *accumulator.Forest) (
 
 	// Generate the utreexo accumulator proof for all the inputs.
 	var err error
-	ud.AccProof, err = forest.ProveBatch(delHashes)
+	ud.AccProof, err = pollard.Prove(delHashes)
 	if err != nil {
 		// Find out which exact one is causing the error.
 		for i, delHash := range delHashes {
-			_, err = forest.ProveBatch([]accumulator.Hash{delHash})
+			_, err = pollard.Prove([]utreexo.Hash{delHash})
 			if err != nil {
 				ld := ud.LeafDatas[i]
 				return nil,
