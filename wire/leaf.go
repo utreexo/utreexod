@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto/sha512"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -45,6 +46,67 @@ type LeafData struct {
 	Amount                int64
 	ReconstructablePkType PkType
 	PkScript              []byte
+}
+
+func (l *LeafData) MarshalJSON() ([]byte, error) {
+	s := struct {
+		BlockHash  string `json:"blockhash"`
+		TxHash     string `json:"txhash"`
+		Index      uint32 `json:"index"`
+		Height     int32  `json:"height"`
+		IsCoinbase bool   `json:"iscoinbase"`
+		Amount     int64  `json:"amount"`
+		PkScript   string `json:"pkscript"`
+	}{
+		BlockHash:  l.BlockHash.String(),
+		TxHash:     l.OutPoint.Hash.String(),
+		Index:      l.OutPoint.Index,
+		Height:     l.Height,
+		IsCoinbase: l.IsCoinBase,
+		Amount:     l.Amount,
+		PkScript:   hex.EncodeToString(l.PkScript),
+	}
+
+	return json.Marshal(s)
+}
+
+func (l *LeafData) UnmarshalJSON(data []byte) error {
+	s := struct {
+		BlockHash  string `json:"blockhash"`
+		TxHash     string `json:"txhash"`
+		Index      uint32 `json:"index"`
+		Height     int32  `json:"height"`
+		IsCoinbase bool   `json:"iscoinbase"`
+		Amount     int64  `json:"amount"`
+		PkScript   string `json:"pkscript"`
+	}{}
+
+	err := json.Unmarshal(data, &s)
+	if err != nil {
+		return err
+	}
+
+	blockhash, err := chainhash.NewHashFromStr(s.BlockHash)
+	if err != nil {
+		return err
+	}
+	l.BlockHash = *blockhash
+
+	txHash, err := chainhash.NewHashFromStr(s.TxHash)
+	if err != nil {
+		return err
+	}
+	l.OutPoint = OutPoint{Hash: *txHash, Index: s.Index}
+
+	l.Height = s.Height
+	l.IsCoinBase = s.IsCoinbase
+	l.Amount = s.Amount
+	l.PkScript, err = hex.DecodeString(s.PkScript)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // LeafHash concats and hashes all the data in LeafData.
