@@ -799,11 +799,14 @@ func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view
 		return err
 	}
 
-	// Commit all modifications made to the view into the utxo state.  This also
-	// prunes these changes from the view.
-	b.stateLock.Lock()
-	b.utxoCache.Commit(view)
-	b.stateLock.Unlock()
+	// Don't commit to the utxo set if we're a utreexo node.
+	if b.utreexoView == nil {
+		// Commit all modifications made to the view into the utxo state.  This also
+		// prunes these changes from the view.
+		b.stateLock.Lock()
+		b.utxoCache.Commit(view)
+		b.stateLock.Unlock()
+	}
 
 	// This node's parent is now the end of the best chain.
 	b.bestChain.SetTip(node.parent)
@@ -828,7 +831,15 @@ func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view
 	// maximum size.
 	b.stateLock.Lock()
 	defer b.stateLock.Unlock()
-	return b.utxoCache.Flush(FlushIfNeeded, state)
+
+	// Don't try to flush the utxo set if we're a utreexo node.
+	if b.utreexoView == nil {
+		err = b.utxoCache.Flush(FlushIfNeeded, state)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // countSpentOutputs returns the number of utxos the passed block spends.
@@ -858,9 +869,12 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		return nil
 	}
 
-	// The rest of the reorg depends on all STXOs already being in the database
-	// so we flush before reorg
-	b.utxoCache.Flush(FlushRequired, b.BestSnapshot())
+	// Utreexo node doesn't have a utxo cache. Only flush if we're not a utreexo node.
+	if b.utreexoView == nil {
+		// The rest of the reorg depends on all STXOs already being in the database
+		// so we flush before reorg.
+		b.utxoCache.Flush(FlushRequired, b.BestSnapshot())
+	}
 
 	// Ensure the provided nodes match the current best chain.
 	tip := b.bestChain.Tip()
@@ -903,6 +917,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	// database and using that information to unspend all of the spent txos
 	// and remove the utxos created by the blocks.
 	view := NewUtxoViewpoint()
+	var uView *UtreexoViewpoint
 	for e := detachNodes.Front(); e != nil; e = e.Next() {
 		n := e.Value.(*blockNode)
 		var block *btcutil.Block
@@ -920,11 +935,34 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				n.height, block.Hash()))
 		}
 
-		// Load all of the utxos referenced by the block that aren't
-		// already in the view.
-		err = view.addInputUtxos(b.utxoCache, block)
-		if err != nil {
-			return err
+		// Fetch the utreexo accumulator state at the previous block and
+		// set it as the current utreexo accumulator state.
+		if b.utreexoView != nil {
+			err = b.db.View(func(dbTx database.Tx) error {
+				uView, err = dbFetchUtreexoView(dbTx, &block.MsgBlock().Header.PrevBlock)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+
+			// Set the utreexo view to the previous block.
+			b.utreexoView = uView
+
+			// Load all of the utxos referenced by the block that aren't
+			// already in the view. For utreexo nodes, this data is included
+			// in the block.
+			err = view.BlockToUtxoView(block)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Load all of the utxos referenced by the block that aren't
+			// already in the view.
+			err = view.addInputUtxos(b.utxoCache, block)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Load all of the spent txos for the block from the spend
@@ -945,20 +983,6 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		err = disconnectTransactions(view, block, stxos, b.utxoCache)
 		if err != nil {
 			return err
-		}
-
-		// Fetch the utreexo accumulator state at the previous block and
-		// set it as the current utreexo accumulator state.
-		if b.utreexoView != nil {
-			var uView *UtreexoViewpoint
-			err = b.db.View(func(dbTx database.Tx) error {
-				uView, err = dbFetchUtreexoView(dbTx, block.Hash())
-				if err != nil {
-					return err
-				}
-				return nil
-			})
-			b.utreexoView = uView
 		}
 
 		newBest = n.parent
@@ -1003,9 +1027,19 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		// checkConnectBlock gets skipped, we still need to update the UTXO
 		// view.
 		if b.index.NodeStatus(n).KnownValid() {
-			err = view.addInputUtxos(b.utxoCache, block)
-			if err != nil {
-				return err
+			// If we're not a utreexo node, fetch the input utxos from
+			// the utxo cache.
+			// If we are a utreexo node, we fetch them from the block.
+			if b.utreexoView == nil {
+				err = view.addInputUtxos(b.utxoCache, block)
+				if err != nil {
+					return err
+				}
+			} else {
+				err = view.BlockToUtxoView(block)
+				if err != nil {
+					return err
+				}
 			}
 			err = connectTransactions(view, block, nil, true)
 			if err != nil {
@@ -1052,16 +1086,26 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		n := e.Value.(*blockNode)
 		block := detachBlocks[i]
 
-		// Load all of the utxos referenced by the block that aren't
-		// already in the view.
-		err := view.addInputUtxos(b.utxoCache, block)
-		if err != nil {
-			return err
+		// If we're not a utreexo node, fetch the input utxos from
+		// the utxo cache.
+		// If we are a utreexo node, we fetch them from the block.
+		if b.utreexoView == nil {
+			// Load all of the utxos referenced by the block that aren't
+			// already in the view.
+			err := view.addInputUtxos(b.utxoCache, block)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := view.BlockToUtxoView(block)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Update the view to unspend all of the spent txos and remove
 		// the utxos created by the block.
-		err = disconnectTransactions(view, block, detachSpentTxOuts[i],
+		err := disconnectTransactions(view, block, detachSpentTxOuts[i],
 			b.utxoCache)
 		if err != nil {
 			return err
@@ -1079,11 +1123,21 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		n := e.Value.(*blockNode)
 		block := attachBlocks[i]
 
-		// Load all of the utxos referenced by the block that aren't
-		// already in the view.
-		err := view.addInputUtxos(b.utxoCache, block)
-		if err != nil {
-			return err
+		// If we're not a utreexo node, fetch the input utxos from
+		// the utxo cache.
+		// If we are a utreexo node, we fetch them from the block.
+		if b.utreexoView == nil {
+			// Load all of the utxos referenced by the block that aren't
+			// already in the view.
+			err := view.addInputUtxos(b.utxoCache, block)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := view.BlockToUtxoView(block)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Update the view to mark all utxos referenced by the block
@@ -1091,7 +1145,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		// to it.  Also, provide an stxo slice so the spent txout
 		// details are generated.
 		stxos := make([]SpentTxOut, 0, countSpentOutputs(block))
-		err = connectTransactions(view, block, &stxos, false)
+		err := connectTransactions(view, block, &stxos, false)
 		if err != nil {
 			return err
 		}
