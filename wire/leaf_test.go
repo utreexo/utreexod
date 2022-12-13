@@ -7,6 +7,7 @@ package wire
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -470,6 +471,98 @@ func TestLeafDataSerializeCompact(t *testing.T) {
 			t.Errorf("%s: LeafData compact serialize/deserialize fail. "+
 				"Before len %d, after len %d", test.name,
 				len(test.before), len(test.after))
+		}
+	}
+}
+
+func TestLeafDataJsonMarshal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ld   LeafData
+		want string
+	}{
+		{
+			name: "Testnet3 tx 061bb0bf... from block 1600000",
+			ld: LeafData{
+				BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
+					Index: 10,
+				},
+				Amount:     200000,
+				PkScript:   hexToBytes("a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"),
+				Height:     1599255,
+				IsCoinBase: false,
+			},
+			want: `{"blockhash":"00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d","txhash":"061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb","index":10,"height":1599255,"iscoinbase":false,"amount":200000,"pkscript":"a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"}`,
+		},
+		{
+			name: "Mainnet coinbase tx fa201b65... from block 573123",
+			ld: LeafData{
+				BlockHash: *newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2"),
+					Index: 0,
+				},
+				Amount:     1315080370,
+				PkScript:   hexToBytes("76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"),
+				Height:     573123,
+				IsCoinBase: true,
+			},
+			want: `{"blockhash":"000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa","txhash":"fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2","index":0,"height":573123,"iscoinbase":true,"amount":1315080370,"pkscript":"76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"}`,
+		},
+		{
+			name: "unconfirmed",
+			ld: LeafData{
+				BlockHash: *newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2"),
+					Index: 0,
+				},
+				Amount:     1315080370,
+				PkScript:   hexToBytes("76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"),
+				Height:     -1,
+				IsCoinBase: true,
+			},
+			want: `{"blockhash":"000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa","txhash":"fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2","index":0,"height":-1,"iscoinbase":true,"amount":1315080370,"pkscript":"76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"}`,
+		},
+		{
+			name: "confirmed",
+			ld: LeafData{
+				BlockHash: *newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2"),
+					Index: 0,
+				},
+				Amount:     1315080370,
+				PkScript:   hexToBytes("76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"),
+				Height:     573123,
+				IsCoinBase: true,
+			},
+			want: `{"blockhash":"000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa","txhash":"fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2","index":0,"height":573123,"iscoinbase":true,"amount":1315080370,"pkscript":"76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"}`,
+		},
+	}
+
+	for _, test := range tests {
+		got, err := json.Marshal(&test.ld)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if got := string(got); got != test.want {
+			t.Errorf("%s: LeafData json marshal/unmarshal fail. "+
+				"Expected %s, got %s", test.name, test.want, got)
+		}
+
+		var testData LeafData
+		err = json.Unmarshal(got, &testData)
+		if err != nil {
+			t.Error(err)
+		}
+		if !reflect.DeepEqual(test.ld, testData) {
+			t.Errorf("%s: LeafData json marshal/unmarshal fail.", test.name)
 		}
 	}
 }
