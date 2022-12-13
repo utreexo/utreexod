@@ -553,6 +553,20 @@ var helpDescsEnUS = map[string]string{
 	"gettxout-vout":           "The index of the output",
 	"gettxout-includemempool": "Include the mempool when true",
 
+	// GetUtreexoProof help.
+	"getutreexoproof--synopsis": "Returns an utreexo accumulator proof and the leaf preimages for the desired block",
+	"getutreexoproof-blockhash": "The block hash where the utreexo proof was created",
+	"getutreexoproof-verbosity": "Returns a json of the utreexo proof and the leaf preimages",
+
+	// GetUtreexoProofVerboseResult help.
+	"getutreexoproofverboseresult-proofhashes": "One half of the utreexo accumulator proof (the other half being prooftargets).\n" +
+		"The proof hashes for the utreexo accumulator proof of the given UTXOs.",
+	"getutreexoproofverboseresult-rememberindexes": "Indexes of the targets to cache when performing initial block download",
+	"getutreexoproofverboseresult-targethashes":    "Hashes that correspond to each of the prooftargets",
+	"getutreexoproofverboseresult-targetpreimages": "Preimages of the targethashes",
+	"getutreexoproofverboseresult-prooftargets": "One half of the utreexo accumulator proof (the other half being proofhashes).\n" +
+		"The locations of the given UTXOs in the accumulator.",
+
 	// HelpCmd help.
 	"help--synopsis":   "Returns a list of all commands or help for a specified command.",
 	"help-command":     "The command to retrieve help for",
@@ -782,6 +796,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getmininginfo":                    {(*btcjson.GetMiningInfoResult)(nil)},
 	"getnettotals":                     {(*btcjson.GetNetTotalsResult)(nil)},
 	"gettxtotals":                      {(*btcjson.GetTxTotalsResult)(nil)},
+	"getutreexoproof":                  {(*btcjson.GetUtreexoProofVerboseResult)(nil)},
 	"getnetworkhashps":                 {(*int64)(nil)},
 	"getnodeaddresses":                 {(*[]btcjson.GetNodeAddressesResult)(nil)},
 	"getpeerinfo":                      {(*[]btcjson.GetPeerInfoResult)(nil)},

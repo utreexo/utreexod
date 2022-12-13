@@ -739,6 +739,21 @@ func NewGetTxOutSetInfoCmd() *GetTxOutSetInfoCmd {
 	return &GetTxOutSetInfoCmd{}
 }
 
+// GetUtreexoProofCmd defines the getutreexoproof JSON-RPC command.
+type GetUtreexoProofCmd struct {
+	BlockHash string
+	Verbosity *int `jsonrpcdefault:"0"`
+}
+
+// NewGetUtreexoProofCmd returns a new instance which can be used
+// to issue a getutreexoproof JSON-RPC command.
+func NewGetUtreexoProofCmd(blockhash string, verbosity *int) *GetUtreexoProofCmd {
+	return &GetUtreexoProofCmd{
+		BlockHash: blockhash,
+		Verbosity: verbosity,
+	}
+}
+
 // GetWorkCmd defines the getwork JSON-RPC command.
 type GetWorkCmd struct {
 	Data *string
@@ -1138,6 +1153,7 @@ func init() {
 	MustRegisterCmd("gettxout", (*GetTxOutCmd)(nil), flags)
 	MustRegisterCmd("gettxoutproof", (*GetTxOutProofCmd)(nil), flags)
 	MustRegisterCmd("gettxoutsetinfo", (*GetTxOutSetInfoCmd)(nil), flags)
+	MustRegisterCmd("getutreexoproof", (*GetUtreexoProofCmd)(nil), flags)
 	MustRegisterCmd("getwork", (*GetWorkCmd)(nil), flags)
 	MustRegisterCmd("help", (*HelpCmd)(nil), flags)
 	MustRegisterCmd("invalidateblock", (*InvalidateBlockCmd)(nil), flags)
