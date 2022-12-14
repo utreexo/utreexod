@@ -882,3 +882,15 @@ type GetUtreexoProofVerboseResult struct {
 	TargetPreimages []string `json:"targetpreimages"`
 	ProofTargets    []uint64 `json:"prooftargets"`
 }
+
+// ProveWatchOnlyChainTipInclusionVerboseResult models the data from the
+// provewatchonlychaintipinclusion command when the verbose flag is set.  When the
+// verbose flag is not set, just the hex-encoded string of the entire proof
+// is returned.
+type ProveWatchOnlyChainTipInclusionVerboseResult struct {
+	ProvedAtHash string   `json:"provedathash"`
+	ProofHashes  []string `json:"proofhashes"`
+	ProofTargets []uint64 `json:"prooftargets"`
+	HashesProven []string `json:"hashesproven"`
+	Hex          string   `json:"hex"`
+}
