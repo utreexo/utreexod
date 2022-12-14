@@ -108,12 +108,23 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 		msg.Transactions = append(msg.Transactions, &tx)
 	}
 
-	if enc&UtreexoEncoding == UtreexoEncoding {
-		msg.UData = new(UData)
-		err = msg.UData.DeserializeCompact(r, false, 0)
-		if err != nil {
+	// Try to decode as a utreexo block.  If we get EOF, it means
+	// it's not a utreexo block.
+	//
+	// TODO Since the reader we received in this function is already
+	// checked for length, this probably is ok. But do think of
+	// a better solution.
+	msg.UData = new(UData)
+	err = msg.UData.DeserializeCompact(r, false, 0)
+	if err != nil {
+		if enc&UtreexoEncoding == UtreexoEncoding {
 			return err
 		}
+		if err == io.EOF {
+			msg.UData = nil
+			return nil
+		}
+		return err
 	}
 
 	return nil
@@ -247,7 +258,11 @@ func (msg *MsgBlock) Serialize(w io.Writer) error {
 	// Passing WitnessEncoding as the encoding type here indicates that
 	// each of the transactions should be serialized using the witness
 	// serialization structure defined in BIP0141.
-	return msg.BtcEncode(w, 0, WitnessEncoding)
+	enc := WitnessEncoding
+	if msg.UData != nil {
+		enc |= UtreexoEncoding
+	}
+	return msg.BtcEncode(w, 0, enc)
 }
 
 // SerializeNoWitness encodes a block to w using an identical format to
