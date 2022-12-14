@@ -43,6 +43,34 @@ type UtreexoViewpoint struct {
 	cachedLeafHashes []utreexo.Hash
 }
 
+// Copy returns a copy of the utreexo viewpoint.
+func (uview *UtreexoViewpoint) Copy() UtreexoViewpoint {
+	copyAccumulator := utreexo.Stump{
+		Roots:     make([]utreexo.Hash, len(uview.accumulator.Roots)),
+		NumLeaves: uview.accumulator.NumLeaves,
+	}
+	copy(copyAccumulator.Roots, uview.accumulator.Roots)
+
+	copyCached := utreexo.Proof{
+		Targets: make([]uint64, len(uview.cached.Targets)),
+		Proof:   make([]utreexo.Hash, len(uview.cached.Proof)),
+	}
+	copy(copyCached.Proof, uview.cached.Proof)
+	copy(copyCached.Targets, uview.cached.Targets)
+
+	copyCachedLeafHashes := make([]utreexo.Hash, len(uview.cachedLeafHashes))
+	copy(copyCachedLeafHashes, uview.cachedLeafHashes)
+
+	copyuView := UtreexoViewpoint{
+		proofInterval:    uview.proofInterval,
+		accumulator:      copyAccumulator,
+		cached:           copyCached,
+		cachedLeafHashes: copyCachedLeafHashes,
+	}
+
+	return copyuView
+}
+
 // ProcessUData checks that the accumulator proof and the utxo data included in the UData
 // passes consensus and then it updates the underlying accumulator.
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
@@ -56,10 +84,14 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	}
 
 	// Update the underlying accumulator.
-	err = uview.Modify(ud, adds, dels, ud.RememberIdx)
+	updateData, err := uview.Modify(ud, adds, dels, ud.RememberIdx)
 	if err != nil {
 		return err
 	}
+
+	// Add the utreexo data to the block.
+	block.SetUtreexoUpdateData(updateData)
+	block.SetUtreexoAdds(adds)
 
 	return nil
 }
@@ -82,7 +114,7 @@ func (uview *UtreexoViewpoint) AddProof(delHashes []utreexo.Hash, accProof *utre
 // are the leaves passed in.
 //
 // This function is NOT safe for concurrent access.
-func (uview *UtreexoViewpoint) Modify(ud *wire.UData, adds []utreexo.Leaf, dels []utreexo.Hash, remembers []uint32) error {
+func (uview *UtreexoViewpoint) Modify(ud *wire.UData, adds []utreexo.Leaf, dels []utreexo.Hash, remembers []uint32) (*utreexo.UpdateData, error) {
 	addHashes := make([]utreexo.Hash, len(adds))
 	remembers = make([]uint32, len(adds))
 	for i, add := range adds {
@@ -91,32 +123,33 @@ func (uview *UtreexoViewpoint) Modify(ud *wire.UData, adds []utreexo.Leaf, dels 
 	}
 
 	var err error
+	var updateData utreexo.UpdateData
 	if uview.proofInterval == 1 {
-		_, err = uview.accumulator.Update(dels, addHashes, ud.AccProof)
+		updateData, err = uview.accumulator.Update(dels, addHashes, ud.AccProof)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		// Extract only the necessary targets and proof hashes for this block.
 		blockHashes, blockProof, err := utreexo.GetProofSubset(uview.cached, uview.cachedLeafHashes, ud.AccProof.Targets, uview.accumulator.NumLeaves)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// Update the accumulator.
 		updateData, err := uview.accumulator.Update(blockHashes, addHashes, blockProof)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// Update the cached proof.
 		uview.cachedLeafHashes, err = uview.cached.Update(uview.cachedLeafHashes, addHashes, blockProof.Targets, remembers, updateData)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return &updateData, nil
 }
 
 // blockToDelOPs gives all the UTXOs in a block that need proofs in order to be

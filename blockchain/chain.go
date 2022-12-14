@@ -946,6 +946,15 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return nil
 			})
 
+			// This adds the update data and the utreexo adds to the
+			// block.  The added data here is needed to undo utreexo
+			// proofs.
+			copyuView := uView.Copy()
+			err = copyuView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return err
+			}
+
 			// Set the utreexo view to the previous block.
 			b.utreexoView = uView
 
