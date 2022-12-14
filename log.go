@@ -21,6 +21,7 @@ import (
 	"github.com/utreexo/utreexod/netsync"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/wallet"
 
 	"github.com/btcsuite/btclog"
 	"github.com/jrick/logrotate/rotator"
@@ -69,6 +70,7 @@ var (
 	srvrLog = backendLog.Logger("SRVR")
 	syncLog = backendLog.Logger("SYNC")
 	txmpLog = backendLog.Logger("TXMP")
+	wlltLog = backendLog.Logger("WLLT")
 )
 
 // Initialize package-global logger variables.
@@ -84,6 +86,7 @@ func init() {
 	txscript.UseLogger(scrpLog)
 	netsync.UseLogger(syncLog)
 	mempool.UseLogger(txmpLog)
+	wallet.UseLogger(wlltLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -103,6 +106,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"SRVR": srvrLog,
 	"SYNC": syncLog,
 	"TXMP": txmpLog,
+	"WLLT": wlltLog,
 }
 
 // initLogRotator initializes the logging rotater to write logs to logFile and

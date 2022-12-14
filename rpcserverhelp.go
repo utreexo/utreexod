@@ -567,6 +567,10 @@ var helpDescsEnUS = map[string]string{
 	"getutreexoproofverboseresult-prooftargets": "One half of the utreexo accumulator proof (the other half being proofhashes).\n" +
 		"The locations of the given UTXOs in the accumulator.",
 
+	// GetWatchOnlyBalanceCmd help.
+	"getwatchonlybalance--synopsis": "Returns the total balance of the watch only wallet",
+	"getwatchonlybalance--result0":  "The total balance of the watch only wallet in satoshis",
+
 	// HelpCmd help.
 	"help--synopsis":   "Returns a list of all commands or help for a specified command.",
 	"help-command":     "The command to retrieve help for",
@@ -594,6 +598,21 @@ var helpDescsEnUS = map[string]string{
 	"proveutxochaintipinclusionverboseresult-hashesproven": "The hashes of the UTXOs that are committed in the accumulator.\n" +
 		"Note that these are not purely hashes of txid:vout. The preimage also include Amount, PkScript, and other parts of the UTXO",
 	"proveutxochaintipinclusionverboseresult-hex": "The raw hash of the entire chain-tip inclusion proof",
+
+	// ProveWatchOnlyChainTipInclusionCmd help.
+	"provewatchonlychaintipinclusion--synopsis": "Returns a chaintip proof of all the relevant utxos of the watch only wallet.",
+	"provewatchonlychaintipinclusion-verbosity": "Specifies the returned proof as a JSON object instead of an hex-encoded string",
+	"provewatchonlychaintipinclusion--result0":  "Hex-encoded serialized chaintip proof of all the relevant utxos of the watch only wallet",
+
+	// ProveWatchOnlyChainTipInclusionVerboseResult help.
+	"provewatchonlychaintipinclusionverboseresult-provedathash": "The blockhash at which the proof was generated at. The proof will not verify if the blockhash is different",
+	"provewatchonlychaintipinclusionverboseresult-proofhashes": "One half of the utreexo accumulator proof (the other half being prooftargets).\n" +
+		"The proof hashes for the utreexo accumulator proof of the given UTXOs.",
+	"provewatchonlychaintipinclusionverboseresult-prooftargets": "One half of the utreexo accumulator proof (the other half being proofhashes).\n" +
+		"The locations of the given UTXOs in the accumulator.",
+	"provewatchonlychaintipinclusionverboseresult-hashesproven": "The hashes of the UTXOs that are committed in the accumulator.\n" +
+		"Note that these are not purely hashes of txid:vout. The preimage also include Amount, PkScript, and other parts of the UTXO",
+	"provewatchonlychaintipinclusionverboseresult-hex": "The raw hash of the entire chain-tip inclusion proof",
 
 	// SearchRawTransactionsCmd help.
 	"searchrawtransactions--synopsis": "Returns raw data for transactions involving the passed address.\n" +
@@ -725,6 +744,9 @@ var helpDescsEnUS = map[string]string{
 	"loadtxfilter-addresses": "Array of addresses to add to the transaction filter",
 	"loadtxfilter-outpoints": "Array of outpoints to add to the transaction filter",
 
+	"registeraddresstowatchonlywallet--synopsis": "Registers an address to the watch only wallet.",
+	"registeraddresstowatchonlywallet-address":   "Address to keep track of",
+
 	// Rescan help.
 	"rescan--synopsis": "Rescan block chain for transactions to addresses.\n" +
 		"When the endblock parameter is omitted, the rescan continues through the best block in the main chain.\n" +
@@ -797,6 +819,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getnettotals":                     {(*btcjson.GetNetTotalsResult)(nil)},
 	"gettxtotals":                      {(*btcjson.GetTxTotalsResult)(nil)},
 	"getutreexoproof":                  {(*btcjson.GetUtreexoProofVerboseResult)(nil)},
+	"getwatchonlybalance":              {(*int64)(nil)},
 	"getnetworkhashps":                 {(*int64)(nil)},
 	"getnodeaddresses":                 {(*[]btcjson.GetNodeAddressesResult)(nil)},
 	"getpeerinfo":                      {(*[]btcjson.GetPeerInfoResult)(nil)},
@@ -808,6 +831,8 @@ var rpcResultTypes = map[string][]interface{}{
 	"help":                             {(*string)(nil), (*string)(nil)},
 	"ping":                             nil,
 	"proveutxochaintipinclusion":       {(*btcjson.ProveUtxoChainTipInclusionVerboseResult)(nil)},
+	"provewatchonlychaintipinclusion":  {(*btcjson.ProveWatchOnlyChainTipInclusionVerboseResult)(nil)},
+	"registeraddresstowatchonlywallet": nil,
 	"searchrawtransactions":            {(*string)(nil), (*[]btcjson.SearchRawTransactionsResult)(nil)},
 	"sendrawtransaction":               {(*string)(nil)},
 	"setgenerate":                      nil,

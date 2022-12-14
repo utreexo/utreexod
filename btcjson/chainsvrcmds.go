@@ -770,6 +770,15 @@ func NewGetWorkCmd(data *string) *GetWorkCmd {
 	}
 }
 
+// GetWatchOnlyBalanceCmd defines the getwatchonlybalance JSON-RPC command.
+type GetWatchOnlyBalanceCmd struct{}
+
+// NewGetWatchOnlyBalanceCmd returns a new instance which can be used to issue a
+// getwatchonlybalance JSON-RPC command.
+func NewGetWatchOnlyBalanceCmd() *GetWatchOnlyBalanceCmd {
+	return &GetWatchOnlyBalanceCmd{}
+}
+
 // HelpCmd defines the help JSON-RPC command.
 type HelpCmd struct {
 	Command *string
@@ -839,6 +848,12 @@ func NewProveUtxoChainTipInclusionCmd(txids []string, vouts []uint32, verbosity 
 	}
 }
 
+// ProveWatchOnlyChainTipInclusionCmd defines the provewatchonlychaintipinclusion JSON-RPC
+// command.
+type ProveWatchOnlyChainTipInclusionCmd struct {
+	Verbosity *int `jsonrpcdefault:"1"`
+}
+
 // ReconsiderBlockCmd defines the reconsiderblock JSON-RPC command.
 type ReconsiderBlockCmd struct {
 	BlockHash string
@@ -849,6 +864,20 @@ type ReconsiderBlockCmd struct {
 func NewReconsiderBlockCmd(blockHash string) *ReconsiderBlockCmd {
 	return &ReconsiderBlockCmd{
 		BlockHash: blockHash,
+	}
+}
+
+// RegisterAddressToWatchOnlyWalletCmd defines the registeraddresstowatchonlywallet JSON-RPC
+// command.
+type RegisterAddressToWatchOnlyWalletCmd struct {
+	Address string
+}
+
+// NewRegisterAddressToWatchOnlyWalletCmd returns a new instance which can be used to issue a
+// registeraddresstowatchonlywallet JSON-RPC command.
+func NewRegisterAddressToWatchOnlyWalletCmd(address string) *RegisterAddressToWatchOnlyWalletCmd {
+	return &RegisterAddressToWatchOnlyWalletCmd{
+		Address: address,
 	}
 }
 
@@ -1155,11 +1184,14 @@ func init() {
 	MustRegisterCmd("gettxoutsetinfo", (*GetTxOutSetInfoCmd)(nil), flags)
 	MustRegisterCmd("getutreexoproof", (*GetUtreexoProofCmd)(nil), flags)
 	MustRegisterCmd("getwork", (*GetWorkCmd)(nil), flags)
+	MustRegisterCmd("getwatchonlybalance", (*GetWatchOnlyBalanceCmd)(nil), flags)
 	MustRegisterCmd("help", (*HelpCmd)(nil), flags)
 	MustRegisterCmd("invalidateblock", (*InvalidateBlockCmd)(nil), flags)
 	MustRegisterCmd("ping", (*PingCmd)(nil), flags)
 	MustRegisterCmd("preciousblock", (*PreciousBlockCmd)(nil), flags)
 	MustRegisterCmd("proveutxochaintipinclusion", (*ProveUtxoChainTipInclusionCmd)(nil), flags)
+	MustRegisterCmd("provewatchonlychaintipinclusion", (*ProveWatchOnlyChainTipInclusionCmd)(nil), flags)
+	MustRegisterCmd("registeraddresstowatchonlywallet", (*RegisterAddressToWatchOnlyWalletCmd)(nil), flags)
 	MustRegisterCmd("reconsiderblock", (*ReconsiderBlockCmd)(nil), flags)
 	MustRegisterCmd("searchrawtransactions", (*SearchRawTransactionsCmd)(nil), flags)
 	MustRegisterCmd("sendrawtransaction", (*SendRawTransactionCmd)(nil), flags)

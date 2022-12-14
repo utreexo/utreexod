@@ -37,6 +37,7 @@ import (
 	"github.com/utreexo/utreexod/netsync"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/wallet"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -256,6 +257,10 @@ type server struct {
 	// The fee estimator keeps track of how long transactions are left in
 	// the mempool before they are mined into blocks.
 	feeEstimator *mempool.FeeEstimator
+
+	// watchOnlyWallet keeps track of addresses and extended pubkeys, allowing
+	// a watch-only wallet functionality.
+	watchOnlyWallet *wallet.WatchOnlyWalletManager
 
 	// cfCheckptCaches stores a cached slice of filter headers for cfcheckpt
 	// messages for each filter type.
@@ -2667,6 +2672,11 @@ func (s *server) Start() {
 	if cfg.Generate {
 		s.cpuMiner.Start()
 	}
+
+	// Start the watch only wallet if it's enabled.
+	if cfg.WatchOnlyWallet {
+		s.watchOnlyWallet.Start()
+	}
 }
 
 // Stop gracefully shuts down the server by stopping and disconnecting all
@@ -2686,6 +2696,11 @@ func (s *server) Stop() error {
 	// Shutdown the RPC server if it's not disabled.
 	if !cfg.DisableRPC {
 		s.rpcServer.Stop()
+	}
+
+	// Stop the watch only wallet if it's enabled.
+	if cfg.WatchOnlyWallet {
+		s.watchOnlyWallet.Stop()
 	}
 
 	// Save fee estimator state in the database.
@@ -3246,6 +3261,26 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		})
 	}
 
+	if cfg.WatchOnlyWallet {
+		s.watchOnlyWallet, err = wallet.New(&wallet.Config{
+			Chain:       s.chain,
+			TxMemPool:   s.txMemPool,
+			ChainParams: chainParams,
+			DataDir:     cfg.DataDir,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		// Register addresses that are requested to be watched,
+		for _, addr := range cfg.RegisterAddressToWatchOnlyWallet {
+			err := s.watchOnlyWallet.RegisterAddress(addr)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if !cfg.DisableRPC {
 		// Setup listeners for the configured RPC listen addresses and
 		// TLS settings.
@@ -3276,6 +3311,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			UtreexoProofIndex:     s.utreexoProofIndex,
 			FlatUtreexoProofIndex: s.flatUtreexoProofIndex,
 			FeeEstimator:          s.feeEstimator,
+			WatchOnlyWallet:       s.watchOnlyWallet,
 		})
 		if err != nil {
 			return nil, err

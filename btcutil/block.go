@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -32,13 +33,15 @@ func (e OutOfRangeError) Error() string {
 // transactions on their first access so subsequent accesses don't have to
 // repeat the relatively expensive hashing operations.
 type Block struct {
-	msgBlock                 *wire.MsgBlock  // Underlying MsgBlock
-	serializedBlock          []byte          // Serialized bytes for the block
-	serializedBlockNoWitness []byte          // Serialized bytes for block w/o witness data
-	blockHash                *chainhash.Hash // Cached block hash
-	blockHeight              int32           // Height in the main block chain
-	transactions             []*Tx           // Transactions
-	txnsGenerated            bool            // ALL wrapped transactions generated
+	msgBlock                 *wire.MsgBlock      // Underlying MsgBlock
+	serializedBlock          []byte              // Serialized bytes for the block
+	serializedBlockNoWitness []byte              // Serialized bytes for block w/o witness data
+	blockHash                *chainhash.Hash     // Cached block hash
+	blockHeight              int32               // Height in the main block chain
+	transactions             []*Tx               // Transactions
+	txnsGenerated            bool                // ALL wrapped transactions generated
+	utreexoUpdateData        *utreexo.UpdateData // Utreexo update data for this block
+	utreexoAdds              []utreexo.Hash      // Hashes of the utreexo leaves being added
 }
 
 // MsgBlock returns the underlying wire.MsgBlock for the Block.
@@ -214,6 +217,30 @@ func (b *Block) Height() int32 {
 // SetHeight sets the height of the block in the block chain.
 func (b *Block) SetHeight(height int32) {
 	b.blockHeight = height
+}
+
+// SetUtreexoUpdateData sets the utreexo update data of the block in the block chain.
+func (b *Block) SetUtreexoUpdateData(data *utreexo.UpdateData) {
+	b.utreexoUpdateData = data
+}
+
+// UtreexoUpdateData returns the utreexo update data for the block in the block chain.
+func (b *Block) UtreexoUpdateData() *utreexo.UpdateData {
+	return b.utreexoUpdateData
+}
+
+// SetUtreexoAdds sets the hashes of the utreexo leaves being added in this block.
+func (b *Block) SetUtreexoAdds(adds []utreexo.Leaf) {
+	addHashes := make([]utreexo.Hash, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, add.Hash)
+	}
+	b.utreexoAdds = addHashes
+}
+
+// UtreexoAdds returns the hashes of the utreexo leaves added in this block.
+func (b *Block) UtreexoAdds() []utreexo.Hash {
+	return b.utreexoAdds
 }
 
 // NewBlock returns a new instance of a bitcoin block given an underlying

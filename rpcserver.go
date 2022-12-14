@@ -41,6 +41,7 @@ import (
 	"github.com/utreexo/utreexod/mining/cpuminer"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/wallet"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -167,10 +168,13 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getttl":                           handleGetTTL,
 	"gettxout":                         handleGetTxOut,
 	"getutreexoproof":                  handleGetUtreexoProof,
+	"getwatchonlybalance":              handleGetWatchOnlyBalance,
 	"help":                             handleHelp,
 	"node":                             handleNode,
 	"ping":                             handlePing,
 	"proveutxochaintipinclusion":       handleProveUtxoChainTipInclusion,
+	"provewatchonlychaintipinclusion":  handleProveWatchOnlyChainTipInclusion,
+	"registeraddresstowatchonlywallet": handleRegisterAddressToWatchOnlyWallet,
 	"searchrawtransactions":            handleSearchRawTransactions,
 	"sendrawtransaction":               handleSendRawTransaction,
 	"setgenerate":                      handleSetGenerate,
@@ -2861,6 +2865,17 @@ func handleGetTxOut(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (i
 	return txOutReply, nil
 }
 
+// handleGetWatchOnlyBalance implements the getwatchonlybalance command.
+func handleGetWatchOnlyBalance(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	if s.cfg.WatchOnlyWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "watch only wallet must be enabled (--watchonlywallet)",
+		}
+	}
+	return s.cfg.WatchOnlyWallet.Getbalance(), nil
+}
+
 // handleHelp implements the help command.
 func handleHelp(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
 	c := cmd.(*btcjson.HelpCmd)
@@ -3136,6 +3151,51 @@ func handleGetUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struc
 	return getReply, nil
 }
 
+// handleProveWatchOnlyChainTipInclusion implements the handleprovewatchonly command.
+func handleProveWatchOnlyChainTipInclusion(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (
+	interface{}, error) {
+
+	c := cmd.(*btcjson.ProveWatchOnlyChainTipInclusionCmd)
+
+	if s.cfg.WatchOnlyWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "Watch only wallet must be enabled (--watchonlywallet)",
+		}
+	}
+
+	proof := s.cfg.WatchOnlyWallet.GetProof()
+
+	if *c.Verbosity == 0 {
+		return proof.String(), nil
+	}
+
+	// Convert the hashes to string.
+	proofString := make([]string, 0, len(proof.AccProof.Proof))
+	for _, singleProof := range proof.AccProof.Proof {
+		// Convert to chainhash.Hash to access the String() method.
+		chainHash := chainhash.Hash(singleProof)
+		proofString = append(proofString, chainHash.String())
+	}
+
+	hashesProvenString := make([]string, 0, len(proof.HashesProven))
+	for _, singleHash := range proof.HashesProven {
+		// Convert to chainhash.Hash to access the String() method.
+		chainHash := chainhash.Hash(singleHash)
+		hashesProvenString = append(hashesProvenString, chainHash.String())
+	}
+
+	proveReply := &btcjson.ProveUtxoChainTipInclusionVerboseResult{
+		ProvedAtHash: proof.ProvedAtHash.String(),
+		ProofHashes:  proofString,
+		ProofTargets: proof.AccProof.Targets,
+		HashesProven: hashesProvenString,
+		Hex:          proof.String(),
+	}
+
+	return proveReply, nil
+}
+
 // retrievedTx represents a transaction that was either loaded from the
 // transaction memory pool or from the database.  When a transaction is loaded
 // from the database, it is loaded with the raw serialized bytes while the
@@ -3355,6 +3415,28 @@ func fetchMempoolTxnsForAddress(s *rpcServer, addr btcutil.Address, numToSkip, n
 		rangeEnd = numAvailable
 	}
 	return mpTxns[numToSkip:rangeEnd], numToSkip
+}
+
+// handleRegisterAddressToWatchOnlyWallet implements the handleregisteraddresstowatchonlyaddress command.
+func handleRegisterAddressToWatchOnlyWallet(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.RegisterAddressToWatchOnlyWalletCmd)
+
+	if s.cfg.WatchOnlyWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "Watch only wallet must be enabled (--watchonlywallet)",
+		}
+	}
+
+	err := s.cfg.WatchOnlyWallet.RegisterAddress(c.Address)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Couldn't register the given address %s. Error: %v", c.Address, err),
+		}
+	}
+
+	return nil, nil
 }
 
 // handleSearchRawTransactions implements the searchrawtransactions command.
@@ -4941,6 +5023,10 @@ type rpcserverConfig struct {
 	// The fee estimator keeps track of how long transactions are left in
 	// the mempool before they are mined into blocks.
 	FeeEstimator *mempool.FeeEstimator
+
+	// WatchOnlyWallet keeps track of relevant utxos and its utreexo proof
+	// for the given addresses and xpubs.
+	WatchOnlyWallet *wallet.WatchOnlyWalletManager
 }
 
 // newRPCServer returns a new instance of the rpcServer struct.
