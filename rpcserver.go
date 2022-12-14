@@ -147,6 +147,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getblockhash":                     handleGetBlockHash,
 	"getblockheader":                   handleGetBlockHeader,
 	"getblocktemplate":                 handleGetBlockTemplate,
+	"getchaintips":                     handleGetChainTips,
 	"getcfilter":                       handleGetCFilter,
 	"getcfilterheader":                 handleGetCFilterHeader,
 	"getconnectioncount":               handleGetConnectionCount,
@@ -240,7 +241,6 @@ var rpcAskWallet = map[string]struct{}{
 // Commands that are currently unimplemented, but should ultimately be.
 var rpcUnimplemented = map[string]struct{}{
 	"estimatepriority": {},
-	"getchaintips":     {},
 	"getmempoolentry":  {},
 	"getnetworkinfo":   {},
 	"getwork":          {},
@@ -275,6 +275,7 @@ var rpcLimited = map[string]struct{}{
 	"getblockcount":              {},
 	"getblockhash":               {},
 	"getblockheader":             {},
+	"getchaintips":               {},
 	"getcfilter":                 {},
 	"getcfilterheader":           {},
 	"getcurrentnet":              {},
@@ -2191,6 +2192,28 @@ func handleGetBlockTemplate(s *rpcServer, cmd interface{}, closeChan <-chan stru
 		Code:    btcjson.ErrRPCInvalidParameter,
 		Message: "Invalid mode",
 	}
+}
+
+// handleGetChainTips implements the getchaintips command.
+func handleGetChainTips(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	chainTips := s.cfg.Chain.ChainTips()
+
+	ret := []btcjson.GetChainTipsResult{}
+	for _, chainTip := range chainTips {
+		ret = append(ret, struct {
+			Height    int32  "json:\"height\""
+			Hash      string "json:\"hash\""
+			BranchLen int32  "json:\"branchlen\""
+			Status    string "json:\"status\""
+		}{
+			Height:    chainTip.Height,
+			Hash:      chainTip.BlockHash.String(),
+			BranchLen: chainTip.BranchLen,
+			Status:    chainTip.Status.String(),
+		})
+	}
+
+	return ret, nil
 }
 
 // handleGetCFilter implements the getcfilter command.
