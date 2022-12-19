@@ -187,6 +187,16 @@ func (node *blockNode) Ancestor(height int32) *blockNode {
 	return n
 }
 
+// IsAncestor returns if the other node is an ancestor of this block node.
+func (node *blockNode) IsAncestor(otherNode *blockNode) bool {
+	ancestor := node.Ancestor(otherNode.height)
+	if ancestor == node {
+		return false
+	}
+
+	return ancestor == otherNode
+}
+
 // RelativeAncestor returns the ancestor block node a relative 'distance' blocks
 // before this node.  This is equivalent to calling Ancestor with the node's
 // height minus provided distance.
