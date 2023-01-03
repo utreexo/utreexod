@@ -1660,3 +1660,401 @@ func TestInvalidateBlock(t *testing.T) {
 		}()
 	}
 }
+
+func TestReconsiderBlock(t *testing.T) {
+	tests := []struct {
+		name     string
+		chainGen func() (*BlockChain, []*chainhash.Hash, func())
+	}{
+		{
+			name: "One branch, invalidate once",
+			chainGen: func() (*BlockChain, []*chainhash.Hash, func()) {
+				source := rand.NewSource(time.Now().UnixNano())
+				rand := rand.New(source)
+
+				chain, params, tearDown := utxoCacheTestChain("TestInvalidateBlock-one-branch-invalidate-once")
+				tip := btcutil.NewBlock(params.GenesisBlock)
+
+				// Create block at height 1.
+				var emptySpendableOuts []*SpendableOut
+				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+
+				var allSpends []*SpendableOut
+				nextBlock := b1
+				nextSpends := spendableOuts1
+
+				var invalidateHash *chainhash.Hash
+
+				// Create a chain with 101 blocks.
+				for b := 0; b < 10; b++ {
+					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					nextBlock = newBlock
+
+					if newBlock.Height() == 5 {
+						invalidateHash = newBlock.Hash()
+					}
+
+					allSpends = append(allSpends, newSpendableOuts...)
+
+					var nextSpendsTmp []*SpendableOut
+					for i := 0; i < len(allSpends); i++ {
+						randIdx := rand.Intn(len(allSpends))
+
+						spend := allSpends[randIdx]                                       // get
+						allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+						nextSpendsTmp = append(nextSpendsTmp, spend)
+					}
+					nextSpends = nextSpendsTmp
+
+					if b%10 == 0 {
+						// Commit the two base blocks to DB
+						if err := chain.FlushCachedState(FlushRequired); err != nil {
+							t.Fatalf("unexpected error while flushing cache: %v", err)
+						}
+					}
+				}
+
+				return chain, []*chainhash.Hash{invalidateHash}, tearDown
+			},
+		},
+		{
+			name: "invalidate a the active branch with a side branch present",
+			chainGen: func() (*BlockChain, []*chainhash.Hash, func()) {
+				source := rand.NewSource(0)
+				rand := rand.New(source)
+
+				chain, params, tearDown := utxoCacheTestChain("TestReconsiderBlock-invalidate-with-side-branch")
+				tip := btcutil.NewBlock(params.GenesisBlock)
+
+				// Create block at height 1.
+				var emptySpendableOuts []*SpendableOut
+				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+
+				var allSpends []*SpendableOut
+				nextBlock := b1
+				nextSpends := spendableOuts1
+
+				var invalidateHash *chainhash.Hash
+				// Create a chain with 101 blocks.
+				for b := 0; b < 10; b++ {
+					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					nextBlock = newBlock
+
+					if newBlock.Height() == 5 {
+						invalidateHash = newBlock.Hash()
+					}
+
+					allSpends = append(allSpends, newSpendableOuts...)
+
+					var nextSpendsTmp []*SpendableOut
+					for i := 0; i < len(allSpends); i++ {
+						randIdx := rand.Intn(len(allSpends))
+
+						spend := allSpends[randIdx]                                       // get
+						allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+						nextSpendsTmp = append(nextSpendsTmp, spend)
+					}
+					nextSpends = nextSpendsTmp
+
+					if b%10 == 0 {
+						// Commit the two base blocks to DB
+						if err := chain.FlushCachedState(FlushRequired); err != nil {
+							t.Fatalf("unexpected error while flushing cache: %v", err)
+						}
+					}
+				}
+
+				var altSpends []*SpendableOut
+				altNextSpends := spendableOuts1
+				altNextBlock := b1
+				for b := 0; b < 6; b++ {
+					altNewBlock, newSpends := AddBlock(chain, altNextBlock, altNextSpends)
+					altNextBlock = altNewBlock
+
+					altSpends = append(altSpends, newSpends...)
+
+					var nextSpendsTmp []*SpendableOut
+					for i := 0; i < len(altSpends); i++ {
+						randIdx := rand.Intn(len(altSpends))
+
+						spend := altSpends[randIdx]                                       // get
+						altSpends = append(altSpends[:randIdx], altSpends[randIdx+1:]...) // delete
+						nextSpendsTmp = append(nextSpendsTmp, spend)
+					}
+					altNextSpends = nextSpendsTmp
+
+					if b%10 == 0 {
+						// Commit the two base blocks to DB
+						if err := chain.FlushCachedState(FlushRequired); err != nil {
+							t.Fatalf("unexpected error while flushing cache: %v", err)
+						}
+					}
+				}
+
+				return chain, []*chainhash.Hash{invalidateHash}, tearDown
+			},
+		},
+		{
+			name: "invalidate a side branch",
+			chainGen: func() (*BlockChain, []*chainhash.Hash, func()) {
+				source := rand.NewSource(0)
+				rand := rand.New(source)
+
+				chain, params, tearDown := utxoCacheTestChain("TestReconsiderBlock-invalidate-a-side-branch")
+				tip := btcutil.NewBlock(params.GenesisBlock)
+
+				// Create block at height 1.
+				var emptySpendableOuts []*SpendableOut
+				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+
+				var allSpends []*SpendableOut
+				nextBlock := b1
+				nextSpends := spendableOuts1
+
+				// Create a chain with 101 blocks.
+				for b := 0; b < 10; b++ {
+					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					nextBlock = newBlock
+
+					allSpends = append(allSpends, newSpendableOuts...)
+
+					var nextSpendsTmp []*SpendableOut
+					for i := 0; i < len(allSpends); i++ {
+						randIdx := rand.Intn(len(allSpends))
+
+						spend := allSpends[randIdx]                                       // get
+						allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+						nextSpendsTmp = append(nextSpendsTmp, spend)
+					}
+					nextSpends = nextSpendsTmp
+
+					if b%10 == 0 {
+						// Commit the two base blocks to DB
+						if err := chain.FlushCachedState(FlushRequired); err != nil {
+							t.Fatalf("unexpected error while flushing cache: %v", err)
+						}
+					}
+				}
+
+				var altSpends []*SpendableOut
+				altNextSpends := spendableOuts1
+				altNextBlock := b1
+				var invalidateHash *chainhash.Hash
+				for b := 0; b < 6; b++ {
+					altNewBlock, newSpends := AddBlock(chain, altNextBlock, altNextSpends)
+					altNextBlock = altNewBlock
+
+					if altNewBlock.Height() == 4 {
+						invalidateHash = altNewBlock.Hash()
+					}
+
+					altSpends = append(altSpends, newSpends...)
+
+					var nextSpendsTmp []*SpendableOut
+					for i := 0; i < len(altSpends); i++ {
+						randIdx := rand.Intn(len(altSpends))
+
+						spend := altSpends[randIdx]                                       // get
+						altSpends = append(altSpends[:randIdx], altSpends[randIdx+1:]...) // delete
+						nextSpendsTmp = append(nextSpendsTmp, spend)
+					}
+					altNextSpends = nextSpendsTmp
+
+					if b%10 == 0 {
+						// Commit the two base blocks to DB
+						if err := chain.FlushCachedState(FlushRequired); err != nil {
+							t.Fatalf("unexpected error while flushing cache: %v", err)
+						}
+					}
+				}
+
+				return chain, []*chainhash.Hash{invalidateHash}, tearDown
+			},
+		},
+		{
+			name: "reconsider an invalid side branch with a higher work",
+			chainGen: func() (*BlockChain, []*chainhash.Hash, func()) {
+				source := rand.NewSource(0)
+				rand := rand.New(source)
+
+				chain, params, tearDown := utxoCacheTestChain("TestReconsiderBlock-reconsider-an-invalid-side-branch-higher")
+				tip := btcutil.NewBlock(params.GenesisBlock)
+
+				// Create block at height 1.
+				var emptySpendableOuts []*SpendableOut
+				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+
+				var allSpends []*SpendableOut
+				nextBlock := b1
+				nextSpends := spendableOuts1
+
+				// Create a chain.
+				var invalidateHash *chainhash.Hash
+				for b := 0; b < 6; b++ {
+					var newBlock *btcutil.Block
+					var newSpendableOuts []*SpendableOut
+					if b == 5 {
+						// Modify the amount so that the block will be invalid.
+						nextSpends[0].Amount += lowFee
+
+						invalidBlock, _ := NewBlock(chain, nextBlock, nextSpends)
+						invalidateHash = invalidBlock.Hash()
+
+						// The block validation will fail here and we'll mark the
+						// block as invalid in the block index.
+						chain.ProcessBlock(invalidBlock, BFNone)
+
+						// Modify the amount again so it's valid.
+						nextSpends[0].Amount -= lowFee
+					} else {
+						newBlock, newSpendableOuts = AddBlock(chain, nextBlock, nextSpends)
+						nextBlock = newBlock
+					}
+
+					allSpends = append(allSpends, newSpendableOuts...)
+
+					var nextSpendsTmp []*SpendableOut
+					for i := 0; i < len(allSpends); i++ {
+						randIdx := rand.Intn(len(allSpends))
+
+						spend := allSpends[randIdx]                                       // get
+						allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+						nextSpendsTmp = append(nextSpendsTmp, spend)
+					}
+					nextSpends = nextSpendsTmp
+
+					if b%10 == 0 {
+						// Commit the two base blocks to DB
+						if err := chain.FlushCachedState(FlushRequired); err != nil {
+							t.Fatalf("unexpected error while flushing cache: %v", err)
+						}
+					}
+				}
+
+				return chain, []*chainhash.Hash{invalidateHash}, tearDown
+			},
+		},
+		{
+			name: "reconsider an invalid side branch with a lower work",
+			chainGen: func() (*BlockChain, []*chainhash.Hash, func()) {
+				source := rand.NewSource(0)
+				rand := rand.New(source)
+
+				chain, params, tearDown := utxoCacheTestChain("TestReconsiderBlock-reconsider-an-invalid-side-branch-lower")
+				tip := btcutil.NewBlock(params.GenesisBlock)
+
+				// Create block at height 1.
+				var emptySpendableOuts []*SpendableOut
+				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+
+				var allSpends []*SpendableOut
+				nextBlock := b1
+				nextSpends := spendableOuts1
+
+				// Create a chain.
+				var invalidateHash *chainhash.Hash
+				for b := 0; b < 8; b++ {
+					var newBlock *btcutil.Block
+					var newSpendableOuts []*SpendableOut
+					if b == 5 {
+						// Modify the amount so that the block will be invalid.
+						nextSpends[0].Amount += lowFee
+
+						invalidBlock, _ := NewBlock(chain, nextBlock, nextSpends)
+						invalidateHash = invalidBlock.Hash()
+
+						// The block validation will fail here and we'll mark the
+						// block as invalid in the block index.
+						chain.ProcessBlock(invalidBlock, BFNone)
+
+						// Modify the amount again so it's valid.
+						nextSpends[0].Amount -= lowFee
+					} else {
+						newBlock, newSpendableOuts = AddBlock(chain, nextBlock, nextSpends)
+						nextBlock = newBlock
+					}
+
+					allSpends = append(allSpends, newSpendableOuts...)
+
+					var nextSpendsTmp []*SpendableOut
+					for i := 0; i < len(allSpends); i++ {
+						randIdx := rand.Intn(len(allSpends))
+
+						spend := allSpends[randIdx]                                       // get
+						allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+						nextSpendsTmp = append(nextSpendsTmp, spend)
+					}
+					nextSpends = nextSpendsTmp
+
+					if b%10 == 0 {
+						// Commit the two base blocks to DB
+						if err := chain.FlushCachedState(FlushRequired); err != nil {
+							t.Fatalf("unexpected error while flushing cache: %v", err)
+						}
+					}
+				}
+
+				return chain, []*chainhash.Hash{invalidateHash}, tearDown
+			},
+		},
+	}
+
+	for _, test := range tests {
+		chain, invalidateHashes, tearDown := test.chainGen()
+		func() {
+			defer tearDown()
+			for _, invalidateHash := range invalidateHashes {
+				// Cache the chain tips before the invalidate. Since we'll reconsider
+				// the invalidated block, we should come back to these tips in the end.
+				tips := chain.ChainTips()
+				expectedChainTips := make(map[chainhash.Hash]ChainTip, len(tips))
+				for _, tip := range tips {
+					expectedChainTips[tip.BlockHash] = tip
+				}
+
+				// Invalidation.
+				err := chain.InvalidateBlock(invalidateHash)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				// Reconsideration.
+				err = chain.ReconsiderBlock(invalidateHash)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				// Compare the tips aginst the tips we've cached.
+				gotChainTips := chain.ChainTips()
+				for _, gotChainTip := range gotChainTips {
+					testChainTip, found := expectedChainTips[gotChainTip.BlockHash]
+					if !found {
+						t.Errorf("TestReconsiderBlock Failed test \"%s\". Couldn't find an expected "+
+							"chain tip with height %d, hash %s, branchlen %d, status \"%s\"",
+							test.name, testChainTip.Height, testChainTip.BlockHash.String(),
+							testChainTip.BranchLen, testChainTip.Status.String())
+					}
+
+					// If the invalid side branch is a lower work, we'll never
+					// actually process the block again until the branch becomes
+					// a greater work chain so it'll show up as valid-fork.
+					if test.name == "reconsider an invalid side branch with a lower work" &&
+						testChainTip.BlockHash == *invalidateHash {
+
+						testChainTip.Status = StatusValidFork
+					}
+
+					if !reflect.DeepEqual(testChainTip, gotChainTip) {
+						t.Errorf("TestReconsiderBlock Failed test \"%s\". Expected chain tip with "+
+							"height %d, hash %s, branchlen %d, status \"%s\" but got "+
+							"height %d, hash %s, branchlen %d, status \"%s\"", test.name,
+							testChainTip.Height, testChainTip.BlockHash.String(),
+							testChainTip.BranchLen, testChainTip.Status.String(),
+							gotChainTip.Height, gotChainTip.BlockHash.String(),
+							gotChainTip.BranchLen, gotChainTip.Status.String())
+					}
+				}
+			}
+		}()
+	}
+}
