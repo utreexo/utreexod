@@ -174,6 +174,22 @@ func MakeSpendableOutForTx(tx *wire.MsgTx, txOutIndex uint32) SpendableOut {
 //
 // Panics on errors.
 func AddBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*btcutil.Block, []*SpendableOut) {
+	block, outs := NewBlock(chain, prev, spends)
+
+	_, _, err := chain.ProcessBlock(block, BFNone)
+	if err != nil {
+		panic(err)
+	}
+
+	return block, outs
+}
+
+// NewBlock creates a block to the blockchain that succeeds the prev block.  The blocks spends
+// all the provided spendable outputs.  The new block is returned, together with
+// the new spendable outputs created in the block.
+//
+// Panics on errors.
+func NewBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*btcutil.Block, []*SpendableOut) {
 	blockHeight := prev.Height() + 1
 	txns := make([]*wire.MsgTx, 0, 1+len(spends))
 
@@ -255,11 +271,6 @@ func AddBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*
 	// Solve the block.
 	if !SolveBlock(&block.MsgBlock().Header) {
 		panic(fmt.Sprintf("Unable to solve block at height %d", blockHeight))
-	}
-
-	_, _, err = chain.ProcessBlock(block, BFNone)
-	if err != nil {
-		panic(err)
 	}
 
 	return block, outs
