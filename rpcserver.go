@@ -170,11 +170,13 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"gettxout":                         handleGetTxOut,
 	"getutreexoproof":                  handleGetUtreexoProof,
 	"getwatchonlybalance":              handleGetWatchOnlyBalance,
+	"invalidateblock":                  handleInvalidateBlock,
 	"help":                             handleHelp,
 	"node":                             handleNode,
 	"ping":                             handlePing,
 	"proveutxochaintipinclusion":       handleProveUtxoChainTipInclusion,
 	"provewatchonlychaintipinclusion":  handleProveWatchOnlyChainTipInclusion,
+	"reconsiderblock":                  handleReconsiderBlock,
 	"registeraddresstowatchonlywallet": handleRegisterAddressToWatchOnlyWallet,
 	"searchrawtransactions":            handleSearchRawTransactions,
 	"sendrawtransaction":               handleSendRawTransaction,
@@ -244,9 +246,7 @@ var rpcUnimplemented = map[string]struct{}{
 	"getmempoolentry":  {},
 	"getnetworkinfo":   {},
 	"getwork":          {},
-	"invalidateblock":  {},
 	"preciousblock":    {},
-	"reconsiderblock":  {},
 }
 
 // Commands that are available to a limited user
@@ -289,7 +289,9 @@ var rpcLimited = map[string]struct{}{
 	"getrawtransaction":          {},
 	"gettxout":                   {},
 	"getutreexoproof":            {},
+	"invalidateblock":            {},
 	"proveutxochaintipinclusion": {},
+	"reconsiderblock":            {},
 	"searchrawtransactions":      {},
 	"sendrawtransaction":         {},
 	"submitblock":                {},
@@ -2899,6 +2901,23 @@ func handleGetWatchOnlyBalance(s *rpcServer, cmd interface{}, closeChan <-chan s
 	return s.cfg.WatchOnlyWallet.Getbalance(), nil
 }
 
+// handleInvalidateBlock implements the invalidateblock command.
+func handleInvalidateBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.InvalidateBlockCmd)
+
+	invalidateHash, err := chainhash.NewHashFromStr(c.BlockHash)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCDeserialization,
+			Message: fmt.Sprintf("Failed to deserialize blockhash from string of %s",
+				invalidateHash),
+		}
+	}
+
+	err = s.cfg.Chain.InvalidateBlock(invalidateHash)
+	return nil, err
+}
+
 // handleHelp implements the help command.
 func handleHelp(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
 	c := cmd.(*btcjson.HelpCmd)
@@ -3438,6 +3457,23 @@ func fetchMempoolTxnsForAddress(s *rpcServer, addr btcutil.Address, numToSkip, n
 		rangeEnd = numAvailable
 	}
 	return mpTxns[numToSkip:rangeEnd], numToSkip
+}
+
+// handleReconsiderBlock implements the reconsiderblock command.
+func handleReconsiderBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.ReconsiderBlockCmd)
+
+	reconsiderHash, err := chainhash.NewHashFromStr(c.BlockHash)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCDeserialization,
+			Message: fmt.Sprintf("Failed to deserialize blockhash from string of %s",
+				reconsiderHash),
+		}
+	}
+
+	err = s.cfg.Chain.ReconsiderBlock(reconsiderHash)
+	return nil, err
 }
 
 // handleRegisterAddressToWatchOnlyWallet implements the handleregisteraddresstowatchonlyaddress command.

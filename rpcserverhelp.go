@@ -580,6 +580,10 @@ var helpDescsEnUS = map[string]string{
 	"getwatchonlybalance--synopsis": "Returns the total balance of the watch only wallet",
 	"getwatchonlybalance--result0":  "The total balance of the watch only wallet in satoshis",
 
+	// InvalidateBlockCmd help.
+	"invalidateblock--synopsis": "Invalidates the block of the given block hash. To re-validate the invalidated block, use the reconsiderblock rpc",
+	"invalidateblock-blockhash": "The block hash of the block to invalidate",
+
 	// HelpCmd help.
 	"help--synopsis":   "Returns a list of all commands or help for a specified command.",
 	"help-command":     "The command to retrieve help for",
@@ -756,6 +760,10 @@ var helpDescsEnUS = map[string]string{
 	"registeraddresstowatchonlywallet--synopsis": "Registers an address to the watch only wallet.",
 	"registeraddresstowatchonlywallet-address":   "Address to keep track of",
 
+	// ReconsiderBlockCmd help.
+	"reconsiderblock--synopsis": "Reconsiders the block of the given block hash. Can be used to re-validate blocks invalidated with invalidateblock",
+	"reconsiderblock-blockhash": "The block hash of the block to reconsider",
+
 	// Rescan help.
 	"rescan--synopsis": "Rescan block chain for transactions to addresses.\n" +
 		"When the endblock parameter is omitted, the rescan continues through the best block in the main chain.\n" +
@@ -839,10 +847,12 @@ var rpcResultTypes = map[string][]interface{}{
 	"gettxout":                         {(*btcjson.GetTxOutResult)(nil)},
 	"node":                             nil,
 	"help":                             {(*string)(nil), (*string)(nil)},
+	"invalidateblock":                  nil,
 	"ping":                             nil,
 	"proveutxochaintipinclusion":       {(*btcjson.ProveUtxoChainTipInclusionVerboseResult)(nil)},
 	"provewatchonlychaintipinclusion":  {(*btcjson.ProveWatchOnlyChainTipInclusionVerboseResult)(nil)},
 	"registeraddresstowatchonlywallet": nil,
+	"reconsiderblock":                  nil,
 	"searchrawtransactions":            {(*string)(nil), (*[]btcjson.SearchRawTransactionsResult)(nil)},
 	"sendrawtransaction":               {(*string)(nil)},
 	"setgenerate":                      nil,
