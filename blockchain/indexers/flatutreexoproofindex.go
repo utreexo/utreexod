@@ -601,13 +601,14 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 		return err
 	}
 
+	// Need to call reconstruct since the saved utreexo data is in the compact form.
+	delHashes, err := idx.chain.ReconstructUData(ud, *block.Hash())
+	if err != nil {
+		return err
+	}
+
 	_, outCount, _, outskip := blockchain.DedupeBlock(block)
 	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
-
-	delHashes := make([]utreexo.Hash, len(ud.AccProof.Targets))
-	for i := range delHashes {
-		delHashes[i] = ud.LeafDatas[i].LeafHash()
-	}
 
 	state, err := idx.fetchRoots(block.Height())
 	if err != nil {

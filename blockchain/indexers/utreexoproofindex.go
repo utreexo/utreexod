@@ -179,6 +179,12 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		return err
 	}
 
+	// Need to call reconstruct since the saved utreexo data is in the compact form.
+	delHashes, err := idx.chain.ReconstructUData(ud, *block.Hash())
+	if err != nil {
+		return err
+	}
+
 	state, err := dbFetchUtreexoState(dbTx, block.Hash())
 	if err != nil {
 		return err
@@ -186,11 +192,6 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 
 	_, outCount, _, outskip := blockchain.DedupeBlock(block)
 	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
-
-	delHashes := make([]utreexo.Hash, len(ud.AccProof.Targets))
-	for i := range delHashes {
-		delHashes[i] = ud.LeafDatas[i].LeafHash()
-	}
 
 	idx.mtx.Lock()
 	err = idx.utreexoState.state.Undo(uint64(len(adds)), ud.AccProof.Targets, delHashes, state.Roots)
