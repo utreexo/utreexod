@@ -873,17 +873,17 @@ func NewReconsiderBlockCmd(blockHash string) *ReconsiderBlockCmd {
 	}
 }
 
-// RegisterAddressToWatchOnlyWalletCmd defines the registeraddresstowatchonlywallet JSON-RPC
+// RegisterAddressesToWatchOnlyWalletCmd defines the registeraddressestowatchonlywallet JSON-RPC
 // command.
-type RegisterAddressToWatchOnlyWalletCmd struct {
-	Address string
+type RegisterAddressesToWatchOnlyWalletCmd struct {
+	Addresses []string
 }
 
-// NewRegisterAddressToWatchOnlyWalletCmd returns a new instance which can be used to issue a
-// registeraddresstowatchonlywallet JSON-RPC command.
-func NewRegisterAddressToWatchOnlyWalletCmd(address string) *RegisterAddressToWatchOnlyWalletCmd {
-	return &RegisterAddressToWatchOnlyWalletCmd{
-		Address: address,
+// NewRegisterAddressesToWatchOnlyWalletCmd returns a new instance which can be used to issue a
+// registeraddressestowatchonlywallet JSON-RPC command.
+func NewRegisterAddressesToWatchOnlyWalletCmd(addresses []string) *RegisterAddressesToWatchOnlyWalletCmd {
+	return &RegisterAddressesToWatchOnlyWalletCmd{
+		Addresses: addresses,
 	}
 }
 
@@ -1203,7 +1203,7 @@ func init() {
 	MustRegisterCmd("preciousblock", (*PreciousBlockCmd)(nil), flags)
 	MustRegisterCmd("proveutxochaintipinclusion", (*ProveUtxoChainTipInclusionCmd)(nil), flags)
 	MustRegisterCmd("provewatchonlychaintipinclusion", (*ProveWatchOnlyChainTipInclusionCmd)(nil), flags)
-	MustRegisterCmd("registeraddresstowatchonlywallet", (*RegisterAddressToWatchOnlyWalletCmd)(nil), flags)
+	MustRegisterCmd("registeraddressestowatchonlywallet", (*RegisterAddressesToWatchOnlyWalletCmd)(nil), flags)
 	MustRegisterCmd("reconsiderblock", (*ReconsiderBlockCmd)(nil), flags)
 	MustRegisterCmd("searchrawtransactions", (*SearchRawTransactionsCmd)(nil), flags)
 	MustRegisterCmd("sendrawtransaction", (*SendRawTransactionCmd)(nil), flags)
