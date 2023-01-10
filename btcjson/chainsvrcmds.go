@@ -854,6 +854,12 @@ type ProveWatchOnlyChainTipInclusionCmd struct {
 	Verbosity *int `jsonrpcdefault:"1"`
 }
 
+// NewProveWatchOnlyChainTipInclusionCmd returns a new instance which can be used
+// to issue a provewatchonlychaintipinclusion JSON-RPC command.
+func NewProveWatchOnlyChainTipInclusionCmd(verbosity *int) *ProveWatchOnlyChainTipInclusionCmd {
+	return &ProveWatchOnlyChainTipInclusionCmd{Verbosity: verbosity}
+}
+
 // ReconsiderBlockCmd defines the reconsiderblock JSON-RPC command.
 type ReconsiderBlockCmd struct {
 	BlockHash string
@@ -1135,6 +1141,12 @@ func NewVerifyTxOutProofCmd(proof string) *VerifyTxOutProofCmd {
 // command.
 type VerifyUtxoChainTipInclusionProofCmd struct {
 	Proof string `json:"proof"`
+}
+
+// NewVerifyUtxoChainTipInclusionProofCmd returns a new instance which can be used to issue a
+// verifytxoutproof JSON-RPC command.
+func NewVerifyUtxoChainTipInclusionProofCmd(proof string) *VerifyUtxoChainTipInclusionProofCmd {
+	return &VerifyUtxoChainTipInclusionProofCmd{Proof: proof}
 }
 
 func init() {
