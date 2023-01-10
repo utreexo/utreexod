@@ -311,6 +311,9 @@ func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
 
 // ReconstructUData is a wrapper around reconstructUData and provides a convenient
 // function for udata reconstruction.
+// NOTE: ReconstructUData will only work on udata for blocks that are part of the
+// best chain. It will return an error when trying to reconstruct a udata for a
+// block in a side chain.
 //
 // This function is safe for concurrent access.
 func (b *BlockChain) ReconstructUData(ud *wire.UData, blockHash chainhash.Hash) ([]utreexo.Hash, error) {
