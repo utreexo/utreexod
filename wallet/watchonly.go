@@ -440,17 +440,17 @@ func (wm *WatchOnlyWalletManager) handleBlockchainNotification(notification *blo
 			numLeaves, targets, delHashes, wm.wallet.UtreexoLeaves,
 			updateData.ToDestroy, ud.AccProof)
 		if err != nil {
-			log.Criticalf("Couldn't undo utreexo proof for block %s.", block.Hash())
+			log.Criticalf("Couldn't undo utreexo proof for block %s. Error: %v",
+				block.Hash(), err)
 			break
 		}
-
 		targetsToProve := wm.filterBlockForUndo(block)
 
 		hashes, proof, err := utreexo.GetProofSubset(
 			ud.AccProof, delHashes, targetsToProve, updateData.PrevNumLeaves)
 		if err != nil {
 			log.Criticalf("Couldn't grab the utreexo proof for previous "+
-				"spends %s.", block.Hash())
+				"spends %s. Error: %v", block.Hash(), err)
 			break
 		}
 
@@ -536,7 +536,7 @@ func (wm *WatchOnlyWalletManager) RegisterExtendedPubkey(extendedKey string) err
 func (wm *WatchOnlyWalletManager) RegisterAddress(address string) error {
 	addr, err := btcutil.DecodeAddress(address, wm.config.ChainParams)
 	if err != nil {
-		return fmt.Errorf("Failed to parse the passed in address. Error: %v", err)
+		return fmt.Errorf("Failed to parse the passed in address %s. Error: %v", address, err)
 	}
 
 	_, exists := wm.walletConfig.Addresses[addr.String()]
