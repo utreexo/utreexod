@@ -881,6 +881,12 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	oldBest := tip
 	newBest := tip
 
+	// verifyReorganizationValidity validates that the attach nodes and
+	// detach nodes detach/attach properly and returns the loaded blocks
+	// for us to use.
+	//
+	// The detach blocks and attach blocks returned here have utreexo data
+	// already reconstructed and the update data/utreexo adds generated.
 	detachBlocks, attachBlocks, detachSpentTxOuts, err := b.verifyReorganizationValidity(detachNodes, attachNodes)
 	if err != nil {
 		return err
@@ -905,6 +911,18 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return err
 			}
 		} else {
+			var uView *UtreexoViewpoint
+			err = b.db.View(func(dbTx database.Tx) error {
+				uView, err = dbFetchUtreexoView(dbTx, &block.MsgBlock().Header.PrevBlock)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+
+			// Set the utreexo view to the previous block.
+			b.utreexoView = uView
+
 			err := view.BlockToUtxoView(block)
 			if err != nil {
 				return err
@@ -951,7 +969,15 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return err
 			}
 		} else {
-			err := view.BlockToUtxoView(block)
+			// Check that the block txOuts are valid by checking the utreexo proof and
+			// extra data and then update the accumulator.
+			err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return fmt.Errorf("reorganizeChain fail while attaching "+
+					"block %s. Error: %v", block.Hash().String(), err)
+			}
+
+			err = view.BlockToUtxoView(block)
 			if err != nil {
 				return err
 			}
@@ -997,11 +1023,29 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 // status of the block node in the list to invalid if the block fails to pass verification.
 // For the detach nodes, it'll check that the blocks being detached and their spend journals
 // are present on the database.
+//
+// This function is NOT safe for concurrent access.
 func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list.List) (
 	[]*btcutil.Block, []*btcutil.Block, [][]SpentTxOut, error) {
 	// Nothing to do if no reorganize nodes were provided.
 	if detachNodes.Len() == 0 && attachNodes.Len() == 0 {
 		return nil, nil, nil, nil
+	}
+
+	// verifyReorganizationValidity will modify the best chain and the utreexo state
+	// if the node is a utreexo node. Since verifyReorganizationValidity is supposed
+	// to not mutate the chain, we need to revert whatever changes were applied in
+	// the below code. This defer here saves and applies the original state of both
+	// the best chain and the utreexo view.
+	//
+	// TODO: make this not necessary.
+	if b.utreexoView != nil {
+		originalUView := b.utreexoView.Copy()
+		tip := b.bestChain.Tip()
+		defer func() {
+			b.utreexoView = &originalUView
+			b.bestChain.SetTip(tip)
+		}()
 	}
 
 	// Ensure the provided nodes match the current best chain.
@@ -1063,6 +1107,12 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 		// Fetch the utreexo accumulator state at the previous block and
 		// set it as the current utreexo accumulator state.
 		if b.utreexoView != nil {
+			// Modify the best chain if we're a utreexo node.  This is necessary as
+			// the best chain will effect what block hashes are committed in the leaf
+			// hashes.
+			b.bestChain.setTip(n.parent)
+
+			// Fetch the previous utreexo view.
 			err = b.db.View(func(dbTx database.Tx) error {
 				uView, err = dbFetchUtreexoView(dbTx, &block.MsgBlock().Header.PrevBlock)
 				if err != nil {
@@ -1077,7 +1127,10 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			copyuView := uView.Copy()
 			err = copyuView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil,
+					fmt.Errorf("verifyReorganizationValidity fail "+
+						"while detaching block %s. Error: %v"+
+						block.Hash().String(), err)
 			}
 
 			// Set the utreexo view to the previous block.
@@ -1145,6 +1198,21 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			return nil, nil, nil, err
 		}
 
+		if b.utreexoView != nil {
+			// Modify the best chain if we're a utreexo node.  This is necessary as
+			// the best chain will effect what block hashes are committed in the leaf
+			// hashes.
+			b.bestChain.setTip(n)
+
+			// Reconstruct the utreexo data as it's stored in the compact state.
+			_, _, inskip, _ := DedupeBlock(block)
+			_, err := reconstructUData(block.MsgBlock().UData, block, b.bestChain, inskip)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("verifyReorganizationValidity fail "+
+					"while reconstructing udata. Error: %v", err)
+			}
+		}
+
 		// Store the loaded block for later.
 		attachBlocks = append(attachBlocks, block)
 
@@ -1161,6 +1229,16 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 					return nil, nil, nil, err
 				}
 			} else {
+				// Check that the block txOuts are valid by checking the utreexo proof and
+				// extra data and then update the accumulator.
+				err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+				if err != nil {
+					return nil, nil, nil,
+						fmt.Errorf("verifyReorganizationValidity fail "+
+							"while attaching block %s. Error %v",
+							block.Hash().String(), err)
+				}
+
 				err = view.BlockToUtxoView(block)
 				if err != nil {
 					return nil, nil, nil, err
