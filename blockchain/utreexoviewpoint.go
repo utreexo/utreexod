@@ -86,7 +86,7 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	// Update the underlying accumulator.
 	updateData, err := uview.Modify(ud, adds, dels, ud.RememberIdx)
 	if err != nil {
-		return err
+		return fmt.Errorf("ProcessUData fail. Error: %v", err)
 	}
 
 	// Add the utreexo data to the block.

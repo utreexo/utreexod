@@ -1040,7 +1040,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 	if b.utreexoView != nil {
 		err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 		if err != nil {
-			return err
+			return fmt.Errorf("checkConnectBlock fail. error: %v", err)
 		}
 
 		err = view.BlockToUtxoView(block)

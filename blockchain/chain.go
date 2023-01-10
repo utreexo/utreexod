@@ -1344,7 +1344,8 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 				// extra data and then update the accumulator.
 				err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 				if err != nil {
-					return false, err
+					return false, fmt.Errorf("connectBestChain fail on block %s. "+
+						"Error: %v", block.Hash().String(), err)
 				}
 
 				err = view.BlockToUtxoView(block)
