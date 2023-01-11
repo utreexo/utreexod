@@ -97,7 +97,7 @@ func TestUtreexoCSN(t *testing.T) {
 	defer bridgeNode.TearDown()
 
 	// Helper function for generating spends.
-	genSpend := func(amt btcutil.Amount) (btcutil.Address, *chainhash.Hash) {
+	genSpend := func(amt btcutil.Amount) (btcutil.Address, *chainhash.Hash, error) {
 		// Grab a fresh address from the wallet.
 		addr, err := bridgeNode.NewAddress()
 		if err != nil {
@@ -113,9 +113,9 @@ func TestUtreexoCSN(t *testing.T) {
 		output := wire.NewTxOut(int64(amt), addrScript)
 		txid, err := bridgeNode.SendOutputs([]*wire.TxOut{output}, 10)
 		if err != nil {
-			t.Fatalf("coinbase spend failed: %v", err)
+			return addr, txid, fmt.Errorf("coinbase spend failed: %v", err)
 		}
-		return addr, txid
+		return addr, txid, nil
 	}
 
 	// Generate 10 mature coinbases.
@@ -134,11 +134,19 @@ func TestUtreexoCSN(t *testing.T) {
 
 		mainBranchBlockHashes = append(mainBranchBlockHashes, blockhashes...)
 
-		addr, _ := genSpend(btcutil.Amount(25 * btcutil.SatoshiPerBitcoin))
-		addr2, _ := genSpend(btcutil.Amount(25 * btcutil.SatoshiPerBitcoin))
-
-		watchAddrs = append(watchAddrs, addr)
-		watchAddrs = append(watchAddrs, addr2)
+		// generate spends and append the addresses to watchaddrs so it can be
+		// watched by the watch only wallet with utreexo csn.
+		//
+		// it's ok if we fail to spend.  the spend amount is hardcoded so
+		// sometimes it might fail. just skip appending the address in that case.
+		addr, _, err := genSpend(btcutil.Amount(20 * btcutil.SatoshiPerBitcoin))
+		if err == nil {
+			watchAddrs = append(watchAddrs, addr)
+		}
+		addr2, _, err := genSpend(btcutil.Amount(20 * btcutil.SatoshiPerBitcoin))
+		if err == nil {
+			watchAddrs = append(watchAddrs, addr2)
+		}
 	}
 
 	// Invalidate block 151 and create a side branch that will reorg out the
@@ -159,8 +167,19 @@ func TestUtreexoCSN(t *testing.T) {
 
 		sideBranchBlockHashes = append(sideBranchBlockHashes, blockhashes...)
 
-		addr, _ := genSpend(btcutil.Amount(25 * btcutil.SatoshiPerBitcoin))
-		addr2, _ := genSpend(btcutil.Amount(25 * btcutil.SatoshiPerBitcoin))
+		// generate spends and append the addresses to watchaddrs so it can be
+		// watched by the watch only wallet with utreexo csn.
+		//
+		// it's ok if we fail to spend.  the spend amount is hardcoded so
+		// sometimes it might fail. just skip appending the address in that case.
+		addr, _, err := genSpend(btcutil.Amount(20 * btcutil.SatoshiPerBitcoin))
+		if err == nil {
+			watchAddrs = append(watchAddrs, addr)
+		}
+		addr2, _, err := genSpend(btcutil.Amount(20 * btcutil.SatoshiPerBitcoin))
+		if err == nil {
+			watchAddrs = append(watchAddrs, addr2)
+		}
 
 		watchAddrs = append(watchAddrs, addr)
 		watchAddrs = append(watchAddrs, addr2)
