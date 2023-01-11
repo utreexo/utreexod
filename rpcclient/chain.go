@@ -1525,3 +1525,30 @@ func (c *Client) ProveWatchOnlyChainTipInclusionAsync() FutureProveWatchOnlyChai
 func (c *Client) ProveWatchOnlyChainTipInclusion() (*btcjson.ProveWatchOnlyChainTipInclusionVerboseResult, error) {
 	return c.ProveWatchOnlyChainTipInclusionAsync().Receive()
 }
+
+// FutureVerifyUtxoChainTipInclusionProof is a future promise to deliver the result of a
+// VerifyUtxoChainTipInclusionProofAsync RPC invocation (or an applicable error).
+type FutureVerifyUtxoChainTipInclusionProof chan *Response
+
+// Receive waits for the Response promised by the future and returns the raw
+// block requested from the server given its hash.
+func (r FutureVerifyUtxoChainTipInclusionProof) Receive() error {
+	_, err := ReceiveFuture(r)
+
+	return err
+}
+
+// VerifyUtxoChainTipInclusionProofAsync returns an instance of a type that can be used to get the
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See VerifyUtxoChainTipInclusionProof for the blocking version and more details.
+func (c *Client) VerifyUtxoChainTipInclusionProofAsync(proof string) FutureVerifyUtxoChainTipInclusionProof {
+	cmd := btcjson.NewVerifyUtxoChainTipInclusionProofCmd(proof)
+	return c.SendCmd(cmd)
+}
+
+// VerifyUtxoChainTipInclusionProof reconsiders a specific block and the branch that the block is included in.
+func (c *Client) VerifyUtxoChainTipInclusionProof(proof string) error {
+	return c.VerifyUtxoChainTipInclusionProofAsync(proof).Receive()
+}
