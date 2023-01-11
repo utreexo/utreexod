@@ -131,65 +131,65 @@ type commandHandler func(*rpcServer, interface{}, <-chan struct{}) (interface{},
 // a dependency loop.
 var rpcHandlers map[string]commandHandler
 var rpcHandlersBeforeInit = map[string]commandHandler{
-	"addnode":                          handleAddNode,
-	"createrawtransaction":             handleCreateRawTransaction,
-	"debuglevel":                       handleDebugLevel,
-	"decoderawtransaction":             handleDecodeRawTransaction,
-	"decodescript":                     handleDecodeScript,
-	"estimatefee":                      handleEstimateFee,
-	"generate":                         handleGenerate,
-	"getaddednodeinfo":                 handleGetAddedNodeInfo,
-	"getbestblock":                     handleGetBestBlock,
-	"getbestblockhash":                 handleGetBestBlockHash,
-	"getblock":                         handleGetBlock,
-	"getblockchaininfo":                handleGetBlockChainInfo,
-	"getblockcount":                    handleGetBlockCount,
-	"getblockhash":                     handleGetBlockHash,
-	"getblockheader":                   handleGetBlockHeader,
-	"getblocktemplate":                 handleGetBlockTemplate,
-	"getchaintips":                     handleGetChainTips,
-	"getcfilter":                       handleGetCFilter,
-	"getcfilterheader":                 handleGetCFilterHeader,
-	"getconnectioncount":               handleGetConnectionCount,
-	"getcurrentnet":                    handleGetCurrentNet,
-	"getdifficulty":                    handleGetDifficulty,
-	"getgenerate":                      handleGetGenerate,
-	"gethashespersec":                  handleGetHashesPerSec,
-	"getheaders":                       handleGetHeaders,
-	"getinfo":                          handleGetInfo,
-	"getmempoolinfo":                   handleGetMempoolInfo,
-	"getmininginfo":                    handleGetMiningInfo,
-	"getnettotals":                     handleGetNetTotals,
-	"gettxtotals":                      handleGetTxTotals,
-	"getnetworkhashps":                 handleGetNetworkHashPS,
-	"getnodeaddresses":                 handleGetNodeAddresses,
-	"getpeerinfo":                      handleGetPeerInfo,
-	"getrawmempool":                    handleGetRawMempool,
-	"getrawtransaction":                handleGetRawTransaction,
-	"getttl":                           handleGetTTL,
-	"gettxout":                         handleGetTxOut,
-	"getutreexoproof":                  handleGetUtreexoProof,
-	"getwatchonlybalance":              handleGetWatchOnlyBalance,
-	"invalidateblock":                  handleInvalidateBlock,
-	"help":                             handleHelp,
-	"node":                             handleNode,
-	"ping":                             handlePing,
-	"proveutxochaintipinclusion":       handleProveUtxoChainTipInclusion,
-	"provewatchonlychaintipinclusion":  handleProveWatchOnlyChainTipInclusion,
-	"reconsiderblock":                  handleReconsiderBlock,
-	"registeraddresstowatchonlywallet": handleRegisterAddressToWatchOnlyWallet,
-	"searchrawtransactions":            handleSearchRawTransactions,
-	"sendrawtransaction":               handleSendRawTransaction,
-	"setgenerate":                      handleSetGenerate,
-	"signmessagewithprivkey":           handleSignMessageWithPrivKey,
-	"stop":                             handleStop,
-	"submitblock":                      handleSubmitBlock,
-	"uptime":                           handleUptime,
-	"validateaddress":                  handleValidateAddress,
-	"verifychain":                      handleVerifyChain,
-	"verifymessage":                    handleVerifyMessage,
-	"verifyutxochaintipinclusionproof": handleVerifyUtxoChainTipInclusionProof,
-	"version":                          handleVersion,
+	"addnode":                            handleAddNode,
+	"createrawtransaction":               handleCreateRawTransaction,
+	"debuglevel":                         handleDebugLevel,
+	"decoderawtransaction":               handleDecodeRawTransaction,
+	"decodescript":                       handleDecodeScript,
+	"estimatefee":                        handleEstimateFee,
+	"generate":                           handleGenerate,
+	"getaddednodeinfo":                   handleGetAddedNodeInfo,
+	"getbestblock":                       handleGetBestBlock,
+	"getbestblockhash":                   handleGetBestBlockHash,
+	"getblock":                           handleGetBlock,
+	"getblockchaininfo":                  handleGetBlockChainInfo,
+	"getblockcount":                      handleGetBlockCount,
+	"getblockhash":                       handleGetBlockHash,
+	"getblockheader":                     handleGetBlockHeader,
+	"getblocktemplate":                   handleGetBlockTemplate,
+	"getchaintips":                       handleGetChainTips,
+	"getcfilter":                         handleGetCFilter,
+	"getcfilterheader":                   handleGetCFilterHeader,
+	"getconnectioncount":                 handleGetConnectionCount,
+	"getcurrentnet":                      handleGetCurrentNet,
+	"getdifficulty":                      handleGetDifficulty,
+	"getgenerate":                        handleGetGenerate,
+	"gethashespersec":                    handleGetHashesPerSec,
+	"getheaders":                         handleGetHeaders,
+	"getinfo":                            handleGetInfo,
+	"getmempoolinfo":                     handleGetMempoolInfo,
+	"getmininginfo":                      handleGetMiningInfo,
+	"getnettotals":                       handleGetNetTotals,
+	"gettxtotals":                        handleGetTxTotals,
+	"getnetworkhashps":                   handleGetNetworkHashPS,
+	"getnodeaddresses":                   handleGetNodeAddresses,
+	"getpeerinfo":                        handleGetPeerInfo,
+	"getrawmempool":                      handleGetRawMempool,
+	"getrawtransaction":                  handleGetRawTransaction,
+	"getttl":                             handleGetTTL,
+	"gettxout":                           handleGetTxOut,
+	"getutreexoproof":                    handleGetUtreexoProof,
+	"getwatchonlybalance":                handleGetWatchOnlyBalance,
+	"invalidateblock":                    handleInvalidateBlock,
+	"help":                               handleHelp,
+	"node":                               handleNode,
+	"ping":                               handlePing,
+	"proveutxochaintipinclusion":         handleProveUtxoChainTipInclusion,
+	"provewatchonlychaintipinclusion":    handleProveWatchOnlyChainTipInclusion,
+	"reconsiderblock":                    handleReconsiderBlock,
+	"registeraddressestowatchonlywallet": handleRegisterAddressesToWatchOnlyWallet,
+	"searchrawtransactions":              handleSearchRawTransactions,
+	"sendrawtransaction":                 handleSendRawTransaction,
+	"setgenerate":                        handleSetGenerate,
+	"signmessagewithprivkey":             handleSignMessageWithPrivKey,
+	"stop":                               handleStop,
+	"submitblock":                        handleSubmitBlock,
+	"uptime":                             handleUptime,
+	"validateaddress":                    handleValidateAddress,
+	"verifychain":                        handleVerifyChain,
+	"verifymessage":                      handleVerifyMessage,
+	"verifyutxochaintipinclusionproof":   handleVerifyUtxoChainTipInclusionProof,
+	"version":                            handleVersion,
 }
 
 // list of commands that we recognize, but for which btcd has no support because
@@ -3476,9 +3476,9 @@ func handleReconsiderBlock(s *rpcServer, cmd interface{}, closeChan <-chan struc
 	return nil, err
 }
 
-// handleRegisterAddressToWatchOnlyWallet implements the handleregisteraddresstowatchonlyaddress command.
-func handleRegisterAddressToWatchOnlyWallet(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
-	c := cmd.(*btcjson.RegisterAddressToWatchOnlyWalletCmd)
+// handleRegisterAddressessToWatchOnlyWallet implements the handleregisteraddresstowatchonlyaddress command.
+func handleRegisterAddressesToWatchOnlyWallet(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.RegisterAddressesToWatchOnlyWalletCmd)
 
 	if s.cfg.WatchOnlyWallet == nil {
 		return nil, &btcjson.RPCError{
@@ -3487,11 +3487,13 @@ func handleRegisterAddressToWatchOnlyWallet(s *rpcServer, cmd interface{}, close
 		}
 	}
 
-	err := s.cfg.WatchOnlyWallet.RegisterAddress(c.Address)
-	if err != nil {
-		return nil, &btcjson.RPCError{
-			Code:    btcjson.ErrRPCMisc,
-			Message: fmt.Sprintf("Couldn't register the given address %s. Error: %v", c.Address, err),
+	for _, addr := range c.Addresses {
+		err := s.cfg.WatchOnlyWallet.RegisterAddress(addr)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't register the given address %s. Error: %v", addr, err),
+			}
 		}
 	}
 
