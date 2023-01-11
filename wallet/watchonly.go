@@ -314,6 +314,8 @@ func (wm *WatchOnlyWalletManager) filterBlockForUndo(block *btcutil.Block) []uin
 	var targetsToProve []uint64
 
 	var txonum uint32
+	var leafIdx int
+	var inIdx uint32
 	for idx, tx := range block.Transactions() {
 		for outIdx, out := range tx.MsgTx().TxOut {
 			outPoint := wire.OutPoint{
@@ -351,8 +353,6 @@ func (wm *WatchOnlyWalletManager) filterBlockForUndo(block *btcutil.Block) []uin
 			}
 		}
 
-		var inIdx uint32
-		var leafIdx int
 		for _, in := range tx.MsgTx().TxIn {
 			if idx == 0 {
 				// coinbase can have many inputs
@@ -367,14 +367,14 @@ func (wm *WatchOnlyWalletManager) filterBlockForUndo(block *btcutil.Block) []uin
 				continue
 			}
 
-			target := block.MsgBlock().UData.AccProof.Targets[leafIdx]
-			targetsToProve = append(targetsToProve, target)
-
 			_, found := wm.wallet.RelevantUtxos[in.PreviousOutPoint]
 			if !found {
 				leafIdx++
 				continue
 			}
+			target := block.MsgBlock().UData.AccProof.Targets[leafIdx]
+			targetsToProve = append(targetsToProve, target)
+
 			ld := block.MsgBlock().UData.LeafDatas[leafIdx]
 
 			wm.wallet.RelevantUtxos[in.PreviousOutPoint] = ld
@@ -428,7 +428,7 @@ func (wm *WatchOnlyWalletManager) handleBlockchainNotification(notification *blo
 		targets := ud.AccProof.Targets
 		updateData := block.UtreexoUpdateData()
 		numAdds := uint64(len(block.UtreexoAdds()))
-		numLeaves := updateData.PrevNumLeaves
+		numLeaves := updateData.PrevNumLeaves + numAdds
 
 		delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
 		for _, ld := range ud.LeafDatas {
