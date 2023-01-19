@@ -725,6 +725,16 @@ func (s *blockStore) handleRollback(oldBlockFileNum, oldBlockOffset uint32) {
 	}
 }
 
+// getCurrentFileNum returns the current file number of the block store.
+func (s *blockStore) getCurrentFileNum() uint32 {
+	// Grab the write cursor mutex since it is modified throughout this
+	// function.
+	wc := s.writeCursor
+	wc.RLock()
+	defer wc.RUnlock()
+	return wc.curFileNum
+}
+
 // scanBlockFiles searches the database directory for all flat block files to
 // find the end of the most recent file.  This position is considered the
 // current write cursor which is also stored in the metadata.  Thus, it is used
