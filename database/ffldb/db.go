@@ -1678,7 +1678,7 @@ func (tx *transaction) writePendingAndCommit() error {
 	// Loop through all of the pending blocks to store and write them.
 	for _, blockData := range tx.pendingBlockData {
 		log.Tracef("Storing block %s", blockData.hash)
-		location, err := tx.db.blkStore.writeBlock(blockData.bytes)
+		location, err := tx.db.blkStore.writeBlock(blockData.bytes, nil)
 		if err != nil {
 			rollback()
 			return err
@@ -1699,7 +1699,7 @@ func (tx *transaction) writePendingAndCommit() error {
 	// Loop through all of the pending undo blocks to store and write them.
 	for _, spendJournalData := range tx.pendingSpendJournalData {
 		log.Tracef("Storing spend journal %s", spendJournalData.hash)
-		location, err := tx.db.sjStore.writeBlock(spendJournalData.bytes)
+		location, err := tx.db.sjStore.writeBlock(spendJournalData.bytes, nil)
 		if err != nil {
 			rollback()
 			return err

@@ -208,7 +208,7 @@ func TestCornerCases(t *testing.T) {
 		return
 	}
 	store := idb.(*db).blkStore
-	_, err = store.writeBlock([]byte{0x00})
+	_, err = store.writeBlock([]byte{0x00}, nil)
 	if !checkDbError(t, testName, err, database.ErrDriverSpecific) {
 		return
 	}

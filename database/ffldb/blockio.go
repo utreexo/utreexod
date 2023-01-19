@@ -469,7 +469,7 @@ func (s *blockStore) writeData(data []byte, fieldName string) error {
 // in the event of failure.
 //
 // Format: <network><block length><serialized block><checksum>
-func (s *blockStore) writeBlock(rawBlock []byte) (blockLocation, error) {
+func (s *blockStore) writeBlock(rawBlock []byte, blockLoc *blockLocation) (blockLocation, error) {
 	// Compute how many bytes will be written.
 	// 4 bytes each for block network + 4 bytes for block length +
 	// length of raw block + 4 bytes for checksum.
@@ -485,6 +485,9 @@ func (s *blockStore) writeBlock(rawBlock []byte) (blockLocation, error) {
 	// since it's only read/changed during this function which can only be
 	// called during a write transaction, of which there can be only one at
 	// a time.
+	//
+	// We also move to the next block file if the caller requested it by giving
+	// a non nil block location.
 	wc := s.writeCursor
 	finalOffset := wc.curOffset + fullLen
 	if finalOffset < wc.curOffset || finalOffset > s.maxBlockFileSize {
@@ -507,6 +510,27 @@ func (s *blockStore) writeBlock(rawBlock []byte) (blockLocation, error) {
 		wc.curFileNum++
 		wc.curOffset = 0
 		wc.Unlock()
+	} else if blockLoc != nil {
+		// This is done under the write cursor lock since the curFileNum
+		// field is accessed elsewhere by readers.
+		//
+		// Close the current write file to force a read-only reopen
+		// with LRU tracking.  The close is done under the write lock
+		// for the file to prevent it from being closed out from under
+		// any readers currently reading from it.
+		wc.Lock()
+		wc.curFile.Lock()
+		if wc.curFile.file != nil {
+			_ = wc.curFile.file.Close()
+			wc.curFile.file = nil
+		}
+		wc.curFile.Unlock()
+
+		// Set the current file number to the passed in block location's number
+		// and reset offset.
+		wc.curFileNum = blockLoc.blockFileNum
+		wc.curOffset = 0
+		wc.Unlock()
 	}
 
 	// All writes are done under the write lock for the file to ensure any
@@ -524,6 +548,18 @@ func (s *blockStore) writeBlock(rawBlock []byte) (blockLocation, error) {
 			return blockLocation{}, err
 		}
 		wc.curFile.file = file
+
+		// If there was a block location passed in, we need to set the
+		// current offset.  We do this here right after the open write
+		// file since the file may have just been created.
+		if blockLoc != nil {
+			// Grab the offset.
+			stSize, err := s.fileSizeFunc(wc.curFileNum)
+			if err != nil {
+				return blockLocation{}, err
+			}
+			wc.curOffset = stSize
+		}
 	}
 
 	// Bitcoin network.
