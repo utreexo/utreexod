@@ -71,6 +71,10 @@ var (
 	// It is the value 2 encoded as an unsigned big-endian uint32.
 	sjIdxBucketID = [4]byte{0x00, 0x00, 0x00, 0x02}
 
+	// blockHeightBucketID is the ID of the interal block height bucket.
+	// It is the value 3 encoded as an unsigned big-endian uint32.
+	blockHeightBucketID = [4]byte{0x00, 0x00, 0x00, 0x03}
+
 	// blockIdxBucketName is the bucket used internally to track block
 	// metadata.
 	blockIdxBucketName = []byte("ffldb-blockidx")
@@ -86,6 +90,9 @@ var (
 	// sjWriteLocKeyName is the key used to store the current spend journal write
 	// file location.
 	sjWriteLocKeyName = []byte("ffldb-sjwriteloc")
+
+	// blockHeightKeyName is the key used to store the heights for each file.
+	blockHeightKeyName = []byte("ffldb-blockheight")
 )
 
 // Common error strings.
@@ -661,6 +668,8 @@ func (b *bucket) CreateBucket(key []byte) (database.Bucket, error) {
 		childID = blockIdxBucketID
 	} else if b.id == metadataBucketID && bytes.Equal(key, sjIdxBucketName) {
 		childID = sjIdxBucketID
+	} else if b.id == metadataBucketID && bytes.Equal(key, blockHeightKeyName) {
+		childID = blockHeightBucketID
 	} else {
 		var err error
 		childID, err = b.tx.nextBucketID()
@@ -967,14 +976,15 @@ type pendingData struct {
 // read-write and implements the database.Tx interface.  The transaction
 // provides a root bucket against which all read and writes occur.
 type transaction struct {
-	managed        bool             // Is the transaction managed?
-	closed         bool             // Is the transaction closed?
-	writable       bool             // Is the transaction writable?
-	db             *db              // DB instance the tx was created from.
-	snapshot       *dbCacheSnapshot // Underlying snapshot for txns.
-	metaBucket     *bucket          // The root metadata bucket.
-	blockIdxBucket *bucket          // The block index bucket.
-	sjIdxBucket    *bucket          // The spend journal index bucket.
+	managed           bool             // Is the transaction managed?
+	closed            bool             // Is the transaction closed?
+	writable          bool             // Is the transaction writable?
+	db                *db              // DB instance the tx was created from.
+	snapshot          *dbCacheSnapshot // Underlying snapshot for txns.
+	metaBucket        *bucket          // The root metadata bucket.
+	blockIdxBucket    *bucket          // The block index bucket.
+	sjIdxBucket       *bucket          // The spend journal index bucket.
+	blockHeightBucket *bucket          // The block height index bucket.
 
 	// Blocks that need to be stored on commit.  The pendingBlocks map is
 	// kept to allow quick lookups of pending data by block hash.
@@ -1865,6 +1875,34 @@ func (tx *transaction) Rollback() error {
 	return nil
 }
 
+// getHeightInfo returns the first height and the last height of the given file number.
+// Returns -1 for both if there's no height information in the database.
+func (tx *transaction) getHeightInfo(fileNum uint32) (int32, int32) {
+	firstHeight, lastHeight := int32(-1), int32(-1)
+
+	var blockNumBytes [4]byte
+	binary.LittleEndian.PutUint32(blockNumBytes[:], fileNum)
+	lastHeightBytes := tx.blockHeightBucket.Get(blockNumBytes[:])
+	if lastHeightBytes != nil {
+		firstHeight = int32(binary.LittleEndian.Uint32(lastHeightBytes[:4]))
+		lastHeight = int32(binary.LittleEndian.Uint32(lastHeightBytes[4:]))
+	}
+
+	return firstHeight, lastHeight
+}
+
+// putHeightInfo puts the given heights into the database.
+func (tx *transaction) putHeightInfo(fileNum uint32, firstHeight, lastHeight int32) error {
+	var blockNumBytes [4]byte
+	binary.LittleEndian.PutUint32(blockNumBytes[:], fileNum)
+
+	var writeBytes [8]byte
+	binary.LittleEndian.PutUint32(writeBytes[:4], uint32(firstHeight))
+	binary.LittleEndian.PutUint32(writeBytes[4:], uint32(lastHeight))
+
+	return tx.blockHeightBucket.Put(blockNumBytes[:], writeBytes[:])
+}
+
 // db represents a collection of namespaces which are persisted and implements
 // the database.DB interface.  All database access is performed through
 // transactions which are obtained through the specific Namespace.
@@ -1941,6 +1979,7 @@ func (db *db) begin(writable bool) (*transaction, error) {
 	tx.metaBucket = &bucket{tx: tx, id: metadataBucketID}
 	tx.blockIdxBucket = &bucket{tx: tx, id: blockIdxBucketID}
 	tx.sjIdxBucket = &bucket{tx: tx, id: sjIdxBucketID}
+	tx.blockHeightBucket = &bucket{tx: tx, id: blockHeightBucketID}
 	return tx, nil
 }
 
@@ -2133,6 +2172,11 @@ func initDB(ldb *leveldb.DB) error {
 	batch.Put(bucketIndexKey(metadataBucketID, sjIdxBucketName),
 		sjIdxBucketID[:])
 	batch.Put(curBucketIDKeyName, sjIdxBucketID[:])
+
+	// Create a last block height bucket and set the current bucket id.
+	batch.Put(bucketIndexKey(metadataBucketID, blockHeightKeyName),
+		blockHeightBucketID[:])
+	batch.Put(curBucketIDKeyName, blockHeightBucketID[:])
 
 	// Write everything as a single batch.
 	if err := ldb.Write(batch, nil); err != nil {
