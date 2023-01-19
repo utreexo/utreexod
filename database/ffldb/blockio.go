@@ -26,12 +26,17 @@ const (
 	// The Bitcoin protocol encodes block height as int32, so max number of
 	// blocks is 2^31.  Max block size per the protocol is 32MiB per block.
 	// So the theoretical max at the time this comment was written is 64PiB
-	// (pebibytes).  With files @ 512MiB each, this would require a maximum
-	// of 134,217,728 files.  Thus, choose 9 digits of precision for the
+	// (pebibytes).  With files @ 128MiB each, this would require a maximum
+	// of 536,870,912 files.  Thus, choose 9 digits of precision for the
 	// filenames.  An additional benefit is 9 digits provides 10^9 files @
-	// 512MiB each for a total of ~476.84PiB (roughly 7.4 times the current
+	// 128MiB each for a total of ~119.20PiB (roughly 1.85 times the current
 	// theoretical max), so there is room for the max block size to grow in
 	// the future.
+	//
+	// While the original size in btcd was 512MiB, the block size is lowered
+	// in utreexod to 128MiB to better support pruning.  Since block files
+	// are allocated and deleted per file, we can lower the minimum requirement
+	// by lowering the file size.
 	blockFilenameTemplate = "%09d.fdb"
 
 	// The name to be used for spend journals.
@@ -48,7 +53,7 @@ const (
 	// NOTE: The current code uses uint32 for all offsets, so this value
 	// must be less than 2^32 (4 GiB).  This is also why it's a typed
 	// constant.
-	maxBlockFileSize uint32 = 512 * 1024 * 1024 // 512 MiB
+	maxBlockFileSize uint32 = 128 * 1024 * 1024 // 128 MiB
 
 	// blockLocSize is the number of bytes the serialized block location
 	// data that is stored in the block index.
