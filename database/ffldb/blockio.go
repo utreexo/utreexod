@@ -15,6 +15,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -23,6 +25,9 @@ import (
 )
 
 const (
+	blockFileExtension        = ".fdb"
+	spendJournalFileExtension = "-undo" + blockFileExtension
+
 	// The Bitcoin protocol encodes block height as int32, so max number of
 	// blocks is 2^31.  Max block size per the protocol is 32MiB per block.
 	// So the theoretical max at the time this comment was written is 64PiB
@@ -182,9 +187,13 @@ type blockStore struct {
 	openFileFunc      func(fileNum uint32) (*lockableFile, error)
 	openWriteFileFunc func(fileNum uint32) (filer, error)
 	deleteFileFunc    func(fileNum uint32) error
+	fileSizeFunc      func(fileNum uint32) (uint32, error)
 
 	// filePathFunc returns the file path of where the data is stored.
 	filePathFunc func(dbPath string, fileNum uint32) string
+
+	// fileStartEndNumFunc returns the first and the last block file number.
+	fileStartEndNumFunc func() (uint32, uint32, error)
 }
 
 // blockLocation identifies a particular block file and location.
@@ -323,6 +332,49 @@ func (s *blockStore) deleteFile(fileNum uint32) error {
 	}
 
 	return nil
+}
+
+// fileSize returns the size of the file number passed in.
+func (s *blockStore) fileSize(fileNum uint32) (uint32, error) {
+	filePath := s.filePathFunc(s.basePath, fileNum)
+	st, err := os.Stat(filePath)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint32(st.Size()), nil
+}
+
+// fileStartEndNum returns the first and the last file number in the database.
+func (s *blockStore) fileStartEndNum() (uint32, uint32, error) {
+	// We use the spendJournalFileExtension as there's a guarantee that there
+	// will be a same number of block files as there are spend journal files.
+	//
+	// The only error we can get is a bad pattern error.  Since we're hardcoding
+	// the pattern, we should not have an error at runtime.
+	files, _ := filepath.Glob(filepath.Join(s.basePath, "*"+spendJournalFileExtension))
+
+	lastFile, firstFile := -1, -1
+	for _, file := range files {
+		// Extract the file number.  We can use just the spend journal extension
+		// since there is one spend journal file per block file.
+		fileNum := file
+		fileNum = strings.TrimPrefix(fileNum, s.basePath+"/")
+		fileNum = strings.TrimSuffix(fileNum, spendJournalFileExtension)
+
+		// Turn the string into a number.
+		var err error
+		lastFile, err = strconv.Atoi(fileNum)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		if firstFile == -1 {
+			firstFile = lastFile
+		}
+	}
+
+	return uint32(firstFile), uint32(lastFile), nil
 }
 
 // blockFile attempts to return an existing file handle for the passed flat file
@@ -795,7 +847,9 @@ func newBlockStore(basePath string, network wire.BitcoinNet) *blockStore {
 	store.openFileFunc = store.openFile
 	store.openWriteFileFunc = store.openWriteFile
 	store.deleteFileFunc = store.deleteFile
+	store.fileSizeFunc = store.fileSize
 	store.filePathFunc = blockFilePath
+	store.fileStartEndNumFunc = store.fileStartEndNum
 	return store
 }
 
@@ -828,6 +882,8 @@ func newSJStore(basePath string, network wire.BitcoinNet) *blockStore {
 	store.openFileFunc = store.openFile
 	store.openWriteFileFunc = store.openWriteFile
 	store.deleteFileFunc = store.deleteFile
+	store.fileSizeFunc = store.fileSize
 	store.filePathFunc = spendJournalFilePath
+	store.fileStartEndNumFunc = store.fileStartEndNum
 	return store
 }
