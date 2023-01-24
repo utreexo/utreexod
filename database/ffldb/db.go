@@ -1738,7 +1738,24 @@ func (tx *transaction) writePendingAndCommit() error {
 	// Loop through all of the pending undo blocks to store and write them.
 	for _, spendJournalData := range tx.pendingSpendJournalData {
 		log.Tracef("Storing spend journal %s", spendJournalData.hash)
-		location, err := tx.db.sjStore.writeBlock(spendJournalData.bytes, nil)
+		locBytes, err := tx.fetchBlockRow(spendJournalData.hash)
+		if err != nil {
+			// We shouldn't ever error out here because the spend journals
+			// get written after the block has been validated.  If an error
+			// happens here, something's terribly wrong with the disk and
+			// probably isn't recoverable.
+			rollback()
+			return err
+		}
+		loc := deserializeBlockLoc(locBytes)
+
+		var giveLoc *blockLocation
+		curFileNum := tx.db.sjStore.getCurrentFileNum()
+		if loc.blockFileNum != curFileNum {
+			giveLoc = &loc
+		}
+
+		location, err := tx.db.sjStore.writeBlock(spendJournalData.bytes, giveLoc)
 		if err != nil {
 			rollback()
 			return err
