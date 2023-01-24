@@ -968,8 +968,9 @@ func (b *bucket) Delete(key []byte) error {
 // pendingData houses the raw bytes and the corresponding hash that will be written
 // to disk when the database transaction is committed.
 type pendingData struct {
-	hash  *chainhash.Hash
-	bytes []byte
+	hash   *chainhash.Hash
+	height int32
+	bytes  []byte
 }
 
 // transaction represents a database transaction.  It can either be read-only or
@@ -1202,6 +1203,12 @@ func (tx *transaction) StoreBlock(block *btcutil.Block) error {
 		return makeDbErr(database.ErrDriverSpecific, str, err)
 	}
 
+	if block.Height() < 0 {
+		str := fmt.Sprintf("cannot store block with height less than 0. got height %d",
+			block.Height())
+		return makeDbErr(database.ErrDriverSpecific, str, nil)
+	}
+
 	// Add the block to be stored to the list of pending blocks to store
 	// when the transaction is committed.  Also, add it to pending blocks
 	// map so it is easy to determine the block is pending based on the
@@ -1211,8 +1218,9 @@ func (tx *transaction) StoreBlock(block *btcutil.Block) error {
 	}
 	tx.pendingBlocks[*blockHash] = len(tx.pendingBlockData)
 	tx.pendingBlockData = append(tx.pendingBlockData, pendingData{
-		hash:  blockHash,
-		bytes: blockBytes,
+		hash:   blockHash,
+		height: block.Height(),
+		bytes:  blockBytes,
 	})
 	log.Tracef("Added block %s to pending blocks", blockHash)
 

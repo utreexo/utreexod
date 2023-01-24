@@ -57,6 +57,7 @@ func loadBlocks(t *testing.T, dataFile string, network wire.BitcoinNet) ([]*btcu
 	// Set the first block as the genesis block.
 	blocks := make([]*btcutil.Block, 0, 256)
 	genesis := btcutil.NewBlock(chaincfg.MainNetParams.GenesisBlock)
+	genesis.SetHeight(0)
 	blocks = append(blocks, genesis)
 
 	// Load the remaining blocks.
@@ -100,6 +101,7 @@ func loadBlocks(t *testing.T, dataFile string, network wire.BitcoinNet) ([]*btcu
 			t.Errorf("Failed to parse block %v: %v", height, err)
 			return nil, err
 		}
+		block.SetHeight(int32(height))
 		blocks = append(blocks, block)
 	}
 
