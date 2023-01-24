@@ -2227,8 +2227,14 @@ func openDB(dbPath string, network wire.BitcoinNet, create bool) (database.DB, e
 		return nil, convertErr(err.Error(), err)
 	}
 
-	blkStore := newBlockStore(dbPath, network)
-	sjStore := newSJStore(dbPath, network)
+	blkStore, err := newBlockStore(dbPath, network)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't make a new block store. Err: %v", err)
+	}
+	sjStore, err := newSJStore(dbPath, network)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't make a new spend journal store. Err: %v", err)
+	}
 
 	cache := newDbCache(ldb, blkStore, sjStore, defaultCacheSize, defaultFlushSecs)
 	pdb := &db{blkStore: blkStore, sjStore: sjStore, cache: cache}

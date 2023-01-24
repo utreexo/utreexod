@@ -857,33 +857,53 @@ func (s *blockStore) calcBlockFilesSize() (uint32, uint32, uint32, error) {
 // to detect unexpected shutdowns in the middle of writes so the block files
 // can be reconciled.
 func scanBlockFiles(dbPath string,
-	filePathFunc func(dbPath string, fileNum uint32) string) (int, uint32) {
+	filePathFunc func(dbPath string, fileNum uint32) string) (int, uint32, error) {
 
+	// The only error we can get is a bad pattern error.  Since we're hardcoding
+	// the pattern, we should not have an error at runtime.
+	files, _ := filepath.Glob(filepath.Join(dbPath, "*"+spendJournalFileExtension))
+
+	var err error
 	lastFile := -1
 	fileLen := uint32(0)
-	for i := 0; ; i++ {
-		filePath := filePathFunc(dbPath, uint32(i))
+	for _, file := range files {
+		// Extract the file number.  We can use just the spend journal extension
+		// since there is one spend journal file per block file.
+		fileNum := file
+		fileNum = strings.TrimPrefix(fileNum, dbPath+"/")
+		fileNum = strings.TrimSuffix(fileNum, spendJournalFileExtension)
+
+		// Turn the string into a number.
+		lastFile, err = strconv.Atoi(fileNum)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		// Actually get the file info.
+		filePath := filePathFunc(dbPath, uint32(lastFile))
 		st, err := os.Stat(filePath)
 		if err != nil {
-			break
+			return 0, 0, err
 		}
-		lastFile = i
 
 		fileLen = uint32(st.Size())
 	}
 
 	log.Tracef("Scan found latest block file #%d with length %d", lastFile,
 		fileLen)
-	return lastFile, fileLen
+	return lastFile, fileLen, nil
 }
 
 // newBlockStore returns a new block store with the current block file number
 // and offset set and all fields initialized.
-func newBlockStore(basePath string, network wire.BitcoinNet) *blockStore {
+func newBlockStore(basePath string, network wire.BitcoinNet) (*blockStore, error) {
 	// Look for the end of the latest block to file to determine what the
 	// write cursor position is from the viewpoing of the block files on
 	// disk.
-	fileNum, fileOff := scanBlockFiles(basePath, blockFilePath)
+	fileNum, fileOff, err := scanBlockFiles(basePath, blockFilePath)
+	if err != nil {
+		return nil, err
+	}
 	if fileNum == -1 {
 		fileNum = 0
 		fileOff = 0
@@ -909,16 +929,19 @@ func newBlockStore(basePath string, network wire.BitcoinNet) *blockStore {
 	store.fileSizeFunc = store.fileSize
 	store.filePathFunc = blockFilePath
 	store.fileStartEndNumFunc = store.fileStartEndNum
-	return store
+	return store, nil
 }
 
 // newSJStore returns a new spend journal store with the current spend journal file
 // number and offset set and all fields initialized.
-func newSJStore(basePath string, network wire.BitcoinNet) *blockStore {
+func newSJStore(basePath string, network wire.BitcoinNet) (*blockStore, error) {
 	// Look for the end of the latest block to file to determine what the
 	// write cursor position is from the viewpoing of the block files on
 	// disk.
-	fileNum, fileOff := scanBlockFiles(basePath, spendJournalFilePath)
+	fileNum, fileOff, err := scanBlockFiles(basePath, spendJournalFilePath)
+	if err != nil {
+		return nil, err
+	}
 	if fileNum == -1 {
 		fileNum = 0
 		fileOff = 0
@@ -944,5 +967,5 @@ func newSJStore(basePath string, network wire.BitcoinNet) *blockStore {
 	store.fileSizeFunc = store.fileSize
 	store.filePathFunc = spendJournalFilePath
 	store.fileStartEndNumFunc = store.fileStartEndNum
-	return store
+	return store, nil
 }
