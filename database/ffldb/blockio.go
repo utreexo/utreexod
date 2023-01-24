@@ -828,6 +828,29 @@ func (s *blockStore) getCurrentFileNum() uint32 {
 	return wc.curFileNum
 }
 
+// calcBlockFilesSize calculates the total size of all the files.
+func (s *blockStore) calcBlockFilesSize() (uint32, uint32, uint32, error) {
+	first, last, err := s.fileStartEndNumFunc()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	totalSize := uint32(0)
+	for i := first; i < last; i++ {
+		size, err := s.fileSizeFunc(i)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		totalSize += size
+	}
+
+	log.Tracef("Scan found first block file of #%d and the latest "+
+		"block file #%d and the total size of all files were %d",
+		first, last, totalSize)
+
+	return first, last, totalSize, nil
+}
+
 // scanBlockFiles searches the database directory for all flat block files to
 // find the end of the most recent file.  This position is considered the
 // current write cursor which is also stored in the metadata.  Thus, it is used
