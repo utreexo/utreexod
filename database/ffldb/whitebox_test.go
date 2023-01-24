@@ -133,6 +133,7 @@ type testContext struct {
 	t            *testing.T
 	db           database.DB
 	files        map[uint32]*lockableFile
+	sjFiles      map[uint32]*lockableFile
 	maxFileSizes map[uint32]int64
 	blocks       []*btcutil.Block
 }
@@ -600,6 +601,134 @@ func testCorruption(tc *testContext) bool {
 	return true
 }
 
+// testAssertSameFileNum tests that the block and its spend journal is stored in the
+// same file number.
+func testAssertSameFileNum(tc *testContext) bool {
+	if !resetDatabase(tc) {
+		return false
+	}
+
+	// Insert the first block into the mock file.
+	err := tc.db.Update(func(tx database.Tx) error {
+		middleHeight := len(tc.blocks) / 2
+
+		skippedBlocks := make([]*btcutil.Block, 0, 20)
+		for i, block := range tc.blocks {
+			if middleHeight < i && i < middleHeight+20 {
+				skippedBlocks = append(skippedBlocks, block)
+				continue
+			}
+
+			err := tx.StoreBlock(block)
+			if err != nil {
+				tc.t.Errorf("StoreBlock: unexpected error: %v", err)
+				return errSubTestFail
+			}
+		}
+
+		for _, block := range skippedBlocks {
+			err := tx.StoreBlock(block)
+			if err != nil {
+				tc.t.Errorf("StoreBlock: unexpected error: %v", err)
+				return errSubTestFail
+			}
+		}
+
+		for _, block := range tc.blocks {
+			bytes, err := block.Bytes()
+			if err != nil {
+				tc.t.Errorf("unexpected error: %v", err)
+				return errSubTestFail
+			}
+
+			// Just any slice of bytes stored.
+			err = tx.StoreSpendJournal(block.Hash(), bytes)
+			if err != nil {
+				tc.t.Errorf("StoreSpendJournal: unexpected error: %v", err)
+				return errSubTestFail
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		if err != errSubTestFail {
+			tc.t.Errorf("Update: unexpected error: %v", err)
+		}
+		return false
+	}
+
+	var earliest int32
+	err = tc.db.Update(func(tx database.Tx) error {
+		earliest, err = tx.PruneBlocks(2048, int32(len(tc.blocks)-30))
+		return err
+	})
+	if err != nil {
+		tc.t.Errorf("PruneBlocks: unexpected error: %v", err)
+		return false
+	}
+
+	err = tc.db.View(func(tx database.Tx) error {
+		for i := len(tc.blocks) - 30; i < len(tc.blocks); i++ {
+			blockBytes, err := tx.FetchBlock(tc.blocks[i].Hash())
+			if err != nil {
+				tc.t.Errorf("FetchBlock: unexpected error: %v", err)
+				return errSubTestFail
+			}
+			block, err := btcutil.NewBlockFromBytes(blockBytes)
+			if err != nil {
+				tc.t.Errorf("NewBlockFromBytes: unexpected error: %v", err)
+				return errSubTestFail
+			}
+
+			if *tc.blocks[i].Hash() != *block.Hash() {
+				tc.t.Errorf("want hash %s, got hash %s\n",
+					tc.blocks[i].Hash().String(),
+					block.Hash().String())
+				return errSubTestFail
+			}
+
+			_, err = tx.FetchSpendJournal(tc.blocks[i].Hash())
+			if err != nil {
+				tc.t.Errorf("FetchSpendJournal: unexpected error: %v", err)
+				return errSubTestFail
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		tc.t.Errorf("PruneBlocks: unexpected error: %v", err)
+		return false
+	}
+	err = tc.db.View(func(tx database.Tx) error {
+		for i := 0; i < int(earliest)-1; i++ {
+			blockBytes, err := tx.FetchBlock(tc.blocks[i].Hash())
+			if err == nil {
+				tc.t.Errorf("FetchBlock: should not have block %d, hash %s"+
+					"but fetched %d bytes", i, tc.blocks[i].Hash().String(),
+					len(blockBytes))
+				return errSubTestFail
+			}
+
+			spendBytes, err := tx.FetchSpendJournal(tc.blocks[i].Hash())
+			if err == nil {
+				tc.t.Errorf("FetchSpendJournal: should not have block %d, hash %s"+
+					"but fetched %d bytes", i, tc.blocks[i].Hash().String(),
+					len(spendBytes))
+				return errSubTestFail
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		tc.t.Errorf("unexpected error: %v", err)
+		return false
+	}
+
+	return true
+}
+
 // TestFailureScenarios ensures several failure scenarios such as database
 // corruption, block file write failures, and rollback failures are handled
 // correctly.
@@ -620,6 +749,7 @@ func TestFailureScenarios(t *testing.T) {
 		t:            t,
 		db:           idb,
 		files:        make(map[uint32]*lockableFile),
+		sjFiles:      make(map[uint32]*lockableFile),
 		maxFileSizes: make(map[uint32]int64),
 	}
 
@@ -683,6 +813,137 @@ func TestFailureScenarios(t *testing.T) {
 		str := fmt.Sprintf("file %d does not exist", fileNum)
 		return makeDbErr(database.ErrDriverSpecific, str, nil)
 	}
+	store.fileSizeFunc = func(fileNum uint32) (uint32, error) {
+		var size uint32
+		if file, ok := tc.files[fileNum]; ok {
+			file.Lock()
+			defer file.Unlock()
+
+			mock := file.file.(*mockFile)
+			if mock == nil {
+				str := fmt.Sprintf("file %d does not exist", fileNum)
+				return 0, makeDbErr(database.ErrDriverSpecific, str, nil)
+			}
+			size = uint32(len(mock.data))
+		}
+
+		return size, nil
+	}
+	store.fileStartEndNumFunc = func() (uint32, uint32, error) {
+		first, last := int64(-1), int64(-1)
+		for num := range tc.files {
+			if first == -1 {
+				first = int64(num)
+			}
+			if last == -1 {
+				last = int64(num)
+			}
+
+			if int64(num) < first {
+				first = int64(num)
+			}
+
+			if int64(num) > last {
+				last = int64(num)
+			}
+		}
+
+		return uint32(first), uint32(last), nil
+	}
+
+	sjStore := idb.(*db).sjStore
+	sjStore.maxBlockFileSize = 1024 // 1KiB
+	sjStore.openWriteFileFunc = func(fileNum uint32) (filer, error) {
+		if file, ok := tc.sjFiles[fileNum]; ok {
+			// "Reopen" the file.
+			file.Lock()
+			mock := file.file.(*mockFile)
+			mock.Lock()
+			mock.closed = false
+			mock.Unlock()
+			file.Unlock()
+			return mock, nil
+		}
+
+		// Limit the max size of the mock file as specified in the test
+		// context.
+		maxSize := int64(-1)
+		if maxFileSize, ok := tc.maxFileSizes[fileNum]; ok {
+			maxSize = maxFileSize
+		}
+		file := &mockFile{maxSize: maxSize}
+		tc.sjFiles[fileNum] = &lockableFile{file: file}
+		return file, nil
+	}
+	sjStore.openFileFunc = func(fileNum uint32) (*lockableFile, error) {
+		// Force error when trying to open max file num.
+		if fileNum == ^uint32(0) {
+			return nil, makeDbErr(database.ErrDriverSpecific,
+				"test", nil)
+		}
+		if file, ok := tc.sjFiles[fileNum]; ok {
+			// "Reopen" the file.
+			file.Lock()
+			mock := file.file.(*mockFile)
+			mock.Lock()
+			mock.closed = false
+			mock.Unlock()
+			file.Unlock()
+			return file, nil
+		}
+		file := &lockableFile{file: &mockFile{}}
+		tc.sjFiles[fileNum] = file
+		return file, nil
+	}
+	sjStore.deleteFileFunc = func(fileNum uint32) error {
+		if file, ok := tc.sjFiles[fileNum]; ok {
+			file.Lock()
+			file.file.Close()
+			file.Unlock()
+			delete(tc.sjFiles, fileNum)
+			return nil
+		}
+
+		str := fmt.Sprintf("file %d does not exist", fileNum)
+		return makeDbErr(database.ErrDriverSpecific, str, nil)
+	}
+	sjStore.fileSizeFunc = func(fileNum uint32) (uint32, error) {
+		var size uint32
+		if file, ok := tc.sjFiles[fileNum]; ok {
+			file.Lock()
+			defer file.Unlock()
+
+			mock := file.file.(*mockFile)
+			if mock == nil {
+				str := fmt.Sprintf("file %d does not exist", fileNum)
+				return 0, makeDbErr(database.ErrDriverSpecific, str, nil)
+			}
+			size = uint32(len(mock.data))
+		}
+
+		return size, nil
+	}
+	sjStore.fileStartEndNumFunc = func() (uint32, uint32, error) {
+		first, last := int64(-1), int64(-1)
+		for num := range tc.sjFiles {
+			if first == -1 {
+				first = int64(num)
+			}
+			if last == -1 {
+				last = int64(num)
+			}
+
+			if int64(num) < first {
+				first = int64(num)
+			}
+
+			if int64(num) > last {
+				last = int64(num)
+			}
+		}
+
+		return uint32(first), uint32(last), nil
+	}
 
 	// Load the test blocks and save in the test context for use throughout
 	// the tests.
@@ -700,6 +961,11 @@ func TestFailureScenarios(t *testing.T) {
 
 	// Test various file-related issues such as closed and missing files.
 	if !testBlockFileErrors(tc) {
+		return
+	}
+
+	// Test various file-related issues such as closed and missing files.
+	if !testAssertSameFileNum(tc) {
 		return
 	}
 
