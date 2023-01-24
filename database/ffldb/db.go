@@ -1702,6 +1702,27 @@ func (tx *transaction) writePendingAndCommit() error {
 			return err
 		}
 
+		firstHeight, lastHeight := tx.getHeightInfo(location.blockFileNum)
+		if firstHeight < 0 && lastHeight < 0 {
+			firstHeight = blockData.height
+			lastHeight = blockData.height
+		}
+
+		if blockData.height <= firstHeight {
+			err = tx.putHeightInfo(location.blockFileNum, blockData.height, lastHeight)
+			if err != nil {
+				rollback()
+				return err
+			}
+		}
+		if blockData.height >= lastHeight {
+			err = tx.putHeightInfo(location.blockFileNum, firstHeight, blockData.height)
+			if err != nil {
+				rollback()
+				return err
+			}
+		}
+
 		// Add a record in the block index for the block.  The record
 		// includes the location information needed to locate the block
 		// on the filesystem as well as the block header since they are
