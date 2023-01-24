@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1865,6 +1866,94 @@ func (tx *transaction) FetchSpendJournal(hash *chainhash.Hash) ([]byte, error) {
 	}
 
 	return sjBytes, nil
+}
+
+// PruneBlocks prunes block and spend journal files and attempts to reach the target size.
+// If there's a minimum block height that the caller must keep, specifying keep height
+// will prevent the block file including that block from getting deleted.
+// Because of this, sometimes PruneBlocks may not prune until it reaches the target size
+// but will attempt to get close to it.
+func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, error) {
+	// Ensure transaction state is valid.
+	if err := tx.checkClosed(); err != nil {
+		return 0, err
+	}
+
+	// Ensure the transaction is writable.
+	if !tx.writable {
+		str := "prune blocks requires a writable database transaction"
+		return 0, makeDbErr(database.ErrTxNotWritable, str, nil)
+	}
+
+	// Grab the first and last file numbers and the size for both the block and
+	// spend journal files.
+	firstBlkFile, lastBlkFile, blkSize, _ := tx.db.blkStore.calcBlockFilesSize()
+	_, _, sjSize, _ := tx.db.sjStore.calcBlockFilesSize()
+
+	// If the total size of block files and spend journal files are under the target,
+	// return early and don't prune.
+	totalSize := blkSize + sjSize
+	if totalSize <= targetSize {
+		return -1, nil
+	}
+
+	log.Tracef("Using %d more bytes than the target of %d MiB. Pruning files...",
+		totalSize-targetSize,
+		targetSize/(1024*1024))
+
+	earliestHeight := int32(math.MaxInt32)
+	for i := firstBlkFile; i <= lastBlkFile; i++ {
+		blkSize, err := tx.db.blkStore.fileSizeFunc(i)
+		if err != nil {
+			return 0, err
+		}
+
+		stSize, err := tx.db.sjStore.fileSizeFunc(i)
+		if err != nil {
+			return 0, err
+		}
+
+		firstHeight, lastHeight := tx.getHeightInfo(i)
+
+		// If we're already at or below the target usage, break and don't
+		// try to delete more files.
+		if totalSize <= targetSize {
+			// Before breaking, update the earliest height as we're gonna
+			// keep this file.
+			if firstHeight < earliestHeight {
+				earliestHeight = firstHeight
+			}
+			break
+		}
+
+		// If the last height in this file is eqaul or greater than the
+		// keep height, keep this file but keep looking for other files to
+		// delete.
+		if lastHeight >= keepHeight && keepHeight > 0 {
+			// Since we're going to keep this file, update the earliest height
+			// if it's earlier than our current one.
+			if firstHeight < earliestHeight {
+				earliestHeight = firstHeight
+			}
+			continue
+		}
+
+		deletedSize := blkSize + stSize
+		totalSize -= deletedSize
+
+		err = tx.db.blkStore.deleteFileFunc(i)
+		if err != nil {
+			log.Warnf("PruneBlocks: Failed to delete block file "+
+				"number %d: %v", i, err)
+		}
+		err = tx.db.sjStore.deleteFileFunc(i)
+		if err != nil {
+			log.Warnf("PruneBlocks: Failed to delete spend journal file "+
+				"number %d: %v", i, err)
+		}
+	}
+
+	return earliestHeight, nil
 }
 
 // Commit commits all changes that have been made to the root metadata bucket
