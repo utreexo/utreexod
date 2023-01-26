@@ -91,6 +91,10 @@ const (
 	// software.
 	SFNode2X
 
+	// SFNodeNetWorkLimited is a flag used to indicate a peer supports serving
+	// the last 288 blocks.
+	SFNodeNetworkLimited = 1 << 10
+
 	// SFNodeUtreexo is a flag used to indicate a peer is running the utreexo
 	// protocol.
 	//
@@ -101,21 +105,23 @@ const (
 
 // Map of service flags back to their constant names for pretty printing.
 var sfStrings = map[ServiceFlag]string{
-	SFNodeNetwork: "SFNodeNetwork",
-	SFNodeGetUTXO: "SFNodeGetUTXO",
-	SFNodeBloom:   "SFNodeBloom",
-	SFNodeWitness: "SFNodeWitness",
-	SFNodeXthin:   "SFNodeXthin",
-	SFNodeBit5:    "SFNodeBit5",
-	SFNodeCF:      "SFNodeCF",
-	SFNode2X:      "SFNode2X",
-	SFNodeUtreexo: "SFNodeUtreexo",
+	SFNodeNetwork:        "SFNodeNetwork",
+	SFNodeNetworkLimited: "SFNodeNetworkLimited",
+	SFNodeGetUTXO:        "SFNodeGetUTXO",
+	SFNodeBloom:          "SFNodeBloom",
+	SFNodeWitness:        "SFNodeWitness",
+	SFNodeXthin:          "SFNodeXthin",
+	SFNodeBit5:           "SFNodeBit5",
+	SFNodeCF:             "SFNodeCF",
+	SFNode2X:             "SFNode2X",
+	SFNodeUtreexo:        "SFNodeUtreexo",
 }
 
 // orderedSFStrings is an ordered list of service flags from highest to
 // lowest.
 var orderedSFStrings = []ServiceFlag{
 	SFNodeNetwork,
+	SFNodeNetworkLimited,
 	SFNodeGetUTXO,
 	SFNodeBloom,
 	SFNodeWitness,
