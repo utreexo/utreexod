@@ -67,6 +67,7 @@ const (
 	defaultTxIndex               = false
 	defaultTTLIndex              = false
 	defaultAddrIndex             = false
+	pruneMinSize                 = 550
 )
 
 var (
@@ -107,6 +108,7 @@ type config struct {
 	UtxoCacheMaxSizeMiB uint   `long:"utxocachemaxsize" description:"The maximum size in MiB of the UTXO cache"`
 	Utreexo             bool   `long:"utreexo" description:"Use utreexo compact state during block validation"`
 	NoWinService        bool   `long:"nowinservice" description:"Do not start as a background service on Windows -- NOTE: This flag only works on the command line, not in the config file"`
+	Prune               uint32 `long:"prune" description:"Prune already validated blocks from the database. Must specify a target size in MiB (minimum value of 550)"`
 
 	// Profiling options.
 	Profile       string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
@@ -1218,6 +1220,14 @@ func loadConfig() (*config, []string, error) {
 	if cfg.WatchOnlyWallet && !cfg.Utreexo {
 		err := fmt.Errorf("%s: the --watchonlywallet requires the --utreexo option on "+
 			"at the same time", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if cfg.Prune != 0 && cfg.Prune < pruneMinSize {
+		err := fmt.Errorf("%s: the minimum value for --prune is %d. Got %d",
+			funcName, pruneMinSize, cfg.Prune)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, nil, err

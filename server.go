@@ -2922,6 +2922,9 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if cfg.NoCFilters {
 		services &^= wire.SFNodeCF
 	}
+	if cfg.Prune != 0 {
+		services &^= wire.SFNodeNetwork
+	}
 	if cfg.Utreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
 		services |= wire.SFNodeUtreexo
 	}
@@ -3067,6 +3070,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		HashCache:        s.hashCache,
 		UtxoCacheMaxSize: uint64(cfg.UtxoCacheMaxSizeMiB) * 1024 * 1024,
 		UtreexoView:      utreexo,
+		Prune:            cfg.Prune * 1024 * 1024,
 	})
 	if err != nil {
 		return nil, err
