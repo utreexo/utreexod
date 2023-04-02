@@ -1,41 +1,21 @@
-# This Dockerfile builds btcd from source and creates a small (55 MB) docker container based on alpine linux.
-#
-# Clone this repository and run the following command to build and tag a fresh btcd amd64 container:
-#
-# docker build . -t yourregistry/btcd
-#
-# You can use the following command to buid an arm64v8 container:
-#
-# docker build . -t yourregistry/btcd --build-arg ARCH=arm64v8
-#
-# For more information how to use this docker image visit:
-# https://github.com/btcsuite/btcd/tree/master/docs
-#
-# 8333  Mainnet Bitcoin peer-to-peer port
-# 8334  Mainet RPC port
-
-ARG ARCH=amd64
-
-FROM golang:1.14-alpine3.12 AS build-container
-
 ARG ARCH
+ARG VER_ALPINE=3.12
+
+FROM golang:1.20.2-alpine3.16@sha256:1d7fec2b8f451917a45b3e41249d1b5474c5269cf03f5cbdbd788347a1f1237c AS build-container
+
 ENV GO111MODULE=on
 
 ADD . /app
 WORKDIR /app
-RUN set -ex \
-  && if [ "${ARCH}" = "amd64" ]; then export GOARCH=amd64; fi \
-  && if [ "${ARCH}" = "arm32v7" ]; then export GOARCH=arm; fi \
-  && if [ "${ARCH}" = "arm64v8" ]; then export GOARCH=arm64; fi \
-  && echo "Compiling for $GOARCH" \
-  && go install -v . ./cmd/...
+RUN go install -v . ./cmd/...
 
-FROM $ARCH/alpine:3.12
+FROM ${ARCH:+${ARCH}/}alpine:${VER_ALPINE}
 
 COPY --from=build-container /go/bin /bin
 
-VOLUME ["/root/.btcd"]
+VOLUME ["/root/.utreexod"]
 
-EXPOSE 8333 8334
+# P2P network (mainnet, testnet, signet & regnet respectively)
+EXPOSE 8333 18333 38333 18444
 
-ENTRYPOINT ["btcd"]
+CMD ["utreexod", "--utreexoproofindex"]
