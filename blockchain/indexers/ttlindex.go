@@ -4,6 +4,7 @@ import (
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -87,6 +88,17 @@ func (idx *TTLIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 	ttlIdxBucket := dbTx.Metadata().Bucket(ttlIndexKey)
 	return removeTTLEntries(ttlIdxBucket, block)
+}
+
+// PruneBlock is invoked when an older block is deleted after it's been
+// processed.
+// NOTE: For TTLIndex, it's a no-op as TTLIndex isn't allowed to be enabled
+// with pruning. This may be visited at a later date so that TTLIndex is
+// supported with pruning.
+//
+// This is part of the Indexer interface.
+func (idx *TTLIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+	return nil
 }
 
 // GetTTL returns a pointer to the ttl value of a transaction outpout.

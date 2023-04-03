@@ -644,6 +644,14 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 	return nil
 }
 
+// PruneBlock is invoked when an older block is deleted after it's been
+// processed.
+//
+// This is part of the Indexer interface.
+func (idx *FlatUtreexoProofIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+	return nil
+}
+
 // FetchUtreexoProof returns the Utreexo proof data for the given block height.
 func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32, excludeAccProof bool) (
 	*wire.UData, error) {

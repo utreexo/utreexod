@@ -719,6 +719,15 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 			// Since we just saved block with `node.height`, the minimum block height
 			// we need to keep is `node.height-287`.
 			earliestKeptBlockHeight, err = dbTx.PruneBlocks(b.pruneTarget, node.height-287)
+			if err != nil {
+				return err
+			}
+
+			// Only attempt to prune blocks from the index if there have been blocks pruned.
+			if earliestKeptBlockHeight != -1 {
+				err = b.indexManager.PruneBlocks(
+					dbTx, earliestKeptBlockHeight, b.BlockHashByHeight)
+			}
 			return err
 		})
 		if err != nil {
@@ -2262,6 +2271,10 @@ type IndexManager interface {
 	// this block is also returned so indexers can clean up the prior index
 	// state for this block.
 	DisconnectBlock(database.Tx, *btcutil.Block, []SpentTxOut) error
+
+	// PruneBlock is invoked when an older block is deleted after it's been
+	// processed. This lowers the storage requirement for a node.
+	PruneBlocks(database.Tx, int32, func(int32) (*chainhash.Hash, error)) error
 }
 
 // Config is a descriptor which specifies the blockchain instance configuration.

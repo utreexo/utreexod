@@ -255,6 +255,37 @@ func (idx *CfIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	return nil
 }
 
+// PruneBlock is invoked when an older block is deleted after it's been
+// processed.
+// TODO (kcalvinalvin): Consider keeping the filters at a later date to help with
+// reindexing as a pruned node.
+//
+// This is part of the Indexer interface.
+func (idx *CfIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+	for _, key := range cfIndexKeys {
+		err := dbDeleteFilterIdxEntry(dbTx, key, blockHash)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, key := range cfHeaderKeys {
+		err := dbDeleteFilterIdxEntry(dbTx, key, blockHash)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, key := range cfHashKeys {
+		err := dbDeleteFilterIdxEntry(dbTx, key, blockHash)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // entryByBlockHash fetches a filter index entry of a particular type
 // (eg. filter, filter header, etc) for a filter type and block hash.
 func (idx *CfIndex) entryByBlockHash(filterTypeKeys [][]byte,
