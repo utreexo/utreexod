@@ -440,6 +440,17 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 		return nil
 	}
 
+	// If the node has been pruned, we may not have the blocks on disk to
+	// catch the indexes up to date. Try to fetch the lowest height here to
+	// fail early and return a better error message.
+	_, err = chain.BlockByHeight(lowestHeight + 1)
+	if err != nil {
+		return fmt.Errorf("Unable to catch up indexes from height %d to %d. "+
+			"If the node was previously pruned, you have to delete the datadir "+
+			"and sync from the beginning to enable the desired index. Error: %v. ",
+			lowestHeight+1, bestHeight, err)
+	}
+
 	// Create a progress logger for the indexing process below.
 	progressLogger := newBlockProgressLogger("Indexed", log)
 
