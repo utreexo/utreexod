@@ -45,7 +45,7 @@ const (
 	// defaultServices describes the default services that are supported by
 	// the server.
 	defaultServices = wire.SFNodeNetwork | wire.SFNodeNetworkLimited |
-		wire.SFNodeBloom | wire.SFNodeWitness | wire.SFNodeCF
+		wire.SFNodeBloom | wire.SFNodeWitness
 
 	// defaultRequiredServices describes the default services that are
 	// required to be supported by outbound peers.
@@ -2919,8 +2919,8 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if cfg.NoPeerBloomFilters {
 		services &^= wire.SFNodeBloom
 	}
-	if cfg.NoCFilters {
-		services &^= wire.SFNodeCF
+	if cfg.CFilters {
+		services |= wire.SFNodeCF
 	}
 	if cfg.Prune != 0 {
 		services &^= wire.SFNodeNetwork
@@ -3000,7 +3000,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		s.addrIndex = indexers.NewAddrIndex(db, chainParams)
 		indexes = append(indexes, s.addrIndex)
 	}
-	if !cfg.NoCFilters {
+	if cfg.CFilters {
 		indxLog.Info("Committed filter index is enabled")
 		s.cfIndex = indexers.NewCfIndex(db, chainParams)
 		indexes = append(indexes, s.cfIndex)
