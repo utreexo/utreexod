@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,6 +72,10 @@ var (
 	// It is the value 2 encoded as an unsigned big-endian uint32.
 	sjIdxBucketID = [4]byte{0x00, 0x00, 0x00, 0x02}
 
+	// blockHeightBucketID is the ID of the interal block height bucket.
+	// It is the value 3 encoded as an unsigned big-endian uint32.
+	blockHeightBucketID = [4]byte{0x00, 0x00, 0x00, 0x03}
+
 	// blockIdxBucketName is the bucket used internally to track block
 	// metadata.
 	blockIdxBucketName = []byte("ffldb-blockidx")
@@ -86,6 +91,9 @@ var (
 	// sjWriteLocKeyName is the key used to store the current spend journal write
 	// file location.
 	sjWriteLocKeyName = []byte("ffldb-sjwriteloc")
+
+	// blockHeightKeyName is the key used to store the heights for each file.
+	blockHeightKeyName = []byte("ffldb-blockheight")
 )
 
 // Common error strings.
@@ -661,6 +669,8 @@ func (b *bucket) CreateBucket(key []byte) (database.Bucket, error) {
 		childID = blockIdxBucketID
 	} else if b.id == metadataBucketID && bytes.Equal(key, sjIdxBucketName) {
 		childID = sjIdxBucketID
+	} else if b.id == metadataBucketID && bytes.Equal(key, blockHeightKeyName) {
+		childID = blockHeightBucketID
 	} else {
 		var err error
 		childID, err = b.tx.nextBucketID()
@@ -959,22 +969,24 @@ func (b *bucket) Delete(key []byte) error {
 // pendingData houses the raw bytes and the corresponding hash that will be written
 // to disk when the database transaction is committed.
 type pendingData struct {
-	hash  *chainhash.Hash
-	bytes []byte
+	hash   *chainhash.Hash
+	height int32
+	bytes  []byte
 }
 
 // transaction represents a database transaction.  It can either be read-only or
 // read-write and implements the database.Tx interface.  The transaction
 // provides a root bucket against which all read and writes occur.
 type transaction struct {
-	managed        bool             // Is the transaction managed?
-	closed         bool             // Is the transaction closed?
-	writable       bool             // Is the transaction writable?
-	db             *db              // DB instance the tx was created from.
-	snapshot       *dbCacheSnapshot // Underlying snapshot for txns.
-	metaBucket     *bucket          // The root metadata bucket.
-	blockIdxBucket *bucket          // The block index bucket.
-	sjIdxBucket    *bucket          // The spend journal index bucket.
+	managed           bool             // Is the transaction managed?
+	closed            bool             // Is the transaction closed?
+	writable          bool             // Is the transaction writable?
+	db                *db              // DB instance the tx was created from.
+	snapshot          *dbCacheSnapshot // Underlying snapshot for txns.
+	metaBucket        *bucket          // The root metadata bucket.
+	blockIdxBucket    *bucket          // The block index bucket.
+	sjIdxBucket       *bucket          // The spend journal index bucket.
+	blockHeightBucket *bucket          // The block height index bucket.
 
 	// Blocks that need to be stored on commit.  The pendingBlocks map is
 	// kept to allow quick lookups of pending data by block hash.
@@ -1192,6 +1204,12 @@ func (tx *transaction) StoreBlock(block *btcutil.Block) error {
 		return makeDbErr(database.ErrDriverSpecific, str, err)
 	}
 
+	if block.Height() < 0 {
+		str := fmt.Sprintf("cannot store block with height less than 0. got height %d",
+			block.Height())
+		return makeDbErr(database.ErrDriverSpecific, str, nil)
+	}
+
 	// Add the block to be stored to the list of pending blocks to store
 	// when the transaction is committed.  Also, add it to pending blocks
 	// map so it is easy to determine the block is pending based on the
@@ -1201,8 +1219,9 @@ func (tx *transaction) StoreBlock(block *btcutil.Block) error {
 	}
 	tx.pendingBlocks[*blockHash] = len(tx.pendingBlockData)
 	tx.pendingBlockData = append(tx.pendingBlockData, pendingData{
-		hash:  blockHash,
-		bytes: blockBytes,
+		hash:   blockHash,
+		height: block.Height(),
+		bytes:  blockBytes,
 	})
 	log.Tracef("Added block %s to pending blocks", blockHash)
 
@@ -1678,10 +1697,31 @@ func (tx *transaction) writePendingAndCommit() error {
 	// Loop through all of the pending blocks to store and write them.
 	for _, blockData := range tx.pendingBlockData {
 		log.Tracef("Storing block %s", blockData.hash)
-		location, err := tx.db.blkStore.writeBlock(blockData.bytes)
+		location, err := tx.db.blkStore.writeBlock(blockData.bytes, nil)
 		if err != nil {
 			rollback()
 			return err
+		}
+
+		firstHeight, lastHeight := tx.getHeightInfo(location.blockFileNum)
+		if firstHeight < 0 && lastHeight < 0 {
+			firstHeight = blockData.height
+			lastHeight = blockData.height
+		}
+
+		if blockData.height <= firstHeight {
+			err = tx.putHeightInfo(location.blockFileNum, blockData.height, lastHeight)
+			if err != nil {
+				rollback()
+				return err
+			}
+		}
+		if blockData.height >= lastHeight {
+			err = tx.putHeightInfo(location.blockFileNum, firstHeight, blockData.height)
+			if err != nil {
+				rollback()
+				return err
+			}
 		}
 
 		// Add a record in the block index for the block.  The record
@@ -1699,7 +1739,24 @@ func (tx *transaction) writePendingAndCommit() error {
 	// Loop through all of the pending undo blocks to store and write them.
 	for _, spendJournalData := range tx.pendingSpendJournalData {
 		log.Tracef("Storing spend journal %s", spendJournalData.hash)
-		location, err := tx.db.sjStore.writeBlock(spendJournalData.bytes)
+		locBytes, err := tx.fetchBlockRow(spendJournalData.hash)
+		if err != nil {
+			// We shouldn't ever error out here because the spend journals
+			// get written after the block has been validated.  If an error
+			// happens here, something's terribly wrong with the disk and
+			// probably isn't recoverable.
+			rollback()
+			return err
+		}
+		loc := deserializeBlockLoc(locBytes)
+
+		var giveLoc *blockLocation
+		curFileNum := tx.db.sjStore.getCurrentFileNum()
+		if loc.blockFileNum != curFileNum {
+			giveLoc = &loc
+		}
+
+		location, err := tx.db.sjStore.writeBlock(spendJournalData.bytes, giveLoc)
 		if err != nil {
 			rollback()
 			return err
@@ -1811,6 +1868,94 @@ func (tx *transaction) FetchSpendJournal(hash *chainhash.Hash) ([]byte, error) {
 	return sjBytes, nil
 }
 
+// PruneBlocks prunes block and spend journal files and attempts to reach the target size.
+// If there's a minimum block height that the caller must keep, specifying keep height
+// will prevent the block file including that block from getting deleted.
+// Because of this, sometimes PruneBlocks may not prune until it reaches the target size
+// but will attempt to get close to it.
+func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, error) {
+	// Ensure transaction state is valid.
+	if err := tx.checkClosed(); err != nil {
+		return 0, err
+	}
+
+	// Ensure the transaction is writable.
+	if !tx.writable {
+		str := "prune blocks requires a writable database transaction"
+		return 0, makeDbErr(database.ErrTxNotWritable, str, nil)
+	}
+
+	// Grab the first and last file numbers and the size for both the block and
+	// spend journal files.
+	firstBlkFile, lastBlkFile, blkSize, _ := tx.db.blkStore.calcBlockFilesSize()
+	_, _, sjSize, _ := tx.db.sjStore.calcBlockFilesSize()
+
+	// If the total size of block files and spend journal files are under the target,
+	// return early and don't prune.
+	totalSize := blkSize + sjSize
+	if totalSize <= targetSize {
+		return -1, nil
+	}
+
+	log.Tracef("Using %d more bytes than the target of %d MiB. Pruning files...",
+		totalSize-targetSize,
+		targetSize/(1024*1024))
+
+	earliestHeight := int32(math.MaxInt32)
+	for i := firstBlkFile; i <= lastBlkFile; i++ {
+		blkSize, err := tx.db.blkStore.fileSizeFunc(i)
+		if err != nil {
+			return 0, err
+		}
+
+		stSize, err := tx.db.sjStore.fileSizeFunc(i)
+		if err != nil {
+			return 0, err
+		}
+
+		firstHeight, lastHeight := tx.getHeightInfo(i)
+
+		// If we're already at or below the target usage, break and don't
+		// try to delete more files.
+		if totalSize <= targetSize {
+			// Before breaking, update the earliest height as we're gonna
+			// keep this file.
+			if firstHeight < earliestHeight {
+				earliestHeight = firstHeight
+			}
+			break
+		}
+
+		// If the last height in this file is eqaul or greater than the
+		// keep height, keep this file but keep looking for other files to
+		// delete.
+		if lastHeight >= keepHeight && keepHeight > 0 {
+			// Since we're going to keep this file, update the earliest height
+			// if it's earlier than our current one.
+			if firstHeight < earliestHeight {
+				earliestHeight = firstHeight
+			}
+			continue
+		}
+
+		deletedSize := blkSize + stSize
+		totalSize -= deletedSize
+
+		err = tx.db.blkStore.deleteFileFunc(i)
+		if err != nil {
+			log.Warnf("PruneBlocks: Failed to delete block file "+
+				"number %d: %v", i, err)
+		}
+		err = tx.db.sjStore.deleteFileFunc(i)
+		if err != nil {
+			log.Warnf("PruneBlocks: Failed to delete spend journal file "+
+				"number %d: %v", i, err)
+		}
+	}
+
+	return earliestHeight, nil
+}
+
 // Commit commits all changes that have been made to the root metadata bucket
 // and all of its sub-buckets to the database cache which is periodically synced
 // to persistent storage.  In addition, it commits all new blocks directly to
@@ -1863,6 +2008,34 @@ func (tx *transaction) Rollback() error {
 
 	tx.close()
 	return nil
+}
+
+// getHeightInfo returns the first height and the last height of the given file number.
+// Returns -1 for both if there's no height information in the database.
+func (tx *transaction) getHeightInfo(fileNum uint32) (int32, int32) {
+	firstHeight, lastHeight := int32(-1), int32(-1)
+
+	var blockNumBytes [4]byte
+	binary.LittleEndian.PutUint32(blockNumBytes[:], fileNum)
+	lastHeightBytes := tx.blockHeightBucket.Get(blockNumBytes[:])
+	if lastHeightBytes != nil {
+		firstHeight = int32(binary.LittleEndian.Uint32(lastHeightBytes[:4]))
+		lastHeight = int32(binary.LittleEndian.Uint32(lastHeightBytes[4:]))
+	}
+
+	return firstHeight, lastHeight
+}
+
+// putHeightInfo puts the given heights into the database.
+func (tx *transaction) putHeightInfo(fileNum uint32, firstHeight, lastHeight int32) error {
+	var blockNumBytes [4]byte
+	binary.LittleEndian.PutUint32(blockNumBytes[:], fileNum)
+
+	var writeBytes [8]byte
+	binary.LittleEndian.PutUint32(writeBytes[:4], uint32(firstHeight))
+	binary.LittleEndian.PutUint32(writeBytes[4:], uint32(lastHeight))
+
+	return tx.blockHeightBucket.Put(blockNumBytes[:], writeBytes[:])
 }
 
 // db represents a collection of namespaces which are persisted and implements
@@ -1941,6 +2114,7 @@ func (db *db) begin(writable bool) (*transaction, error) {
 	tx.metaBucket = &bucket{tx: tx, id: metadataBucketID}
 	tx.blockIdxBucket = &bucket{tx: tx, id: blockIdxBucketID}
 	tx.sjIdxBucket = &bucket{tx: tx, id: sjIdxBucketID}
+	tx.blockHeightBucket = &bucket{tx: tx, id: blockHeightBucketID}
 	return tx, nil
 }
 
@@ -2134,6 +2308,11 @@ func initDB(ldb *leveldb.DB) error {
 		sjIdxBucketID[:])
 	batch.Put(curBucketIDKeyName, sjIdxBucketID[:])
 
+	// Create a last block height bucket and set the current bucket id.
+	batch.Put(bucketIndexKey(metadataBucketID, blockHeightKeyName),
+		blockHeightBucketID[:])
+	batch.Put(curBucketIDKeyName, blockHeightBucketID[:])
+
 	// Write everything as a single batch.
 	if err := ldb.Write(batch, nil); err != nil {
 		str := fmt.Sprintf("failed to initialize metadata database: %v",
@@ -2175,8 +2354,14 @@ func openDB(dbPath string, network wire.BitcoinNet, create bool) (database.DB, e
 		return nil, convertErr(err.Error(), err)
 	}
 
-	blkStore := newBlockStore(dbPath, network)
-	sjStore := newSJStore(dbPath, network)
+	blkStore, err := newBlockStore(dbPath, network)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't make a new block store. Err: %v", err)
+	}
+	sjStore, err := newSJStore(dbPath, network)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't make a new spend journal store. Err: %v", err)
+	}
 
 	cache := newDbCache(ldb, blkStore, sjStore, defaultCacheSize, defaultFlushSecs)
 	pdb := &db{blkStore: blkStore, sjStore: sjStore, cache: cache}

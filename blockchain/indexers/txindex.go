@@ -430,6 +430,17 @@ func (idx *TxIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	return nil
 }
 
+// PruneBlock is invoked when an older block is deleted after it's been
+// processed.
+// NOTE: For TxIndex, it's a no-op as TxIndex isn't allowed to be enabled
+// with pruning. This may be visited at a later date so that TxIndex is
+// supported with pruning.
+//
+// This is part of the Indexer interface.
+func (idx *TxIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+	return nil
+}
+
 // TxBlockRegion returns the block region for the provided transaction hash
 // from the transaction index.  The block region can in turn be used to load the
 // raw transaction bytes.  When there is no entry for the provided hash, nil

@@ -13,6 +13,7 @@ import (
 
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 )
 
@@ -61,6 +62,10 @@ type Indexer interface {
 	// this block is also returned so indexers can clean up the prior index
 	// state for this block
 	DisconnectBlock(database.Tx, *btcutil.Block, []blockchain.SpentTxOut) error
+
+	// PruneBlock is invoked when an older block is deleted after it's been
+	// processed.
+	PruneBlock(database.Tx, *chainhash.Hash) error
 }
 
 // AssertError identifies an error that indicates an internal code consistency

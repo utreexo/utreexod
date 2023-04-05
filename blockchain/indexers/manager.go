@@ -19,6 +19,10 @@ var (
 	// indexTipsBucketName is the name of the db bucket used to house the
 	// current tip of each index.
 	indexTipsBucketName = []byte("idxtips")
+
+	// indexEarliestBucketName is the name of the db bucket used to house the
+	// current earliest height of each index.
+	indexEarliestBucketName = []byte("idxearliest")
 )
 
 // -----------------------------------------------------------------------------
@@ -49,6 +53,36 @@ func dbPutIndexerTip(dbTx database.Tx, idxKey []byte, hash *chainhash.Hash, heig
 // hash and height of the current tip for the provided index.
 func dbFetchIndexerTip(dbTx database.Tx, idxKey []byte) (*chainhash.Hash, int32, error) {
 	indexesBucket := dbTx.Metadata().Bucket(indexTipsBucketName)
+	serialized := indexesBucket.Get(idxKey)
+	if len(serialized) < chainhash.HashSize+4 {
+		return nil, 0, database.Error{
+			ErrorCode: database.ErrCorruption,
+			Description: fmt.Sprintf("unexpected end of data for "+
+				"index %q tip", string(idxKey)),
+		}
+	}
+
+	var hash chainhash.Hash
+	copy(hash[:], serialized[:chainhash.HashSize])
+	height := int32(byteOrder.Uint32(serialized[chainhash.HashSize:]))
+	return &hash, height, nil
+}
+
+// dbPutIndexerEarliest uses an existing database transaction to update or add the
+// current earliest height for the given index to the provided values.
+func dbPutIndexerEarliest(dbTx database.Tx, idxKey []byte, hash *chainhash.Hash, height int32) error {
+	serialized := make([]byte, chainhash.HashSize+4)
+	copy(serialized, hash[:])
+	byteOrder.PutUint32(serialized[chainhash.HashSize:], uint32(height))
+
+	indexesBucket := dbTx.Metadata().Bucket(indexEarliestBucketName)
+	return indexesBucket.Put(idxKey, serialized)
+}
+
+// dbFetchIndexerEarliest uses an existing database transaction to retrieve the
+// hash and height of the current earliest height for the provided index.
+func dbFetchIndexerEarliest(dbTx database.Tx, idxKey []byte) (*chainhash.Hash, int32, error) {
+	indexesBucket := dbTx.Metadata().Bucket(indexEarliestBucketName)
 	serialized := indexesBucket.Get(idxKey)
 	if len(serialized) < chainhash.HashSize+4 {
 		return nil, 0, database.Error{
@@ -220,6 +254,13 @@ func (m *Manager) maybeCreateIndexes(dbTx database.Tx) error {
 		if err != nil {
 			return err
 		}
+
+		// Set the earliest for the index to values which represent an
+		// uninitialized index.
+		err = dbPutIndexerEarliest(dbTx, idxKey, &chainhash.Hash{}, -1)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -253,6 +294,11 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 		// Create the bucket for the current tips as needed.
 		meta := dbTx.Metadata()
 		_, err := meta.CreateBucketIfNotExists(indexTipsBucketName)
+		if err != nil {
+			return err
+		}
+
+		_, err = meta.CreateBucketIfNotExists(indexEarliestBucketName)
 		if err != nil {
 			return err
 		}
@@ -392,6 +438,17 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 	// Nothing to index if all of the indexes are caught up.
 	if lowestHeight == bestHeight {
 		return nil
+	}
+
+	// If the node has been pruned, we may not have the blocks on disk to
+	// catch the indexes up to date. Try to fetch the lowest height here to
+	// fail early and return a better error message.
+	_, err = chain.BlockByHeight(lowestHeight + 1)
+	if err != nil {
+		return fmt.Errorf("Unable to catch up indexes from height %d to %d. "+
+			"If the node was previously pruned, you have to delete the datadir "+
+			"and sync from the beginning to enable the desired index. Error: %v. ",
+			lowestHeight+1, bestHeight, err)
 	}
 
 	// Create a progress logger for the indexing process below.
@@ -559,6 +616,54 @@ func (m *Manager) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 			return err
 		}
 	}
+	return nil
+}
+
+// PruneBlock is invoked when an older block is deleted after it's been
+// processed.
+//
+// This is part of the blockchain.IndexManager interface.
+func (m *Manager) PruneBlocks(dbTx database.Tx, lastKeptHeight int32,
+	fetchHashFunc func(blockHeight int32) (*chainhash.Hash, error)) error {
+
+	// Call each of the currently active optional indexes with the block
+	// being disconnected so they can update accordingly.
+	for _, index := range m.enabledIndexes {
+		idxKey := index.Key()
+		_, height, err := dbFetchIndexerEarliest(dbTx, idxKey)
+		if err != nil {
+			return err
+		}
+		if height < 0 {
+			height = 0
+		}
+		var blockHash *chainhash.Hash
+		for ; height < lastKeptHeight; height++ {
+			blockHash, err = fetchHashFunc(height)
+			if err != nil {
+				return err
+			}
+
+			// Notify the indexer with the connected block so it can prune it.
+			err = index.PruneBlock(dbTx, blockHash)
+			if err != nil {
+				return err
+			}
+		}
+
+		// This is the earliest we have since the current height is the one
+		// we deleted.
+		height++
+		blockHash, err = fetchHashFunc(height)
+		if err != nil {
+			return err
+		}
+		err = dbPutIndexerEarliest(dbTx, idxKey, blockHash, height)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

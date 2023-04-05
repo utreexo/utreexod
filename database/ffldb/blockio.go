@@ -15,6 +15,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -23,15 +25,23 @@ import (
 )
 
 const (
+	blockFileExtension        = ".fdb"
+	spendJournalFileExtension = "-undo" + blockFileExtension
+
 	// The Bitcoin protocol encodes block height as int32, so max number of
 	// blocks is 2^31.  Max block size per the protocol is 32MiB per block.
 	// So the theoretical max at the time this comment was written is 64PiB
-	// (pebibytes).  With files @ 512MiB each, this would require a maximum
-	// of 134,217,728 files.  Thus, choose 9 digits of precision for the
+	// (pebibytes).  With files @ 128MiB each, this would require a maximum
+	// of 536,870,912 files.  Thus, choose 9 digits of precision for the
 	// filenames.  An additional benefit is 9 digits provides 10^9 files @
-	// 512MiB each for a total of ~476.84PiB (roughly 7.4 times the current
+	// 128MiB each for a total of ~119.20PiB (roughly 1.85 times the current
 	// theoretical max), so there is room for the max block size to grow in
 	// the future.
+	//
+	// While the original size in btcd was 512MiB, the block size is lowered
+	// in utreexod to 128MiB to better support pruning.  Since block files
+	// are allocated and deleted per file, we can lower the minimum requirement
+	// by lowering the file size.
 	blockFilenameTemplate = "%09d.fdb"
 
 	// The name to be used for spend journals.
@@ -48,7 +58,7 @@ const (
 	// NOTE: The current code uses uint32 for all offsets, so this value
 	// must be less than 2^32 (4 GiB).  This is also why it's a typed
 	// constant.
-	maxBlockFileSize uint32 = 512 * 1024 * 1024 // 512 MiB
+	maxBlockFileSize uint32 = 128 * 1024 * 1024 // 128 MiB
 
 	// blockLocSize is the number of bytes the serialized block location
 	// data that is stored in the block index.
@@ -177,9 +187,13 @@ type blockStore struct {
 	openFileFunc      func(fileNum uint32) (*lockableFile, error)
 	openWriteFileFunc func(fileNum uint32) (filer, error)
 	deleteFileFunc    func(fileNum uint32) error
+	fileSizeFunc      func(fileNum uint32) (uint32, error)
 
 	// filePathFunc returns the file path of where the data is stored.
 	filePathFunc func(dbPath string, fileNum uint32) string
+
+	// fileStartEndNumFunc returns the first and the last block file number.
+	fileStartEndNumFunc func() (uint32, uint32, error)
 }
 
 // blockLocation identifies a particular block file and location.
@@ -320,6 +334,49 @@ func (s *blockStore) deleteFile(fileNum uint32) error {
 	return nil
 }
 
+// fileSize returns the size of the file number passed in.
+func (s *blockStore) fileSize(fileNum uint32) (uint32, error) {
+	filePath := s.filePathFunc(s.basePath, fileNum)
+	st, err := os.Stat(filePath)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint32(st.Size()), nil
+}
+
+// fileStartEndNum returns the first and the last file number in the database.
+func (s *blockStore) fileStartEndNum() (uint32, uint32, error) {
+	// We use the spendJournalFileExtension as there's a guarantee that there
+	// will be a same number of block files as there are spend journal files.
+	//
+	// The only error we can get is a bad pattern error.  Since we're hardcoding
+	// the pattern, we should not have an error at runtime.
+	files, _ := filepath.Glob(filepath.Join(s.basePath, "*"+spendJournalFileExtension))
+
+	lastFile, firstFile := -1, -1
+	for _, file := range files {
+		// Extract the file number.  We can use just the spend journal extension
+		// since there is one spend journal file per block file.
+		fileNum := file
+		fileNum = strings.TrimPrefix(fileNum, s.basePath+"/")
+		fileNum = strings.TrimSuffix(fileNum, spendJournalFileExtension)
+
+		// Turn the string into a number.
+		var err error
+		lastFile, err = strconv.Atoi(fileNum)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		if firstFile == -1 {
+			firstFile = lastFile
+		}
+	}
+
+	return uint32(firstFile), uint32(lastFile), nil
+}
+
 // blockFile attempts to return an existing file handle for the passed flat file
 // number if it is already open as well as marking it as most recently used.  It
 // will also open the file when it's not already open subject to the rules
@@ -412,7 +469,7 @@ func (s *blockStore) writeData(data []byte, fieldName string) error {
 // in the event of failure.
 //
 // Format: <network><block length><serialized block><checksum>
-func (s *blockStore) writeBlock(rawBlock []byte) (blockLocation, error) {
+func (s *blockStore) writeBlock(rawBlock []byte, blockLoc *blockLocation) (blockLocation, error) {
 	// Compute how many bytes will be written.
 	// 4 bytes each for block network + 4 bytes for block length +
 	// length of raw block + 4 bytes for checksum.
@@ -428,6 +485,9 @@ func (s *blockStore) writeBlock(rawBlock []byte) (blockLocation, error) {
 	// since it's only read/changed during this function which can only be
 	// called during a write transaction, of which there can be only one at
 	// a time.
+	//
+	// We also move to the next block file if the caller requested it by giving
+	// a non nil block location.
 	wc := s.writeCursor
 	finalOffset := wc.curOffset + fullLen
 	if finalOffset < wc.curOffset || finalOffset > s.maxBlockFileSize {
@@ -450,6 +510,27 @@ func (s *blockStore) writeBlock(rawBlock []byte) (blockLocation, error) {
 		wc.curFileNum++
 		wc.curOffset = 0
 		wc.Unlock()
+	} else if blockLoc != nil {
+		// This is done under the write cursor lock since the curFileNum
+		// field is accessed elsewhere by readers.
+		//
+		// Close the current write file to force a read-only reopen
+		// with LRU tracking.  The close is done under the write lock
+		// for the file to prevent it from being closed out from under
+		// any readers currently reading from it.
+		wc.Lock()
+		wc.curFile.Lock()
+		if wc.curFile.file != nil {
+			_ = wc.curFile.file.Close()
+			wc.curFile.file = nil
+		}
+		wc.curFile.Unlock()
+
+		// Set the current file number to the passed in block location's number
+		// and reset offset.
+		wc.curFileNum = blockLoc.blockFileNum
+		wc.curOffset = 0
+		wc.Unlock()
 	}
 
 	// All writes are done under the write lock for the file to ensure any
@@ -467,6 +548,18 @@ func (s *blockStore) writeBlock(rawBlock []byte) (blockLocation, error) {
 			return blockLocation{}, err
 		}
 		wc.curFile.file = file
+
+		// If there was a block location passed in, we need to set the
+		// current offset.  We do this here right after the open write
+		// file since the file may have just been created.
+		if blockLoc != nil {
+			// Grab the offset.
+			stSize, err := s.fileSizeFunc(wc.curFileNum)
+			if err != nil {
+				return blockLocation{}, err
+			}
+			wc.curOffset = stSize
+		}
 	}
 
 	// Bitcoin network.
@@ -725,39 +818,92 @@ func (s *blockStore) handleRollback(oldBlockFileNum, oldBlockOffset uint32) {
 	}
 }
 
+// getCurrentFileNum returns the current file number of the block store.
+func (s *blockStore) getCurrentFileNum() uint32 {
+	// Grab the write cursor mutex since it is modified throughout this
+	// function.
+	wc := s.writeCursor
+	wc.RLock()
+	defer wc.RUnlock()
+	return wc.curFileNum
+}
+
+// calcBlockFilesSize calculates the total size of all the files.
+func (s *blockStore) calcBlockFilesSize() (uint32, uint32, uint32, error) {
+	first, last, err := s.fileStartEndNumFunc()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	totalSize := uint32(0)
+	for i := first; i < last; i++ {
+		size, err := s.fileSizeFunc(i)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		totalSize += size
+	}
+
+	log.Tracef("Scan found first block file of #%d and the latest "+
+		"block file #%d and the total size of all files were %d",
+		first, last, totalSize)
+
+	return first, last, totalSize, nil
+}
+
 // scanBlockFiles searches the database directory for all flat block files to
 // find the end of the most recent file.  This position is considered the
 // current write cursor which is also stored in the metadata.  Thus, it is used
 // to detect unexpected shutdowns in the middle of writes so the block files
 // can be reconciled.
 func scanBlockFiles(dbPath string,
-	filePathFunc func(dbPath string, fileNum uint32) string) (int, uint32) {
+	filePathFunc func(dbPath string, fileNum uint32) string) (int, uint32, error) {
 
+	// The only error we can get is a bad pattern error.  Since we're hardcoding
+	// the pattern, we should not have an error at runtime.
+	files, _ := filepath.Glob(filepath.Join(dbPath, "*"+spendJournalFileExtension))
+
+	var err error
 	lastFile := -1
 	fileLen := uint32(0)
-	for i := 0; ; i++ {
-		filePath := filePathFunc(dbPath, uint32(i))
+	for _, file := range files {
+		// Extract the file number.  We can use just the spend journal extension
+		// since there is one spend journal file per block file.
+		fileNum := file
+		fileNum = strings.TrimPrefix(fileNum, dbPath+"/")
+		fileNum = strings.TrimSuffix(fileNum, spendJournalFileExtension)
+
+		// Turn the string into a number.
+		lastFile, err = strconv.Atoi(fileNum)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		// Actually get the file info.
+		filePath := filePathFunc(dbPath, uint32(lastFile))
 		st, err := os.Stat(filePath)
 		if err != nil {
-			break
+			return 0, 0, err
 		}
-		lastFile = i
 
 		fileLen = uint32(st.Size())
 	}
 
 	log.Tracef("Scan found latest block file #%d with length %d", lastFile,
 		fileLen)
-	return lastFile, fileLen
+	return lastFile, fileLen, nil
 }
 
 // newBlockStore returns a new block store with the current block file number
 // and offset set and all fields initialized.
-func newBlockStore(basePath string, network wire.BitcoinNet) *blockStore {
+func newBlockStore(basePath string, network wire.BitcoinNet) (*blockStore, error) {
 	// Look for the end of the latest block to file to determine what the
 	// write cursor position is from the viewpoing of the block files on
 	// disk.
-	fileNum, fileOff := scanBlockFiles(basePath, blockFilePath)
+	fileNum, fileOff, err := scanBlockFiles(basePath, blockFilePath)
+	if err != nil {
+		return nil, err
+	}
 	if fileNum == -1 {
 		fileNum = 0
 		fileOff = 0
@@ -780,17 +926,22 @@ func newBlockStore(basePath string, network wire.BitcoinNet) *blockStore {
 	store.openFileFunc = store.openFile
 	store.openWriteFileFunc = store.openWriteFile
 	store.deleteFileFunc = store.deleteFile
+	store.fileSizeFunc = store.fileSize
 	store.filePathFunc = blockFilePath
-	return store
+	store.fileStartEndNumFunc = store.fileStartEndNum
+	return store, nil
 }
 
 // newSJStore returns a new spend journal store with the current spend journal file
 // number and offset set and all fields initialized.
-func newSJStore(basePath string, network wire.BitcoinNet) *blockStore {
+func newSJStore(basePath string, network wire.BitcoinNet) (*blockStore, error) {
 	// Look for the end of the latest block to file to determine what the
 	// write cursor position is from the viewpoing of the block files on
 	// disk.
-	fileNum, fileOff := scanBlockFiles(basePath, spendJournalFilePath)
+	fileNum, fileOff, err := scanBlockFiles(basePath, spendJournalFilePath)
+	if err != nil {
+		return nil, err
+	}
 	if fileNum == -1 {
 		fileNum = 0
 		fileOff = 0
@@ -813,6 +964,8 @@ func newSJStore(basePath string, network wire.BitcoinNet) *blockStore {
 	store.openFileFunc = store.openFile
 	store.openWriteFileFunc = store.openWriteFile
 	store.deleteFileFunc = store.deleteFile
+	store.fileSizeFunc = store.fileSize
 	store.filePathFunc = spendJournalFilePath
-	return store
+	store.fileStartEndNumFunc = store.fileStartEndNum
+	return store, nil
 }

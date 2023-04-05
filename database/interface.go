@@ -413,7 +413,21 @@ type Tx interface {
 	//   - ErrCorruption if the database has somehow become corrupted
 	FetchSpendJournal(hash *chainhash.Hash) ([]byte, error)
 
-	//DisconnectBlock(height int32, hash *chainhash.Hash) error
+	// PruneBlocks deletes the block and spend journal files until it reaches
+	// the target size (specificed in bytes).  When there's a height that must
+	// be kept, the caller can pass that block's height as the keep height and
+	// the block and all later blocks will not be pruned regardless of the target
+	// size.  Keep height should be negative if the caller doesn't have a block
+	// that they must keep.
+	//
+	// The returned int32 is the earliest block height that the database has
+	// the data for.  If no blocks were deleted, -1 will return.
+	//
+	// The interface contract guarantees at least the following errors will
+	// be returned (other implementation-specific errors are possible):
+	//   - ErrTxNotWritable if attempted against a read-only transaction
+	//   - ErrTxClosed if the transaction has already been closed
+	PruneBlocks(targetSize uint32, keepHeight int32) (int32, error)
 
 	// ******************************************************************
 	// Methods related to both atomic metadata storage and block storage.

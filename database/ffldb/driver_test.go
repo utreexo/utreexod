@@ -171,6 +171,7 @@ func TestPersistence(t *testing.T) {
 		"b1key3": "foo3",
 	}
 	genesisBlock := btcutil.NewBlock(chaincfg.MainNetParams.GenesisBlock)
+	genesisBlock.SetHeight(0)
 	genesisHash := chaincfg.MainNetParams.GenesisHash
 	err = db.Update(func(tx database.Tx) error {
 		metadataBucket := tx.Metadata()
@@ -194,6 +195,11 @@ func TestPersistence(t *testing.T) {
 
 		if err := tx.StoreBlock(genesisBlock); err != nil {
 			return fmt.Errorf("StoreBlock: unexpected error: %v",
+				err)
+		}
+
+		if err := tx.StoreSpendJournal(genesisBlock.Hash(), []byte{}); err != nil {
+			return fmt.Errorf("StoreSpendJournal: unexpected error: %v",
 				err)
 		}
 

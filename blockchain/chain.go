@@ -135,6 +135,10 @@ type BlockChain struct {
 	// fields in this struct below this point.
 	chainLock sync.RWMutex
 
+	// pruneTarget is the size in bytes the database targets for when the node
+	// is pruned.
+	pruneTarget uint32
+
 	// These fields are related to the memory block index.  They both have
 	// their own locks, however they are often also protected by the chain
 	// lock to help prevent logic races when blocks are being processed.
@@ -706,12 +710,62 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 	b.sendNotification(NTBlockConnected, block)
 	b.chainLock.Lock()
 
+	// If we are a pruned node and file deletion doesn't happen on this block connect, the
+	// earliestKeptBlockHeight will be set to -1.
+	var earliestKeptBlockHeight int32
+	if b.pruneTarget != 0 {
+		err = b.db.Update(func(dbTx database.Tx) error {
+			// NODE_NETWORK_LIMITED service bit requires that the last 288 blocks.
+			// Since we just saved block with `node.height`, the minimum block height
+			// we need to keep is `node.height-287`.
+			earliestKeptBlockHeight, err = dbTx.PruneBlocks(b.pruneTarget, node.height-287)
+			if err != nil {
+				return err
+			}
+
+			// Only attempt to prune blocks from the index if there have been blocks pruned.
+			if earliestKeptBlockHeight != -1 {
+				err = b.indexManager.PruneBlocks(
+					dbTx, earliestKeptBlockHeight, b.BlockHashByHeight)
+			}
+			return err
+		})
+		if err != nil {
+			log.Warnf("Prune failed on block height %d, hash %s. Error %v",
+				node.height, node.hash.String(), err)
+		}
+	}
+
 	// Don't try to flush the utxo set if we're a utreexo node.
 	if b.utreexoView == nil {
+		// Default flush mode on block connect is flush if needed.
+		flushMode := FlushIfNeeded
+
+		// For pruned nodes, we need to check when the last flush was and force a flush
+		// if the earliest block we have on disk is older than the last flush block.
+		if b.pruneTarget != 0 {
+			lastFlushHeight, err := b.BlockHeightByHash(&b.utxoCache.lastFlushHash)
+			if err != nil {
+				return err
+			}
+			// If the node were to crash unexpectedly, we can't recover the utxo set
+			// if we already deleted the block.  Flushing the cache insures that we
+			// can recover from such a crash.
+			//
+			// If there wasn't a prune of the block files because the database usage was
+			// under the prune target, earliestKeptBlockHeight will return -1.  No need
+			// to require a flush then.
+			if earliestKeptBlockHeight != -1 && lastFlushHeight < earliestKeptBlockHeight {
+				flushMode = FlushRequired
+			}
+		}
 		// Since we just changed the UTXO cache, we make sure it didn't exceed its
-		// maximum size.
+		// maximum size.  If it did, there will be a flush.
+		//
+		// We'll be flushing regardless of the maximum size if a prune happened
+		// and the earliest block kept on the disk is after the last utxo cache flush.
 		b.stateLock.Lock()
-		err = b.utxoCache.Flush(FlushIfNeeded, state)
+		err = b.utxoCache.Flush(flushMode, state)
 		if err != nil {
 			return err
 		}
@@ -2217,6 +2271,10 @@ type IndexManager interface {
 	// this block is also returned so indexers can clean up the prior index
 	// state for this block.
 	DisconnectBlock(database.Tx, *btcutil.Block, []SpentTxOut) error
+
+	// PruneBlock is invoked when an older block is deleted after it's been
+	// processed. This lowers the storage requirement for a node.
+	PruneBlocks(database.Tx, int32, func(int32) (*chainhash.Hash, error)) error
 }
 
 // Config is a descriptor which specifies the blockchain instance configuration.
@@ -2292,6 +2350,10 @@ type Config struct {
 	//
 	// This field can be nil as being a utreexo node is optional.
 	UtreexoView *UtreexoViewpoint
+
+	// Prune specifies the target database usage (in bytes) the database will target for with
+	// block and spend journal files.  Prune at 0 specifies that no blocks will be deleted.
+	Prune uint32
 }
 
 // New returns a BlockChain instance using the provided configuration details.
@@ -2359,6 +2421,7 @@ func New(config *Config) (*BlockChain, error) {
 		prevOrphans:         make(map[chainhash.Hash][]*orphanBlock),
 		warningCaches:       newThresholdCaches(vbNumBits),
 		deploymentCaches:    newThresholdCaches(chaincfg.DefinedDeployments),
+		pruneTarget:         config.Prune,
 	}
 
 	// Initialize the chain state from the passed database.  When the db

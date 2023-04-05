@@ -794,6 +794,17 @@ func (idx *AddrIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	return nil
 }
 
+// PruneBlock is invoked when an older block is deleted after it's been
+// processed.
+// NOTE: For AddrIndex, it's a no-op as AddrIndex isn't allowed to be enabled
+// with pruning. This may be visited at a later date so that AddrIndex is
+// supported with pruning.
+//
+// This is part of the Indexer interface.
+func (idx *AddrIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+	return nil
+}
+
 // TxRegionsForAddress returns a slice of block regions which identify each
 // transaction that involves the passed address according to the specified
 // number to skip, number requested, and whether or not the results should be

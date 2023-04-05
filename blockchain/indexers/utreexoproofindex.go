@@ -333,6 +333,24 @@ func (idx *UtreexoProofIndex) SetChain(chain *blockchain.BlockChain) {
 	idx.chain = chain
 }
 
+// PruneBlock is invoked when an older block is deleted after it's been
+// processed.
+//
+// This is part of the Indexer interface.
+func (idx *UtreexoProofIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+	err := dbDeleteUtreexoProofEntry(dbTx, blockHash)
+	if err != nil {
+		return err
+	}
+
+	err = dbDeleteUtreexoState(dbTx, blockHash)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // NewUtreexoProofIndex returns a new instance of an indexer that is used to create a
 //
 // It implements the Indexer interface which plugs into the IndexManager that in
