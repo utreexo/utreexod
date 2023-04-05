@@ -200,7 +200,7 @@ type config struct {
 	TTLIndex                         bool     `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
 	UtreexoProofIndex                bool     `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
 	FlatUtreexoProofIndex            bool     `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
-	NoCFilters                       bool     `long:"nocfilters" description:"Disable committed filtering (CF) support"`
+	CFilters                         bool     `long:"cfilters" description:"Enable committed filtering (CF) support"`
 	NoPeerBloomFilters               bool     `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
 	DropAddrIndex                    bool     `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
 	DropCfIndex                      bool     `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
