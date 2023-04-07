@@ -1199,6 +1199,12 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		return
 	}
 
+	// If we're a utreexo compact state node and our peer is not utreexo enabled,
+	// we won't be able to validate blocks from this peer.
+	if sm.chain.IsUtreexoViewActive() && !peer.IsUtreexoEnabled() {
+		return
+	}
+
 	// If our chain is current and a peer announces a block we already
 	// know of, then update their current block height.
 	if lastBlock != -1 && sm.current() {
