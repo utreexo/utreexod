@@ -754,7 +754,7 @@ func payToScriptHashScript(scriptHash []byte) ([]byte, error) {
 		AddOp(OP_EQUAL).Script()
 }
 
-// payToWitnessPubKeyHashScript creates a new script to pay to a version 0
+// payToWitnessScriptHashScript creates a new script to pay to a version 0
 // script hash witness program. The passed hash is expected to be valid.
 func payToWitnessScriptHashScript(scriptHash []byte) ([]byte, error) {
 	return NewScriptBuilder().AddOp(OP_0).AddData(scriptHash).Script()
