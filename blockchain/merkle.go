@@ -300,8 +300,6 @@ func ExtractMerkleBranch(merkles []*chainhash.Hash, txHash chainhash.Hash) []*ch
 	idx := -1
 	for i := 0; i < numLeaves; i++ {
 		if *merkles[i] == txHash {
-			fmt.Printf("ExtractMerkleBranch found %s at idx %d\n",
-				txHash.String(), i)
 			idx = i
 			break
 		}
