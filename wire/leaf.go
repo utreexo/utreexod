@@ -48,23 +48,25 @@ type LeafData struct {
 	PkScript              []byte
 }
 
-func (l *LeafData) MarshalJSON() ([]byte, error) {
+func (l LeafData) MarshalJSON() ([]byte, error) {
 	s := struct {
-		BlockHash  string `json:"blockhash"`
-		TxHash     string `json:"txhash"`
-		Index      uint32 `json:"index"`
-		Height     int32  `json:"height"`
-		IsCoinbase bool   `json:"iscoinbase"`
-		Amount     int64  `json:"amount"`
-		PkScript   string `json:"pkscript"`
+		BlockHash             string `json:"blockhash"`
+		TxHash                string `json:"txhash"`
+		Index                 uint32 `json:"index"`
+		Height                int32  `json:"height"`
+		IsCoinbase            bool   `json:"iscoinbase"`
+		Amount                int64  `json:"amount"`
+		ReconstructablePkType int    `json:"reconstructtype"`
+		PkScript              string `json:"pkscript"`
 	}{
-		BlockHash:  l.BlockHash.String(),
-		TxHash:     l.OutPoint.Hash.String(),
-		Index:      l.OutPoint.Index,
-		Height:     l.Height,
-		IsCoinbase: l.IsCoinBase,
-		Amount:     l.Amount,
-		PkScript:   hex.EncodeToString(l.PkScript),
+		BlockHash:             l.BlockHash.String(),
+		TxHash:                l.OutPoint.Hash.String(),
+		Index:                 l.OutPoint.Index,
+		Height:                l.Height,
+		IsCoinbase:            l.IsCoinBase,
+		Amount:                l.Amount,
+		ReconstructablePkType: int(l.ReconstructablePkType),
+		PkScript:              hex.EncodeToString(l.PkScript),
 	}
 
 	return json.Marshal(s)
@@ -72,13 +74,14 @@ func (l *LeafData) MarshalJSON() ([]byte, error) {
 
 func (l *LeafData) UnmarshalJSON(data []byte) error {
 	s := struct {
-		BlockHash  string `json:"blockhash"`
-		TxHash     string `json:"txhash"`
-		Index      uint32 `json:"index"`
-		Height     int32  `json:"height"`
-		IsCoinbase bool   `json:"iscoinbase"`
-		Amount     int64  `json:"amount"`
-		PkScript   string `json:"pkscript"`
+		BlockHash             string `json:"blockhash"`
+		TxHash                string `json:"txhash"`
+		Index                 uint32 `json:"index"`
+		Height                int32  `json:"height"`
+		IsCoinbase            bool   `json:"iscoinbase"`
+		Amount                int64  `json:"amount"`
+		ReconstructablePkType int    `json:"reconstructtype"`
+		PkScript              string `json:"pkscript"`
 	}{}
 
 	err := json.Unmarshal(data, &s)
@@ -101,6 +104,7 @@ func (l *LeafData) UnmarshalJSON(data []byte) error {
 	l.Height = s.Height
 	l.IsCoinBase = s.IsCoinbase
 	l.Amount = s.Amount
+	l.ReconstructablePkType = PkType(s.ReconstructablePkType)
 	l.PkScript, err = hex.DecodeString(s.PkScript)
 	if err != nil {
 		return err
@@ -330,8 +334,8 @@ type PkType byte
 
 const (
 	OtherTy               PkType = iota
-	PubKeyHashTy                 // Pay pubkey hash.
-	WitnessV0PubKeyHashTy        // Pay witness pubkey hash.
+	PubKeyHashTy                 // Pay to pubkey hash.
+	WitnessV0PubKeyHashTy        // Pay to witness pubkey hash.
 	ScriptHashTy                 // Pay to script hash.
 	WitnessV0ScriptHashTy        // Pay to witness script hash.
 )
