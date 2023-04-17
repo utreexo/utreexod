@@ -7,6 +7,8 @@ package mining
 import (
 	"bytes"
 	"container/heap"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -51,6 +53,64 @@ type TxDesc struct {
 
 	// FeePerKB is the fee the transaction pays in Satoshi per 1000 bytes.
 	FeePerKB int64
+}
+
+// MarshalJSON implements the json.Marshaler interface for TxDesc.
+func (td TxDesc) MarshalJSON() ([]byte, error) {
+	txBuf := bytes.NewBuffer(make([]byte, 0, td.Tx.MsgTx().SerializeSize()))
+	err := td.Tx.MsgTx().Serialize(txBuf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize tx %s. Error %v",
+			td.Tx.Hash(), err)
+	}
+	s := struct {
+		Tx       string    `json:"tx"`
+		Added    time.Time `json:"added"`
+		Height   int32     `json:"height"`
+		Fee      int64     `json:"fee"`
+		FeePerKB int64     `json:"feeperkb"`
+	}{
+		Tx:       hex.EncodeToString(txBuf.Bytes()),
+		Added:    td.Added,
+		Height:   td.Height,
+		Fee:      td.Fee,
+		FeePerKB: td.FeePerKB,
+	}
+	return json.Marshal(s)
+}
+
+// UnmarshalJSON implements the json.Unmarshaler interface for TxDesc.
+func (td *TxDesc) UnmarshalJSON(data []byte) error {
+	s := struct {
+		Tx       string    `json:"tx"`
+		Added    time.Time `json:"added"`
+		Height   int32     `json:"height"`
+		Fee      int64     `json:"fee"`
+		FeePerKB int64     `json:"feeperkb"`
+	}{}
+	err := json.Unmarshal(data, &s)
+	if err != nil {
+		return err
+	}
+	txBytes, err := hex.DecodeString(s.Tx)
+	if err != nil {
+		return fmt.Errorf("Failed to decode tx string of %s. "+
+			"Error: %v", s.Tx, err)
+	}
+	msgTx := wire.NewMsgTx(1)
+	err = msgTx.Deserialize(bytes.NewBuffer(txBytes))
+	if err != nil {
+		return fmt.Errorf("Failed to deserialize tx hex of %s. "+
+			"Error: %v", hex.EncodeToString(txBytes), err)
+	}
+
+	td.Tx = btcutil.NewTx(msgTx)
+	td.Added = s.Added
+	td.Height = s.Height
+	td.Fee = s.Fee
+	td.FeePerKB = s.FeePerKB
+
+	return nil
 }
 
 // TxSource represents a source of transactions to consider for inclusion in
