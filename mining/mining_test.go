@@ -6,8 +6,12 @@ package mining
 
 import (
 	"container/heap"
+	"encoding/hex"
+	"encoding/json"
 	"math/rand"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/utreexo/utreexod/btcutil"
 )
@@ -106,5 +110,71 @@ func TestTxFeePrioHeap(t *testing.T) {
 				highest.feePerKB, highest.priority)
 		}
 		highest = prioItem
+	}
+}
+
+func TestTxDescMarshal(t *testing.T) {
+	tests := []struct {
+		name string
+		tx   TxDesc
+	}{
+		{
+			name: "txid 114351cae78bdb68d718c27a221f0127816810c124a096d6355d6f958264bbb7 on signet",
+			tx: TxDesc{
+				Tx: func() *btcutil.Tx {
+					rawStr := "020000000001014c4dcdaa45e3711f6e2147efccd1b106f81dc4b5205f306dff9e8c88d6b95dac0" +
+						"000000000fdffffff0321ff5f101b000000160014447fde1e37d97255b5821d2dee816e8f18f6bac9" +
+						"7cd1000000000000160014a8628755900c899f9de1a1bb07fa76ee9d773e5d00000000000000000f6" +
+						"a0d6c6561726e20426974636f696e0247304402207e7088b7a528089842feed081f0bb296ac2c0303" +
+						"7ea74918747def43025e666a02201d3a3000013509e0ce4ba73e8363aaaa51114eab6f66820aa430f" +
+						"604e599fa8c012102a8c3fa3dbc022ca7c9a2214c5e673833317b3cff37c0fc170fc347f1a2f6b6e2" +
+						"00000000"
+					bytes, err := hex.DecodeString(rawStr)
+					if err != nil {
+						panic(err)
+					}
+
+					tx, err := btcutil.NewTxFromBytes(bytes)
+					if err != nil {
+						panic(err)
+					}
+
+					return tx
+				}(),
+				Added: func() time.Time {
+					bytes := []byte("2023-04-17T13:26:48.250092856+09:00")
+
+					var t time.Time
+					err := t.UnmarshalText(bytes)
+					if err != nil {
+						panic(err)
+					}
+
+					return t
+				}(),
+				Height:   138955,
+				Fee:      165,
+				FeePerKB: 1000,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		// Marshal the TxDesc to JSON.
+		bytes, err := json.Marshal(test.tx)
+		if err != nil {
+			t.Fatalf("failed to marshal TxDesc: %v", err)
+		}
+
+		// Unmarshal the JSON bytes back into a TxDesc struct.
+		var tx TxDesc
+		if err := json.Unmarshal(bytes, &tx); err != nil {
+			t.Fatalf("failed to unmarshal JSON into TxDesc: %v", err)
+		}
+
+		// Ensure the unmarshaled TxDesc struct is the same as the original.
+		if !reflect.DeepEqual(test.tx, tx) {
+			t.Fatalf("unmarshaled TxDesc does not match the original")
+		}
 	}
 }
