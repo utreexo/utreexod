@@ -192,7 +192,7 @@ func NewRequest(rpcVersion RPCVersion, id interface{}, method string, params []i
 type Response struct {
 	Jsonrpc RPCVersion      `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
-	Error   *RPCError       `json:"error"`
+	Error   *RPCError       `json:"error,omitempty"`
 	ID      *interface{}    `json:"id"`
 }
 

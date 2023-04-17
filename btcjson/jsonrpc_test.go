@@ -68,7 +68,7 @@ func TestMarshalResponse(t *testing.T) {
 			name:     "ordinary bool result with no error",
 			result:   true,
 			jsonErr:  nil,
-			expected: []byte(`{"jsonrpc":"1.0","result":true,"error":null,"id":1}`),
+			expected: []byte(`{"jsonrpc":"1.0","result":true,"id":1}`),
 		},
 		{
 			name:   "result with error",
