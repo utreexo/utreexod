@@ -107,7 +107,7 @@ func ExampleMarshalResponse() {
 	fmt.Printf("%s\n", marshalledBytes)
 
 	// Output:
-	// {"jsonrpc":"1.0","result":350001,"error":null,"id":1}
+	// {"jsonrpc":"1.0","result":350001,"id":1}
 }
 
 // This example demonstrates how to unmarshal a JSON-RPC response and then
