@@ -1471,6 +1471,10 @@ func (s *server) AnnounceNewTransactions(txns []*mempool.TxDesc) {
 	if s.rpcServer != nil {
 		s.rpcServer.NotifyNewTransactions(txns)
 	}
+
+	if s.watchOnlyWallet != nil {
+		s.watchOnlyWallet.NotifyNewTransactions(txns)
+	}
 }
 
 // Transaction has one confirmation on the main chain. Now we can mark it as no
@@ -3279,6 +3283,58 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		// Register addresses that are requested to be watched,
 		for _, addr := range cfg.RegisterAddressToWatchOnlyWallet {
 			err := s.watchOnlyWallet.RegisterAddress(addr)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Register extended pubkeys that are requested to be watched,
+		for _, xpub := range cfg.RegisterExtendedPubKeysToWatchOnlyWallet {
+			err := s.watchOnlyWallet.RegisterExtendedPubkey(xpub, nil)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		for xkey, ty := range cfg.extendedPubkeys {
+			var hdType wallet.HDVersion
+			switch ty {
+			case "p2pkh":
+				switch chainParams.Net {
+				case chaincfg.MainNetParams.Net:
+					hdType = wallet.HDVersionMainNetBIP0044
+				case chaincfg.SigNetParams.Net:
+					hdType = wallet.HDVersionTestNetBIP0044
+				case chaincfg.RegressionNetParams.Net:
+					hdType = wallet.HDVersionTestNetBIP0044
+				case chaincfg.SimNetParams.Net:
+					hdType = wallet.HDVersionSimNetBIP0044
+				}
+			case "p2wpkh":
+				switch chainParams.Net {
+				case chaincfg.MainNetParams.Net:
+					hdType = wallet.HDVersionMainNetBIP0084
+				case chaincfg.SigNetParams.Net:
+					hdType = wallet.HDVersionTestNetBIP0084
+				case chaincfg.RegressionNetParams.Net:
+					hdType = wallet.HDVersionTestNetBIP0084
+				case chaincfg.SimNetParams.Net:
+					hdType = wallet.HDVersionTestNetBIP0084
+				}
+			case "p2sh":
+				switch chainParams.Net {
+				case chaincfg.MainNetParams.Net:
+					hdType = wallet.HDVersionMainNetBIP0049
+				case chaincfg.SigNetParams.Net:
+					hdType = wallet.HDVersionTestNetBIP0049
+				case chaincfg.RegressionNetParams.Net:
+					hdType = wallet.HDVersionTestNetBIP0049
+				case chaincfg.SimNetParams.Net:
+					hdType = wallet.HDVersionTestNetBIP0049
+				}
+			}
+
+			err := s.watchOnlyWallet.RegisterExtendedPubkey(xkey, &hdType)
 			if err != nil {
 				return nil, err
 			}
