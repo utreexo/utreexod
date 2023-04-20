@@ -31,6 +31,7 @@ import (
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/connmgr"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/electrum"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/mining"
 	"github.com/utreexo/utreexod/mining/cpuminer"
@@ -261,6 +262,10 @@ type server struct {
 	// watchOnlyWallet keeps track of addresses and extended pubkeys, allowing
 	// a watch-only wallet functionality.
 	watchOnlyWallet *wallet.WatchOnlyWalletManager
+
+	// electrumServer is a stateless personal electrum server and it fetches data from
+	// the database and the watch only wallet and serves them to the connected client.
+	electrumServer *electrum.ElectrumServer
 
 	// cfCheckptCaches stores a cached slice of filter headers for cfcheckpt
 	// messages for each filter type.
@@ -2680,6 +2685,7 @@ func (s *server) Start() {
 	// Start the watch only wallet if it's enabled.
 	if cfg.WatchOnlyWallet {
 		s.watchOnlyWallet.Start()
+		s.electrumServer.Start()
 	}
 }
 
@@ -2705,6 +2711,7 @@ func (s *server) Stop() error {
 	// Stop the watch only wallet if it's enabled.
 	if cfg.WatchOnlyWallet {
 		s.watchOnlyWallet.Stop()
+		s.electrumServer.Stop()
 	}
 
 	// Save fee estimator state in the database.
@@ -3382,6 +3389,47 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			<-s.rpcServer.RequestedProcessShutdown()
 			shutdownRequestChannel <- struct{}{}
 		}()
+	}
+
+	if cfg.WatchOnlyWallet && !cfg.DisableElectrum {
+		listener, err := setupListeners(cfg.ElectrumListeners, false)
+		if err != nil {
+			return nil, err
+		}
+
+		var listenerTLS []bool
+		if !cfg.DisableTLS {
+			tlsListener, err := setupListeners(cfg.TLSElectrumListeners, true)
+			if err != nil {
+				return nil, err
+			}
+			listenerTLS = make([]bool, len(listener))
+			for i := range listener {
+				listenerTLS[i] = false
+			}
+			for i := 0; i < len(tlsListener); i++ {
+				listenerTLS = append(listenerTLS, true)
+			}
+			listener = append(listener, tlsListener...)
+		}
+
+		s.electrumServer, err = electrum.New(&electrum.Config{
+			Listeners:               listener,
+			ListenerTLS:             listenerTLS,
+			MaxClients:              10,
+			WatchOnlyWallet:         s.watchOnlyWallet,
+			Params:                  chainParams,
+			BlockChain:              s.chain,
+			FeeEstimator:            s.feeEstimator,
+			Mempool:                 s.txMemPool,
+			MinRelayFee:             cfg.minRelayTxFee,
+			AddRebroadcastInventory: s.AddRebroadcastInventory,
+			RelayTransactions:       s.relayTransactions,
+			AnnounceNewTransactions: s.AnnounceNewTransactions,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &s, nil
