@@ -195,30 +195,35 @@ type config struct {
 	BlockPrioritySize uint32   `long:"blockprioritysize" description:"Size in bytes for high-priority/low-fee transactions when creating a block"`
 
 	// Indexing options.
-	AddrIndex                        bool     `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
-	TxIndex                          bool     `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
-	TTLIndex                         bool     `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
-	UtreexoProofIndex                bool     `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
-	FlatUtreexoProofIndex            bool     `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
-	CFilters                         bool     `long:"cfilters" description:"Enable committed filtering (CF) support"`
-	NoPeerBloomFilters               bool     `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
-	DropAddrIndex                    bool     `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
-	DropCfIndex                      bool     `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
-	DropTxIndex                      bool     `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
-	DropTTLIndex                     bool     `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
-	DropUtreexoProofIndex            bool     `long:"droputreexoproofindex" description:"Deletes the utreexo proof index from the database on start up and then exits."`
-	DropFlatUtreexoProofIndex        bool     `long:"dropflatutreexoproofindex" description:"Deletes the flat utreexo proof index from the database on start up and then exits."`
-	WatchOnlyWallet                  bool     `long:"watchonlywallet" description:"Enable the watch only wallet with utreexo proofs. Must have --utreexo enabled"`
-	RegisterAddressToWatchOnlyWallet []string `long:"registeraddresstowatchonlywallet" description:"Registers addresses to be watched to the watch only wallet. Must have --watchonlywallet enabled"`
+	AddrIndex                 bool `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
+	TxIndex                   bool `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
+	TTLIndex                  bool `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
+	UtreexoProofIndex         bool `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
+	FlatUtreexoProofIndex     bool `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
+	CFilters                  bool `long:"cfilters" description:"Enable committed filtering (CF) support"`
+	NoPeerBloomFilters        bool `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
+	DropAddrIndex             bool `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
+	DropCfIndex               bool `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
+	DropTxIndex               bool `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
+	DropTTLIndex              bool `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
+	DropUtreexoProofIndex     bool `long:"droputreexoproofindex" description:"Deletes the utreexo proof index from the database on start up and then exits."`
+	DropFlatUtreexoProofIndex bool `long:"dropflatutreexoproofindex" description:"Deletes the flat utreexo proof index from the database on start up and then exits."`
+
+	// Wallet options.
+	WatchOnlyWallet                                      bool     `long:"watchonlywallet" description:"Enable the watch only wallet with utreexo proofs. Must have --utreexo enabled"`
+	RegisterAddressToWatchOnlyWallet                     []string `long:"registeraddresstowatchonlywallet" description:"Registers addresses to be watched to the watch only wallet. Must have --watchonlywallet enabled"`
+	RegisterExtendedPubKeysToWatchOnlyWallet             []string `long:"registerextendedpubkeystowatchonlywallet" description:"Registers extended pubkeys to be watched to the watch only wallet. Must have --watchonlywallet enabled."`
+	RegisterExtendedPubKeysWithAddrTypeToWatchOnlyWallet []string `long:"registerextendedpubkeyswithaddresstypetowatchonlywallet" description:"Registers extended pubkeys to be watched to the watch only wallet and let's the user override the hd type of the extended public key. Must have --watchonlywallet enabled. Format: '<extendedpubkey>:<address type>. Supported address types: '{p2pkh, p2wpkh, p2sh}'"`
 
 	// Cooked options ready for use.
-	lookup         func(string) ([]net.IP, error)
-	oniondial      func(string, string, time.Duration) (net.Conn, error)
-	dial           func(string, string, time.Duration) (net.Conn, error)
-	addCheckpoints []chaincfg.Checkpoint
-	miningAddrs    []btcutil.Address
-	minRelayTxFee  btcutil.Amount
-	whitelists     []*net.IPNet
+	lookup          func(string) ([]net.IP, error)
+	oniondial       func(string, string, time.Duration) (net.Conn, error)
+	dial            func(string, string, time.Duration) (net.Conn, error)
+	addCheckpoints  []chaincfg.Checkpoint
+	miningAddrs     []btcutil.Address
+	minRelayTxFee   btcutil.Amount
+	whitelists      []*net.IPNet
+	extendedPubkeys map[string]string
 }
 
 // serviceOptions defines the configuration options for the daemon as a service on
@@ -1225,6 +1230,52 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
+	if !cfg.WatchOnlyWallet && len(cfg.RegisterAddressToWatchOnlyWallet) > 0 {
+		err := fmt.Errorf("%s: the --registeraddresstowatchonlywallet requires the --watchonlywallet option on "+
+			"at the same time", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if !cfg.WatchOnlyWallet && len(cfg.RegisterExtendedPubKeysToWatchOnlyWallet) > 0 {
+		err := fmt.Errorf("%s: the --registerextendedpubkeystowatchonlywallet requires the --watchonlywallet option on "+
+			"at the same time", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if !cfg.WatchOnlyWallet && len(cfg.RegisterExtendedPubKeysWithAddrTypeToWatchOnlyWallet) > 0 {
+		err := fmt.Errorf("%s: the --registerextendedpubkeyswithaddresstypetowatchonlywallet requires the --watchonlywallet option on "+
+			"at the same time", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if len(cfg.RegisterExtendedPubKeysWithAddrTypeToWatchOnlyWallet) > 0 {
+		cfg.extendedPubkeys = make(map[string]string)
+
+		for _, xpub := range cfg.RegisterExtendedPubKeysWithAddrTypeToWatchOnlyWallet {
+			parts := strings.Split(xpub, ":")
+			if len(parts) != 2 {
+				err := fmt.Errorf("unable to parse "+
+					"extendedpubkeywithaddrtype %q -- use the syntax <height>:<hash>",
+					xpub)
+				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintln(os.Stderr, usageMessage)
+			}
+			if parts[1] != "p2pkh" && parts[1] != "p2wpkh" && parts[1] != "p2sh" {
+				err := fmt.Errorf("unrecognized addr option of %s. "+
+					"Use a supported type: {p2pkh, p2wpkh, p2sh}", parts[1])
+				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintln(os.Stderr, usageMessage)
+			}
+
+			cfg.extendedPubkeys[parts[0]] = parts[1]
+		}
+	}
 	if cfg.Prune != 0 && cfg.Prune < pruneMinSize {
 		err := fmt.Errorf("%s: the minimum value for --prune is %d. Got %d",
 			funcName, pruneMinSize, cfg.Prune)
