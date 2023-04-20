@@ -31,6 +31,7 @@ import (
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/connmgr"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/electrum"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/mining"
 	"github.com/utreexo/utreexod/mining/cpuminer"
@@ -261,6 +262,10 @@ type server struct {
 	// watchOnlyWallet keeps track of addresses and extended pubkeys, allowing
 	// a watch-only wallet functionality.
 	watchOnlyWallet *wallet.WatchOnlyWalletManager
+
+	// electrumServer is a stateless personal electrum server and it fetches data from
+	// the database and the watch only wallet and serves them to the connected client.
+	electrumServer *electrum.ElectrumServer
 
 	// cfCheckptCaches stores a cached slice of filter headers for cfcheckpt
 	// messages for each filter type.
@@ -2680,6 +2685,7 @@ func (s *server) Start() {
 	// Start the watch only wallet if it's enabled.
 	if cfg.WatchOnlyWallet {
 		s.watchOnlyWallet.Start()
+		s.electrumServer.Start()
 	}
 }
 
@@ -2705,6 +2711,7 @@ func (s *server) Stop() error {
 	// Stop the watch only wallet if it's enabled.
 	if cfg.WatchOnlyWallet {
 		s.watchOnlyWallet.Stop()
+		s.electrumServer.Stop()
 	}
 
 	// Save fee estimator state in the database.
@@ -2863,13 +2870,13 @@ out:
 	s.wg.Done()
 }
 
-// setupRPCListeners returns a slice of listeners that are configured for use
+// setupListeners returns a slice of listeners that are configured for use
 // with the RPC server depending on the configuration settings for listen
 // addresses and TLS.
-func setupRPCListeners() ([]net.Listener, error) {
+func setupListeners(rpcListeners []string, tlsOn bool) ([]net.Listener, error) {
 	// Setup TLS if not disabled.
 	listenFunc := net.Listen
-	if !cfg.DisableTLS {
+	if tlsOn {
 		// Generate the TLS cert and key file if both don't already
 		// exist.
 		if !fileExists(cfg.RPCKey) && !fileExists(cfg.RPCCert) {
@@ -2894,7 +2901,7 @@ func setupRPCListeners() ([]net.Listener, error) {
 		}
 	}
 
-	netAddrs, err := parseListeners(cfg.RPCListeners)
+	netAddrs, err := parseListeners(rpcListeners)
 	if err != nil {
 		return nil, err
 	}
@@ -3344,7 +3351,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if !cfg.DisableRPC {
 		// Setup listeners for the configured RPC listen addresses and
 		// TLS settings.
-		rpcListeners, err := setupRPCListeners()
+		rpcListeners, err := setupListeners(cfg.RPCListeners, !cfg.DisableTLS)
 		if err != nil {
 			return nil, err
 		}
@@ -3382,6 +3389,47 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			<-s.rpcServer.RequestedProcessShutdown()
 			shutdownRequestChannel <- struct{}{}
 		}()
+	}
+
+	if cfg.WatchOnlyWallet && !cfg.DisableElectrum {
+		listener, err := setupListeners(cfg.ElectrumListeners, false)
+		if err != nil {
+			return nil, err
+		}
+
+		var listenerTLS []bool
+		if !cfg.DisableTLS {
+			tlsListener, err := setupListeners(cfg.TLSElectrumListeners, true)
+			if err != nil {
+				return nil, err
+			}
+			listenerTLS = make([]bool, len(listener))
+			for i := range listener {
+				listenerTLS[i] = false
+			}
+			for i := 0; i < len(tlsListener); i++ {
+				listenerTLS = append(listenerTLS, true)
+			}
+			listener = append(listener, tlsListener...)
+		}
+
+		s.electrumServer, err = electrum.New(&electrum.Config{
+			Listeners:               listener,
+			ListenerTLS:             listenerTLS,
+			MaxClients:              10,
+			WatchOnlyWallet:         s.watchOnlyWallet,
+			Params:                  chainParams,
+			BlockChain:              s.chain,
+			FeeEstimator:            s.feeEstimator,
+			Mempool:                 s.txMemPool,
+			MinRelayFee:             cfg.minRelayTxFee,
+			AddRebroadcastInventory: s.AddRebroadcastInventory,
+			RelayTransactions:       s.relayTransactions,
+			AnnounceNewTransactions: s.AnnounceNewTransactions,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &s, nil

@@ -15,6 +15,7 @@ import (
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/connmgr"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/electrum"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/mining"
 	"github.com/utreexo/utreexod/mining/cpuminer"
@@ -71,6 +72,7 @@ var (
 	syncLog = backendLog.Logger("SYNC")
 	txmpLog = backendLog.Logger("TXMP")
 	wlltLog = backendLog.Logger("WLLT")
+	elecLog = backendLog.Logger("ELEC")
 )
 
 // Initialize package-global logger variables.
@@ -87,6 +89,7 @@ func init() {
 	netsync.UseLogger(syncLog)
 	mempool.UseLogger(txmpLog)
 	wallet.UseLogger(wlltLog)
+	electrum.UseLogger(elecLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -107,6 +110,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"SYNC": syncLog,
 	"TXMP": txmpLog,
 	"WLLT": wlltLog,
+	"ELEC": elecLog,
 }
 
 // initLogRotator initializes the logging rotater to write logs to logFile and
