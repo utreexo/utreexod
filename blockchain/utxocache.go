@@ -34,14 +34,6 @@ const (
 	// performed when the flush mode FlushPeriodic is used.
 	utxoFlushPeriodicThreshold = 90
 
-	// This value is calculated by running the following on a 64-bit system:
-	//   unsafe.Sizeof(UtxoEntry{})
-	baseEntrySize = uint64(40)
-
-	// This value is calculated by running the following on a 64-bit system:
-	//   unsafe.Sizeof(wire.OutPoint{})
-	outpointSize = uint64(36)
-
 	// mapOverhead is the number of bytes per entry to use when approximating the
 	// memory overhead of the entries map itself (i.e. the memory usage due to
 	// internals of the map, such as the underlying buckets that are allocated).
@@ -52,9 +44,6 @@ const (
 
 	// pointerSize is the size of a pointer on a 64-bit platform.
 	pointerSize = 8
-
-	// pubKeyHashLen is the length of a P2PKH script.
-	pubKeyHashLen = 25
 )
 
 // txoFlags is a bitmask defining additional information and state for a
@@ -242,7 +231,7 @@ type utxoCache struct {
 // newUtxoCache initiates a new utxo cache instance with its memory usage limited
 // to the given maximum.
 func newUtxoCache(db database.DB, maxTotalMemoryUsage uint64) *utxoCache {
-	avgEntrySize := outpointSize + pointerSize + baseEntrySize + pubKeyHashLen + mapOverhead
+	avgEntrySize := uint64(outpointSize + pointerSize + baseEntrySize + pubKeyHashLen + mapOverhead)
 	numMaxElements := maxTotalMemoryUsage / avgEntrySize
 	log.Infof("Pre-alloacting for %v entries: ", numMaxElements)
 
