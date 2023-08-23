@@ -290,7 +290,7 @@ func (bi *blockImporter) Import() chan *importResults {
 
 		// Flush the changes made to the blockchain.
 		log.Info("Flushing blockchain caches to the disk...")
-		if err := bi.chain.FlushCachedState(blockchain.FlushRequired); err != nil {
+		if err := bi.chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
 			log.Errorf("Error while flushing the blockchain state: %v", err)
 			bi.errChan <- err
 			return

@@ -534,7 +534,7 @@ func TestProveUtxos(t *testing.T) {
 
 		if i%10 == 0 {
 			// Commit the two base blocks to DB
-			if err := chain.FlushCachedState(blockchain.FlushRequired); err != nil {
+			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
 				t.Fatalf("TestProveUtxos fail. Unexpected error while flushing cache: %v", err)
 			}
 		}
@@ -681,7 +681,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 
 		if b%10 == 0 {
 			// Commit the two base blocks to DB
-			if err := chain.FlushCachedState(blockchain.FlushRequired); err != nil {
+			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
 				t.Fatalf("unexpected error while flushing cache: %v", err)
 			}
 		}
@@ -784,7 +784,7 @@ func TestMultiBlockProof(t *testing.T) {
 
 		if b%10 == 0 {
 			// Commit the two base blocks to DB
-			if err := chain.FlushCachedState(blockchain.FlushRequired); err != nil {
+			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
 				t.Fatalf("unexpected error while flushing cache: %v. Rand source %v",
 					err, source)
 			}
