@@ -1868,6 +1868,21 @@ func (tx *transaction) FetchSpendJournal(hash *chainhash.Hash) ([]byte, error) {
 	return sjBytes, nil
 }
 
+// BeenPruned returns if the block storage has ever been pruned.
+//
+// This function is part of the database.Tx interface implementation.
+func (tx *transaction) BeenPruned() (bool, error) {
+	first, last, _, err := scanBlockFiles(tx.db.blkStore.basePath, tx.db.blkStore.filePathFunc)
+	if err != nil {
+		return false, err
+	}
+
+	// If the database is pruned, then the first .fdb will not be there.
+	// We also check that there isn't just 1 file on disk or if there are
+	// no files on disk by checking if first != last.
+	return first != 0 && (first != last), nil
+}
+
 // PruneBlocks prunes block and spend journal files and attempts to reach the target size.
 // If there's a minimum block height that the caller must keep, specifying keep height
 // will prevent the block file including that block from getting deleted.

@@ -413,6 +413,11 @@ type Tx interface {
 	//   - ErrCorruption if the database has somehow become corrupted
 	FetchSpendJournal(hash *chainhash.Hash) ([]byte, error)
 
+	// BeenPruned returns if the block storage has ever been pruned.
+	//
+	// Implementation specific errors are possible.
+	BeenPruned() (bool, error)
+
 	// PruneBlocks deletes the block and spend journal files until it reaches
 	// the target size (specificed in bytes).  When there's a height that must
 	// be kept, the caller can pass that block's height as the keep height and
