@@ -1926,6 +1926,13 @@ func (tx *transaction) PruneBlocks(targetSize uint64, keepHeight int32) (int32, 
 		return 0, makeDbErr(database.ErrTxNotWritable, str, nil)
 	}
 
+	maxSize := tx.db.blkStore.maxBlockFileSize
+	if targetSize < uint64(maxSize) {
+		return -1, fmt.Errorf("got target size of %d but it must be greater "+
+			"than %d, the max size of a single block file",
+			targetSize, maxSize)
+	}
+
 	// Grab the first and last file numbers and the size for both the block and
 	// spend journal files.
 	firstBlkFile, lastBlkFile, blkSize, _ := tx.db.blkStore.calcBlockFilesSize()

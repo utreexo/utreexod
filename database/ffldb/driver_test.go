@@ -290,3 +290,178 @@ func TestInterface(t *testing.T) {
 		testInterface(t, db)
 	})
 }
+
+// TestPrune tests that the older .fdb files are deleted with a call to prune.
+func TestPrune(t *testing.T) {
+	t.Parallel()
+
+	// Create a new database to run tests against.
+	dbPath := t.TempDir()
+	db, err := database.Create(dbType, dbPath, blockDataNet)
+	if err != nil {
+		t.Errorf("Failed to create test database (%s) %v", dbType, err)
+		return
+	}
+	defer db.Close()
+
+	blockFileSize := uint64(2048)
+
+	testfn := func(t *testing.T, db database.DB) {
+		// Load the test blocks and save in the test context for use throughout
+		// the tests.
+		blocks, err := loadBlocks(t, blockDataFile, blockDataNet)
+		if err != nil {
+			t.Errorf("loadBlocks: Unexpected error: %v", err)
+			return
+		}
+		err = db.Update(func(tx database.Tx) error {
+			for i, block := range blocks {
+				err := tx.StoreBlock(block)
+				if err != nil {
+					return fmt.Errorf("StoreBlock #%d: unexpected error: "+
+						"%v", i, err)
+				}
+				blockBytes, err := block.Bytes()
+				if err != nil {
+					return fmt.Errorf("StoreBlock #%d: unexpected error: "+
+						"%v", i, err)
+				}
+				err = tx.StoreSpendJournal(block.Hash(), blockBytes)
+				if err != nil {
+					return fmt.Errorf("StoreBlock #%d: unexpected error: "+
+						"%v", i, err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		keepHeight := blocks[len(blocks)-1].Height()
+
+		err = db.Update(func(tx database.Tx) error {
+			_, err := tx.PruneBlocks(1024, keepHeight)
+			if err == nil {
+				return fmt.Errorf("Expected an error when attempting to prune" +
+					"below the maxFileSize")
+			}
+
+			_, err = tx.PruneBlocks(0, keepHeight)
+			if err == nil {
+				return fmt.Errorf("Expected an error when attempting to prune" +
+					"below the maxFileSize")
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = db.Update(func(tx database.Tx) error {
+			pruned, err := tx.BeenPruned()
+			if err != nil {
+				return err
+			}
+			if pruned {
+				err = fmt.Errorf("The database hasn't been pruned but " +
+					"BeenPruned returned true")
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		lastKeptHeight := int32(-1)
+		err = db.Update(func(tx database.Tx) error {
+			lastKeptHeight, err = tx.PruneBlocks(blockFileSize*3, keepHeight)
+			if err != nil {
+				return err
+			}
+
+			if lastKeptHeight == -1 {
+				return fmt.Errorf("Expected files to be pruned but none were")
+			}
+
+			pruned, err := tx.BeenPruned()
+			if err != nil {
+				return err
+			}
+			if pruned {
+				err = fmt.Errorf("The database hasn't been pruned but " +
+					"BeenPruned returned true")
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = db.Update(func(tx database.Tx) error {
+			pruned, err := tx.BeenPruned()
+			if err != nil {
+				return err
+			}
+			if !pruned {
+				err = fmt.Errorf("The database has been pruned but " +
+					"BeenPruned returned false")
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// The only error we can get is a bad pattern error.  Since we're hardcoding
+		// the pattern, we should not have an error at runtime.
+		files, _ := filepath.Glob(filepath.Join(dbPath, "*.fdb"))
+		totalSize := int64(0)
+		for _, file := range files {
+			st, err := os.Stat(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			totalSize += st.Size()
+		}
+		if totalSize > int64(blockFileSize)*3 {
+			t.Fatalf("Expected to find the file sizes to be under %d but got %d",
+				blockFileSize*3, totalSize)
+		}
+
+		// Check that all the blocks that say were deleted are deleted from the
+		// block index bucket as well.
+		err = db.View(func(tx database.Tx) error {
+			for _, block := range blocks {
+				if block.Height() >= lastKeptHeight {
+					blockBytes, err := tx.FetchBlock(block.Hash())
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(blockBytes) == 0 {
+						return fmt.Errorf("Expected to find block %d "+
+							"but got %v", block.Height(), blockBytes)
+					}
+				} else {
+					_, err := tx.FetchBlock(block.Hash())
+					if dbErr, ok := err.(database.Error); !ok ||
+						dbErr.ErrorCode != database.ErrBlockNotFound {
+
+						return fmt.Errorf("Expected ErrBlockNotFound "+
+							"but got %v", dbErr)
+					}
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	ffldb.TstRunWithMaxBlockFileSize(db, uint32(blockFileSize), func() {
+		testfn(t, db)
+	})
+}
