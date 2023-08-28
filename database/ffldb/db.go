@@ -1943,6 +1943,7 @@ func (tx *transaction) PruneBlocks(targetSize uint64, keepHeight int32) (int32, 
 		targetSize/(1024*1024))
 
 	earliestHeight := int32(math.MaxInt32)
+	deletedFiles := make(map[uint32]struct{})
 	for i := firstBlkFile; i <= lastBlkFile; i++ {
 		blkSize, err := tx.db.blkStore.fileSizeFunc(i)
 		if err != nil {
@@ -1988,6 +1989,25 @@ func (tx *transaction) PruneBlocks(targetSize uint64, keepHeight int32) (int32, 
 			tx.pendingDelFileNums = make([]uint32, 0, 1)
 		}
 		tx.pendingDelFileNums = append(tx.pendingDelFileNums, i)
+		deletedFiles[i] = struct{}{}
+
+		// Remove the block height info from the database since we're going to prune
+		// this file.
+		tx.removeHeightInfo(i)
+	}
+
+	// Delete the indexed block locations for the files that we've just deleted.
+	cursor := tx.blockIdxBucket.Cursor()
+	for ok := cursor.First(); ok; ok = cursor.Next() {
+		loc := deserializeBlockLoc(cursor.Value())
+
+		_, found := deletedFiles[loc.blockFileNum]
+		if found {
+			err := cursor.Delete()
+			if err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	return earliestHeight, nil
@@ -2073,6 +2093,14 @@ func (tx *transaction) putHeightInfo(fileNum uint32, firstHeight, lastHeight int
 	binary.LittleEndian.PutUint32(writeBytes[4:], uint32(lastHeight))
 
 	return tx.blockHeightBucket.Put(blockNumBytes[:], writeBytes[:])
+}
+
+// removeHeightInfo removes the index for the height info from the database.
+func (tx *transaction) removeHeightInfo(fileNum uint32) error {
+	var blockNumBytes [4]byte
+	binary.LittleEndian.PutUint32(blockNumBytes[:], fileNum)
+
+	return tx.blockHeightBucket.Delete(blockNumBytes[:])
 }
 
 // db represents a collection of namespaces which are persisted and implements
