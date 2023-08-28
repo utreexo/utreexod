@@ -432,7 +432,7 @@ type Tx interface {
 	// be returned (other implementation-specific errors are possible):
 	//   - ErrTxNotWritable if attempted against a read-only transaction
 	//   - ErrTxClosed if the transaction has already been closed
-	PruneBlocks(targetSize uint32, keepHeight int32) (int32, error)
+	PruneBlocks(targetSize uint64, keepHeight int32) (int32, error)
 
 	// ******************************************************************
 	// Methods related to both atomic metadata storage and block storage.

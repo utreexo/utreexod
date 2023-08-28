@@ -1888,7 +1888,7 @@ func (tx *transaction) BeenPruned() (bool, error) {
 // will prevent the block file including that block from getting deleted.
 // Because of this, sometimes PruneBlocks may not prune until it reaches the target size
 // but will attempt to get close to it.
-func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, error) {
+func (tx *transaction) PruneBlocks(targetSize uint64, keepHeight int32) (int32, error) {
 	// Ensure transaction state is valid.
 	if err := tx.checkClosed(); err != nil {
 		return 0, err
@@ -1907,7 +1907,7 @@ func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, 
 
 	// If the total size of block files and spend journal files are under the target,
 	// return early and don't prune.
-	totalSize := blkSize + sjSize
+	totalSize := uint64(blkSize + sjSize)
 	if totalSize <= targetSize {
 		return -1, nil
 	}
@@ -1941,7 +1941,7 @@ func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, 
 			break
 		}
 
-		// If the last height in this file is eqaul or greater than the
+		// If the last height in this file is equal or greater than the
 		// keep height, keep this file but keep looking for other files to
 		// delete.
 		if lastHeight >= keepHeight && keepHeight > 0 {
@@ -1953,7 +1953,7 @@ func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, 
 			continue
 		}
 
-		deletedSize := blkSize + stSize
+		deletedSize := uint64(blkSize + stSize)
 		totalSize -= deletedSize
 
 		err = tx.db.blkStore.deleteFileFunc(i)
