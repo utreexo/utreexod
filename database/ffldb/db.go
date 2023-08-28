@@ -993,6 +993,10 @@ type transaction struct {
 	pendingBlocks    map[chainhash.Hash]int
 	pendingBlockData []pendingData
 
+	// Files that need to be deleted on commit.  These are the files that
+	// are marked as files to be deleted during pruning.
+	pendingDelFileNums []uint32
+
 	// Spend journals that need to be stored on commit.  The pendingSpendJournal map is
 	// kept to allow quick lookups of pending spend journals by block hash.
 	pendingSpendJournals    map[chainhash.Hash]int
@@ -1647,6 +1651,9 @@ func (tx *transaction) close() {
 	tx.pendingKeys = nil
 	tx.pendingRemove = nil
 
+	// Clear pending file deletions.
+	tx.pendingDelFileNums = nil
+
 	// Release the snapshot.
 	if tx.snapshot != nil {
 		tx.snapshot.Release()
@@ -1669,6 +1676,25 @@ func (tx *transaction) close() {
 //
 // This function MUST only be called when there is pending data to be written.
 func (tx *transaction) writePendingAndCommit() error {
+	// Loop through all the pending file deletions and delete them.
+	// We do this first before doing any of the writes as we can't undo
+	// deletions of files.
+	for _, fileNum := range tx.pendingDelFileNums {
+		err := tx.db.blkStore.deleteFileFunc(fileNum)
+		if err != nil {
+			// Nothing we can do if we fail to delete blocks besides
+			// return an error.
+			return err
+		}
+
+		err = tx.db.sjStore.deleteFileFunc(fileNum)
+		if err != nil {
+			// Nothing we can do if we fail to delete blocks besides
+			// return an error.
+			return err
+		}
+	}
+
 	// Save the current block store write position for potential rollback.
 	// These variables are only updated here in this function and there can
 	// only be one write transaction active at a time, so it's safe to store
@@ -1956,16 +1982,12 @@ func (tx *transaction) PruneBlocks(targetSize uint64, keepHeight int32) (int32, 
 		deletedSize := uint64(blkSize + stSize)
 		totalSize -= deletedSize
 
-		err = tx.db.blkStore.deleteFileFunc(i)
-		if err != nil {
-			log.Warnf("PruneBlocks: Failed to delete block file "+
-				"number %d: %v", i, err)
+		// Add the block file to be deleted to the list of files pending deletion to
+		// delete when the transaction is committed.
+		if tx.pendingDelFileNums == nil {
+			tx.pendingDelFileNums = make([]uint32, 0, 1)
 		}
-		err = tx.db.sjStore.deleteFileFunc(i)
-		if err != nil {
-			log.Warnf("PruneBlocks: Failed to delete spend journal file "+
-				"number %d: %v", i, err)
-		}
+		tx.pendingDelFileNums = append(tx.pendingDelFileNums, i)
 	}
 
 	return earliestHeight, nil
