@@ -110,7 +110,7 @@ type config struct {
 	UtxoCacheMaxSizeMiB uint   `long:"utxocachemaxsize" description:"The maximum size in MiB of the UTXO cache"`
 	Utreexo             bool   `long:"utreexo" description:"Use utreexo compact state during block validation"`
 	NoWinService        bool   `long:"nowinservice" description:"Do not start as a background service on Windows -- NOTE: This flag only works on the command line, not in the config file"`
-	Prune               uint32 `long:"prune" description:"Prune already validated blocks from the database. Must specify a target size in MiB (minimum value of 550)"`
+	Prune               uint64 `long:"prune" description:"Prune already validated blocks from the database. Must specify a target size in MiB (minimum value of 550, default of 0 to disable pruning)"`
 
 	// Profiling options.
 	Profile       string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`

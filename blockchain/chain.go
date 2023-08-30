@@ -137,7 +137,7 @@ type BlockChain struct {
 
 	// pruneTarget is the size in bytes the database targets for when the node
 	// is pruned.
-	pruneTarget uint32
+	pruneTarget uint64
 
 	// These fields are related to the memory block index.  They both have
 	// their own locks, however they are often also protected by the chain
@@ -2353,7 +2353,7 @@ type Config struct {
 
 	// Prune specifies the target database usage (in bytes) the database will target for with
 	// block and spend journal files.  Prune at 0 specifies that no blocks will be deleted.
-	Prune uint32
+	Prune uint64
 }
 
 // New returns a BlockChain instance using the provided configuration details.

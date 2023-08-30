@@ -993,6 +993,10 @@ type transaction struct {
 	pendingBlocks    map[chainhash.Hash]int
 	pendingBlockData []pendingData
 
+	// Files that need to be deleted on commit.  These are the files that
+	// are marked as files to be deleted during pruning.
+	pendingDelFileNums []uint32
+
 	// Spend journals that need to be stored on commit.  The pendingSpendJournal map is
 	// kept to allow quick lookups of pending spend journals by block hash.
 	pendingSpendJournals    map[chainhash.Hash]int
@@ -1647,6 +1651,9 @@ func (tx *transaction) close() {
 	tx.pendingKeys = nil
 	tx.pendingRemove = nil
 
+	// Clear pending file deletions.
+	tx.pendingDelFileNums = nil
+
 	// Release the snapshot.
 	if tx.snapshot != nil {
 		tx.snapshot.Release()
@@ -1669,6 +1676,25 @@ func (tx *transaction) close() {
 //
 // This function MUST only be called when there is pending data to be written.
 func (tx *transaction) writePendingAndCommit() error {
+	// Loop through all the pending file deletions and delete them.
+	// We do this first before doing any of the writes as we can't undo
+	// deletions of files.
+	for _, fileNum := range tx.pendingDelFileNums {
+		err := tx.db.blkStore.deleteFileFunc(fileNum)
+		if err != nil {
+			// Nothing we can do if we fail to delete blocks besides
+			// return an error.
+			return err
+		}
+
+		err = tx.db.sjStore.deleteFileFunc(fileNum)
+		if err != nil {
+			// Nothing we can do if we fail to delete blocks besides
+			// return an error.
+			return err
+		}
+	}
+
 	// Save the current block store write position for potential rollback.
 	// These variables are only updated here in this function and there can
 	// only be one write transaction active at a time, so it's safe to store
@@ -1868,12 +1894,27 @@ func (tx *transaction) FetchSpendJournal(hash *chainhash.Hash) ([]byte, error) {
 	return sjBytes, nil
 }
 
+// BeenPruned returns if the block storage has ever been pruned.
+//
+// This function is part of the database.Tx interface implementation.
+func (tx *transaction) BeenPruned() (bool, error) {
+	first, last, _, err := scanBlockFiles(tx.db.blkStore.basePath, tx.db.blkStore.filePathFunc)
+	if err != nil {
+		return false, err
+	}
+
+	// If the database is pruned, then the first .fdb will not be there.
+	// We also check that there isn't just 1 file on disk or if there are
+	// no files on disk by checking if first != last.
+	return first != 0 && (first != last), nil
+}
+
 // PruneBlocks prunes block and spend journal files and attempts to reach the target size.
 // If there's a minimum block height that the caller must keep, specifying keep height
 // will prevent the block file including that block from getting deleted.
 // Because of this, sometimes PruneBlocks may not prune until it reaches the target size
 // but will attempt to get close to it.
-func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, error) {
+func (tx *transaction) PruneBlocks(targetSize uint64, keepHeight int32) (int32, error) {
 	// Ensure transaction state is valid.
 	if err := tx.checkClosed(); err != nil {
 		return 0, err
@@ -1885,6 +1926,13 @@ func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, 
 		return 0, makeDbErr(database.ErrTxNotWritable, str, nil)
 	}
 
+	maxSize := tx.db.blkStore.maxBlockFileSize
+	if targetSize < uint64(maxSize) {
+		return -1, fmt.Errorf("got target size of %d but it must be greater "+
+			"than %d, the max size of a single block file",
+			targetSize, maxSize)
+	}
+
 	// Grab the first and last file numbers and the size for both the block and
 	// spend journal files.
 	firstBlkFile, lastBlkFile, blkSize, _ := tx.db.blkStore.calcBlockFilesSize()
@@ -1892,7 +1940,7 @@ func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, 
 
 	// If the total size of block files and spend journal files are under the target,
 	// return early and don't prune.
-	totalSize := blkSize + sjSize
+	totalSize := uint64(blkSize + sjSize)
 	if totalSize <= targetSize {
 		return -1, nil
 	}
@@ -1902,6 +1950,7 @@ func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, 
 		targetSize/(1024*1024))
 
 	earliestHeight := int32(math.MaxInt32)
+	deletedFiles := make(map[uint32]struct{})
 	for i := firstBlkFile; i <= lastBlkFile; i++ {
 		blkSize, err := tx.db.blkStore.fileSizeFunc(i)
 		if err != nil {
@@ -1926,7 +1975,7 @@ func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, 
 			break
 		}
 
-		// If the last height in this file is eqaul or greater than the
+		// If the last height in this file is equal or greater than the
 		// keep height, keep this file but keep looking for other files to
 		// delete.
 		if lastHeight >= keepHeight && keepHeight > 0 {
@@ -1938,18 +1987,33 @@ func (tx *transaction) PruneBlocks(targetSize uint32, keepHeight int32) (int32, 
 			continue
 		}
 
-		deletedSize := blkSize + stSize
+		deletedSize := uint64(blkSize + stSize)
 		totalSize -= deletedSize
 
-		err = tx.db.blkStore.deleteFileFunc(i)
-		if err != nil {
-			log.Warnf("PruneBlocks: Failed to delete block file "+
-				"number %d: %v", i, err)
+		// Add the block file to be deleted to the list of files pending deletion to
+		// delete when the transaction is committed.
+		if tx.pendingDelFileNums == nil {
+			tx.pendingDelFileNums = make([]uint32, 0, 1)
 		}
-		err = tx.db.sjStore.deleteFileFunc(i)
-		if err != nil {
-			log.Warnf("PruneBlocks: Failed to delete spend journal file "+
-				"number %d: %v", i, err)
+		tx.pendingDelFileNums = append(tx.pendingDelFileNums, i)
+		deletedFiles[i] = struct{}{}
+
+		// Remove the block height info from the database since we're going to prune
+		// this file.
+		tx.removeHeightInfo(i)
+	}
+
+	// Delete the indexed block locations for the files that we've just deleted.
+	cursor := tx.blockIdxBucket.Cursor()
+	for ok := cursor.First(); ok; ok = cursor.Next() {
+		loc := deserializeBlockLoc(cursor.Value())
+
+		_, found := deletedFiles[loc.blockFileNum]
+		if found {
+			err := cursor.Delete()
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 
@@ -2036,6 +2100,14 @@ func (tx *transaction) putHeightInfo(fileNum uint32, firstHeight, lastHeight int
 	binary.LittleEndian.PutUint32(writeBytes[4:], uint32(lastHeight))
 
 	return tx.blockHeightBucket.Put(blockNumBytes[:], writeBytes[:])
+}
+
+// removeHeightInfo removes the index for the height info from the database.
+func (tx *transaction) removeHeightInfo(fileNum uint32) error {
+	var blockNumBytes [4]byte
+	binary.LittleEndian.PutUint32(blockNumBytes[:], fileNum)
+
+	return tx.blockHeightBucket.Delete(blockNumBytes[:])
 }
 
 // db represents a collection of namespaces which are persisted and implements

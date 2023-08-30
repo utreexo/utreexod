@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -347,34 +348,12 @@ func (s *blockStore) fileSize(fileNum uint32) (uint32, error) {
 
 // fileStartEndNum returns the first and the last file number in the database.
 func (s *blockStore) fileStartEndNum() (uint32, uint32, error) {
-	// We use the spendJournalFileExtension as there's a guarantee that there
-	// will be a same number of block files as there are spend journal files.
-	//
-	// The only error we can get is a bad pattern error.  Since we're hardcoding
-	// the pattern, we should not have an error at runtime.
-	files, _ := filepath.Glob(filepath.Join(s.basePath, "*"+spendJournalFileExtension))
-
-	lastFile, firstFile := -1, -1
-	for _, file := range files {
-		// Extract the file number.  We can use just the spend journal extension
-		// since there is one spend journal file per block file.
-		fileNum := file
-		fileNum = strings.TrimPrefix(fileNum, s.basePath+"/")
-		fileNum = strings.TrimSuffix(fileNum, spendJournalFileExtension)
-
-		// Turn the string into a number.
-		var err error
-		lastFile, err = strconv.Atoi(fileNum)
-		if err != nil {
-			return 0, 0, err
-		}
-
-		if firstFile == -1 {
-			firstFile = lastFile
-		}
+	first, last, _, err := scanBlockFiles(s.basePath, s.filePathFunc)
+	if err != nil {
+		return 0, 0, err
 	}
 
-	return uint32(firstFile), uint32(lastFile), nil
+	return uint32(first), uint32(last), nil
 }
 
 // blockFile attempts to return an existing file handle for the passed flat file
@@ -852,46 +831,46 @@ func (s *blockStore) calcBlockFilesSize() (uint32, uint32, uint32, error) {
 }
 
 // scanBlockFiles searches the database directory for all flat block files to
-// find the end of the most recent file.  This position is considered the
-// current write cursor which is also stored in the metadata.  Thus, it is used
-// to detect unexpected shutdowns in the middle of writes so the block files
-// can be reconciled.
+// find the first file, last file, and the end of the most recent file.  The
+// position at the last file is considered the current write cursor which is
+// also stored in the metadata.  Thus, it is used to detect unexpected shutdowns
+// in the middle of writes so the block files can be reconciled.
 func scanBlockFiles(dbPath string,
-	filePathFunc func(dbPath string, fileNum uint32) string) (int, uint32, error) {
+	filePathFunc func(dbPath string, fileNum uint32) string) (int, int, uint32, error) {
+	firstFile, lastFile, lastFileLen, err := int(-1), int(-1), uint32(0), error(nil)
 
-	// The only error we can get is a bad pattern error.  Since we're hardcoding
-	// the pattern, we should not have an error at runtime.
-	files, _ := filepath.Glob(filepath.Join(dbPath, "*"+spendJournalFileExtension))
+	files, err := filepath.Glob(filepath.Join(dbPath, "*"+spendJournalFileExtension))
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	sort.Strings(files)
 
-	var err error
-	lastFile := -1
-	fileLen := uint32(0)
-	for _, file := range files {
-		// Extract the file number.  We can use just the spend journal extension
-		// since there is one spend journal file per block file.
-		fileNum := file
-		fileNum = strings.TrimPrefix(fileNum, dbPath+"/")
-		fileNum = strings.TrimSuffix(fileNum, spendJournalFileExtension)
-
-		// Turn the string into a number.
-		lastFile, err = strconv.Atoi(fileNum)
-		if err != nil {
-			return 0, 0, err
-		}
-
-		// Actually get the file info.
-		filePath := filePathFunc(dbPath, uint32(lastFile))
-		st, err := os.Stat(filePath)
-		if err != nil {
-			return 0, 0, err
-		}
-
-		fileLen = uint32(st.Size())
+	// Return early if there's no block files.
+	if len(files) == 0 {
+		return firstFile, lastFile, lastFileLen, nil
 	}
 
-	log.Tracef("Scan found latest block file #%d with length %d", lastFile,
-		fileLen)
-	return lastFile, fileLen, nil
+	// Grab the first and last file's number.
+	firstFile, err = strconv.Atoi(strings.TrimSuffix(filepath.Base(files[0]), spendJournalFileExtension))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("scanBlockFiles error: %v", err)
+	}
+	lastFile, err = strconv.Atoi(strings.TrimSuffix(filepath.Base(files[len(files)-1]), spendJournalFileExtension))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("scanBlockFiles error: %v", err)
+	}
+
+	// Get the last file's length.
+	filePath := filePathFunc(dbPath, uint32(lastFile))
+	st, err := os.Stat(filePath)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	lastFileLen = uint32(st.Size())
+
+	log.Tracef("Scan found latest block file #%d with length %d", lastFile, lastFileLen)
+
+	return firstFile, lastFile, lastFileLen, err
 }
 
 // newBlockStore returns a new block store with the current block file number
@@ -900,7 +879,7 @@ func newBlockStore(basePath string, network wire.BitcoinNet) (*blockStore, error
 	// Look for the end of the latest block to file to determine what the
 	// write cursor position is from the viewpoing of the block files on
 	// disk.
-	fileNum, fileOff, err := scanBlockFiles(basePath, blockFilePath)
+	_, fileNum, fileOff, err := scanBlockFiles(basePath, blockFilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -938,7 +917,7 @@ func newSJStore(basePath string, network wire.BitcoinNet) (*blockStore, error) {
 	// Look for the end of the latest block to file to determine what the
 	// write cursor position is from the viewpoing of the block files on
 	// disk.
-	fileNum, fileOff, err := scanBlockFiles(basePath, spendJournalFilePath)
+	_, fileNum, fileOff, err := scanBlockFiles(basePath, spendJournalFilePath)
 	if err != nil {
 		return nil, err
 	}
