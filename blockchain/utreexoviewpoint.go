@@ -83,6 +83,12 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 		return err
 	}
 
+	// Return error if the length of the dels we've extracted do not match the targets.
+	if len(dels) != len(ud.AccProof.Targets) {
+		return fmt.Errorf("have %d dels but proof proves %d dels",
+			len(dels), len(ud.AccProof.Targets))
+	}
+
 	// Update the underlying accumulator.
 	updateData, err := uview.Modify(ud, adds, dels, ud.RememberIdx)
 	if err != nil {
@@ -174,7 +180,6 @@ func BlockToDelOPs(
 		for _, txin := range tx.MsgTx().TxIn {
 			// check if on skiplist.  If so, don't make leaf
 			if len(inskip) > 0 && inskip[0] == blockInIdx {
-				// fmt.Printf("skip %s\n", txin.PreviousOutPoint.String())
 				inskip = inskip[1:]
 				blockInIdx++
 				continue
