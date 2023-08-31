@@ -829,7 +829,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		// Only flush if utreexoView is not active since a utreexo node does
 		// not have a utxo cache.
 		if !sm.chain.IsUtreexoViewActive() {
-			if err := sm.chain.FlushCachedState(blockchain.FlushPeriodic); err != nil {
+			if err := sm.chain.FlushUtxoCache(blockchain.FlushPeriodic); err != nil {
 				log.Errorf("Error while flushing the blockchain cache: %v", err)
 			}
 			return
@@ -1479,7 +1479,7 @@ out:
 	// a utxo cache.
 	if !sm.chain.IsUtreexoViewActive() {
 		log.Debug("Block handler shutting down: flushing blockchain caches...")
-		if err := sm.chain.FlushCachedState(blockchain.FlushRequired); err != nil {
+		if err := sm.chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
 			log.Errorf("Error while flushing blockchain caches: %v", err)
 		}
 	}

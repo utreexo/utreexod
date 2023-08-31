@@ -1359,7 +1359,7 @@ func TestInvalidateBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1410,7 +1410,7 @@ func TestInvalidateBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1443,7 +1443,7 @@ func TestInvalidateBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1488,7 +1488,7 @@ func TestInvalidateBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1521,7 +1521,7 @@ func TestInvalidateBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1708,7 +1708,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1758,7 +1758,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1785,7 +1785,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1830,7 +1830,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1862,7 +1862,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1925,7 +1925,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -1988,7 +1988,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 					if b%10 == 0 {
 						// Commit the two base blocks to DB
-						if err := chain.FlushCachedState(FlushRequired); err != nil {
+						if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 							t.Fatalf("unexpected error while flushing cache: %v", err)
 						}
 					}
@@ -2029,7 +2029,7 @@ func TestReconsiderBlock(t *testing.T) {
 				for _, gotChainTip := range gotChainTips {
 					testChainTip, found := expectedChainTips[gotChainTip.BlockHash]
 					if !found {
-						t.Errorf("TestReconsiderBlock Failed test \"%s\". Couldn't find an expected "+
+						t.Fatalf("TestReconsiderBlock Failed test \"%s\". Couldn't find an expected "+
 							"chain tip with height %d, hash %s, branchlen %d, status \"%s\"",
 							test.name, testChainTip.Height, testChainTip.BlockHash.String(),
 							testChainTip.BranchLen, testChainTip.Status.String())
@@ -2045,7 +2045,7 @@ func TestReconsiderBlock(t *testing.T) {
 					}
 
 					if !reflect.DeepEqual(testChainTip, gotChainTip) {
-						t.Errorf("TestReconsiderBlock Failed test \"%s\". Expected chain tip with "+
+						t.Fatalf("TestReconsiderBlock Failed test \"%s\". Expected chain tip with "+
 							"height %d, hash %s, branchlen %d, status \"%s\" but got "+
 							"height %d, hash %s, branchlen %d, status \"%s\"", test.name,
 							testChainTip.Height, testChainTip.BlockHash.String(),

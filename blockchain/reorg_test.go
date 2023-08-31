@@ -43,7 +43,7 @@ func TestReorg(t *testing.T) {
 
 		if b%10 == 0 {
 			// Commit the two base blocks to DB
-			if err := chain.FlushCachedState(FlushRequired); err != nil {
+			if err := chain.FlushUtxoCache(FlushRequired); err != nil {
 				t.Fatalf("unexpected error while flushing cache: %v", err)
 			}
 		}

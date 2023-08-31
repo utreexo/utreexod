@@ -829,30 +829,31 @@ func (b *BlockChain) checkBlockContext(block *btcutil.Block, prevNode *blockNode
 // http://r6.ca/blog/20120206T005236Z.html.
 //
 // This function MUST be called with the chain state lock held (for reads).
-func (b *BlockChain) checkBIP0030(block *btcutil.Block, view *UtxoViewpoint) error {
+func (b *BlockChain) checkBIP0030(node *blockNode, block *btcutil.Block, view *UtxoViewpoint) error {
 	// Fetch utxos for all of the transaction ouputs in this block.
 	// Typically, there will not be any utxos for any of the outputs.
+	fetch := make([]wire.OutPoint, 0, len(block.Transactions()))
 	for _, tx := range block.Transactions() {
 		prevOut := wire.OutPoint{Hash: *tx.Hash()}
 		for txOutIdx := range tx.MsgTx().TxOut {
 			prevOut.Index = uint32(txOutIdx)
+			fetch = append(fetch, prevOut)
+		}
+	}
+	err := view.fetchUtxos(b.utxoCache, fetch)
+	if err != nil {
+		return err
+	}
 
-			// First check if the view has the entry, otherwise fetch from state.
-			utxo := view.LookupEntry(prevOut)
-			if utxo == nil {
-				var err error
-				utxo, err = b.utxoCache.FetchEntry(prevOut)
-				if err != nil {
-					return err
-				}
-			}
-
-			if utxo != nil && !utxo.IsSpent() {
-				str := fmt.Sprintf("tried to overwrite transaction %v "+
-					"at block height %d that is not fully spent",
-					prevOut.Hash, utxo.BlockHeight())
-				return ruleError(ErrOverwriteTx, str)
-			}
+	// Duplicate transactions are only allowed if the previous transaction
+	// is fully spent.
+	for _, outpoint := range fetch {
+		utxo := view.LookupEntry(outpoint)
+		if utxo != nil && !utxo.IsSpent() {
+			str := fmt.Sprintf("tried to overwrite transaction %v "+
+				"at block height %d that is not fully spent",
+				outpoint.Hash, utxo.BlockHeight())
+			return ruleError(ErrOverwriteTx, str)
 		}
 	}
 
@@ -1022,7 +1023,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 		if b.utreexoView != nil {
 			// purposely left empty
 		} else {
-			err := b.checkBIP0030(block, view)
+			err := b.checkBIP0030(node, block, view)
 			if err != nil {
 				return err
 			}
@@ -1048,7 +1049,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 			return err
 		}
 	} else {
-		err := view.addInputUtxos(b.utxoCache, block)
+		err := view.fetchInputUtxos(nil, b.utxoCache, block)
 		if err != nil {
 			return err
 		}
@@ -1130,7 +1131,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 		// provably unspendable as available utxos.  Also, the passed
 		// spent txos slice is updated to contain an entry for each
 		// spent txout in the order each transaction spends them.
-		err = connectTransaction(view, tx, node.height, stxos, false)
+		err = view.connectTransaction(tx, node.height, stxos)
 		if err != nil {
 			return err
 		}
