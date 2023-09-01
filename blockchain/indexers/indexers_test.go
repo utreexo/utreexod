@@ -13,6 +13,7 @@ import (
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	_ "github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/txscript"
@@ -237,7 +238,7 @@ func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes [
 func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockChain,
 	indexes []Indexer) error {
 
-	for b := start; b < end; b++ {
+	for b := start; b <= end; b++ {
 		// Fetch the raw block bytes from the database.
 		block, err := chainToSyncFrom.BlockByHeight(b)
 		if err != nil {
@@ -269,7 +270,10 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 
 		block.MsgBlock().UData = ud
 
-		_, _, err = csnChain.ProcessBlock(block, blockchain.BFNone)
+		// This will reset the serializedBlock inside the btcutil.Block.  It's needed because the
+		// serializedBlock is already cached without the udata which is needed for the csn.
+		newBlock := btcutil.NewBlock(block.MsgBlock())
+		_, _, err = csnChain.ProcessBlock(newBlock, blockchain.BFNone)
 		if err != nil {
 			str := fmt.Errorf("ProcessBlock fail at block height %d err: %s\n", b, err)
 			return str
@@ -284,7 +288,7 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 func syncCsnChainMultiBlockProof(start, end, interval int32, chainToSyncFrom, csnChain *blockchain.BlockChain,
 	indexes []Indexer) error {
 
-	for b := start; b < end; b++ {
+	for b := start; b <= end; b++ {
 		var err error
 		var ud, multiUd *wire.UData
 		var dels []utreexo.Hash
@@ -357,6 +361,29 @@ func syncCsnChainMultiBlockProof(start, end, interval int32, chainToSyncFrom, cs
 		if err != nil {
 			str := fmt.Errorf("ProcessBlock fail at block height %d err: %s\n", b, err)
 			return str
+		}
+
+		// Fetch and compare the roots after processing the block.
+		var expectRoots []*chainhash.Hash
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				// +1 because for bridge indexes, we save the root before the modify.
+				stump, err := idxType.fetchRoots(block.Height() + 1)
+				if err != nil {
+					return err
+				}
+				expectRoots = make([]*chainhash.Hash, len(stump.Roots))
+
+				for i, root := range stump.Roots {
+					newRoot := chainhash.Hash(root)
+					expectRoots[i] = &newRoot
+				}
+			}
+		}
+		if !csnChain.GetUtreexoView().Equal(expectRoots) {
+			return fmt.Errorf("expected roots %v but got %v on block %s(%d)",
+				expectRoots, csnChain.GetUtreexoView().GetRoots(), block.Hash().String(), block.Height())
 		}
 	}
 
@@ -555,7 +582,7 @@ func TestProveUtxos(t *testing.T) {
 	}
 
 	// Sync the csn chain to the tip from block 1.
-	err = syncCsnChain(1, 101, chain, csnChain, indexes)
+	err = syncCsnChain(1, chain.BestSnapshot().Height, chain, csnChain, indexes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -738,9 +765,15 @@ func TestUtreexoProofIndex(t *testing.T) {
 	}
 
 	// Reorg the csn chain as well.
-	err = syncCsnChain(2, 100, chain, csnChain, indexes)
+	err = syncCsnChain(2, chain.BestSnapshot().Height, chain, csnChain, indexes)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Sanity check that the csn chain did reorg.
+	if chain.BestSnapshot().Hash != csnChain.BestSnapshot().Hash {
+		t.Fatalf("expected tip to be %s but got %s for the csn chain",
+			chain.BestSnapshot().Hash.String(), csnChain.BestSnapshot().Hash.String())
 	}
 }
 
@@ -757,16 +790,12 @@ func TestMultiBlockProof(t *testing.T) {
 
 	tip := btcutil.NewBlock(params.GenesisBlock)
 
-	// Create block at height 1.
-	var emptySpendableOuts []*blockchain.SpendableOut
-	b1, spendableOuts1 := blockchain.AddBlock(chain, tip, emptySpendableOuts)
-
 	var allSpends []*blockchain.SpendableOut
-	nextBlock := b1
-	nextSpends := spendableOuts1
+	nextBlock := tip
+	nextSpends := []*blockchain.SpendableOut{}
 
-	// Create a chain with 101 blocks.
-	for b := 0; b < defaultProofGenInterval*10; b++ {
+	// Create a chain with 100 blocks.
+	for b := 0; b < 100; b++ {
 		newBlock, newSpendableOuts := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		nextBlock = newBlock
 
@@ -802,11 +831,23 @@ func TestMultiBlockProof(t *testing.T) {
 
 	csnChain.GetUtreexoView().SetProofInterval(defaultProofGenInterval)
 
-	// Sync the csn chain to the tip from block 1.
-	err = syncCsnChainMultiBlockProof(1, defaultProofGenInterval*10, defaultProofGenInterval, chain, csnChain, indexes)
+	// Sync the csn chain to tip-1 from block 1.  We can only sync til one block away from the tip
+	// as the bridge hasn't built a multiblock proof for the next 10 blocks.
+	err = syncCsnChainMultiBlockProof(
+		1, chain.BestSnapshot().Height-1, defaultProofGenInterval, chain, csnChain, indexes)
 	if err != nil {
-		str := fmt.Errorf("TestMultiBlockProof: syncCsnChainMultiBlockProof err: %v. "+
-			"Rand source: %v", err, source)
-		t.Fatal(str)
+		t.Fatalf("TestMultiBlockProof: syncCsnChainMultiBlockProof err: %v.", err)
+	}
+
+	bridgeBlock, err := chain.BlockByHeight(csnChain.BestSnapshot().Height)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Sanity check that the csn chain did catch up to the bridge chain.
+	if *bridgeBlock.Hash() != csnChain.BestSnapshot().Hash {
+		t.Fatalf("expected tip to be %s(%d) but got %s(%d) for the csn chain",
+			bridgeBlock.Hash().String(), bridgeBlock.Height(),
+			csnChain.BestSnapshot().Hash.String(), csnChain.BestSnapshot().Height)
 	}
 }
