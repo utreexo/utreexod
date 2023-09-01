@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -806,6 +807,15 @@ func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view
 			return err
 		}
 
+		if b.utreexoView != nil {
+			// Remove all the saved utreexo view from the database after
+			// the detach.
+			err = dbRemoveUtreexoView(dbTx, *block.Hash())
+			if err != nil {
+				return err
+			}
+		}
+
 		// Before we delete the spend journal entry for this back,
 		// we'll fetch it as is so the indexers can utilize if needed.
 		stxos, err := dbFetchSpendJournalEntry(dbTx, block)
@@ -936,10 +946,32 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return nil
 			})
 
-			// Set the utreexo view to the previous block.
-			b.utreexoView = uView
+			// Generate the skips.
+			_, outCount, inskip, outskip := DedupeBlock(block)
 
-			err := view.BlockToUtxoView(block)
+			// Generate the deleted hashes.
+			dels, _, err := BlockToDelLeaves(detachSpentTxOuts[i], b, block, inskip, -1)
+			if err != nil {
+				return err
+			}
+			delHashes := make([]utreexo.Hash, len(dels))
+			for i := range delHashes {
+				delHashes[i] = dels[i].LeafHash()
+			}
+
+			// Generate the adds.
+			adds := BlockToAddLeaves(block, outskip, nil, outCount)
+
+			// Undo the utreexoView.
+			// NOTE: Undoing instead of replacing the utreexoview with the roots in the database
+			// allows the cached leaves to stay cached.
+			err = b.utreexoView.accumulator.Undo(uint64(len(adds)),
+				block.MsgBlock().UData.AccProof, delHashes, uView.accumulator.GetRoots())
+			if err != nil {
+				return err
+			}
+
+			err = view.BlockToUtxoView(block)
 			if err != nil {
 				return err
 			}
@@ -1070,10 +1102,8 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	//
 	// TODO: make this not necessary.
 	if b.utreexoView != nil {
-		originalUView := b.utreexoView.Copy()
 		tip := b.bestChain.Tip()
 		defer func() {
-			b.utreexoView = &originalUView
 			b.bestChain.SetTip(tip)
 		}()
 	}
@@ -1118,6 +1148,9 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	view := NewUtxoViewpoint()
 	view.SetBestHash(&tip.hash)
 	var utreexoView *UtreexoViewpoint
+	if b.utreexoView != nil {
+		utreexoView = b.utreexoView.CopyWithRoots()
+	}
 	for e := detachNodes.Front(); e != nil; e = e.Next() {
 		n := e.Value.(*blockNode)
 		var block *btcutil.Block
@@ -1144,28 +1177,27 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			b.bestChain.setTip(n.parent)
 
 			// Fetch the previous utreexo view.
+			var prevUView *UtreexoViewpoint
 			err = b.db.View(func(dbTx database.Tx) error {
-				utreexoView, err = dbFetchUtreexoView(dbTx, &block.MsgBlock().Header.PrevBlock)
+				prevUView, err = dbFetchUtreexoView(dbTx, &block.MsgBlock().Header.PrevBlock)
 				if err != nil {
 					return err
 				}
 				return nil
 			})
+			utreexoView = prevUView
 
 			// This adds the update data and the utreexo adds to the
 			// block.  The added data here is needed to undo utreexo
 			// proofs.
-			copyuView := utreexoView.Copy()
-			err = copyuView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			copyUView := prevUView.CopyWithRoots()
+			err = copyUView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 			if err != nil {
 				return nil, nil, nil,
 					fmt.Errorf("verifyReorganizationValidity fail "+
 						"while detaching block %s. Error: %v"+
 						block.Hash().String(), err)
 			}
-
-			// Set the utreexo view to the previous block.
-			b.utreexoView = utreexoView
 
 			// Load all of the utxos referenced by the block that aren't
 			// already in the view. For utreexo nodes, this data is included
@@ -1262,7 +1294,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			} else {
 				// Check that the block txOuts are valid by checking the utreexo proof and
 				// extra data and then update the accumulator.
-				err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+				err := utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 				if err != nil {
 					return nil, nil, nil,
 						fmt.Errorf("verifyReorganizationValidity fail "+
