@@ -1117,7 +1117,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	// and remove the utxos created by the blocks.
 	view := NewUtxoViewpoint()
 	view.SetBestHash(&tip.hash)
-	var uView *UtreexoViewpoint
+	var utreexoView *UtreexoViewpoint
 	for e := detachNodes.Front(); e != nil; e = e.Next() {
 		n := e.Value.(*blockNode)
 		var block *btcutil.Block
@@ -1145,7 +1145,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 
 			// Fetch the previous utreexo view.
 			err = b.db.View(func(dbTx database.Tx) error {
-				uView, err = dbFetchUtreexoView(dbTx, &block.MsgBlock().Header.PrevBlock)
+				utreexoView, err = dbFetchUtreexoView(dbTx, &block.MsgBlock().Header.PrevBlock)
 				if err != nil {
 					return err
 				}
@@ -1155,7 +1155,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			// This adds the update data and the utreexo adds to the
 			// block.  The added data here is needed to undo utreexo
 			// proofs.
-			copyuView := uView.Copy()
+			copyuView := utreexoView.Copy()
 			err = copyuView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 			if err != nil {
 				return nil, nil, nil,
@@ -1165,7 +1165,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			}
 
 			// Set the utreexo view to the previous block.
-			b.utreexoView = uView
+			b.utreexoView = utreexoView
 
 			// Load all of the utxos referenced by the block that aren't
 			// already in the view. For utreexo nodes, this data is included
@@ -1291,7 +1291,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 		// In the case the block is determined to be invalid due to a
 		// rule violation, mark it as invalid and mark all of its
 		// descendants as having an invalid ancestor.
-		err = b.checkConnectBlock(n, block, view, nil)
+		err = b.checkConnectBlock(n, block, view, utreexoView, nil)
 		if err != nil {
 			if _, ok := err.(RuleError); ok {
 				b.index.SetStatusFlags(n, statusValidateFailed)
@@ -1358,7 +1358,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 			view := NewUtxoViewpoint()
 			view.SetBestHash(parentHash)
 
-			err := b.checkConnectBlock(node, block, view, nil)
+			err := b.checkConnectBlock(node, block, view, b.utreexoView, nil)
 			if err == nil {
 				b.index.SetStatusFlags(node, statusValid)
 			} else if _, ok := err.(RuleError); ok {
