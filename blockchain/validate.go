@@ -985,7 +985,14 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpo
 // with that node.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, view *UtxoViewpoint, stxos *[]SpentTxOut) error {
+func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
+	view *UtxoViewpoint, utreexoView *UtreexoViewpoint, stxos *[]SpentTxOut) error {
+
+	if b.utreexoView != nil && block.MsgBlock().UData == nil {
+		return fmt.Errorf("utreexo viewpoint is active but no utreexo proof data" +
+			"was included in the block")
+	}
+
 	// If the side chain blocks end up in the database, a call to
 	// CheckBlockSanity should be done here in case a previous version
 	// allowed a block that is no longer valid.  However, since the
@@ -1020,7 +1027,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 		// BIP0030 violations are behind the latest checkpoint in Bitcoin Core
 		// as well as btcd.  Therefore, it's not possible for BIP0030 violations
 		// to happen and is safe to skip.
-		if b.utreexoView != nil {
+		if utreexoView != nil {
 			// purposely left empty
 		} else {
 			err := b.checkBIP0030(node, block, view)
@@ -1038,8 +1045,8 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 	//
 	// If utreexo accumulators are enabled, then check that the accumulator
 	// proof is ok.  Then convert the msgBlock.UData into UtxoViewpoint.
-	if b.utreexoView != nil {
-		err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+	if utreexoView != nil {
+		err := utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 		if err != nil {
 			return fmt.Errorf("checkConnectBlock fail. error: %v", err)
 		}
@@ -1284,5 +1291,5 @@ func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
 	// is not needed and thus extra work can be avoided.
 	view := NewUtxoViewpoint()
 	newNode := newBlockNode(&header, tip)
-	return b.checkConnectBlock(newNode, block, view, nil)
+	return b.checkConnectBlock(newNode, block, view, b.utreexoView, nil)
 }
