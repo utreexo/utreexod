@@ -196,7 +196,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof.Targets)
+	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -352,7 +352,7 @@ func (idx *FlatUtreexoProofIndex) attachBlock(blk *btcutil.Block, stxos []blockc
 		delHashes[i] = del.LeafHash()
 	}
 
-	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof.Targets)
+	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof)
 	if err != nil {
 		return err
 	}
@@ -471,7 +471,7 @@ func (idx *FlatUtreexoProofIndex) undoUtreexoState(currentHeight, desiredHeight 
 				h, err)
 		}
 
-		err = idx.utreexoState.state.Undo(numAdds, targets, delHashes, stump.Roots)
+		err = idx.utreexoState.state.Undo(numAdds, utreexo.Proof{Targets: targets}, delHashes, stump.Roots)
 		if err != nil {
 			restoreState(h, currentHeight, err)
 			return err
@@ -616,7 +616,7 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 	}
 
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Undo(uint64(len(adds)), ud.AccProof.Targets, delHashes, state.Roots)
+	err = idx.utreexoState.state.Undo(uint64(len(adds)), utreexo.Proof{Targets: ud.AccProof.Targets}, delHashes, state.Roots)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -1013,7 +1013,7 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 // verification failed.
 func (idx *FlatUtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
 	proof *utreexo.Proof) error {
-	return idx.utreexoState.state.Verify(toProve, *proof)
+	return idx.utreexoState.state.Verify(toProve, *proof, false)
 }
 
 // SetChain sets the given chain as the chain to be used for blockhash fetching.
