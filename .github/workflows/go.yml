@@ -9,24 +9,14 @@ jobs:
         go: [1.18, 1.19]
     steps:
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go }}
       - name: Check out source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Install Linters
-        run: "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.49.0"
+        run: "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2"
       - name: Build
-        env:
-          GO111MODULE: "on"
         run: go build ./...
       - name: Test
-        env:
-          GO111MODULE: "on"
-        run: |
-          sh ./goclean.sh
-
-      - name: Send coverage
-        uses: shogo82148/actions-goveralls@v1
-        with:
-          path-to-profile: profile.cov
+        run: sh ./goclean.sh
