@@ -240,7 +240,7 @@ func TestUDataSerializeSize(t *testing.T) {
 			})
 		}
 		// Add to the accumulator.
-		err := p.Modify(addHashes, nil, nil)
+		err := p.Modify(addHashes, nil, utreexo.Proof{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -393,7 +393,7 @@ func TestUDataSerialize(t *testing.T) {
 		}
 
 		// Add to the accumulator.
-		err := p.Modify(addHashes, nil, nil)
+		err := p.Modify(addHashes, nil, utreexo.Proof{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -468,7 +468,7 @@ func TestUDataSerializeCompact(t *testing.T) {
 			})
 		}
 		// Add to the accumulator.
-		err := p.Modify(addHashes, nil, nil)
+		err := p.Modify(addHashes, nil, utreexo.Proof{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -561,7 +561,7 @@ func TestSerializeNoAccProof(t *testing.T) {
 			})
 		}
 		// Add to the accumulator.
-		err := p.Modify(addHashes, nil, nil)
+		err := p.Modify(addHashes, nil, utreexo.Proof{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -651,7 +651,7 @@ func TestGenerateUData(t *testing.T) {
 	}
 
 	p := utreexo.NewAccumulator(true)
-	err := p.Modify(addLeaves, nil, nil)
+	err := p.Modify(addLeaves, nil, utreexo.Proof{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,13 +674,13 @@ func TestGenerateUData(t *testing.T) {
 	delHashes[1] = leafDatas[secondDelIdx].LeafHash()
 
 	// Test if the UData actually validates
-	err = p.Verify(delHashes, ud.AccProof)
+	err = p.Verify(delHashes, ud.AccProof, false)
 	if err != nil {
 		t.Errorf("Generated UData not verifiable")
 	}
 
 	// Use the udata.
-	err = p.Modify(nil, delHashes, ud.AccProof.Targets)
+	err = p.Modify(nil, delHashes, ud.AccProof)
 	if err != nil {
 		t.Fatal(err)
 	}

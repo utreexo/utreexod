@@ -450,17 +450,17 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 			origRoots := idxType.utreexoState.state.GetRoots()
 
 			// Undo back to the state where the proof was generated.
-			err := idxType.utreexoState.state.Undo(uint64(len(adds)), flatUD.AccProof.Targets, delHashes, flatStump.Roots)
+			err := idxType.utreexoState.state.Undo(uint64(len(adds)), utreexo.Proof{Targets: flatUD.AccProof.Targets}, delHashes, flatStump.Roots)
 			if err != nil {
 				return err
 			}
 			// Verify the proof.
-			err = idxType.utreexoState.state.Verify(delHashes, flatUD.AccProof)
+			err = idxType.utreexoState.state.Verify(delHashes, flatUD.AccProof, false)
 			if err != nil {
 				return err
 			}
 			// Go back to the original state.
-			err = idxType.utreexoState.state.Modify(adds, delHashes, flatUD.AccProof.Targets)
+			err = idxType.utreexoState.state.Modify(adds, delHashes, utreexo.Proof{Targets: flatUD.AccProof.Targets})
 			if err != nil {
 				return err
 			}
@@ -474,17 +474,17 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 			origRoots := idxType.utreexoState.state.GetRoots()
 
 			// Undo back to the state where the proof was generated.
-			err = idxType.utreexoState.state.Undo(uint64(len(adds)), ud.AccProof.Targets, delHashes, stump.Roots)
+			err = idxType.utreexoState.state.Undo(uint64(len(adds)), utreexo.Proof{Targets: ud.AccProof.Targets}, delHashes, stump.Roots)
 			if err != nil {
 				return err
 			}
 			// Verify the proof.
-			err = idxType.utreexoState.state.Verify(delHashes, ud.AccProof)
+			err = idxType.utreexoState.state.Verify(delHashes, ud.AccProof, false)
 			if err != nil {
 				return err
 			}
 			// Go back to the original state.
-			err = idxType.utreexoState.state.Modify(adds, delHashes, ud.AccProof.Targets)
+			err = idxType.utreexoState.state.Modify(adds, delHashes, utreexo.Proof{Targets: ud.AccProof.Targets})
 			if err != nil {
 				return err
 			}

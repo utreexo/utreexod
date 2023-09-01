@@ -158,7 +158,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof.Targets)
+	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -194,7 +194,7 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
 
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Undo(uint64(len(adds)), ud.AccProof.Targets, delHashes, state.Roots)
+	err = idx.utreexoState.state.Undo(uint64(len(adds)), utreexo.Proof{Targets: ud.AccProof.Targets}, delHashes, state.Roots)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -325,7 +325,7 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 // verification failed.
 func (idx *UtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
 	proof *utreexo.Proof) error {
-	return idx.utreexoState.state.Verify(toProve, *proof)
+	return idx.utreexoState.state.Verify(toProve, *proof, false)
 }
 
 // SetChain sets the given chain as the chain to be used for blockhash fetching.

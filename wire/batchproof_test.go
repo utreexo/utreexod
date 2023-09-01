@@ -30,7 +30,7 @@ func leavesToHashes(leaves []utreexo.Leaf) []utreexo.Hash {
 func makeBatchProofs() ([]*utreexo.Proof, error) {
 	// Create forest and add testLeaves.
 	p := utreexo.NewAccumulator(true)
-	err := p.Modify(testLeaves, nil, nil)
+	err := p.Modify(testLeaves, nil, utreexo.Proof{})
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func makeRandBatchProofs(leafCount, bpCount int) (int64, []utreexo.Proof, error)
 	}
 
 	// Add all the leaves.
-	err := p.Modify(leaves, nil, nil)
+	err := p.Modify(leaves, nil, utreexo.Proof{})
 	if err != nil {
 		return time, nil, err
 	}
