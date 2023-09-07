@@ -233,6 +233,13 @@ func (b *BlockChain) IsKnownOrphan(hash *chainhash.Hash) bool {
 	return exists
 }
 
+// Return the current prune target.
+//
+// This function assumes you are holding the chain lock.
+func (b *BlockChain) GetPruneTarget() uint64 {
+	return b.pruneTarget
+}
+
 // GetOrphanRoot returns the head of the chain for the provided hash from the
 // map of orphan blocks.
 //

@@ -118,7 +118,8 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 // This is part of the Indexer interface.
 func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
-
+	pruneHeight := uint64(block.Height())
+	tip := uint64(idx.chain.BestSnapshot().Height)
 	// Don't include genesis blocks.
 	if block.Height() == 0 {
 		log.Tracef("UtreexoProofIndex.ConnectBlock: Asked to connect genesis"+
@@ -126,7 +127,10 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 			block.Height())
 		return nil
 	}
-
+	// Don't save proof if we are past the prune height.
+	if (tip - idx.chain.GetPruneTarget()) > pruneHeight {
+		return nil
+	}
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
 	dels, _, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip, -1)
 	if err != nil {
