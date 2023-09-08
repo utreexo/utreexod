@@ -637,7 +637,7 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 			}
 
 			// Only attempt to prune blocks from the index if there have been blocks pruned.
-			if earliestKeptBlockHeight != -1 {
+			if b.indexManager != nil && earliestKeptBlockHeight != -1 {
 				err = b.indexManager.PruneBlocks(
 					dbTx, earliestKeptBlockHeight, b.BlockHashByHeight)
 				if err != nil {
@@ -645,14 +645,17 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 						node.height, node.hash.String(), err)
 				}
 			}
-			flushNeeded, err := b.flushNeededAfterPrune(earliestKeptBlockHeight)
-			if err != nil {
-				return err
-			}
-			if b.utreexoView == nil && flushNeeded {
-				err = b.utxoCache.flush(FlushRequired, state)
+			if b.utreexoView == nil {
+				flushNeeded, err := b.flushNeededAfterPrune(earliestKeptBlockHeight)
 				if err != nil {
 					return err
+				}
+
+				if flushNeeded {
+					err = b.utxoCache.flush(FlushRequired, state)
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
