@@ -445,47 +445,45 @@ func (s *utxoCache) connectTransactions(block *btcutil.Block, stxos *[]SpentTxOu
 }
 
 // writeCache writes all the entries that are cached in memory to the database atomically.
-func (s *utxoCache) writeCache(bestState *BestState) error {
+func (s *utxoCache) writeCache(dbTx database.Tx, bestState *BestState) error {
 	// Update commits and flushes the cache to the database.
 	// NOTE: The database has its own cache which gets atomically written
 	// to leveldb.
-	err := s.db.Update(func(dbTx database.Tx) error {
-		utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
-		for i := range s.cachedEntries.maps {
-			for outpoint, entry := range s.cachedEntries.maps[i] {
-				// If the entry is nil or spent, remove the entry from the database
-				// and the cache.
-				if entry == nil || entry.IsSpent() {
-					err := dbDeleteUtxoEntry(utxoBucket, outpoint)
-					if err != nil {
-						return err
-					}
-					delete(s.cachedEntries.maps[i], outpoint)
-
-					continue
-				}
-
-				// No need to update the cache if the entry was not modified.
-				if !entry.isModified() {
-					delete(s.cachedEntries.maps[i], outpoint)
-					continue
-				}
-
-				// Entry is fresh and needs to be put into the database.
-				err := dbPutUtxoEntry(utxoBucket, outpoint, entry)
+	utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
+	for i := range s.cachedEntries.maps {
+		for outpoint, entry := range s.cachedEntries.maps[i] {
+			// If the entry is nil or spent, remove the entry from the database
+			// and the cache.
+			if entry == nil || entry.IsSpent() {
+				err := dbDeleteUtxoEntry(utxoBucket, outpoint)
 				if err != nil {
 					return err
 				}
 				delete(s.cachedEntries.maps[i], outpoint)
-			}
-		}
-		s.cachedEntries.deleteMaps()
-		s.totalEntryMemory = 0
 
-		// When done, store the best state hash in the database to indicate the state
-		// is consistent until that hash.
-		return dbPutUtxoStateConsistency(dbTx, &bestState.Hash)
-	})
+				continue
+			}
+
+			// No need to update the cache if the entry was not modified.
+			if !entry.isModified() {
+				delete(s.cachedEntries.maps[i], outpoint)
+				continue
+			}
+
+			// Entry is fresh and needs to be put into the database.
+			err := dbPutUtxoEntry(utxoBucket, outpoint, entry)
+			if err != nil {
+				return err
+			}
+			delete(s.cachedEntries.maps[i], outpoint)
+		}
+	}
+	s.cachedEntries.deleteMaps()
+	s.totalEntryMemory = 0
+
+	// When done, store the best state hash in the database to indicate the state
+	// is consistent until that hash.
+	err := dbPutUtxoStateConsistency(dbTx, &bestState.Hash)
 	if err != nil {
 		return err
 	}
@@ -498,7 +496,9 @@ func (s *utxoCache) writeCache(bestState *BestState) error {
 }
 
 // flush flushes the UTXO state to the database if a flush is needed with the given flush mode.
-func (s *utxoCache) flush(mode FlushMode, bestState *BestState) error {
+//
+// This function MUST be called with the chain state lock held (for writes).
+func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState) error {
 	var threshold uint64
 	switch mode {
 	case FlushRequired:
@@ -528,7 +528,7 @@ func (s *utxoCache) flush(mode FlushMode, bestState *BestState) error {
 		log.Infof("Flushing UTXO cache of %d MiB with %d entries to disk. For large sizes, "+
 			"this can take up to several minutes...", totalMiB, s.cachedEntries.length())
 
-		return s.writeCache(bestState)
+		return s.writeCache(dbTx, bestState)
 	}
 
 	return nil
