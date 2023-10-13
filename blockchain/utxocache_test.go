@@ -365,7 +365,10 @@ func TestUtxoCacheFlush(t *testing.T) {
 	}
 
 	// Flush.
-	if err := cache.flush(FlushRequired, chain.stateSnapshot); err != nil {
+	err = chain.db.Update(func(dbTx database.Tx) error {
+		return cache.flush(dbTx, FlushRequired, chain.stateSnapshot)
+	})
+	if err != nil {
 		t.Fatalf("unexpected error while flushing cache: %v", err)
 	}
 	if cache.cachedEntries.length() != 0 {
@@ -425,7 +428,10 @@ func TestUtxoCacheFlush(t *testing.T) {
 	}
 
 	// Flush.
-	if err := cache.flush(FlushRequired, chain.stateSnapshot); err != nil {
+	err = chain.db.Update(func(dbTx database.Tx) error {
+		return cache.flush(dbTx, FlushRequired, chain.stateSnapshot)
+	})
+	if err != nil {
 		t.Fatalf("unexpected error while flushing cache: %v", err)
 	}
 	if cache.cachedEntries.length() != 0 {
@@ -459,7 +465,10 @@ func TestUtxoCacheFlush(t *testing.T) {
 	}
 
 	// Attempt to flush with flush periodic.  Shouldn't flush.
-	if err := cache.flush(FlushPeriodic, chain.stateSnapshot); err != nil {
+	err = chain.db.Update(func(dbTx database.Tx) error {
+		return cache.flush(dbTx, FlushPeriodic, chain.stateSnapshot)
+	})
+	if err != nil {
 		t.Fatalf("unexpected error while flushing cache: %v", err)
 	}
 	if cache.cachedEntries.length() == 0 {
@@ -471,7 +480,10 @@ func TestUtxoCacheFlush(t *testing.T) {
 	cache.lastFlushTime = time.Now().Add(-time.Minute * 6)
 
 	// Attempt to flush with flush periodic.  Should flush now.
-	if err := cache.flush(FlushPeriodic, chain.stateSnapshot); err != nil {
+	err = chain.db.Update(func(dbTx database.Tx) error {
+		return cache.flush(dbTx, FlushPeriodic, chain.stateSnapshot)
+	})
+	if err != nil {
 		t.Fatalf("unexpected error while flushing cache: %v", err)
 	}
 	if cache.cachedEntries.length() != 0 {

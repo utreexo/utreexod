@@ -541,7 +541,10 @@ func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState
 func (b *BlockChain) FlushUtxoCache(mode FlushMode) error {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
-	return b.utxoCache.flush(mode, b.BestSnapshot())
+
+	return b.db.Update(func(dbTx database.Tx) error {
+		return b.utxoCache.flush(dbTx, mode, b.BestSnapshot())
+	})
 }
 
 // InitConsistentState checks the consistency status of the utxo state and
@@ -578,7 +581,7 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 	}
 
 	// If state is consistent, we are done.
-	if *statusHash == tip.hash {
+	if statusHash.IsEqual(&tip.hash) {
 		log.Debugf("UTXO state consistent at (%d:%v)", tip.height, tip.hash)
 
 		// The last flush hash is set to the default value of all 0s. Set
@@ -641,7 +644,9 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 
 		// Flush the utxo cache if needed.  This will in turn update the
 		// consistent state to this block.
-		err = s.flush(FlushIfNeeded, &BestState{Hash: node.hash, Height: node.height})
+		err = s.db.Update(func(dbTx database.Tx) error {
+			return s.flush(dbTx, FlushIfNeeded, &BestState{Hash: node.hash, Height: node.height})
+		})
 		if err != nil {
 			return err
 		}
