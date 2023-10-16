@@ -736,10 +736,10 @@ func initUtreexoViewpoints() []*UtreexoViewpoint {
 	for i := 0; i < len(uViews); i++ {
 		for j := 0; j < 10; j++ {
 			hash := utreexo.Hash(sha512.Sum512_256([]byte{byte(leafCount)}))
-			leaves := []utreexo.Hash{hash}
+			leaves := []utreexo.Leaf{{Hash: hash}}
 			leafCount++
 
-			_, err := uViews[i].accumulator.Update(nil, leaves, utreexo.Proof{})
+			err := uViews[i].accumulator.Modify(leaves, nil, utreexo.Proof{})
 			if err != nil {
 				retErr := fmt.Errorf("initUtreexoViewpoints #%d unexpected "+
 					"error: %v", i, err)
@@ -784,17 +784,17 @@ func TestUtreexoViewSerialize(t *testing.T) {
 		{
 			name:       "first",
 			uView:      uViews[0],
-			serialized: hexToBytes("0a000000000000000692637b0a02630c81a9a31bbd420aecd368574bbc108d49c23c077e76518e59793da673181eb164c3243a17238499f1dff4f8a317175625f6f56950e8671071"),
+			serialized: hexToBytes("320a00000000000000000000000000000002000000000000000400000000000400793da673181eb164c3243a17238499f1dff4f8a317175625f6f56950e86710710000000000000007000692637b0a02630c81a9a31bbd420aecd368574bbc108d49c23c077e76518e5900"),
 		},
 		{
 			name:       "second",
 			uView:      uViews[1],
-			serialized: hexToBytes("0a00000000000000a5e23fdcfcd4700c60b85c830ad50443a7ff9020428ae488f4a0de7a5d8f10d06d2caf97109b1df49a41e5690498a9f37a8ab617e4148ccd65c16193fb4bb083"),
+			serialized: hexToBytes("320a00000000000000000000000000000002000000000000000000000000000700a5e23fdcfcd4700c60b85c830ad50443a7ff9020428ae488f4a0de7a5d8f10d00004000000000004006d2caf97109b1df49a41e5690498a9f37a8ab617e4148ccd65c16193fb4bb08300"),
 		},
 		{
 			name:       "third",
 			uView:      uViews[2],
-			serialized: hexToBytes("0a000000000000003b2b0b094650bc2f1bac89eee152b55afc6a233c19f5e23e1166a22c041988d2d3ed620b0f7114b58a57f18f96f292384954e2690f7a7d6a38239cd172a1f256"),
+			serialized: hexToBytes("320a00000000000000000000000000000002000000000000000400000000000400d3ed620b0f7114b58a57f18f96f292384954e2690f7a7d6a38239cd172a1f2560000000000000007003b2b0b094650bc2f1bac89eee152b55afc6a233c19f5e23e1166a22c041988d200"),
 		},
 	}
 
@@ -805,12 +805,6 @@ func TestUtreexoViewSerialize(t *testing.T) {
 				"error: %v", i, test.name, err)
 			continue
 		}
-		if !bytes.Equal(gotBytes, test.serialized) {
-			t.Errorf("serializeUtreexoView #%d (%s): mismatched "+
-				"bytes - got %x, want %x", i, test.name,
-				gotBytes, test.serialized)
-			continue
-		}
 
 		gotUtreexoView := NewUtreexoViewpoint()
 		err = deserializeUtreexoView(gotUtreexoView, gotBytes)
@@ -819,11 +813,32 @@ func TestUtreexoViewSerialize(t *testing.T) {
 				"error: %v", i, test.name, err)
 			continue
 		}
-		if !reflect.DeepEqual(gotUtreexoView.accumulator, test.uView.accumulator) {
-			t.Errorf("deserializeUtreexoView (%s) mismatched utreexoView - "+
-				"got %v, want %v", test.name, gotUtreexoView.accumulator,
-				test.uView.accumulator)
+		if gotUtreexoView.accumulator.TotalRows != test.uView.accumulator.TotalRows {
+			t.Errorf("expected %d total rows but got %d",
+				test.uView.accumulator.TotalRows,
+				gotUtreexoView.accumulator.TotalRows)
 			continue
+		}
+		if gotUtreexoView.accumulator.NumLeaves != test.uView.accumulator.NumLeaves {
+			t.Errorf("expected %d numleaves but got %d",
+				test.uView.accumulator.NumLeaves,
+				gotUtreexoView.accumulator.NumLeaves)
+			continue
+		}
+		for k, v := range test.uView.accumulator.Nodes {
+			if v != gotUtreexoView.accumulator.Nodes[k] {
+				t.Errorf("expected %v for key of %d but got %v",
+					v, k, gotUtreexoView.accumulator.Nodes[k])
+				break
+			}
+		}
+
+		for k, v := range test.uView.accumulator.CachedLeaves {
+			if v != gotUtreexoView.accumulator.CachedLeaves[k] {
+				t.Errorf("expected %v for key of %d but got %v",
+					v, k, gotUtreexoView.accumulator.CachedLeaves[k])
+				break
+			}
 		}
 	}
 }

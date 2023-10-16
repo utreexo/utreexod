@@ -1108,7 +1108,7 @@ func DeserializeUtreexoRoots(serializedUView []byte) (uint64, []utreexo.Hash, er
 //
 // TODO in the future perhaps consider serializing other things in the utreexo viewpoint.
 func serializeUtreexoView(uView *UtreexoViewpoint) ([]byte, error) {
-	return SerializeUtreexoRoots(uView.accumulator.NumLeaves, uView.accumulator.Roots)
+	return SerializeUtreexoRoots(uView.accumulator.NumLeaves, uView.accumulator.GetRoots())
 }
 
 // deserializeUtreexoView deserializes the provided byte slice into the provided uView.
@@ -1119,7 +1119,10 @@ func deserializeUtreexoView(uView *UtreexoViewpoint, serializedUView []byte) err
 	}
 
 	uView.accumulator.NumLeaves = numLeaves
-	uView.accumulator.Roots = roots
+	rootPositions := utreexo.RootPositions(numLeaves, uView.accumulator.TotalRows)
+	for i := range roots {
+		uView.accumulator.Nodes[rootPositions[i]] = utreexo.Leaf{Hash: roots[i]}
+	}
 
 	return nil
 }
