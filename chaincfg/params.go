@@ -60,6 +60,7 @@ var (
 	// DefaultSignetDNSSeeds is the list of seed nodes for the default
 	// (public, Taproot enabled) signet network.
 	DefaultSignetDNSSeeds = []DNSSeed{
+		{"seed.dlsouza.lol.", true}, // Davidson Souza, supports filtering, including utreexo (1 << 24)
 		{"178.128.221.177", false},
 		{"2a01:7c8:d005:390::5", false},
 		{"v7ajjeirttkbnt32wpy3c6w3emwnfr3fkla7hpxcfokr3ysd3kqtzmqd.onion:38333", false},
