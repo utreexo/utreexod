@@ -7,7 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -81,6 +84,93 @@ func TestMapSlice(t *testing.T) {
 				t.Fatalf("expected value of %v, got %v", expected, got)
 			}
 		}
+	}
+}
+
+// TestMapsliceConcurrency just tests that the mapslice won't result in a panic
+// on concurrent access.
+func TestMapsliceConcurrency(t *testing.T) {
+	tests := []struct {
+		keys []wire.OutPoint
+	}{
+		{
+			keys: func() []wire.OutPoint {
+				outPoints := make([]wire.OutPoint, 10000)
+				for i := uint32(0); i < uint32(len(outPoints)); i++ {
+					var buf [4]byte
+					binary.BigEndian.PutUint32(buf[:], i)
+					hash := sha256.Sum256(buf[:])
+
+					op := wire.OutPoint{Hash: hash, Index: i}
+					outPoints[i] = op
+				}
+				return outPoints
+			}(),
+		},
+	}
+
+	for _, test := range tests {
+		maxSize := calculateRoughMapSize(1000, bucketSize)
+
+		maxEntriesFirstMap := 500
+		ms1 := make(map[wire.OutPoint]*UtxoEntry, maxEntriesFirstMap)
+		ms := mapSlice{
+			maps:                []map[wire.OutPoint]*UtxoEntry{ms1},
+			maxEntries:          []int{maxEntriesFirstMap},
+			maxTotalMemoryUsage: uint64(maxSize),
+		}
+
+		var wg sync.WaitGroup
+
+		wg.Add(1)
+		go func(m *mapSlice, keys []wire.OutPoint) {
+			defer wg.Done()
+			for i := 0; i < 5000; i++ {
+				m.put(keys[i], nil, 0)
+			}
+		}(&ms, test.keys)
+
+		wg.Add(1)
+		go func(m *mapSlice, keys []wire.OutPoint) {
+			defer wg.Done()
+			for i := 5000; i < 10000; i++ {
+				m.put(keys[i], nil, 0)
+			}
+		}(&ms, test.keys)
+
+		wg.Add(1)
+		go func(m *mapSlice) {
+			defer wg.Done()
+			for i := 0; i < 10000; i++ {
+				m.size()
+			}
+		}(&ms)
+
+		wg.Add(1)
+		go func(m *mapSlice) {
+			defer wg.Done()
+			for i := 0; i < 10000; i++ {
+				m.length()
+			}
+		}(&ms)
+
+		wg.Add(1)
+		go func(m *mapSlice, keys []wire.OutPoint) {
+			defer wg.Done()
+			for i := 0; i < 10000; i++ {
+				m.get(keys[i])
+			}
+		}(&ms, test.keys)
+
+		wg.Add(1)
+		go func(m *mapSlice, keys []wire.OutPoint) {
+			defer wg.Done()
+			for i := 0; i < 5000; i++ {
+				m.delete(keys[i])
+			}
+		}(&ms, test.keys)
+
+		wg.Wait()
 	}
 }
 
@@ -365,7 +455,10 @@ func TestUtxoCacheFlush(t *testing.T) {
 	}
 
 	// Flush.
-	if err := cache.flush(FlushRequired, chain.stateSnapshot); err != nil {
+	err = chain.db.Update(func(dbTx database.Tx) error {
+		return cache.flush(dbTx, FlushRequired, chain.stateSnapshot)
+	})
+	if err != nil {
 		t.Fatalf("unexpected error while flushing cache: %v", err)
 	}
 	if cache.cachedEntries.length() != 0 {
@@ -425,7 +518,10 @@ func TestUtxoCacheFlush(t *testing.T) {
 	}
 
 	// Flush.
-	if err := cache.flush(FlushRequired, chain.stateSnapshot); err != nil {
+	err = chain.db.Update(func(dbTx database.Tx) error {
+		return cache.flush(dbTx, FlushRequired, chain.stateSnapshot)
+	})
+	if err != nil {
 		t.Fatalf("unexpected error while flushing cache: %v", err)
 	}
 	if cache.cachedEntries.length() != 0 {
@@ -459,7 +555,10 @@ func TestUtxoCacheFlush(t *testing.T) {
 	}
 
 	// Attempt to flush with flush periodic.  Shouldn't flush.
-	if err := cache.flush(FlushPeriodic, chain.stateSnapshot); err != nil {
+	err = chain.db.Update(func(dbTx database.Tx) error {
+		return cache.flush(dbTx, FlushPeriodic, chain.stateSnapshot)
+	})
+	if err != nil {
 		t.Fatalf("unexpected error while flushing cache: %v", err)
 	}
 	if cache.cachedEntries.length() == 0 {
@@ -471,7 +570,10 @@ func TestUtxoCacheFlush(t *testing.T) {
 	cache.lastFlushTime = time.Now().Add(-time.Minute * 6)
 
 	// Attempt to flush with flush periodic.  Should flush now.
-	if err := cache.flush(FlushPeriodic, chain.stateSnapshot); err != nil {
+	err = chain.db.Update(func(dbTx database.Tx) error {
+		return cache.flush(dbTx, FlushPeriodic, chain.stateSnapshot)
+	})
+	if err != nil {
 		t.Fatalf("unexpected error while flushing cache: %v", err)
 	}
 	if cache.cachedEntries.length() != 0 {
@@ -569,5 +671,212 @@ func TestFlushNeededAfterPrune(t *testing.T) {
 			t.Fatalf("for test %s, expected need flush to return %v but got %v",
 				test.name, test.expected, got)
 		}
+	}
+}
+
+func TestFlushOnPrune(t *testing.T) {
+	chain, tearDown, err := ChainSetup("TestFlushOnPrune", &chaincfg.MainNetParams)
+	if err != nil {
+		panic(fmt.Sprintf("error loading blockchain with database: %v", err))
+	}
+	defer tearDown()
+
+	chain.utxoCache.maxTotalMemoryUsage = 10 * 1024 * 1024
+	chain.utxoCache.cachedEntries.maxTotalMemoryUsage = chain.utxoCache.maxTotalMemoryUsage
+
+	// Set the maxBlockFileSize and the prune target small so that we can trigger a
+	// prune to happen.
+	maxBlockFileSize := uint32(8192)
+	chain.pruneTarget = uint64(maxBlockFileSize) * 2
+
+	// Read blocks from the file.
+	blocks, err := loadBlocks("blk_0_to_14131.dat")
+	if err != nil {
+		t.Fatalf("failed to read block from file. %v", err)
+	}
+
+	syncBlocks := func() {
+		for i, block := range blocks {
+			if i == 0 {
+				// Skip the genesis block.
+				continue
+			}
+			isMainChain, _, err := chain.ProcessBlock(block, BFNone)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !isMainChain {
+				t.Fatalf("expected block %s to be on the main chain", block.Hash())
+			}
+		}
+	}
+
+	// Sync the chain.
+	ffldb.TstRunWithMaxBlockFileSize(chain.db, maxBlockFileSize, syncBlocks)
+
+	// Function that errors out if the block that should exist doesn't exist.
+	shouldExist := func(dbTx database.Tx, blockHash *chainhash.Hash) {
+		bytes, err := dbTx.FetchBlock(blockHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		block, err := btcutil.NewBlockFromBytes(bytes)
+		if err != nil {
+			t.Fatalf("didn't find block %v. %v", blockHash, err)
+		}
+
+		if !block.Hash().IsEqual(blockHash) {
+			t.Fatalf("expected to find block %v but got %v",
+				blockHash, block.Hash())
+		}
+	}
+
+	// Function that errors out if the block that shouldn't exist exists.
+	shouldNotExist := func(dbTx database.Tx, blockHash *chainhash.Hash) {
+		bytes, err := dbTx.FetchBlock(chaincfg.MainNetParams.GenesisHash)
+		if err == nil {
+			t.Fatalf("expected block %s to be pruned", blockHash)
+		}
+		if len(bytes) != 0 {
+			t.Fatalf("expected block %s to be pruned but got %v",
+				blockHash, bytes)
+		}
+	}
+
+	// The below code checks that the correct blocks were pruned.
+	chain.db.View(func(dbTx database.Tx) error {
+		exist := false
+		for _, block := range blocks {
+			// Blocks up to the last flush hash should not exist.
+			// The utxocache is big enough so that it shouldn't flush
+			// on it being full.  It should only flush on prunes.
+			if block.Hash().IsEqual(&chain.utxoCache.lastFlushHash) {
+				exist = true
+			}
+
+			if exist {
+				shouldExist(dbTx, block.Hash())
+			} else {
+				shouldNotExist(dbTx, block.Hash())
+			}
+
+		}
+
+		return nil
+	})
+}
+
+func TestInitConsistentState(t *testing.T) {
+	//  Boilerplate for creating a chain.
+	dbName := "TestFlushOnPrune"
+	chain, tearDown, err := ChainSetup(dbName, &chaincfg.MainNetParams)
+	if err != nil {
+		panic(fmt.Sprintf("error loading blockchain with database: %v", err))
+	}
+	defer tearDown()
+	chain.utxoCache.maxTotalMemoryUsage = 10 * 1024 * 1024
+	chain.utxoCache.cachedEntries.maxTotalMemoryUsage = chain.utxoCache.maxTotalMemoryUsage
+
+	// Read blocks from the file.
+	blocks, err := loadBlocks("blk_0_to_14131.dat")
+	if err != nil {
+		t.Fatalf("failed to read block from file. %v", err)
+	}
+
+	// Sync up to height 13,000.  Flush the utxocache at height 11_000.
+	cacheFlushHeight := 9000
+	initialSyncHeight := 12_000
+	for i, block := range blocks {
+		if i == 0 {
+			// Skip the genesis block.
+			continue
+		}
+
+		isMainChain, _, err := chain.ProcessBlock(block, BFNone)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !isMainChain {
+			t.Fatalf("expected block %s to be on the main chain", block.Hash())
+		}
+
+		if i == cacheFlushHeight {
+			err = chain.FlushUtxoCache(FlushRequired)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if i == initialSyncHeight {
+			break
+		}
+	}
+
+	// Sanity check.
+	if chain.BestSnapshot().Height != int32(initialSyncHeight) {
+		t.Fatalf("expected the chain to sync up to height %d", initialSyncHeight)
+	}
+
+	// Close the database without flushing the utxocache.  This leaves the
+	// chaintip at height 13,000 but the utxocache consistent state at 11,000.
+	err = chain.db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain.db = nil
+
+	// Re-open the database and pass the re-opened db to internal structs.
+	dbPath := filepath.Join(testDbRoot, dbName)
+	ndb, err := database.Open(testDbType, dbPath, blockDataNet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain.db = ndb
+	chain.utxoCache.db = ndb
+	chain.index.db = ndb
+
+	// Sanity check to see that the utxo cache was flushed before the
+	// current chain tip.
+	var statusBytes []byte
+	ndb.View(func(dbTx database.Tx) error {
+		statusBytes = dbFetchUtxoStateConsistency(dbTx)
+		return nil
+	})
+	statusHash, err := chainhash.NewHash(statusBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !statusHash.IsEqual(blocks[cacheFlushHeight].Hash()) {
+		t.Fatalf("expected the utxocache to be flushed at "+
+			"block hash %s but got %s",
+			blocks[cacheFlushHeight].Hash(), statusHash)
+	}
+
+	// Call InitConsistentState.  This will make the utxocache catch back
+	// up to the tip.
+	err = chain.InitConsistentState(chain.bestChain.tip(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Sync the reset of the blocks.
+	for i, block := range blocks {
+		if i <= initialSyncHeight {
+			continue
+		}
+		isMainChain, _, err := chain.ProcessBlock(block, BFNone)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !isMainChain {
+			t.Fatalf("expected block %s to be on the main chain", block.Hash())
+		}
+	}
+
+	if chain.BestSnapshot().Height != blocks[len(blocks)-1].Height() {
+		t.Fatalf("expected the chain to sync up to height %d",
+			blocks[len(blocks)-1].Height())
 	}
 }

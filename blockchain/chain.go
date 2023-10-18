@@ -619,7 +619,9 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 	// directly to the database on disk.  In order for the database to be
 	// consistent, we must flush the cache before writing the viewpoint.
 	if view != nil && b.utreexoView == nil {
-		err = b.utxoCache.flush(FlushRequired, state)
+		err = b.db.Update(func(dbTx database.Tx) error {
+			return b.utxoCache.flush(dbTx, FlushRequired, state)
+		})
 		if err != nil {
 			return err
 		}
@@ -653,7 +655,7 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 				}
 
 				if flushNeeded {
-					err = b.utxoCache.flush(FlushRequired, state)
+					err = b.utxoCache.flush(dbTx, FlushRequired, state)
 					if err != nil {
 						return err
 					}
@@ -742,7 +744,11 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 
 	// Don't try to flush the utxo set if we're a utreexo node.
 	if b.utreexoView == nil {
-		return b.utxoCache.flush(FlushIfNeeded, state)
+		// Since we may have changed the UTXO cache, we make sure it didn't exceed its
+		// maximum size.  If we're pruned and have flushed already, this will be a no-op.
+		return b.db.Update(func(dbTx database.Tx) error {
+			return b.utxoCache.flush(dbTx, FlushIfNeeded, b.BestSnapshot())
+		})
 	}
 	return nil
 }
@@ -899,7 +905,9 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	if b.utreexoView == nil {
 		// The rest of the reorg depends on all STXOs already being in the database
 		// so we flush before reorg.
-		err := b.utxoCache.flush(FlushRequired, b.BestSnapshot())
+		err := b.db.Update(func(dbTx database.Tx) error {
+			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
+		})
 		if err != nil {
 			return err
 		}
@@ -1052,7 +1060,9 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	if b.utreexoView == nil {
 		// We call the flush at the end to update the last flush hash to the new
 		// best tip.
-		err = b.utxoCache.flush(FlushRequired, b.BestSnapshot())
+		err = b.db.Update(func(dbTx database.Tx) error {
+			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
+		})
 		if err != nil {
 			return err
 		}
@@ -1091,7 +1101,9 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	if b.utreexoView == nil {
 		// Flush the cache before checking the validity. This is because the reorganization code
 		// depends on the assumption that the cache is flushed.
-		err := b.utxoCache.flush(FlushRequired, b.BestSnapshot())
+		err := b.db.Update(func(dbTx database.Tx) error {
+			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
+		})
 		if err != nil {
 			return nil, nil, nil, err
 		}

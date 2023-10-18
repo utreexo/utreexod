@@ -7,6 +7,7 @@ package blockchain
 import (
 	"container/list"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/utreexo/utreexod/btcutil"
@@ -23,6 +24,10 @@ import (
 // allocated buckets.  A slice of maps allows us to have a better control of how much
 // total memory gets allocated by all the maps.
 type mapSlice struct {
+	// mtx protects against concurrent access for the map slice.
+	mtx sync.Mutex
+
+	// maps are the underlying maps in the slice of maps.
 	maps []map[wire.OutPoint]*UtxoEntry
 
 	// maxEntries is the maximum amount of elemnts that the map is allocated for.
@@ -34,7 +39,12 @@ type mapSlice struct {
 }
 
 // length returns the length of all the maps in the map slice added together.
+//
+// This function is safe for concurrent access.
 func (ms *mapSlice) length() int {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
 	var l int
 	for _, m := range ms.maps {
 		l += len(m)
@@ -44,7 +54,12 @@ func (ms *mapSlice) length() int {
 }
 
 // size returns the size of all the maps in the map slice added together.
+//
+// This function is safe for concurrent access.
 func (ms *mapSlice) size() int {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
 	var size int
 	for _, num := range ms.maxEntries {
 		size += calculateRoughMapSize(num, bucketSize)
@@ -55,7 +70,12 @@ func (ms *mapSlice) size() int {
 
 // get looks for the outpoint in all the maps in the map slice and returns
 // the entry.  nil and false is returned if the outpoint is not found.
+//
+// This function is safe for concurrent access.
 func (ms *mapSlice) get(op wire.OutPoint) (*UtxoEntry, bool) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
 	var entry *UtxoEntry
 	var found bool
 
@@ -73,7 +93,12 @@ func (ms *mapSlice) get(op wire.OutPoint) (*UtxoEntry, bool) {
 // existing maps are all full, it will allocate a new map based on how much memory we
 // have left over.  Leftover memory is calculated as:
 // maxTotalMemoryUsage - (totalEntryMemory + mapSlice.size())
+//
+// This function is safe for concurrent access.
 func (ms *mapSlice) put(op wire.OutPoint, entry *UtxoEntry, totalEntryMemory uint64) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
 	for i, maxNum := range ms.maxEntries {
 		m := ms.maps[i]
 		_, found := m[op]
@@ -96,21 +121,28 @@ func (ms *mapSlice) put(op wire.OutPoint, entry *UtxoEntry, totalEntryMemory uin
 	// We only reach this code if we've failed to insert into the map above as
 	// all the current maps were full.  We thus make a new map and insert into
 	// it.
-	ms.makeNewMap(totalEntryMemory)
-	m := ms.maps[len(ms.maps)-1] // new maps are appended to the map slice.
+	m := ms.makeNewMap(totalEntryMemory)
 	m[op] = entry
 }
 
 // delete attempts to delete the given outpoint in all of the maps. No-op if the
 // outpoint doesn't exist.
+//
+// This function is safe for concurrent access.
 func (ms *mapSlice) delete(op wire.OutPoint) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
 	for i := 0; i < len(ms.maps); i++ {
 		delete(ms.maps[i], op)
 	}
 }
 
 // makeNewMap makes and appends the new map into the map slice.
-func (ms *mapSlice) makeNewMap(totalEntryMemory uint64) {
+//
+// This function is NOT safe for concurrent access and must be called with the
+// lock held.
+func (ms *mapSlice) makeNewMap(totalEntryMemory uint64) map[wire.OutPoint]*UtxoEntry {
 	// Get the size of the leftover memory.
 	memSize := ms.maxTotalMemoryUsage - totalEntryMemory
 	for _, maxNum := range ms.maxEntries {
@@ -118,14 +150,24 @@ func (ms *mapSlice) makeNewMap(totalEntryMemory uint64) {
 	}
 
 	// Get a new map that's sized to house inside the leftover memory.
+	// -1 on the returned value will make the map allocate half as much total
+	// bytes.  This is done to make sure there's still room left for utxo
+	// entries to take up.
 	numMaxElements := calculateMinEntries(int(memSize), bucketSize+avgEntrySize)
 	numMaxElements -= 1
 	ms.maxEntries = append(ms.maxEntries, numMaxElements)
 	ms.maps = append(ms.maps, make(map[wire.OutPoint]*UtxoEntry, numMaxElements))
+
+	return ms.maps[len(ms.maps)-1]
 }
 
 // deleteMaps deletes all maps except for the first one which should be the biggest.
+//
+// This function is safe for concurrent access.
 func (ms *mapSlice) deleteMaps() {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
 	size := ms.maxEntries[0]
 	ms.maxEntries = []int{size}
 	ms.maps = ms.maps[:1]
@@ -445,47 +487,45 @@ func (s *utxoCache) connectTransactions(block *btcutil.Block, stxos *[]SpentTxOu
 }
 
 // writeCache writes all the entries that are cached in memory to the database atomically.
-func (s *utxoCache) writeCache(bestState *BestState) error {
+func (s *utxoCache) writeCache(dbTx database.Tx, bestState *BestState) error {
 	// Update commits and flushes the cache to the database.
 	// NOTE: The database has its own cache which gets atomically written
 	// to leveldb.
-	err := s.db.Update(func(dbTx database.Tx) error {
-		utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
-		for i := range s.cachedEntries.maps {
-			for outpoint, entry := range s.cachedEntries.maps[i] {
-				// If the entry is nil or spent, remove the entry from the database
-				// and the cache.
-				if entry == nil || entry.IsSpent() {
-					err := dbDeleteUtxoEntry(utxoBucket, outpoint)
-					if err != nil {
-						return err
-					}
-					delete(s.cachedEntries.maps[i], outpoint)
-
-					continue
-				}
-
-				// No need to update the cache if the entry was not modified.
-				if !entry.isModified() {
-					delete(s.cachedEntries.maps[i], outpoint)
-					continue
-				}
-
-				// Entry is fresh and needs to be put into the database.
-				err := dbPutUtxoEntry(utxoBucket, outpoint, entry)
+	utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
+	for i := range s.cachedEntries.maps {
+		for outpoint, entry := range s.cachedEntries.maps[i] {
+			// If the entry is nil or spent, remove the entry from the database
+			// and the cache.
+			if entry == nil || entry.IsSpent() {
+				err := dbDeleteUtxoEntry(utxoBucket, outpoint)
 				if err != nil {
 					return err
 				}
 				delete(s.cachedEntries.maps[i], outpoint)
-			}
-		}
-		s.cachedEntries.deleteMaps()
-		s.totalEntryMemory = 0
 
-		// When done, store the best state hash in the database to indicate the state
-		// is consistent until that hash.
-		return dbPutUtxoStateConsistency(dbTx, &bestState.Hash)
-	})
+				continue
+			}
+
+			// No need to update the cache if the entry was not modified.
+			if !entry.isModified() {
+				delete(s.cachedEntries.maps[i], outpoint)
+				continue
+			}
+
+			// Entry is fresh and needs to be put into the database.
+			err := dbPutUtxoEntry(utxoBucket, outpoint, entry)
+			if err != nil {
+				return err
+			}
+			delete(s.cachedEntries.maps[i], outpoint)
+		}
+	}
+	s.cachedEntries.deleteMaps()
+	s.totalEntryMemory = 0
+
+	// When done, store the best state hash in the database to indicate the state
+	// is consistent until that hash.
+	err := dbPutUtxoStateConsistency(dbTx, &bestState.Hash)
 	if err != nil {
 		return err
 	}
@@ -498,7 +538,9 @@ func (s *utxoCache) writeCache(bestState *BestState) error {
 }
 
 // flush flushes the UTXO state to the database if a flush is needed with the given flush mode.
-func (s *utxoCache) flush(mode FlushMode, bestState *BestState) error {
+//
+// This function MUST be called with the chain state lock held (for writes).
+func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState) error {
 	var threshold uint64
 	switch mode {
 	case FlushRequired:
@@ -528,7 +570,7 @@ func (s *utxoCache) flush(mode FlushMode, bestState *BestState) error {
 		log.Infof("Flushing UTXO cache of %d MiB with %d entries to disk. For large sizes, "+
 			"this can take up to several minutes...", totalMiB, s.cachedEntries.length())
 
-		return s.writeCache(bestState)
+		return s.writeCache(dbTx, bestState)
 	}
 
 	return nil
@@ -541,7 +583,10 @@ func (s *utxoCache) flush(mode FlushMode, bestState *BestState) error {
 func (b *BlockChain) FlushUtxoCache(mode FlushMode) error {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
-	return b.utxoCache.flush(mode, b.BestSnapshot())
+
+	return b.db.Update(func(dbTx database.Tx) error {
+		return b.utxoCache.flush(dbTx, mode, b.BestSnapshot())
+	})
 }
 
 // InitConsistentState checks the consistency status of the utxo state and
@@ -578,7 +623,7 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 	}
 
 	// If state is consistent, we are done.
-	if *statusHash == tip.hash {
+	if statusHash.IsEqual(&tip.hash) {
 		log.Debugf("UTXO state consistent at (%d:%v)", tip.height, tip.hash)
 
 		// The last flush hash is set to the default value of all 0s. Set
@@ -641,7 +686,9 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 
 		// Flush the utxo cache if needed.  This will in turn update the
 		// consistent state to this block.
-		err = s.flush(FlushIfNeeded, &BestState{Hash: node.hash, Height: node.height})
+		err = s.db.Update(func(dbTx database.Tx) error {
+			return s.flush(dbTx, FlushIfNeeded, &BestState{Hash: node.hash, Height: node.height})
+		})
 		if err != nil {
 			return err
 		}
