@@ -1518,7 +1518,7 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 	if encoding&wire.UtreexoEncoding == wire.UtreexoEncoding {
 		// If utreexo proof index is not present, we can't send the tx
 		// as we can't grab the proof for the tx.
-		if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil {
+		if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil && !cfg.Utreexo {
 			err := fmt.Errorf("UtreexoProofIndex and FlatUtreexoProofIndex is nil. " +
 				"Cannot fetch utreexo accumulator proofs.")
 			srvrLog.Debugf(err.Error())
@@ -1544,8 +1544,10 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 		// generate the UData.
 		if s.utreexoProofIndex != nil {
 			ud, err = s.utreexoProofIndex.GenerateUData(leafDatas)
-		} else {
+		} else if s.flatUtreexoProofIndex != nil {
 			ud, err = s.flatUtreexoProofIndex.GenerateUData(leafDatas)
+		} else {
+			ud, err = s.chain.GenerateUData(leafDatas)
 		}
 		if err != nil {
 			chanLog.Errorf(err.Error())
@@ -1575,7 +1577,7 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 
 	// Early check to see if Utreexo proof index is there if UtreexoEncoding is given.
 	doUtreexo := encoding&wire.UtreexoEncoding == wire.UtreexoEncoding
-	if doUtreexo && s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil {
+	if doUtreexo && s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil && !cfg.Utreexo {
 		err := fmt.Errorf("UtreexoProofIndex is nil. Cannot fetch utreexo accumulator proofs.")
 		peerLog.Tracef(err.Error())
 		if doneChan != nil {
@@ -1616,7 +1618,7 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 	}
 
 	// Fetch the Utreexo accumulator proof.
-	if doUtreexo {
+	if doUtreexo && msgBlock.UData == nil {
 		var ud *wire.UData
 
 		// We already checked that at least one is active.  Pick one and

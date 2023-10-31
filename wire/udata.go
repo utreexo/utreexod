@@ -432,7 +432,7 @@ func DeserializeRemembers(r io.Reader) ([]uint32, error) {
 // to get a batched inclusion proof from the accumulator. It then adds on the leaf data,
 // to create a block proof which both proves inclusion and gives all utxo data
 // needed for transaction verification.
-func GenerateUData(txIns []LeafData, pollard *utreexo.Pollard) (
+func GenerateUData(txIns []LeafData, pollard utreexo.Utreexo) (
 	*UData, error) {
 
 	ud := new(UData)

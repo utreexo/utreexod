@@ -924,6 +924,21 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 	return nil
 }
 
+// GenerateUData generates a utreexo data based on the current state of the utreexo viewpoint.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	ud, err := wire.GenerateUData(dels, &b.utreexoView.accumulator)
+	if err != nil {
+		return nil, err
+	}
+
+	return ud, nil
+}
+
 // ChainTipProof represents all the information that is needed to prove that a
 // utxo exists in the chain tip with utreexo accumulator proof.
 type ChainTipProof struct {
