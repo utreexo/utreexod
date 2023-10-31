@@ -2314,8 +2314,12 @@ func (s *server) peerHandler() {
 	}
 
 	if !cfg.DisableDNSSeed {
+		requiredServices := defaultRequiredServices
+		if cfg.Utreexo {
+			requiredServices |= wire.SFNodeUtreexo
+		}
 		// Add peers discovered through DNS to the address manager.
-		connmgr.SeedFromDNS(activeNetParams.Params, defaultRequiredServices,
+		connmgr.SeedFromDNS(activeNetParams.Params, requiredServices,
 			btcdLookup, func(addrs []*wire.NetAddress) {
 				// Bitcoind uses a lookup of the dns seeder here. This
 				// is rather strange since the values looked up by the
