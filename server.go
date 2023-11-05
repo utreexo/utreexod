@@ -1529,35 +1529,46 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 			return err
 		}
 
-		leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
-		if err != nil {
-			chanLog.Errorf(err.Error())
-			if doneChan != nil {
-				doneChan <- struct{}{}
-			}
-			return err
-		}
-
-		var ud *wire.UData
-
 		// We already checked that at least one is active.  Pick one and
 		// generate the UData.
 		if s.utreexoProofIndex != nil {
-			ud, err = s.utreexoProofIndex.GenerateUData(leafDatas)
-		} else if s.flatUtreexoProofIndex != nil {
-			ud, err = s.flatUtreexoProofIndex.GenerateUData(leafDatas)
-		} else {
-			ud, err = s.chain.GenerateUData(leafDatas)
-		}
-		if err != nil {
-			chanLog.Errorf(err.Error())
-			if doneChan != nil {
-				doneChan <- struct{}{}
+			leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
+			if err != nil {
+				chanLog.Errorf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
 			}
-			return err
-		}
+			ud, err := s.utreexoProofIndex.GenerateUData(leafDatas)
+			if err != nil {
+				chanLog.Errorf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
+			tx.MsgTx().UData = ud
 
-		tx.MsgTx().UData = ud
+		} else if s.flatUtreexoProofIndex != nil {
+			leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
+			if err != nil {
+				chanLog.Errorf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
+			ud, err := s.flatUtreexoProofIndex.GenerateUData(leafDatas)
+			if err != nil {
+				chanLog.Errorf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
+			tx.MsgTx().UData = ud
+		}
 	}
 
 	// Once we have fetched data wait for any previous operation to finish.
