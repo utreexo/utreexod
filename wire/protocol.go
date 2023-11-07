@@ -132,6 +132,11 @@ var orderedSFStrings = []ServiceFlag{
 	SFNodeUtreexo,
 }
 
+// HasFlag returns a bool indicating if the service has the given flag.
+func (f ServiceFlag) HasFlag(s ServiceFlag) bool {
+	return f&s == s
+}
+
 // String returns the ServiceFlag in human-readable form.
 func (f ServiceFlag) String() string {
 	// No flags are set.
