@@ -2602,8 +2602,10 @@ func (s *server) UpdateProofBytesWritten(msgTx *wire.MsgTx) error {
 		s.addAccBytesSent(uint64(accSize))
 
 	} else if s.chain.IsUtreexoViewActive() {
-		s.addProofBytesSent(uint64(msgTx.UData.SerializeSizeCompact(true)))
-		s.addAccBytesSent(uint64(msgTx.UData.SerializeAccSizeCompact()))
+		if msgTx.UData != nil {
+			s.addProofBytesSent(uint64(msgTx.UData.SerializeSizeCompact(true)))
+			s.addAccBytesSent(uint64(msgTx.UData.SerializeAccSizeCompact()))
+		}
 	}
 
 	return nil
