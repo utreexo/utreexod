@@ -97,7 +97,7 @@ type Config struct {
 	// VerifyUData defines the function to use to verify the utreexo
 	// data.  This is only used when the node is run with the UtreexoView
 	// activated.
-	VerifyUData func(ud *wire.UData, txIns []*wire.TxIn) error
+	VerifyUData func(ud *wire.UData, txIns []*wire.TxIn, remember bool) error
 
 	// SigCache defines a signature cache to use.
 	SigCache *txscript.SigCache
@@ -1083,9 +1083,11 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 
 		// First verify the proof to ensure that the proof the peer has
 		// sent was over valid.
-		err := mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn)
+		err = mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn, false)
 		if err != nil {
-			return nil, nil, err
+			str := fmt.Sprintf("transaction %v failed the utreexo data verification.",
+				txHash)
+			return nil, nil, txRuleError(wire.RejectInvalid, str)
 		}
 		log.Debugf("VerifyUData passed for tx %s", txHash.String())
 

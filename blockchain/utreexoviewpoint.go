@@ -826,7 +826,7 @@ func (b *BlockChain) IsUtreexoViewActive() bool {
 //
 // This function does not modify the underlying UtreexoViewpoint.
 // This function is safe for concurrent access.
-func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
+func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bool) error {
 	// Nothing to prove.
 	if len(txIns) == 0 {
 		return nil
@@ -909,7 +909,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 
 	// VerifyBatchProof checks that the utreexo proofs are valid without
 	// mutating the accumulator.
-	err := b.utreexoView.accumulator.Verify(delHashes, ud.AccProof, false)
+	err := b.utreexoView.accumulator.Verify(delHashes, ud.AccProof, remember)
 	if err != nil {
 		str := "Verify fail. All txIns-leaf datas:\n"
 		for i, txIn := range txIns {
@@ -919,6 +919,10 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 		}
 		str += fmt.Sprintf("err: %s", err.Error())
 		return fmt.Errorf(str)
+	}
+
+	if remember {
+		log.Debugf("cached hashes: %v", delHashes)
 	}
 
 	return nil
