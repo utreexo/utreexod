@@ -943,6 +943,42 @@ func (b *BlockChain) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
 	return ud, nil
 }
 
+// PruneFromAccumulator uncaches the given hashes from the accumulator.  No action is taken
+// if the hashes are not already cached.
+func (b *BlockChain) PruneFromAccumulator(leaves []wire.LeafData) error {
+	if b.utreexoView == nil {
+		return fmt.Errorf("This blockchain instance doesn't have an " +
+			"accumulator. Cannot prune leaves")
+	}
+
+	b.chainLock.Lock()
+	defer b.chainLock.Unlock()
+
+	hashes := make([]utreexo.Hash, 0, len(leaves))
+	for i := range leaves {
+		// Unconfirmed leaves aren't present in the accumulator.
+		if leaves[i].IsUnconfirmed() {
+			continue
+		}
+
+		if leaves[i].IsCompact() {
+			return fmt.Errorf("Cannot generate hash as " +
+				"the leafdata is compact")
+		}
+
+		hashes = append(hashes, leaves[i].LeafHash())
+	}
+
+	log.Debugf("uncaching hashes: %v", hashes)
+
+	err := b.utreexoView.accumulator.Prune(hashes)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // ChainTipProof represents all the information that is needed to prove that a
 // utxo exists in the chain tip with utreexo accumulator proof.
 type ChainTipProof struct {
