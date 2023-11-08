@@ -1529,8 +1529,35 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 			return err
 		}
 
-		// We already checked that at least one is active.  Pick one and
-		// generate the UData.
+		// For compact state nodes.
+		if cfg.Utreexo {
+			// Fetch the necessary leafdatas to create the utreexo data.
+			leafDatas, err := s.txMemPool.FetchLeafDatas(tx.Hash())
+			if err != nil {
+				chanLog.Errorf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
+
+			btcdLog.Debugf("fetched %v for tx %s", leafDatas, tx.Hash())
+
+			// This creates the accumulator proof and also puts the leaf datas
+			// in the utreexo data.
+			ud, err := s.chain.GenerateUData(leafDatas)
+			if err != nil {
+				chanLog.Errorf(err.Error())
+				if doneChan != nil {
+					doneChan <- struct{}{}
+				}
+				return err
+			}
+
+			tx.MsgTx().UData = ud
+		}
+
+		// For bridge nodes.
 		if s.utreexoProofIndex != nil {
 			leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
 			if err != nil {
@@ -3160,13 +3187,14 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		CalcSequenceLock: func(tx *btcutil.Tx, view *blockchain.UtxoViewpoint) (*blockchain.SequenceLock, error) {
 			return s.chain.CalcSequenceLock(tx, view, true)
 		},
-		IsDeploymentActive:  s.chain.IsDeploymentActive,
-		IsUtreexoViewActive: s.chain.IsUtreexoViewActive,
-		VerifyUData:         s.chain.VerifyUData,
-		SigCache:            s.sigCache,
-		HashCache:           s.hashCache,
-		AddrIndex:           s.addrIndex,
-		FeeEstimator:        s.feeEstimator,
+		IsDeploymentActive:   s.chain.IsDeploymentActive,
+		IsUtreexoViewActive:  s.chain.IsUtreexoViewActive,
+		VerifyUData:          s.chain.VerifyUData,
+		PruneFromAccumulator: s.chain.PruneFromAccumulator,
+		SigCache:             s.sigCache,
+		HashCache:            s.hashCache,
+		AddrIndex:            s.addrIndex,
+		FeeEstimator:         s.feeEstimator,
 	}
 	s.txMemPool = mempool.New(&txC)
 
