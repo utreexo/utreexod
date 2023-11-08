@@ -446,6 +446,14 @@ func GenerateUData(txIns []LeafData, pollard utreexo.Utreexo) (
 			unconfirmedCount++
 			continue
 		}
+
+		// We can't calculate the correct hash if the leaf data is in
+		// the compact state.
+		if ld.IsCompact() {
+			return nil, fmt.Errorf("leafdata is compact. Unable " +
+				"to generate a leafhash")
+		}
+
 		delHashes = append(delHashes, ld.LeafHash())
 	}
 

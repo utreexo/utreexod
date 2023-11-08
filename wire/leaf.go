@@ -149,6 +149,13 @@ func (l *LeafData) SetUnconfirmed() {
 	l.Height = -1
 }
 
+// IsCompact returns if the leaf data is in the compact state.
+func (l *LeafData) IsCompact() bool {
+	return l.BlockHash == empty &&
+		l.OutPoint.Hash == empty &&
+		l.OutPoint.Index == 0
+}
+
 // -----------------------------------------------------------------------------
 // LeafData serialization includes all the data needed for generating the hash
 // commitment of the LeafData.
