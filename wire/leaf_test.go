@@ -570,3 +570,63 @@ func TestLeafDataJsonMarshal(t *testing.T) {
 		}
 	}
 }
+
+func TestIsCompact(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ld   LeafData
+	}{
+		{
+			name: "Testnet3 tx 061bb0bf... from block 1600000",
+			ld: LeafData{
+				BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
+					Index: 10,
+				},
+				Amount:     200000,
+				PkScript:   hexToBytes("a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"),
+				Height:     1599255,
+				IsCoinBase: false,
+			},
+		},
+		{
+			name: "Mainnet coinbase tx fa201b65... from block 573123",
+			ld: LeafData{
+				BlockHash: *newHashFromStr("000000000000000000278eb9386b4e70b850a4ec21907af3a27f50330b7325aa"),
+				OutPoint: OutPoint{
+					Hash:  *newHashFromStr("fa201b650eef761f5701afbb610e4a211b86985da4745aec3ac0f4b7a8e2c8d2"),
+					Index: 0,
+				},
+				Amount:     1315080370,
+				PkScript:   hexToBytes("76a9142cc2b87a28c8a097f48fcc1d468ced6e7d39958d88ac"),
+				Height:     573123,
+				IsCoinBase: true,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		if test.ld.IsCompact() {
+			t.Fatalf("leafdata %v is not compact but IsCompact returned %v", test.ld, test.ld.IsCompact())
+		}
+
+		var w bytes.Buffer
+		err := test.ld.SerializeCompact(&w, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		compact := NewLeafData()
+		err = compact.DeserializeCompact(&w, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !compact.IsCompact() {
+			t.Fatalf("leafdata %v is compact but IsCompact returned %v", test.ld, compact.IsCompact())
+		}
+	}
+}

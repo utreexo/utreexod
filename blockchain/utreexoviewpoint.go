@@ -826,7 +826,7 @@ func (b *BlockChain) IsUtreexoViewActive() bool {
 //
 // This function does not modify the underlying UtreexoViewpoint.
 // This function is safe for concurrent access.
-func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
+func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bool) error {
 	// Nothing to prove.
 	if len(txIns) == 0 {
 		return nil
@@ -909,7 +909,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 
 	// VerifyBatchProof checks that the utreexo proofs are valid without
 	// mutating the accumulator.
-	err := b.utreexoView.accumulator.Verify(delHashes, ud.AccProof, false)
+	err := b.utreexoView.accumulator.Verify(delHashes, ud.AccProof, remember)
 	if err != nil {
 		str := "Verify fail. All txIns-leaf datas:\n"
 		for i, txIn := range txIns {
@@ -919,6 +919,10 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn) error {
 		}
 		str += fmt.Sprintf("err: %s", err.Error())
 		return fmt.Errorf(str)
+	}
+
+	if remember {
+		log.Debugf("cached hashes: %v", delHashes)
 	}
 
 	return nil
@@ -937,6 +941,42 @@ func (b *BlockChain) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
 	}
 
 	return ud, nil
+}
+
+// PruneFromAccumulator uncaches the given hashes from the accumulator.  No action is taken
+// if the hashes are not already cached.
+func (b *BlockChain) PruneFromAccumulator(leaves []wire.LeafData) error {
+	if b.utreexoView == nil {
+		return fmt.Errorf("This blockchain instance doesn't have an " +
+			"accumulator. Cannot prune leaves")
+	}
+
+	b.chainLock.Lock()
+	defer b.chainLock.Unlock()
+
+	hashes := make([]utreexo.Hash, 0, len(leaves))
+	for i := range leaves {
+		// Unconfirmed leaves aren't present in the accumulator.
+		if leaves[i].IsUnconfirmed() {
+			continue
+		}
+
+		if leaves[i].IsCompact() {
+			return fmt.Errorf("Cannot generate hash as " +
+				"the leafdata is compact")
+		}
+
+		hashes = append(hashes, leaves[i].LeafHash())
+	}
+
+	log.Debugf("uncaching hashes: %v", hashes)
+
+	err := b.utreexoView.accumulator.Prune(hashes)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ChainTipProof represents all the information that is needed to prove that a

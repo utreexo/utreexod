@@ -97,7 +97,10 @@ type Config struct {
 	// VerifyUData defines the function to use to verify the utreexo
 	// data.  This is only used when the node is run with the UtreexoView
 	// activated.
-	VerifyUData func(ud *wire.UData, txIns []*wire.TxIn) error
+	VerifyUData func(ud *wire.UData, txIns []*wire.TxIn, remember bool) error
+
+	// PruneFromAccumulator uncaches the given hashes from the accumulator.
+	PruneFromAccumulator func(hashes []wire.LeafData) error
 
 	// SigCache defines a signature cache to use.
 	SigCache *txscript.SigCache
@@ -189,6 +192,7 @@ type TxPool struct {
 	mtx           sync.RWMutex
 	cfg           Config
 	pool          map[chainhash.Hash]*TxDesc
+	poolLeaves    map[chainhash.Hash][]wire.LeafData
 	orphans       map[chainhash.Hash]*orphanTx
 	orphansByPrev map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx
 	outpoints     map[wire.OutPoint]*btcutil.Tx
@@ -496,6 +500,25 @@ func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers bool) {
 			mp.cfg.AddrIndex.RemoveUnconfirmedTx(txHash)
 		}
 
+		// If the utreexo view is active, then remove the cached hashes from the
+		// accumulator.
+		if mp.cfg.IsUtreexoViewActive != nil && mp.cfg.IsUtreexoViewActive() {
+			leaves, found := mp.poolLeaves[*txHash]
+			if !found {
+				log.Infof("missing the leaf hashes for tx %s from while "+
+					"removing it from the pool",
+					tx.MsgTx().TxHash().String())
+			} else {
+				delete(mp.poolLeaves, *txHash)
+
+				err := mp.cfg.PruneFromAccumulator(leaves)
+				if err != nil {
+					log.Infof("err while pruning proof for inputs of tx %s: ",
+						err, tx.MsgTx().TxHash().String())
+				}
+			}
+		}
+
 		// Mark the referenced outpoints as unspent by the pool.
 		for _, txIn := range txDesc.Tx.MsgTx().TxIn {
 			delete(mp.outpoints, txIn.PreviousOutPoint)
@@ -543,7 +566,21 @@ func (mp *TxPool) RemoveDoubleSpends(tx *btcutil.Tx) {
 // helper for maybeAcceptTransaction.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) addTransaction(utxoView *blockchain.UtxoViewpoint, tx *btcutil.Tx, height int32, fee int64) *TxDesc {
+func (mp *TxPool) addTransaction(utxoView *blockchain.UtxoViewpoint, tx *btcutil.Tx, height int32, fee int64) (*TxDesc, error) {
+	if mp.cfg.IsUtreexoViewActive != nil && mp.cfg.IsUtreexoViewActive() {
+		// Ingest the proof. Shouldn't error out with the proof being invalid
+		// here since we've already verified it above.
+		err := mp.cfg.VerifyUData(tx.MsgTx().UData, tx.MsgTx().TxIn, true)
+		if err != nil {
+			return nil, fmt.Errorf("error while ingesting proof. %v", err)
+		}
+
+		mp.poolLeaves[*tx.Hash()] = tx.MsgTx().UData.LeafDatas
+	}
+
+	// Nil out uneeded udata for the mempool.
+	tx.MsgTx().UData = nil
+
 	// Add the transaction to the pool and mark the referenced outpoints
 	// as spent by the pool.
 	txD := &TxDesc{
@@ -574,7 +611,7 @@ func (mp *TxPool) addTransaction(utxoView *blockchain.UtxoViewpoint, tx *btcutil
 		mp.cfg.FeeEstimator.ObserveTransaction(txD)
 	}
 
-	return txD
+	return txD, nil
 }
 
 // checkPoolDoubleSpend checks whether or not the passed transaction is
@@ -880,6 +917,21 @@ func (mp *TxPool) FetchTransaction(txHash *chainhash.Hash) (*btcutil.Tx, error) 
 	return nil, fmt.Errorf("transaction is not in the pool")
 }
 
+// FetchLeafDatas returns the leafdatas for the given tx.  Returns an error if
+// the leaves for the given tx is not in the pool.
+func (mp *TxPool) FetchLeafDatas(txHash *chainhash.Hash) ([]wire.LeafData, error) {
+	// Protect concurrent access.
+	mp.mtx.RLock()
+	leaves, exists := mp.poolLeaves[*txHash]
+	mp.mtx.RUnlock()
+
+	if exists {
+		return leaves, nil
+	}
+
+	return nil, fmt.Errorf("leafdata for the transaction is not in the pool")
+}
+
 // validateReplacement determines whether a transaction is deemed as a valid
 // replacement of all of its conflicts according to the RBF policy. If it is
 // valid, no error is returned. Otherwise, an error is returned indicating what
@@ -1083,9 +1135,11 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 
 		// First verify the proof to ensure that the proof the peer has
 		// sent was over valid.
-		err := mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn)
+		err = mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn, false)
 		if err != nil {
-			return nil, nil, err
+			str := fmt.Sprintf("transaction %v failed the utreexo data verification.",
+				txHash)
+			return nil, nil, txRuleError(wire.RejectInvalid, str)
 		}
 		log.Debugf("VerifyUData passed for tx %s", txHash.String())
 
@@ -1303,7 +1357,10 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 		// this call as they'll be removed eventually.
 		mp.removeTransaction(conflict, false)
 	}
-	txD := mp.addTransaction(utxoView, tx, bestHeight, txFee)
+	txD, err := mp.addTransaction(utxoView, tx, bestHeight, txFee)
+	if err != nil {
+		return nil, txD, err
+	}
 
 	log.Debugf("Accepted transaction %v (pool size: %v)", txHash,
 		len(mp.pool))
@@ -1624,6 +1681,7 @@ func New(cfg *Config) *TxPool {
 	return &TxPool{
 		cfg:            *cfg,
 		pool:           make(map[chainhash.Hash]*TxDesc),
+		poolLeaves:     make(map[chainhash.Hash][]wire.LeafData),
 		orphans:        make(map[chainhash.Hash]*orphanTx),
 		orphansByPrev:  make(map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx),
 		nextExpireScan: time.Now().Add(orphanExpireScanInterval),

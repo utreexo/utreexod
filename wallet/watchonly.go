@@ -864,7 +864,7 @@ func (wm *WatchOnlyWalletManager) ProveTx(tx *btcutil.Tx) (*wire.UData, error) {
 	}
 
 	// Verify that the generated proof passes verification.
-	err = wm.config.Chain.VerifyUData(&ud, tx.MsgTx().TxIn)
+	err = wm.config.Chain.VerifyUData(&ud, tx.MsgTx().TxIn, false)
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't prove tx %s. Generated proof "+
 			"fails verification. Error: %v", tx.Hash(), err)
