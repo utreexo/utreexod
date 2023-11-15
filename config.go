@@ -42,7 +42,7 @@ const (
 	defaultLogFilename           = "utreexod.log"
 	defaultMaxPeers              = 125
 	defaultBanDuration           = time.Hour * 24
-	defaultBanThreshold          = 100
+	defaultBanThreshold          = 300
 	defaultConnectTimeout        = time.Second * 30
 	defaultMaxRPCClients         = 10
 	defaultMaxRPCWebsockets      = 25
