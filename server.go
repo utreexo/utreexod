@@ -2582,8 +2582,10 @@ func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
 		s.addAccBytesReceived(uint64(accSize))
 
 	} else if s.chain.IsUtreexoViewActive() {
-		s.addProofBytesReceived(uint64(msgTx.UData.SerializeSizeCompact(true)))
-		s.addAccBytesReceived(uint64(msgTx.UData.SerializeAccSizeCompact()))
+		if msgTx.UData != nil {
+			s.addProofBytesReceived(uint64(msgTx.UData.SerializeSizeCompact(true)))
+			s.addAccBytesReceived(uint64(msgTx.UData.SerializeAccSizeCompact()))
+		}
 	}
 
 	return nil
