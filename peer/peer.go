@@ -476,7 +476,7 @@ type Peer struct {
 	outputQueue   chan outMsg
 	sendQueue     chan outMsg
 	sendDoneQueue chan struct{}
-	outputInvChan chan *wire.InvVect
+	outputInvChan chan []*wire.InvVect
 	inQuit        chan struct{}
 	queueQuit     chan struct{}
 	outQuit       chan struct{}
@@ -1609,23 +1609,27 @@ out:
 			val := pendingMsgs.Remove(next)
 			p.sendQueue <- val.(outMsg)
 
-		case iv := <-p.outputInvChan:
-			// No handshake?  They'll find out soon enough.
-			if p.VersionKnown() {
-				// If this is a new block, then we'll blast it
-				// out immediately, sipping the inv trickle
-				// queue.
-				if iv.Type == wire.InvTypeBlock ||
-					iv.Type == wire.InvTypeUtreexoBlock ||
-					iv.Type == wire.InvTypeWitnessBlock ||
-					iv.Type == wire.InvTypeWitnessUtreexoBlock {
+		case ivs := <-p.outputInvChan:
+			for i := range ivs {
+				iv := ivs[i]
 
-					invMsg := wire.NewMsgInvSizeHint(1)
-					invMsg.AddInvVect(iv)
-					waiting = queuePacket(outMsg{msg: invMsg},
-						pendingMsgs, waiting)
-				} else {
-					invSendQueue.PushBack(iv)
+				// No handshake?  They'll find out soon enough.
+				if p.VersionKnown() {
+					// If this is a new block, then we'll blast it
+					// out immediately, sipping the inv trickle
+					// queue.
+					if iv.Type == wire.InvTypeBlock ||
+						iv.Type == wire.InvTypeUtreexoBlock ||
+						iv.Type == wire.InvTypeWitnessBlock ||
+						iv.Type == wire.InvTypeWitnessUtreexoBlock {
+
+						invMsg := wire.NewMsgInvSizeHint(1)
+						invMsg.AddInvVect(iv)
+						waiting = queuePacket(outMsg{msg: invMsg},
+							pendingMsgs, waiting)
+					} else {
+						invSendQueue.PushBack(iv)
+					}
 				}
 			}
 
@@ -1849,10 +1853,17 @@ func (p *Peer) QueueMessageWithEncoding(msg wire.Message, doneChan chan<- struct
 // Inventory that the peer is already known to have is ignored.
 //
 // This function is safe for concurrent access.
-func (p *Peer) QueueInventory(invVect *wire.InvVect) {
-	// Don't add the inventory to the send queue if the peer is already
-	// known to have it.
-	if p.knownInventory.Contains(invVect) {
+func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
+	for i := 0; i < len(invVects); i++ {
+		// Don't add the inventory to the send queue if the peer is already
+		// known to have it.
+		if p.knownInventory.Contains(invVects[i]) {
+			invVects = append(invVects[:i], invVects[i+1:]...)
+		}
+	}
+
+	// Return if we have nothing left.
+	if len(invVects) == 0 {
 		return
 	}
 
@@ -1863,7 +1874,7 @@ func (p *Peer) QueueInventory(invVect *wire.InvVect) {
 		return
 	}
 
-	p.outputInvChan <- invVect
+	p.outputInvChan <- invVects
 }
 
 // Connected returns whether or not the peer is currently connected.
@@ -2261,7 +2272,7 @@ func newPeerBase(origCfg *Config, inbound bool) *Peer {
 		outputQueue:     make(chan outMsg, outputBufferSize),
 		sendQueue:       make(chan outMsg, 1),   // nonblocking sync
 		sendDoneQueue:   make(chan struct{}, 1), // nonblocking sync
-		outputInvChan:   make(chan *wire.InvVect, outputBufferSize),
+		outputInvChan:   make(chan []*wire.InvVect, outputBufferSize),
 		inQuit:          make(chan struct{}),
 		queueQuit:       make(chan struct{}),
 		outQuit:         make(chan struct{}),
