@@ -210,6 +210,9 @@ type TxPool struct {
 // Ensure the TxPool type implements the mining.TxSource interface.
 var _ mining.TxSource = (*TxPool)(nil)
 
+// Ensure the TxPool type implements the TxMemPool interface.
+var _ TxMempool = (*TxPool)(nil)
+
 // removeOrphan is the internal function which implements the public
 // RemoveOrphan.  See the comment for RemoveOrphan for more details.
 //
@@ -481,14 +484,14 @@ func (mp *TxPool) HaveTransaction(hash *chainhash.Hash) bool {
 // RemoveTransaction.  See the comment for RemoveTransaction for more details.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers, uncacheUtreexo bool) {
+func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers bool) {
 	txHash := tx.Hash()
 	if removeRedeemers {
 		// Remove any transactions which rely on this one.
 		for i := uint32(0); i < uint32(len(tx.MsgTx().TxOut)); i++ {
 			prevOut := wire.OutPoint{Hash: *txHash, Index: i}
 			if txRedeemer, exists := mp.outpoints[prevOut]; exists {
-				mp.removeTransaction(txRedeemer, true, uncacheUtreexo)
+				mp.removeTransaction(txRedeemer, true)
 			}
 		}
 	}
@@ -499,25 +502,6 @@ func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers, uncacheUtre
 		// transaction if enabled.
 		if mp.cfg.AddrIndex != nil {
 			mp.cfg.AddrIndex.RemoveUnconfirmedTx(txHash)
-		}
-
-		// If the utreexo view is active, then remove the cached hashes from the
-		// accumulator.
-		if mp.cfg.IsUtreexoViewActive != nil && mp.cfg.IsUtreexoViewActive() && uncacheUtreexo {
-			leaves, found := mp.poolLeaves[*txHash]
-			if !found {
-				log.Debugf("missing the leaf hashes for tx %s from while "+
-					"removing it from the pool",
-					tx.MsgTx().TxHash().String())
-			} else {
-				delete(mp.poolLeaves, *txHash)
-
-				err := mp.cfg.PruneFromAccumulator(leaves)
-				if err != nil {
-					log.Infof("err while pruning proof for inputs of tx %s: ",
-						err, tx.MsgTx().TxHash().String())
-				}
-			}
 		}
 
 		// Mark the referenced outpoints as unspent by the pool.
@@ -536,10 +520,10 @@ func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers, uncacheUtre
 // it'll uncache the utreexo proof for the given tx if it's cached.
 //
 // This function is safe for concurrent access.
-func (mp *TxPool) RemoveTransaction(tx *btcutil.Tx, removeRedeemers, uncacheUtreexo bool) {
+func (mp *TxPool) RemoveTransaction(tx *btcutil.Tx, removeRedeemers bool) {
 	// Protect concurrent access.
 	mp.mtx.Lock()
-	mp.removeTransaction(tx, removeRedeemers, uncacheUtreexo)
+	mp.removeTransaction(tx, removeRedeemers)
 	mp.mtx.Unlock()
 }
 
@@ -556,7 +540,7 @@ func (mp *TxPool) RemoveDoubleSpends(tx *btcutil.Tx) {
 	for _, txIn := range tx.MsgTx().TxIn {
 		if txRedeemer, ok := mp.outpoints[txIn.PreviousOutPoint]; ok {
 			if !txRedeemer.Hash().IsEqual(tx.Hash()) {
-				mp.removeTransaction(txRedeemer, true, true)
+				mp.removeTransaction(txRedeemer, true)
 			}
 		}
 	}
@@ -1052,7 +1036,7 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit,
 		//
 		// Don't remove the cached utreexo proof either because we'll need
 		// it for the ingestion.
-		mp.removeTransaction(conflict, false, false)
+		mp.removeTransaction(conflict, false)
 	}
 	txD := mp.addTransaction(r.utxoView, tx, r.bestHeight, int64(r.TxFee))
 

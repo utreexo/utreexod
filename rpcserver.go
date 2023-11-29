@@ -3933,7 +3933,7 @@ func handleRebroadcastUnconfirmedBDKTxs(s *rpcServer, cmd interface{}, closeChan
 		tx := unconfirmedTx.Tx
 
 		// If it's already in the mempool, then we've already broadcasted it.
-		if s.cfg.TxMemPool.IsTransactionInPool(tx.Hash()) {
+		if s.cfg.TxMemPool.HaveTransaction(tx.Hash()) {
 			continue
 		}
 
@@ -4322,7 +4322,7 @@ func (s *rpcServer) rpcProcessTx(tx *btcutil.Tx, allowOrphan, rateLimit bool) er
 	// Also, since an error is being returned to the caller, ensure the
 	// transaction is removed from the memory pool.
 	if len(acceptedTxs) == 0 || !acceptedTxs[0].Tx.Hash().IsEqual(tx.Hash()) {
-		s.cfg.TxMemPool.RemoveTransaction(tx, true, true)
+		s.cfg.TxMemPool.RemoveTransaction(tx, true)
 
 		errStr := fmt.Sprintf("transaction %v is not in accepted list",
 			tx.Hash())
@@ -5633,7 +5633,7 @@ type rpcserverConfig struct {
 	DB          database.DB
 
 	// TxMemPool defines the transaction memory pool to interact with.
-	TxMemPool *mempool.TxPool
+	TxMemPool mempool.TxMempool
 
 	// These fields allow the RPC server to interface with mining.
 	//
