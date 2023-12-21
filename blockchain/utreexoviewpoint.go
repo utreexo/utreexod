@@ -928,6 +928,39 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 	return nil
 }
 
+// GenerateUDataPartial generates a utreexo data based on the current state of the utreexo viewpoint.
+// It leaves out the full proof hashes and only fetches the requested positions.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*wire.UData, error) {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	ud := new(wire.UData)
+	ud.LeafDatas = dels
+
+	// Get the positions of the targets of delHashes.
+	delHashes, err := wire.HashesFromLeafDatas(ud.LeafDatas)
+	if err != nil {
+		return nil, err
+	}
+	targets := b.getLeafHashPositions(delHashes)
+
+	// Fetch the requested hashes.
+	hashes := make([]utreexo.Hash, len(positions))
+	for i, pos := range positions {
+		hashes[i] = b.utreexoView.accumulator.GetHash(pos)
+	}
+
+	// Put the proof together and return.
+	ud.AccProof = utreexo.Proof{
+		Targets: targets,
+		Proof:   hashes,
+	}
+
+	return ud, nil
+}
+
 // GenerateUData generates a utreexo data based on the current state of the utreexo viewpoint.
 //
 // This function is safe for concurrent access.
