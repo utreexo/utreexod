@@ -909,7 +909,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 
 	// VerifyBatchProof checks that the utreexo proofs are valid without
 	// mutating the accumulator.
-	err := b.utreexoView.accumulator.Verify(delHashes, ud.AccProof, remember)
+	err := b.utreexoView.accumulator.VerifyPartialProof(ud.AccProof.Targets, delHashes, ud.AccProof.Proof, remember)
 	if err != nil {
 		str := "Verify fail. All txIns-leaf datas:\n"
 		for i, txIn := range txIns {
