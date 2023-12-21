@@ -234,6 +234,43 @@ func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UDa
 	return ud, err
 }
 
+// GetLeafHashPositions returns the positions of the passed in hashes.
+func (idx *UtreexoProofIndex) GetLeafHashPositions(delHashes []utreexo.Hash) []uint64 {
+	idx.mtx.RLock()
+	defer idx.mtx.RUnlock()
+
+	return idx.utreexoState.state.GetLeafPositions(delHashes)
+}
+
+// GenerateUDataPartial generates a utreexo data based on the current state of the accumulator.
+// It leaves out the full proof hashes and only fetches the requested positions.
+func (idx *UtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*wire.UData, error) {
+	idx.mtx.RLock()
+	defer idx.mtx.RUnlock()
+
+	ud := new(wire.UData)
+	ud.LeafDatas = dels
+
+	// Get the positions of the targets of delHashes.
+	delHashes, err := wire.HashesFromLeafDatas(ud.LeafDatas)
+	if err != nil {
+		return nil, err
+	}
+
+	hashes := make([]utreexo.Hash, len(positions))
+	for i, pos := range positions {
+		hashes[i] = idx.utreexoState.state.GetHash(pos)
+	}
+
+	targets := idx.utreexoState.state.GetLeafPositions(delHashes)
+	ud.AccProof = utreexo.Proof{
+		Targets: targets,
+		Proof:   hashes,
+	}
+
+	return ud, nil
+}
+
 // GenerateUData generates utreexo data for the dels passed in.  Height passed in
 // should either be of block height of where the deletions are happening or just
 // the lastest block height for mempool tx proof generation.
