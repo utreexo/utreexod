@@ -979,6 +979,54 @@ func (b *BlockChain) PruneFromAccumulator(leaves []wire.LeafData) error {
 	return nil
 }
 
+// packedPositions fetches and returns the positions of the leafHashes as chainhash.Hash.
+//
+// This function is NOT safe for concurrent access.
+func (b *BlockChain) packedPositions(leafHashes []utreexo.Hash) []chainhash.Hash {
+	positions := b.utreexoView.accumulator.GetLeafHashPositions(leafHashes)
+	return chainhash.Uint64sToPackedHashes(positions)
+}
+
+// PackedPositions fetches and returns the positions of the leafHashes as chainhash.Hash.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) PackedPositions(leafHashes []utreexo.Hash) []chainhash.Hash {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	return b.packedPositions(leafHashes)
+}
+
+// getLeafHashPositions returns the positions of the passed in leaf hashes.
+//
+// This function is NOT safe for concurrent access.
+func (b *BlockChain) getLeafHashPositions(leafHashes []utreexo.Hash) []uint64 {
+	return b.utreexoView.accumulator.GetLeafHashPositions(leafHashes)
+}
+
+// GetLeafHashPositions returns the positions of the passed in leaf hashes.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) GetLeafHashPositions(leafHashes []utreexo.Hash) []uint64 {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	return b.getLeafHashPositions(leafHashes)
+}
+
+// GetNeededPositions returns the positions of the needed hashes in order to verify the
+// positions passed in.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) GetNeededPositions(packedPositions []chainhash.Hash) []chainhash.Hash {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	positions := chainhash.PackedHashesToUint64(packedPositions)
+	missing := b.utreexoView.accumulator.GetMissingPositions(positions)
+	return chainhash.Uint64sToPackedHashes(missing)
+}
+
 // ChainTipProof represents all the information that is needed to prove that a
 // utxo exists in the chain tip with utreexo accumulator proof.
 type ChainTipProof struct {
