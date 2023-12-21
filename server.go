@@ -690,13 +690,35 @@ func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
 		var err error
 		switch iv.Type {
 		case wire.InvTypeWitnessTx:
-			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
+			err = sp.server.pushTxMsg(sp, &iv.Hash, nil, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeTx:
-			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.BaseEncoding)
+			err = sp.server.pushTxMsg(sp, &iv.Hash, nil, c, waitChan, wire.BaseEncoding)
 		case wire.InvTypeWitnessUtreexoTx:
-			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding|wire.UtreexoEncoding)
+			packedPositions := make([]chainhash.Hash, 0, 2)
+			if i+1 < len(msg.InvList) {
+				for j := i + 1; j < len(msg.InvList); j++ {
+					if msg.InvList[j].Type == wire.InvTypeUtreexoProofHash {
+						packedPositions = append(packedPositions, msg.InvList[j].Hash)
+					} else {
+						break
+					}
+				}
+			}
+
+			err = sp.server.pushTxMsg(sp, &iv.Hash, packedPositions, c, waitChan, wire.WitnessEncoding|wire.UtreexoEncoding)
 		case wire.InvTypeUtreexoTx:
-			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.UtreexoEncoding)
+			packedPositions := make([]chainhash.Hash, 0, 2)
+			if i+1 < len(msg.InvList) {
+				for j := i + 1; j < len(msg.InvList); j++ {
+					if msg.InvList[j].Type == wire.InvTypeUtreexoProofHash {
+						packedPositions = append(packedPositions, msg.InvList[j].Hash)
+					} else {
+						break
+					}
+				}
+			}
+
+			err = sp.server.pushTxMsg(sp, &iv.Hash, packedPositions, c, waitChan, wire.UtreexoEncoding)
 		case wire.InvTypeWitnessBlock:
 			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeBlock:
@@ -709,6 +731,10 @@ func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
 			err = sp.server.pushMerkleBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeFilteredBlock:
 			err = sp.server.pushMerkleBlockMsg(sp, &iv.Hash, c, waitChan, wire.BaseEncoding)
+		case wire.InvTypeUtreexoProofHash:
+			// Clear out any errors.
+			err = nil
+			continue
 		default:
 			peerLog.Warnf("Unknown type in inventory request %d",
 				iv.Type)
@@ -1496,7 +1522,7 @@ func (s *server) TransactionConfirmed(tx *btcutil.Tx) {
 
 // pushTxMsg sends a tx message for the provided transaction hash to the
 // connected peer.  An error is returned if the transaction hash is not known.
-func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<- struct{},
+func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions []chainhash.Hash, doneChan chan<- struct{},
 	waitChan <-chan struct{}, encoding wire.MessageEncoding) error {
 
 	// Attempt to fetch the requested transaction from the pool.  A
@@ -1543,18 +1569,32 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 
 			btcdLog.Debugf("fetched %v for tx %s", leafDatas, tx.Hash())
 
-			// This creates the accumulator proof and also puts the leaf datas
-			// in the utreexo data.
-			ud, err := s.chain.GenerateUData(leafDatas)
-			if err != nil {
-				chanLog.Errorf(err.Error())
-				if doneChan != nil {
-					doneChan <- struct{}{}
+			if packedPositions != nil || len(packedPositions) == 0 {
+				positions := chainhash.PackedHashesToUint64(packedPositions)
+				ud, err := s.chain.GenerateUDataPartial(leafDatas, positions)
+				if err != nil {
+					chanLog.Errorf(err.Error())
+					if doneChan != nil {
+						doneChan <- struct{}{}
+					}
+					return err
 				}
-				return err
-			}
 
-			tx.MsgTx().UData = ud
+				tx.MsgTx().UData = ud
+			} else {
+				// This creates the accumulator proof and also puts the leaf datas
+				// in the utreexo data.
+				ud, err := s.chain.GenerateUData(leafDatas)
+				if err != nil {
+					chanLog.Errorf(err.Error())
+					if doneChan != nil {
+						doneChan <- struct{}{}
+					}
+					return err
+				}
+
+				tx.MsgTx().UData = ud
+			}
 		}
 
 		// For bridge nodes.
@@ -1567,16 +1607,30 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 				}
 				return err
 			}
-			ud, err := s.utreexoProofIndex.GenerateUData(leafDatas)
-			if err != nil {
-				chanLog.Errorf(err.Error())
-				if doneChan != nil {
-					doneChan <- struct{}{}
-				}
-				return err
-			}
-			tx.MsgTx().UData = ud
 
+			if packedPositions != nil || len(packedPositions) == 0 {
+				positions := chainhash.PackedHashesToUint64(packedPositions)
+				ud, err := s.utreexoProofIndex.GenerateUDataPartial(leafDatas, positions)
+				if err != nil {
+					chanLog.Errorf(err.Error())
+					if doneChan != nil {
+						doneChan <- struct{}{}
+					}
+					return err
+				}
+
+				tx.MsgTx().UData = ud
+			} else {
+				ud, err := s.utreexoProofIndex.GenerateUData(leafDatas)
+				if err != nil {
+					chanLog.Errorf(err.Error())
+					if doneChan != nil {
+						doneChan <- struct{}{}
+					}
+					return err
+				}
+				tx.MsgTx().UData = ud
+			}
 		} else if s.flatUtreexoProofIndex != nil {
 			leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
 			if err != nil {
@@ -1586,15 +1640,30 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<-
 				}
 				return err
 			}
-			ud, err := s.flatUtreexoProofIndex.GenerateUData(leafDatas)
-			if err != nil {
-				chanLog.Errorf(err.Error())
-				if doneChan != nil {
-					doneChan <- struct{}{}
+			if packedPositions != nil || len(packedPositions) == 0 {
+				positions := chainhash.PackedHashesToUint64(packedPositions)
+				ud, err := s.flatUtreexoProofIndex.GenerateUDataPartial(leafDatas, positions)
+				if err != nil {
+					chanLog.Errorf(err.Error())
+					if doneChan != nil {
+						doneChan <- struct{}{}
+					}
+					return err
 				}
-				return err
+
+				tx.MsgTx().UData = ud
+			} else {
+				ud, err := s.flatUtreexoProofIndex.GenerateUData(leafDatas)
+				if err != nil {
+					chanLog.Errorf(err.Error())
+					if doneChan != nil {
+						doneChan <- struct{}{}
+					}
+					return err
+				}
+
+				tx.MsgTx().UData = ud
 			}
-			tx.MsgTx().UData = ud
 		}
 	}
 
@@ -1973,6 +2042,88 @@ func (s *server) handleBanPeerMsg(state *peerState, sp *serverPeer) {
 	state.banned[host] = time.Now().Add(cfg.BanDuration)
 }
 
+// relayUtreexoInv queues tx invs for utreexo invs with the proof positions appended
+// to the tx inv. No-op if the passed in msg isn't a tx.
+func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
+	switch msg.invVect.Type {
+	case wire.InvTypeTx:
+	case wire.InvTypeWitnessTx:
+	case wire.InvTypeUtreexoTx:
+	case wire.InvTypeWitnessUtreexoTx:
+	default:
+		// Not a tx so just return.
+		return
+	}
+
+	var packedHashes []chainhash.Hash
+	switch {
+	case cfg.Utreexo:
+		// Get the leaf datas to figure out the positions needed to send
+		// over to the peers.
+		leafDatas, err := s.txMemPool.FetchLeafDatas(&msg.invVect.Hash)
+		if err != nil {
+			btcdLog.Debugf("Couldn't relay tx %s as the tx "+
+				"wasn't available in the mempool. %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		// Generate the hashes for the leafdatas.
+		leafHashes, err := wire.HashesFromLeafDatas(leafDatas)
+		if err != nil {
+			btcdLog.Debugf("Couldn't generate leaf hashes for tx %s "+
+				"err: %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		packedHashes = s.chain.PackedPositions(leafHashes)
+	default:
+		tx, err := s.txMemPool.FetchTransaction(&msg.invVect.Hash)
+		if err != nil {
+			btcdLog.Debugf("Couldn't relay tx %s as the tx "+
+				"wasn't available in the mempool. %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
+		if err != nil {
+			btcdLog.Debugf("Couldn't relay tx %s as the leaf data "+
+				"generation errored out %v", msg.invVect.Hash.String(), err)
+			return
+		}
+
+		// Generate the hashes for the leafdatas.
+		leafHashes, err := wire.HashesFromLeafDatas(leafDatas)
+		if err != nil {
+			btcdLog.Debugf("Couldn't generate leaf hashes for tx %s "+
+				"err: %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		if s.utreexoProofIndex != nil {
+			positions := s.utreexoProofIndex.GetLeafHashPositions(leafHashes)
+			packedHashes = chainhash.Uint64sToPackedHashes(positions)
+		} else {
+			positions := s.flatUtreexoProofIndex.GetLeafHashPositions(leafHashes)
+			packedHashes = chainhash.Uint64sToPackedHashes(positions)
+		}
+	}
+
+	// +1 for the tx inv.
+	invVects := make([]*wire.InvVect, 0, len(packedHashes)+1)
+	invVects = append(invVects, msg.invVect)
+	for i := range packedHashes {
+		invVects = append(invVects,
+			wire.NewInvVect(wire.InvTypeUtreexoProofHash, &packedHashes[i]))
+	}
+
+	// Queue the inventory.
+	sp.QueueInventory(invVects)
+}
+
 // handleRelayInvMsg deals with relaying inventory to peers that are not already
 // known to have it.  It is invoked from the peerHandler goroutine.
 func (s *server) handleRelayInvMsg(state *peerState, msg relayMsg) {
@@ -2029,6 +2180,18 @@ func (s *server) handleRelayInvMsg(state *peerState, msg relayMsg) {
 				if !sp.filter.MatchTxAndUpdate(txD.Tx) {
 					return
 				}
+			}
+
+			// If the peer is a utreexo node, then add in the positions
+			// of the inputs being spent to the inv message.
+			if sp.IsUtreexoEnabled() &&
+				(cfg.Utreexo ||
+					s.utreexoProofIndex != nil ||
+					s.flatUtreexoProofIndex != nil) {
+
+				// Return right after queuing a utreexo tx inv.
+				s.relayUtreexoTxInv(sp, msg)
+				return
 			}
 		}
 

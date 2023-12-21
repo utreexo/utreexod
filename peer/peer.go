@@ -1031,6 +1031,8 @@ func (p *Peer) readMessage(encoding wire.MessageEncoding) (wire.Message, []byte,
 		p.cfg.Listeners.OnRead(p, n, msg, err)
 	}
 	if err != nil {
+		log.Infof("readMessage err %v. Peer %v, isutreexo?:%v",
+			err, p.Addr(), p.IsUtreexoEnabled())
 		return nil, nil, err
 	}
 
@@ -1051,6 +1053,19 @@ func (p *Peer) readMessage(encoding wire.MessageEncoding) (wire.Message, []byte,
 	log.Tracef("%v", newLogClosure(func() string {
 		return spew.Sdump(buf)
 	}))
+
+	if p.IsUtreexoEnabled() {
+		if msg.Command() == wire.CmdTx {
+			switch rmsg := msg.(type) {
+			case *wire.MsgTx:
+				log.Infof("readmessage got msg %v(%v) with encoding %v for peer %v",
+					msg.Command(), rmsg.TxHash().String(), encoding, p.Addr())
+			}
+		} else {
+			log.Infof("readmessage got msg %v with encoding %v for peer %v",
+				msg.Command(), encoding, p.Addr())
+		}
+	}
 
 	return msg, buf, nil
 }
@@ -1089,6 +1104,18 @@ func (p *Peer) writeMessage(msg wire.Message, enc wire.MessageEncoding) error {
 	// Write the message to the peer.
 	n, err := wire.WriteMessageWithEncodingN(p.conn, msg,
 		p.ProtocolVersion(), p.cfg.ChainParams.Net, enc)
+	if p.IsUtreexoEnabled() {
+		if msg.Command() == wire.CmdTx {
+			switch rmsg := msg.(type) {
+			case *wire.MsgTx:
+				log.Infof("writeMessage queuing msg %v(%v) with encoding %v for peer %v, err %v",
+					msg.Command(), rmsg.TxHash().String(), enc, p.Addr(), err)
+			}
+		} else {
+			log.Infof("writeMessage queuing msg %v with encoding %v for peer %v",
+				msg.Command(), enc, p.Addr())
+		}
+	}
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 	if p.cfg.Listeners.OnWrite != nil {
 		p.cfg.Listeners.OnWrite(p, n, msg, err)
@@ -1350,6 +1377,15 @@ out:
 		// is done.  The timer is reset below for the next iteration if
 		// needed.
 		rmsg, buf, err := p.readMessage(p.wireEncoding)
+
+		if p.IsUtreexoEnabled() {
+			if rmsg != nil {
+				if rmsg.Command() == wire.CmdGetData {
+					log.Infof("Received msg %v(%v) from peer %v, err %v", rmsg, rmsg.Command(), p.Addr(), err)
+				}
+			}
+		}
+
 		idleTimer.Stop()
 		if err != nil {
 			// In order to allow regression tests with malformed messages, don't
@@ -1591,6 +1627,10 @@ out:
 	for {
 		select {
 		case msg := <-p.outputQueue:
+			if p.IsUtreexoEnabled() {
+				log.Infof("queuing msg %v with encoding %v for peer %v",
+					msg.msg.Command(), msg.encoding, p.Addr())
+			}
 			waiting = queuePacket(msg, pendingMsgs, waiting)
 
 		// This channel is notified when a message has been sent across
@@ -1610,25 +1650,77 @@ out:
 			p.sendQueue <- val.(outMsg)
 
 		case ivs := <-p.outputInvChan:
-			for i := range ivs {
-				iv := ivs[i]
+			// Only utreexo txs get more than one inv at a time. We send these
+			// out immediately.
+			if len(ivs) > 1 {
+				invTypes := make([]string, 0, len(ivs))
+				for _, iv := range ivs {
+					invTypes = append(invTypes, iv.Type.String())
+				}
+
+				log.Infof("iv types queued %v for peer %v", invTypes, p.Addr())
+
+				// Don't send anything if we're disconnecting or there
+				// is no queued inventory.
+				// version is known if send queue has any entries.
+				if atomic.LoadInt32(&p.disconnect) != 0 {
+					continue
+				}
 
 				// No handshake?  They'll find out soon enough.
 				if p.VersionKnown() {
-					// If this is a new block, then we'll blast it
-					// out immediately, sipping the inv trickle
-					// queue.
-					if iv.Type == wire.InvTypeBlock ||
-						iv.Type == wire.InvTypeUtreexoBlock ||
-						iv.Type == wire.InvTypeWitnessBlock ||
-						iv.Type == wire.InvTypeWitnessUtreexoBlock {
+					invMsg := wire.NewMsgInvSizeHint(uint(len(ivs)))
+					for i := range ivs {
+						iv := ivs[i]
+						// Don't send inventory that became known after
+						// the initial check.
+						if p.knownInventory.Contains(iv) {
+							continue
+						}
 
-						invMsg := wire.NewMsgInvSizeHint(1)
+						if iv.Type == wire.InvTypeTx ||
+							iv.Type == wire.InvTypeWitnessTx ||
+							iv.Type == wire.InvTypeUtreexoTx ||
+							iv.Type == wire.InvTypeWitnessUtreexoTx {
+							// Add the inventory that is being relayed to
+							// the known inventory for the peer.
+							p.AddKnownInventory(ivs[i])
+						} else if iv.Type == wire.InvTypeUtreexoProofHash {
+						} else {
+							continue
+						}
+
+						log.Infof("adding type %v to the queue for peer %v",
+							iv.Type.String(), p.Addr())
 						invMsg.AddInvVect(iv)
-						waiting = queuePacket(outMsg{msg: invMsg},
-							pendingMsgs, waiting)
-					} else {
-						invSendQueue.PushBack(iv)
+					}
+
+					log.Infof("Immediately queuing invs (%d) for peer %v, waiting %v",
+						len(ivs), p.Addr(), waiting)
+					waiting = queuePacket(outMsg{msg: invMsg},
+						pendingMsgs, waiting)
+				}
+			} else {
+				for i := range ivs {
+					iv := ivs[i]
+
+					// No handshake?  They'll find out soon enough.
+					if p.VersionKnown() {
+						// If this is a new block, then we'll blast it
+						// out immediately, skipping the inv trickle
+						// queue.
+						if iv.Type == wire.InvTypeBlock ||
+							iv.Type == wire.InvTypeUtreexoBlock ||
+							iv.Type == wire.InvTypeWitnessBlock ||
+							iv.Type == wire.InvTypeWitnessUtreexoBlock {
+
+							invMsg := wire.NewMsgInvSizeHint(1)
+							invMsg.AddInvVect(iv)
+							waiting = queuePacket(outMsg{msg: invMsg},
+								pendingMsgs, waiting)
+						} else {
+							invSendQueue.PushBack(iv)
+						}
 					}
 				}
 			}
@@ -1857,7 +1949,9 @@ func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
 	for i := 0; i < len(invVects); i++ {
 		// Don't add the inventory to the send queue if the peer is already
 		// known to have it.
-		if p.knownInventory.Contains(invVects[i]) {
+		if invVects[i].Type != wire.InvTypeUtreexoProofHash &&
+			p.knownInventory.Contains(invVects[i]) {
+
 			invVects = append(invVects[:i], invVects[i+1:]...)
 		}
 	}
@@ -1960,6 +2054,7 @@ func (p *Peer) readRemoteVersionMsg() error {
 	// Determine if the peer would like to receive witness data with
 	// transactions, or not.
 	if p.services&wire.SFNodeUtreexo == wire.SFNodeUtreexo {
+		log.Infof("peer %v is a utreexo node")
 		p.utreexoEnabled = true
 	}
 	p.flagsMtx.Unlock()

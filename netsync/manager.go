@@ -1218,7 +1218,9 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 	// request parent blocks of orphans if we receive one we already have.
 	// Finally, attempt to detect potential stalls due to long side chains
 	// we already have and request more blocks to prevent them.
-	for i, iv := range invVects {
+	for i := 0; i < len(invVects); i++ {
+		iv := invVects[i]
+
 		// Ignore unsupported inventory types.
 		switch iv.Type {
 		case wire.InvTypeBlock:
@@ -1229,6 +1231,12 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeWitnessTx:
 		case wire.InvTypeUtreexoTx:
 		case wire.InvTypeWitnessUtreexoTx:
+		case wire.InvTypeUtreexoProofHash:
+			log.Infof("skipping proof hash of %v", iv.Hash)
+			// If the inv is a utreexo proof hash, then it means that
+			// we've already skipped/added the tx that it belongs to or
+			// we're in headers first mode.
+			continue
 		default:
 			continue
 		}
@@ -1269,6 +1277,28 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 
 			// Add it to the request queue.
 			state.requestQueue = append(state.requestQueue, iv)
+
+			// If the inv is for a utreexo tx, then also pop off the utreexo
+			// proof hash invs and add it to the request queue.
+			//if iv.Type&wire.InvTypeUtreexoTx == wire.InvTypeUtreexoTx {
+			if peer.IsUtreexoEnabled() {
+				switch iv.Type {
+				case wire.InvTypeTx:
+				case wire.InvTypeWitnessTx:
+				case wire.InvTypeUtreexoTx:
+				case wire.InvTypeWitnessUtreexoTx:
+				default:
+					continue
+				}
+
+				for j := i + 1; j < len(invVects); j++ {
+					if invVects[j].Type != wire.InvTypeUtreexoProofHash {
+						break
+					}
+					state.requestQueue = append(state.requestQueue, invVects[j])
+				}
+			}
+
 			continue
 		}
 
@@ -1339,14 +1369,16 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 
 				if peer.IsWitnessEnabled() {
 					iv.Type = wire.InvTypeWitnessBlock
+				}
 
-					if peer.IsUtreexoEnabled() {
-						iv.Type = wire.InvTypeWitnessUtreexoBlock
-					}
-				} else {
-					if peer.IsUtreexoEnabled() {
-						iv.Type = wire.InvTypeUtreexoBlock
-					}
+				amUtreexoNode := sm.chain.IsUtreexoViewActive()
+				//if !peer.IsUtreexoEnabled() && amUtreexoNode {
+				//	// Return now as non-utreexo nodes cannot serve us the
+				//	// required proofs.
+				//	return
+				//}
+				if amUtreexoNode {
+					iv.Type |= wire.InvUtreexoFlag
 				}
 
 				gdmsg.AddInvVect(iv)
@@ -1360,29 +1392,93 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeUtreexoTx:
 			fallthrough
 		case wire.InvTypeTx:
-			// Request the transaction if there is not already a
-			// pending request.
-			if _, exists := sm.requestedTxns[iv.Hash]; !exists {
-				limitAdd(sm.requestedTxns, iv.Hash, maxRequestedTxns)
-				limitAdd(state.requestedTxns, iv.Hash, maxRequestedTxns)
+			amUtreexoNode := sm.chain.IsUtreexoViewActive()
+			if amUtreexoNode {
+				//if !peer.IsUtreexoEnabled() {
+				//	log.Debugf("skipping tx %v as peer %v isn't utreexo enabled", iv.Hash.String(), peer.Addr())
+				//	// Return now as non-utreexo nodes cannot serve us the
+				//	// required proofs.
+				//	return
+				//}
 
-				// If the peer is capable, request the txn
-				// including all witness data.
-				if peer.IsWitnessEnabled() {
-					iv.Type = wire.InvTypeWitnessTx
-
-					if peer.IsUtreexoEnabled() {
-						iv.Type = wire.InvTypeWitnessUtreexoTx
+				// Request the transaction if there is not already a
+				// pending request.
+				if _, exists := sm.requestedTxns[iv.Hash]; !exists {
+					var packedProofs []chainhash.Hash
+					if len(requestQueue) == 0 {
+						log.Debugf("got inv for tx %v but no packed positions even "+
+							"though utreexo view is active", iv.Hash)
 					}
-				} else {
-					if peer.IsUtreexoEnabled() {
-						iv.Type = wire.InvTypeUtreexoTx
+
+					for len(requestQueue) > 0 && requestQueue[0].Type == wire.InvTypeUtreexoProofHash {
+						proofInv := requestQueue[0]
+						packedProofs = append(packedProofs, proofInv.Hash)
+
+						requestQueue[0] = nil
+						requestQueue = requestQueue[1:]
+					}
+
+					log.Debugf("for tx %s(%v), got %v packed positions, which are %v",
+						iv.Hash, iv.Type.String(), packedProofs, chainhash.PackedHashesToUint64(packedProofs))
+
+					// Check that the proof invs+the current tx inv and all
+					// other requested invs do not go over the max inv per
+					// message limit.
+					if len(packedProofs)+1+numRequested+1 >= wire.MaxInvPerMsg {
+						break
+					}
+
+					var packedPositions []chainhash.Hash
+					if len(packedProofs) > 0 {
+						packedPositions = sm.chain.GetNeededPositions(packedProofs)
+					}
+
+					log.Debugf("need %v to prove tx %v", chainhash.PackedHashesToUint64(packedPositions), iv.Hash)
+
+					limitAdd(sm.requestedTxns, iv.Hash, maxRequestedTxns)
+					limitAdd(state.requestedTxns, iv.Hash, maxRequestedTxns)
+
+					// If the peer is capable, request the txn
+					// including all witness data.
+					if peer.IsWitnessEnabled() {
+						iv.Type = wire.InvTypeWitnessTx
+					}
+
+					iv.Type |= wire.InvUtreexoFlag
+
+					log.Debugf("requesting inv type %v", iv.Type.String())
+
+					gdmsg.AddInvVect(iv)
+					numRequested++
+
+					for i := range packedPositions {
+						gdmsg.AddInvVect(wire.NewInvVect(
+							wire.InvTypeUtreexoProofHash,
+							&packedPositions[i]),
+						)
+						numRequested++
 					}
 				}
+			} else {
+				// Request the transaction if there is not already a
+				// pending request.
+				if _, exists := sm.requestedTxns[iv.Hash]; !exists {
+					limitAdd(sm.requestedTxns, iv.Hash, maxRequestedTxns)
+					limitAdd(state.requestedTxns, iv.Hash, maxRequestedTxns)
 
-				gdmsg.AddInvVect(iv)
-				numRequested++
+					// If the peer is capable, request the txn
+					// including all witness data.
+					if peer.IsWitnessEnabled() {
+						iv.Type = wire.InvTypeWitnessTx
+					}
+
+					gdmsg.AddInvVect(iv)
+					numRequested++
+				}
 			}
+		case wire.InvTypeUtreexoProofHash:
+			log.Debugf("skip here %v(%v)", iv.Type.String(), iv.Hash.String())
+			continue
 		}
 
 		if numRequested >= wire.MaxInvPerMsg {
