@@ -928,6 +928,39 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 	return nil
 }
 
+// GenerateUDataPartial generates a utreexo data based on the current state of the utreexo viewpoint.
+// It leaves out the full proof hashes and only fetches the requested positions.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*wire.UData, error) {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	ud := new(wire.UData)
+	ud.LeafDatas = dels
+
+	// Get the positions of the targets of delHashes.
+	delHashes, err := wire.HashesFromLeafDatas(ud.LeafDatas)
+	if err != nil {
+		return nil, err
+	}
+	targets := b.getLeafHashPositions(delHashes)
+
+	// Fetch the requested hashes.
+	hashes := make([]utreexo.Hash, len(positions))
+	for i, pos := range positions {
+		hashes[i] = b.utreexoView.accumulator.GetHash(pos)
+	}
+
+	// Put the proof together and return.
+	ud.AccProof = utreexo.Proof{
+		Targets: targets,
+		Proof:   hashes,
+	}
+
+	return ud, nil
+}
+
 // GenerateUData generates a utreexo data based on the current state of the utreexo viewpoint.
 //
 // This function is safe for concurrent access.
@@ -977,6 +1010,54 @@ func (b *BlockChain) PruneFromAccumulator(leaves []wire.LeafData) error {
 	}
 
 	return nil
+}
+
+// packedPositions fetches and returns the positions of the leafHashes as chainhash.Hash.
+//
+// This function is NOT safe for concurrent access.
+func (b *BlockChain) packedPositions(leafHashes []utreexo.Hash) []chainhash.Hash {
+	positions := b.utreexoView.accumulator.GetLeafHashPositions(leafHashes)
+	return chainhash.Uint64sToPackedHashes(positions)
+}
+
+// PackedPositions fetches and returns the positions of the leafHashes as chainhash.Hash.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) PackedPositions(leafHashes []utreexo.Hash) []chainhash.Hash {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	return b.packedPositions(leafHashes)
+}
+
+// getLeafHashPositions returns the positions of the passed in leaf hashes.
+//
+// This function is NOT safe for concurrent access.
+func (b *BlockChain) getLeafHashPositions(leafHashes []utreexo.Hash) []uint64 {
+	return b.utreexoView.accumulator.GetLeafHashPositions(leafHashes)
+}
+
+// GetLeafHashPositions returns the positions of the passed in leaf hashes.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) GetLeafHashPositions(leafHashes []utreexo.Hash) []uint64 {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	return b.getLeafHashPositions(leafHashes)
+}
+
+// GetNeededPositions returns the positions of the needed hashes in order to verify the
+// positions passed in.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) GetNeededPositions(packedPositions []chainhash.Hash) []chainhash.Hash {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	positions := chainhash.PackedHashesToUint64(packedPositions)
+	missing := b.utreexoView.accumulator.GetMissingPositions(positions)
+	return chainhash.Uint64sToPackedHashes(missing)
 }
 
 // ChainTipProof represents all the information that is needed to prove that a

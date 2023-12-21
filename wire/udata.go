@@ -428,20 +428,13 @@ func DeserializeRemembers(r io.Reader) ([]uint32, error) {
 	return remembers, nil
 }
 
-// GenerateUData creates a block proof, calling forest.ProveBatch with the leaf indexes
-// to get a batched inclusion proof from the accumulator. It then adds on the leaf data,
-// to create a block proof which both proves inclusion and gives all utxo data
-// needed for transaction verification.
-func GenerateUData(txIns []LeafData, pollard utreexo.Utreexo) (
-	*UData, error) {
-
-	ud := new(UData)
-	ud.LeafDatas = txIns
-
+// HashesFromLeafDatas hashes the passed in leaf datas. Returns an error if a
+// leaf data is compact as you can't generate the correct hash.
+func HashesFromLeafDatas(leafDatas []LeafData) ([]utreexo.Hash, error) {
 	// make slice of hashes from leafdata
 	var unconfirmedCount int
-	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
-	for _, ld := range ud.LeafDatas {
+	delHashes := make([]utreexo.Hash, 0, len(leafDatas))
+	for _, ld := range leafDatas {
 		if ld.IsUnconfirmed() {
 			unconfirmedCount++
 			continue
@@ -457,8 +450,26 @@ func GenerateUData(txIns []LeafData, pollard utreexo.Utreexo) (
 		delHashes = append(delHashes, ld.LeafHash())
 	}
 
+	return delHashes, nil
+}
+
+// GenerateUData creates a block proof, calling forest.ProveBatch with the leaf indexes
+// to get a batched inclusion proof from the accumulator. It then adds on the leaf data,
+// to create a block proof which both proves inclusion and gives all utxo data
+// needed for transaction verification.
+func GenerateUData(txIns []LeafData, pollard utreexo.Utreexo) (
+	*UData, error) {
+
+	ud := new(UData)
+	ud.LeafDatas = txIns
+
+	// Make a slice of hashes from the leafdatas.
+	delHashes, err := HashesFromLeafDatas(ud.LeafDatas)
+	if err != nil {
+		return nil, err
+	}
+
 	// Generate the utreexo accumulator proof for all the inputs.
-	var err error
 	ud.AccProof, err = pollard.Prove(delHashes)
 	if err != nil {
 		// Find out which exact one is causing the error.
