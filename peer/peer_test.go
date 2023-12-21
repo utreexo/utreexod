@@ -664,9 +664,9 @@ func TestOutboundPeer(t *testing.T) {
 	fakeInv := wire.NewInvVect(wire.InvTypeBlock, fakeBlockHash)
 
 	// Should be noops as the peer could not connect.
-	p.QueueInventory(fakeInv)
+	p.QueueInventory([]*wire.InvVect{fakeInv})
 	p.AddKnownInventory(fakeInv)
-	p.QueueInventory(fakeInv)
+	p.QueueInventory([]*wire.InvVect{fakeInv})
 
 	fakeMsg := wire.NewMsgVerAck()
 	p.QueueMessage(fakeMsg, nil)
@@ -710,7 +710,7 @@ func TestOutboundPeer(t *testing.T) {
 	}
 
 	// Test Queue Inv after connection
-	p1.QueueInventory(fakeInv)
+	p1.QueueInventory([]*wire.InvVect{fakeInv})
 	p1.Disconnect()
 
 	// Test regression
