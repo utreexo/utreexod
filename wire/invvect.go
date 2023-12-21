@@ -37,6 +37,7 @@ const (
 	InvTypeTx                   InvType = 1
 	InvTypeBlock                InvType = 2
 	InvTypeFilteredBlock        InvType = 3
+	InvTypeUtreexoProofHash     InvType = 4
 	InvTypeWitnessBlock         InvType = InvTypeBlock | InvWitnessFlag
 	InvTypeUtreexoBlock         InvType = InvTypeBlock | InvUtreexoFlag
 	InvTypeWitnessUtreexoBlock  InvType = InvTypeBlock | InvWitnessFlag | InvUtreexoFlag
@@ -52,6 +53,7 @@ var ivStrings = map[InvType]string{
 	InvTypeTx:                   "MSG_TX",
 	InvTypeBlock:                "MSG_BLOCK",
 	InvTypeFilteredBlock:        "MSG_FILTERED_BLOCK",
+	InvTypeUtreexoProofHash:     "MSG_UTREEXO_PROOF_HASH",
 	InvTypeWitnessBlock:         "MSG_WITNESS_BLOCK",
 	InvTypeUtreexoBlock:         "MSG_UTREEXO_BLOCK",
 	InvTypeWitnessUtreexoBlock:  "MSG_WITNESS_UTREEXO_BLOCK",
