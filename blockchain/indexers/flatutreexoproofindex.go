@@ -685,6 +685,43 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32, excludeAccProo
 	return ud, nil
 }
 
+// GetLeafHashPositions returns the positions of the passed in hashes.
+func (idx *FlatUtreexoProofIndex) GetLeafHashPositions(delHashes []utreexo.Hash) []uint64 {
+	idx.mtx.RLock()
+	defer idx.mtx.RUnlock()
+
+	return idx.utreexoState.state.GetLeafPositions(delHashes)
+}
+
+// GenerateUDataPartial generates a utreexo data based on the current state of the accumulator.
+// It leaves out the full proof hashes and only fetches the requested positions.
+func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*wire.UData, error) {
+	idx.mtx.RLock()
+	defer idx.mtx.RUnlock()
+
+	ud := new(wire.UData)
+	ud.LeafDatas = dels
+
+	// Get the positions of the targets of delHashes.
+	delHashes, err := wire.HashesFromLeafDatas(ud.LeafDatas)
+	if err != nil {
+		return nil, err
+	}
+
+	hashes := make([]utreexo.Hash, len(positions))
+	for i, pos := range positions {
+		hashes[i] = idx.utreexoState.state.GetHash(pos)
+	}
+
+	targets := idx.utreexoState.state.GetLeafPositions(delHashes)
+	ud.AccProof = utreexo.Proof{
+		Targets: targets,
+		Proof:   hashes,
+	}
+
+	return ud, nil
+}
+
 // FetchMultiUtreexoProof fetches the utreexo data, multi-block proof, and the hashes for
 // the given height.  Attempting to fetch multi-block proof at a height where there weren't
 // any mulit-block proof generated will result in an error.
