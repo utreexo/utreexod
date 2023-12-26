@@ -1257,6 +1257,7 @@ func TestReconstructScript(t *testing.T) {
 		pkScript  string
 		witness   []string
 		class     ScriptClass
+		expectErr bool
 	}{
 		{
 			// 8ea059a12212dd6d2ca3a87b9550bbaa290211679a6be990e9ed8152094c987d:0 on testnet3
@@ -1271,7 +1272,8 @@ func TestReconstructScript(t *testing.T) {
 				"DATA_33 0x037b80492279732766f5960bd3" +
 				"8b18a2ae7089a1efdaf188d2a536bffd3430c574 " +
 				"OP_DUP OP_DROP",
-			class: PubKeyHashTy,
+			class:     PubKeyHashTy,
+			expectErr: false,
 		},
 		{
 			// 37096812a90af1a8a3267d3f9d75111a25e2a8c5411770998e0ee5f75599c9cc:1 on mainnet
@@ -1287,7 +1289,8 @@ func TestReconstructScript(t *testing.T) {
 				"03f7fda7194f762c315362487d2f65f3807d0cd34e" +
 					"285bab7c2a5db2155911ece3",
 			},
-			class: ScriptHashTy,
+			class:     ScriptHashTy,
+			expectErr: false,
 		},
 		{
 			// 8127acdb257b70c74857be882e869e80f081f460f70dc8b6490cd32ecc14c55f:1 on mainnet
@@ -1301,7 +1304,8 @@ func TestReconstructScript(t *testing.T) {
 					"c1aed639fdfd818ac7028259"},
 			pkScript: "0 DATA_20 " +
 				"0x8d6046312c5c9d4bf42dc53e1b5a668a23d573eb",
-			class: WitnessV0PubKeyHashTy,
+			class:     WitnessV0PubKeyHashTy,
+			expectErr: false,
 		},
 		{
 			// b714a52258e3034e532a188433a4506ca806cf1885d21034fb26906cc4a1c3c3:1 on mainnet
@@ -1324,7 +1328,18 @@ func TestReconstructScript(t *testing.T) {
 					"6d495bfdd5ba4145e3e046fee45e84a8a4" +
 					"8ad05bd8dbb395c011a32cf9f88053ae",
 			},
-			class: WitnessV0ScriptHashTy,
+			class:     WitnessV0ScriptHashTy,
+			expectErr: false,
+		},
+		{
+			// b714a52258e3034e532a188433a4506ca806cf1885d21034fb26906cc4a1c3c3:1 on mainnet
+			// but missing witness.
+			name: "p2wsh",
+			pkScript: "0 DATA_32 0x701a8d401c84fb13e6baf169d5968" +
+				"4e17abd9fa216c8cc5b9fc63d622ff8c58d",
+			witness:   []string{},
+			class:     WitnessV0ScriptHashTy,
+			expectErr: true,
 		},
 		{
 			// 4cd658ba8b5f10f2544becf4f1756d5e929d72f0a7372a120cc2affc16679e8d:0 on mainnet
@@ -1337,7 +1352,8 @@ func TestReconstructScript(t *testing.T) {
 				"f28ed45df7fb4d9f71764c9aaad3e46f4c36921934" +
 				"cc6022100ef76bcd57a871129836d7fe3b898e97bf" +
 				"6a241e7d81c2ae3b026567b9246c4dc01",
-			class: PubKeyTy,
+			class:     PubKeyTy,
+			expectErr: false,
 		},
 	}
 
@@ -1347,20 +1363,25 @@ func TestReconstructScript(t *testing.T) {
 
 		var witness wire.TxWitness
 
-		for _, witElement := range test.witness {
-			wit, err := hex.DecodeString(witElement)
-			if err != nil {
-				t.Fatalf("%s: unable to decode witness "+
-					"element: %v", test.name, err)
-			}
+		if !test.expectErr {
+			for _, witElement := range test.witness {
+				wit, err := hex.DecodeString(witElement)
+				if err != nil {
+					t.Fatalf("%s: unable to decode witness "+
+						"element: %v", test.name, err)
+				}
 
-			witness = append(witness, wit)
+				witness = append(witness, wit)
+			}
 		}
 
 		reconScript, err := ReconstructScript(sigScript, witness, test.class)
 		if err != nil {
-			t.Errorf("%s: got unexpected error - %v",
-				test.name, err)
+			if !test.expectErr {
+				t.Errorf("%s: got unexpected error - %v",
+					test.name, err)
+			}
+			return
 		}
 
 		if (test.class == PubKeyHashTy) ||
