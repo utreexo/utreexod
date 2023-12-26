@@ -1131,6 +1131,9 @@ func ReconstructScript(sigScript []byte, witness wire.TxWitness, class ScriptCla
 			return nil, err
 		}
 	case WitnessV0PubKeyHashTy:
+		if len(witness) == 0 {
+			return nil, fmt.Errorf("unable to reconstruct script due to missing witness: %v", witness)
+		}
 		last := witness[len(witness)-1]
 		hash := hash160(last)
 
@@ -1139,6 +1142,9 @@ func ReconstructScript(sigScript []byte, witness wire.TxWitness, class ScriptCla
 			return nil, err
 		}
 	case WitnessV0ScriptHashTy:
+		if len(witness) == 0 {
+			return nil, fmt.Errorf("unable to reconstruct script due to missing witness: %v", witness)
+		}
 		last := witness[len(witness)-1]
 		hash := chainhash.HashB(last)
 
