@@ -1137,8 +1137,8 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 		// sent was over valid.
 		err = mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn, false)
 		if err != nil {
-			str := fmt.Sprintf("transaction %v failed the utreexo data verification.",
-				txHash)
+			str := fmt.Sprintf("transaction %v failed the utreexo data verification. %v",
+				txHash, err)
 			return nil, nil, txRuleError(wire.RejectInvalid, str)
 		}
 		log.Debugf("VerifyUData passed for tx %s", txHash.String())
