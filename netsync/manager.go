@@ -1608,7 +1608,7 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 		// transaction are NOT removed recursively because they are still
 		// valid.
 		for _, tx := range block.Transactions()[1:] {
-			sm.txMemPool.RemoveTransaction(tx, false)
+			sm.txMemPool.RemoveTransaction(tx, false, true)
 			sm.txMemPool.RemoveDoubleSpends(tx)
 			sm.txMemPool.RemoveOrphan(tx)
 			sm.peerNotifier.TransactionConfirmed(tx)
@@ -1647,7 +1647,7 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 				// Remove the transaction and all transactions
 				// that depend on it if it wasn't accepted into
 				// the transaction pool.
-				sm.txMemPool.RemoveTransaction(tx, true)
+				sm.txMemPool.RemoveTransaction(tx, true, true)
 			}
 		}
 
