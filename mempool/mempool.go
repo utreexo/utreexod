@@ -480,14 +480,14 @@ func (mp *TxPool) HaveTransaction(hash *chainhash.Hash) bool {
 // RemoveTransaction.  See the comment for RemoveTransaction for more details.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers bool) {
+func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers, uncacheUtreexo bool) {
 	txHash := tx.Hash()
 	if removeRedeemers {
 		// Remove any transactions which rely on this one.
 		for i := uint32(0); i < uint32(len(tx.MsgTx().TxOut)); i++ {
 			prevOut := wire.OutPoint{Hash: *txHash, Index: i}
 			if txRedeemer, exists := mp.outpoints[prevOut]; exists {
-				mp.removeTransaction(txRedeemer, true)
+				mp.removeTransaction(txRedeemer, true, uncacheUtreexo)
 			}
 		}
 	}
@@ -502,10 +502,10 @@ func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers bool) {
 
 		// If the utreexo view is active, then remove the cached hashes from the
 		// accumulator.
-		if mp.cfg.IsUtreexoViewActive != nil && mp.cfg.IsUtreexoViewActive() {
+		if mp.cfg.IsUtreexoViewActive != nil && mp.cfg.IsUtreexoViewActive() && uncacheUtreexo {
 			leaves, found := mp.poolLeaves[*txHash]
 			if !found {
-				log.Infof("missing the leaf hashes for tx %s from while "+
+				log.Debugf("missing the leaf hashes for tx %s from while "+
 					"removing it from the pool",
 					tx.MsgTx().TxHash().String())
 			} else {
@@ -531,13 +531,14 @@ func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers bool) {
 // RemoveTransaction removes the passed transaction from the mempool. When the
 // removeRedeemers flag is set, any transactions that redeem outputs from the
 // removed transaction will also be removed recursively from the mempool, as
-// they would otherwise become orphans.
+// they would otherwise become orphans. When the uncacheUtreexo flag is set,
+// it'll uncache the utreexo proof for the given tx if it's cached.
 //
 // This function is safe for concurrent access.
-func (mp *TxPool) RemoveTransaction(tx *btcutil.Tx, removeRedeemers bool) {
+func (mp *TxPool) RemoveTransaction(tx *btcutil.Tx, removeRedeemers, uncacheUtreexo bool) {
 	// Protect concurrent access.
 	mp.mtx.Lock()
-	mp.removeTransaction(tx, removeRedeemers)
+	mp.removeTransaction(tx, removeRedeemers, uncacheUtreexo)
 	mp.mtx.Unlock()
 }
 
@@ -554,7 +555,7 @@ func (mp *TxPool) RemoveDoubleSpends(tx *btcutil.Tx) {
 	for _, txIn := range tx.MsgTx().TxIn {
 		if txRedeemer, ok := mp.outpoints[txIn.PreviousOutPoint]; ok {
 			if !txRedeemer.Hash().IsEqual(tx.Hash()) {
-				mp.removeTransaction(txRedeemer, true)
+				mp.removeTransaction(txRedeemer, true, true)
 			}
 		}
 	}
@@ -1137,8 +1138,8 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 		// sent was over valid.
 		err = mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn, false)
 		if err != nil {
-			str := fmt.Sprintf("transaction %v failed the utreexo data verification.",
-				txHash)
+			str := fmt.Sprintf("transaction %v failed the utreexo data verification. %v",
+				txHash, err)
 			return nil, nil, txRuleError(wire.RejectInvalid, str)
 		}
 		log.Debugf("VerifyUData passed for tx %s", txHash.String())
@@ -1355,7 +1356,10 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejec
 		// The conflict set should already include the descendants for
 		// each one, so we don't need to remove the redeemers within
 		// this call as they'll be removed eventually.
-		mp.removeTransaction(conflict, false)
+		//
+		// Don't remove the cached utreexo proof either because we'll need
+		// it for the ingestion.
+		mp.removeTransaction(conflict, false, false)
 	}
 	txD, err := mp.addTransaction(utxoView, tx, bestHeight, txFee)
 	if err != nil {

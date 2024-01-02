@@ -3841,7 +3841,7 @@ func handleSendRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan st
 	// Also, since an error is being returned to the caller, ensure the
 	// transaction is removed from the memory pool.
 	if len(acceptedTxs) == 0 || !acceptedTxs[0].Tx.Hash().IsEqual(tx.Hash()) {
-		s.cfg.TxMemPool.RemoveTransaction(tx, true)
+		s.cfg.TxMemPool.RemoveTransaction(tx, true, true)
 
 		errStr := fmt.Sprintf("transaction %v is not in accepted list",
 			tx.Hash())

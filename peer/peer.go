@@ -1610,13 +1610,58 @@ out:
 			p.sendQueue <- val.(outMsg)
 
 		case ivs := <-p.outputInvChan:
+			// Only utreexo txs get more than one inv at a time. We send these
+			// out immediately.
+			if len(ivs) > 1 {
+				// Don't send anything if we're disconnecting or there
+				// is no queued inventory.
+				// version is known if send queue has any entries.
+				if atomic.LoadInt32(&p.disconnect) != 0 {
+					continue
+				}
+
+				// No handshake?  They'll find out soon enough.
+				if p.VersionKnown() {
+					invMsg := wire.NewMsgInvSizeHint(uint(len(ivs)))
+					for i := range ivs {
+						iv := ivs[i]
+						// Don't send inventory that became known after
+						// the initial check.
+						if p.knownInventory.Contains(iv) {
+							continue
+						}
+
+						if iv.Type == wire.InvTypeTx ||
+							iv.Type == wire.InvTypeWitnessTx ||
+							iv.Type == wire.InvTypeUtreexoTx ||
+							iv.Type == wire.InvTypeWitnessUtreexoTx {
+							// Add the inventory that is being relayed to
+							// the known inventory for the peer.
+							p.AddKnownInventory(ivs[i])
+						} else if iv.Type == wire.InvTypeUtreexoProofHash {
+						} else {
+							continue
+						}
+
+						log.Debugf("adding type %v to the queue for peer %v",
+							iv.Type.String(), p.Addr())
+						invMsg.AddInvVect(iv)
+					}
+
+					log.Debugf("Immediately queuing invs (%d) for peer %v, waiting %v",
+						len(ivs), p.Addr(), waiting)
+					waiting = queuePacket(outMsg{msg: invMsg},
+						pendingMsgs, waiting)
+				}
+				continue
+			}
 			for i := range ivs {
 				iv := ivs[i]
 
 				// No handshake?  They'll find out soon enough.
 				if p.VersionKnown() {
 					// If this is a new block, then we'll blast it
-					// out immediately, sipping the inv trickle
+					// out immediately, skipping the inv trickle
 					// queue.
 					if iv.Type == wire.InvTypeBlock ||
 						iv.Type == wire.InvTypeUtreexoBlock ||
@@ -1855,10 +1900,35 @@ func (p *Peer) QueueMessageWithEncoding(msg wire.Message, doneChan chan<- struct
 // This function is safe for concurrent access.
 func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
 	for i := 0; i < len(invVects); i++ {
+		ty := invVects[i].Type
+
 		// Don't add the inventory to the send queue if the peer is already
 		// known to have it.
-		if p.knownInventory.Contains(invVects[i]) {
+		if ty != wire.InvTypeUtreexoProofHash &&
+			p.knownInventory.Contains(invVects[i]) {
+
 			invVects = append(invVects[:i], invVects[i+1:]...)
+			i--
+
+			// Check if this inv is for a tx. If so, we want to
+			// pop off the utreexo proof hash invs if they exist.
+			switch ty {
+			case wire.InvTypeTx:
+			case wire.InvTypeWitnessTx:
+			case wire.InvTypeUtreexoTx:
+			case wire.InvTypeWitnessUtreexoTx:
+			default:
+				// Non txs don't have the proof hash invs attached to them.
+				continue
+			}
+
+			// Pop off the utreexo proof hash invs.
+			for j := i + 1; j < len(invVects); j++ {
+				if invVects[j].Type == wire.InvTypeUtreexoProofHash {
+					invVects = append(invVects[:j], invVects[j+1:]...)
+					j--
+				}
+			}
 		}
 	}
 
