@@ -1973,6 +1973,91 @@ func (s *server) handleBanPeerMsg(state *peerState, sp *serverPeer) {
 	state.banned[host] = time.Now().Add(cfg.BanDuration)
 }
 
+// relayUtreexoInv queues tx invs for utreexo invs with the proof positions appended
+// to the tx inv. No-op if the passed in msg isn't a tx.
+func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
+	switch msg.invVect.Type {
+	case wire.InvTypeTx:
+	case wire.InvTypeWitnessTx:
+	case wire.InvTypeUtreexoTx:
+	case wire.InvTypeWitnessUtreexoTx:
+	default:
+		// Not a tx so just return.
+		return
+	}
+
+	// Generate the positions packed into hashes. How it's generated depends on
+	// the type of the utreexo node.
+	var packedPositions []chainhash.Hash
+	switch {
+	case cfg.Utreexo:
+		// Get the leaf datas to figure out the positions needed to send
+		// over to the peers.
+		leafDatas, err := s.txMemPool.FetchLeafDatas(&msg.invVect.Hash)
+		if err != nil {
+			btcdLog.Debugf("Couldn't relay tx %s as the tx "+
+				"wasn't available in the mempool. %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		// Generate the hashes for the leafdatas.
+		leafHashes, err := wire.HashesFromLeafDatas(leafDatas)
+		if err != nil {
+			btcdLog.Debugf("Couldn't generate leaf hashes for tx %s "+
+				"err: %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		packedPositions = s.chain.PackedPositions(leafHashes)
+	default:
+		tx, err := s.txMemPool.FetchTransaction(&msg.invVect.Hash)
+		if err != nil {
+			btcdLog.Debugf("Couldn't relay tx %s as the tx "+
+				"wasn't available in the mempool. %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
+		if err != nil {
+			btcdLog.Debugf("Couldn't relay tx %s as the leaf data "+
+				"generation errored out %v", msg.invVect.Hash.String(), err)
+			return
+		}
+
+		// Generate the hashes for the leafdatas.
+		leafHashes, err := wire.HashesFromLeafDatas(leafDatas)
+		if err != nil {
+			btcdLog.Debugf("Couldn't generate leaf hashes for tx %s "+
+				"err: %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		// Pick a proof index that's not nil.
+		if s.utreexoProofIndex != nil {
+			positions := s.utreexoProofIndex.GetLeafHashPositions(leafHashes)
+			packedPositions = chainhash.Uint64sToPackedHashes(positions)
+		} else {
+			positions := s.flatUtreexoProofIndex.GetLeafHashPositions(leafHashes)
+			packedPositions = chainhash.Uint64sToPackedHashes(positions)
+		}
+	}
+
+	// +1 for the tx inv.
+	invVects := make([]*wire.InvVect, 0, len(packedPositions)+1)
+	invVects = append(invVects, msg.invVect)
+	for i := range packedPositions {
+		invVects = append(invVects,
+			wire.NewInvVect(wire.InvTypeUtreexoProofHash, &packedPositions[i]))
+	}
+
+	// Queue the inventory.
+	sp.QueueInventory(invVects)
+}
+
 // handleRelayInvMsg deals with relaying inventory to peers that are not already
 // known to have it.  It is invoked from the peerHandler goroutine.
 func (s *server) handleRelayInvMsg(state *peerState, msg relayMsg) {
@@ -2029,6 +2114,18 @@ func (s *server) handleRelayInvMsg(state *peerState, msg relayMsg) {
 				if !sp.filter.MatchTxAndUpdate(txD.Tx) {
 					return
 				}
+			}
+
+			// If the peer is a utreexo node, then add in the positions
+			// of the inputs being spent to the inv message.
+			if sp.IsUtreexoEnabled() &&
+				(cfg.Utreexo ||
+					s.utreexoProofIndex != nil ||
+					s.flatUtreexoProofIndex != nil) {
+
+				// Return right after queuing a utreexo tx inv.
+				s.relayUtreexoTxInv(sp, msg)
+				return
 			}
 		}
 
