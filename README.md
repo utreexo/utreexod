@@ -61,8 +61,7 @@ $ ./utreexod --flatutreexoproofindex
 Then you can connect your utreexo node to the bridge node.
 
 ```bash
-# flag --utreexo must be given. If it is not given, the node will run like a normal bitcoin node.
-$ ./utreexod --utreexo --connect=ip_of_the_bridge_node
+$ ./utreexod --addpeer=ip_of_the_bridge_node
 ```
 
 ## Updating
