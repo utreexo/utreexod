@@ -1546,7 +1546,7 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions
 	if encoding&wire.UtreexoEncoding == wire.UtreexoEncoding {
 		// If utreexo proof index is not present, we can't send the tx
 		// as we can't grab the proof for the tx.
-		if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil && !cfg.Utreexo {
+		if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil && cfg.NoUtreexo {
 			err := fmt.Errorf("UtreexoProofIndex and FlatUtreexoProofIndex is nil. " +
 				"Cannot fetch utreexo accumulator proofs.")
 			srvrLog.Debugf(err.Error())
@@ -1558,7 +1558,7 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions
 		}
 
 		// For compact state nodes.
-		if cfg.Utreexo {
+		if !cfg.NoUtreexo {
 			// Fetch the necessary leafdatas to create the utreexo data.
 			leafDatas, err := s.txMemPool.FetchLeafDatas(tx.Hash())
 			if err != nil {
@@ -1653,7 +1653,7 @@ func (s *server) pushBlockMsg(sp *serverPeer, hash *chainhash.Hash, doneChan cha
 
 	// Early check to see if Utreexo proof index is there if UtreexoEncoding is given.
 	doUtreexo := encoding&wire.UtreexoEncoding == wire.UtreexoEncoding
-	if doUtreexo && s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil && !cfg.Utreexo {
+	if doUtreexo && s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil && cfg.NoUtreexo {
 		err := fmt.Errorf("UtreexoProofIndex is nil. Cannot fetch utreexo accumulator proofs.")
 		peerLog.Tracef(err.Error())
 		if doneChan != nil {
@@ -2028,7 +2028,7 @@ func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
 	// the type of the utreexo node.
 	var packedPositions []chainhash.Hash
 	switch {
-	case cfg.Utreexo:
+	case !cfg.NoUtreexo:
 		// Get the leaf datas to figure out the positions needed to send
 		// over to the peers.
 		leafDatas, err := s.txMemPool.FetchLeafDatas(&msg.invVect.Hash)
@@ -2157,7 +2157,7 @@ func (s *server) handleRelayInvMsg(state *peerState, msg relayMsg) {
 			// If the peer is a utreexo node, then add in the positions
 			// of the inputs being spent to the inv message.
 			if sp.IsUtreexoEnabled() &&
-				(cfg.Utreexo ||
+				(!cfg.NoUtreexo ||
 					s.utreexoProofIndex != nil ||
 					s.flatUtreexoProofIndex != nil) {
 
@@ -2490,7 +2490,7 @@ func (s *server) peerHandler() {
 
 	if !cfg.DisableDNSSeed {
 		requiredServices := defaultRequiredServices
-		if cfg.Utreexo {
+		if !cfg.NoUtreexo {
 			requiredServices |= wire.SFNodeUtreexo
 		}
 		// Add peers discovered through DNS to the address manager.
@@ -3119,7 +3119,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if cfg.Prune != 0 {
 		services &^= wire.SFNodeNetwork
 	}
-	if cfg.Utreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
+	if !cfg.NoUtreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
 		services |= wire.SFNodeUtreexo
 	}
 
@@ -3247,7 +3247,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	// If Utreexo is enabled, make an empty UtreexoViewpoint to signal that utreexo
 	// accumulators are enabled.
 	var utreexo *blockchain.UtreexoViewpoint
-	if cfg.Utreexo {
+	if !cfg.NoUtreexo {
 		utreexo = blockchain.NewUtreexoViewpoint()
 	}
 

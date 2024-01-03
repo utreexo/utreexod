@@ -108,7 +108,7 @@ type config struct {
 	DbType              string `long:"dbtype" description:"Database backend to use for the Block Chain"`
 	SigCacheMaxSize     uint   `long:"sigcachemaxsize" description:"The maximum number of entries in the signature verification cache"`
 	UtxoCacheMaxSizeMiB uint   `long:"utxocachemaxsize" description:"The maximum size in MiB of the UTXO cache"`
-	Utreexo             bool   `long:"utreexo" description:"Use utreexo compact state during block validation"`
+	NoUtreexo           bool   `long:"noutreexo" description:"Disable utreexo compact state during block validation"`
 	NoWinService        bool   `long:"nowinservice" description:"Do not start as a background service on Windows -- NOTE: This flag only works on the command line, not in the config file"`
 	Prune               uint64 `long:"prune" description:"Prune already validated blocks from the database. Must specify a target size in MiB (minimum value of 550, default of 0 to disable pruning)"`
 
@@ -212,7 +212,7 @@ type config struct {
 	DropFlatUtreexoProofIndex bool `long:"dropflatutreexoproofindex" description:"Deletes the flat utreexo proof index from the database on start up and then exits."`
 
 	// Wallet options.
-	WatchOnlyWallet                                      bool     `long:"watchonlywallet" description:"Enable the watch only wallet with utreexo proofs. Must have --utreexo enabled"`
+	WatchOnlyWallet                                      bool     `long:"watchonlywallet" description:"Enable the watch only wallet with utreexo proofs. Must have --noutreexo disabled"`
 	RegisterAddressToWatchOnlyWallet                     []string `long:"registeraddresstowatchonlywallet" description:"Registers addresses to be watched to the watch only wallet. Must have --watchonlywallet enabled"`
 	RegisterExtendedPubKeysToWatchOnlyWallet             []string `long:"registerextendedpubkeystowatchonlywallet" description:"Registers extended pubkeys to be watched to the watch only wallet. Must have --watchonlywallet enabled."`
 	RegisterExtendedPubKeysWithAddrTypeToWatchOnlyWallet []string `long:"registerextendedpubkeyswithaddresstypetowatchonlywallet" description:"Registers extended pubkeys to be watched to the watch only wallet and let's the user override the hd type of the extended public key. Must have --watchonlywallet enabled. Format: '<extendedpubkey>:<address type>. Supported address types: '{p2pkh, p2wpkh, p2sh}'"`
@@ -997,26 +997,6 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
-	// --utreexo and --utreexoproofindex do not mix.
-	if cfg.Utreexo && cfg.UtreexoProofIndex {
-		err := fmt.Errorf("%s: the --utreexo and --utreexoproofindex "+
-			"options may not be activated at the same time ",
-			funcName)
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, usageMessage)
-		return nil, nil, err
-	}
-
-	// --utreexo and --flatutreexoproofindex do not mix.
-	if cfg.Utreexo && cfg.FlatUtreexoProofIndex {
-		err := fmt.Errorf("%s: the --utreexo and --flatutreexoproofindex "+
-			"options may not be activated at the same time ",
-			funcName)
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, usageMessage)
-		return nil, nil, err
-	}
-
 	// Check mining addresses are valid and saved parsed versions.
 	cfg.miningAddrs = make([]btcutil.Address, 0, len(cfg.MiningAddrs))
 	for _, strAddr := range cfg.MiningAddrs {
@@ -1221,6 +1201,11 @@ func loadConfig() (*config, []string, error) {
 		cfg.oniondial = cfg.dial
 	}
 
+	// Set --noutreexo to true if either of the utreexo bridges are enabled.
+	if cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
+		cfg.NoUtreexo = true
+	}
+
 	// Specifying --noonion means the onion address dial function results in
 	// an error.
 	if cfg.NoOnion {
@@ -1229,9 +1214,8 @@ func loadConfig() (*config, []string, error) {
 		}
 	}
 
-	if cfg.WatchOnlyWallet && !cfg.Utreexo {
-		err := fmt.Errorf("%s: the --watchonlywallet requires the --utreexo option on "+
-			"at the same time", funcName)
+	if cfg.WatchOnlyWallet && cfg.NoUtreexo {
+		err := fmt.Errorf("%s: the --watchonlywallet requires the --noutreexo option off", funcName)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, nil, err

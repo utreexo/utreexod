@@ -1,22 +1,31 @@
-name: Build and Test
-on: [push, pull_request]
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
 jobs:
+
   build:
-    name: Go CI
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: [1.18, 1.19]
+        go: ["1.20", "1.21"]
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ matrix.go }}
-      - name: Check out source
-        uses: actions/checkout@v3
-      - name: Install Linters
-        run: "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2"
-      - name: Build
-        run: go build ./...
-      - name: Test
-        run: sh ./goclean.sh
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go }}
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Install Linters
+      run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55.2
+
+    - name: Test
+      run: sh ./goclean.sh

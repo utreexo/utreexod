@@ -1049,6 +1049,13 @@ func dbFetchUtxoStateConsistency(dbTx database.Tx) []byte {
 	return dbTx.Metadata().Get(utxoStateConsistencyKeyName)
 }
 
+// UtxoCacheInitialized returns true if the utxo cache has already been initialized.
+// Will return false if this is the first time starting up the node or if the node
+// has been previously started as a utreexo node.
+func UtxoCacheInitialized(dbTx database.Tx) bool {
+	return dbTx.Metadata().Get(utxoStateConsistencyKeyName) != nil
+}
+
 // SerializeUtreexoRoots serializes the numLeaves and the roots into a byte slice.
 func SerializeUtreexoRoots(numLeaves uint64, roots []utreexo.Hash) ([]byte, error) {
 	// 8 byte NumLeaves + (32 byte roots * len(roots))
@@ -1275,6 +1282,11 @@ func (b *BlockChain) createChainState() error {
 		return dbStoreBlock(dbTx, genesisBlock)
 	})
 	return err
+}
+
+// ChainstateInitialized returns true if the chainstate has been previously initialized.
+func ChainstateInitialized(dbTx database.Tx) bool {
+	return dbTx.Metadata().Get(chainStateKeyName) != nil
 }
 
 // initChainState attempts to load and initialize the chain state from the
