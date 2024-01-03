@@ -85,6 +85,7 @@ func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
 func TestUtreexoCSN(t *testing.T) {
 	bridgeNodeArgs := []string{
 		"--flatutreexoproofindex",
+		"--noutreexo",
 	}
 	// Set up regtest chain for the bridge node.
 	bridgeNode, err := rpctest.New(&chaincfg.RegressionNetParams, nil, bridgeNodeArgs, "")
@@ -187,7 +188,6 @@ func TestUtreexoCSN(t *testing.T) {
 
 	// Set up the CSN.
 	csnArgs := []string{
-		"--utreexo",
 		"--watchonlywallet",
 	}
 	for _, addr := range watchAddrs {

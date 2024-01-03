@@ -151,7 +151,7 @@ func TestMain(m *testing.M) {
 	// In order to properly test scenarios on as if we were on mainnet,
 	// ensure that non-standard transactions aren't accepted into the
 	// mempool or relayed.
-	btcdCfg := []string{"--rejectnonstd"}
+	btcdCfg := []string{"--rejectnonstd", "--noutreexo"}
 	primaryHarness, err = rpctest.New(
 		&chaincfg.SimNetParams, nil, btcdCfg, "",
 	)
