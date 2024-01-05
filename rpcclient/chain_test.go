@@ -1,6 +1,12 @@
 package rpcclient
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{}
 
 // TestUnmarshalGetBlockChainInfoResult ensures that the SoftForks and
 // UnifiedSoftForks fields of GetBlockChainInfoResult are properly unmarshaled
@@ -22,7 +28,7 @@ func TestUnmarshalGetBlockChainInfoResultSoftForks(t *testing.T) {
 		},
 		{
 			name:       "bitcoind >= 0.19.0 with separate softforks",
-			version:    BitcoindPost19,
+			version:    BitcoindPre22,
 			res:        []byte(`{"softforks": [{"version": 2}]}`),
 			compatible: false,
 		},
@@ -34,7 +40,7 @@ func TestUnmarshalGetBlockChainInfoResultSoftForks(t *testing.T) {
 		},
 		{
 			name:       "bitcoind >= 0.19.0 with unified softforks",
-			version:    BitcoindPost19,
+			version:    BitcoindPre22,
 			res:        []byte(`{"softforks": {"segwit": {"type": "bip9"}}}`),
 			compatible: true,
 		},
@@ -76,7 +82,7 @@ func TestUnmarshalGetBlockChainInfoResultSoftForks(t *testing.T) {
 
 			// If the version is compatible with the response, we
 			// should expect to see the proper softforks field set.
-			if test.version == BitcoindPost19 &&
+			if test.version == BitcoindPre22 &&
 				info.SoftForks != nil {
 				t.Fatal("expected SoftForks to be empty")
 			}
