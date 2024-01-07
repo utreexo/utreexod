@@ -2,8 +2,8 @@ module github.com/utreexo/utreexod
 
 require (
 	github.com/aead/siphash v1.0.1
-	github.com/btcsuite/btcd v0.21.0-beta.0.20201124191514-610bb55ae85c
-	github.com/btcsuite/btcd/btcutil v1.0.0
+	github.com/btcsuite/btcd v0.24.0
+	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792
@@ -20,12 +20,15 @@ require (
 
 require (
 	github.com/btcsuite/btcd/btcec/v2 v2.1.3 // indirect
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce // indirect
 	github.com/btcsuite/goleveldb v1.0.0 // indirect
 	github.com/btcsuite/snappy-go v1.0.0 // indirect
+	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	golang.org/x/exp v0.0.0-20220414153411-bcd21879b8fd // indirect
+	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654 // indirect
 )
 
 go 1.18

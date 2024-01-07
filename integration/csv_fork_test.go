@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/utreexo/utreexod/blockchain"
-	"github.com/utreexo/utreexod/btcec"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -36,7 +36,7 @@ func makeTestOutput(r *rpctest.Harness, t *testing.T,
 
 	// Create a fresh key, then send some coins to an address spendable by
 	// that key.
-	key, err := btcec.NewPrivateKey(btcec.S256())
+	key, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, nil, nil, err
 	}

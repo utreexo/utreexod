@@ -6,14 +6,13 @@ package rpctest
 
 import (
 	"bytes"
-	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/utreexo/utreexod/blockchain"
-	"github.com/utreexo/utreexod/btcec"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -21,7 +20,6 @@ import (
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
 
-	btcdbtcec "github.com/btcsuite/btcd/btcec"
 	btcdcfg "github.com/btcsuite/btcd/chaincfg"
 )
 
@@ -162,10 +160,9 @@ func newMemWallet(net *chaincfg.Params, harnessID uint32) (*memWallet, error) {
 	addrs := make(map[uint32]btcutil.Address)
 	addrs[0] = coinbaseAddr
 
-	coinbasePrivKey := btcec.PrivateKey(ecdsa.PrivateKey(*coinbaseKey))
 	return &memWallet{
 		net:               net,
-		coinbaseKey:       &coinbasePrivKey,
+		coinbaseKey:       coinbaseKey,
 		coinbaseAddr:      coinbaseAddr,
 		hdIndex:           1,
 		hdRoot:            hdRoot,
@@ -539,10 +536,8 @@ func (m *memWallet) CreateTransaction(outputs []*wire.TxOut,
 			return nil, err
 		}
 
-		utreexoPrivKey := btcec.PrivateKey(ecdsa.PrivateKey(*privKey))
-
 		sigScript, err := txscript.SignatureScript(tx, i, utxo.pkScript,
-			txscript.SigHashAll, &utreexoPrivKey, true)
+			txscript.SigHashAll, privKey, true)
 		if err != nil {
 			return nil, err
 		}
@@ -603,7 +598,7 @@ func (m *memWallet) ConfirmedBalance() btcutil.Amount {
 }
 
 // keyToAddr maps the passed private to corresponding p2pkh address.
-func keyToAddr(key *btcdbtcec.PrivateKey, net *chaincfg.Params) (btcutil.Address, error) {
+func keyToAddr(key *btcec.PrivateKey, net *chaincfg.Params) (btcutil.Address, error) {
 	serializedKey := key.PubKey().SerializeCompressed()
 	pubKeyAddr, err := btcutil.NewAddressPubKey(serializedKey, net)
 	if err != nil {

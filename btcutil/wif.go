@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/utreexo/utreexod/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/utreexo/utreexod/btcutil/base58"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -117,7 +117,7 @@ func DecodeWIF(wif string) (*WIF, error) {
 
 	netID := decoded[0]
 	privKeyBytes := decoded[1 : 1+btcec.PrivKeyBytesLen]
-	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
+	privKey, _ := btcec.PrivKeyFromBytes(privKeyBytes)
 	return &WIF{privKey, compress, netID}, nil
 }
 
@@ -136,9 +136,7 @@ func (w *WIF) String() string {
 
 	a := make([]byte, 0, encodeLen)
 	a = append(a, w.netID)
-	// Pad and append bytes manually, instead of using Serialize, to
-	// avoid another call to make.
-	a = paddedAppend(btcec.PrivKeyBytesLen, a, w.PrivKey.D.Bytes())
+	a = append(a, w.PrivKey.Serialize()...)
 	if w.CompressPubKey {
 		a = append(a, compressMagic)
 	}
@@ -151,7 +149,7 @@ func (w *WIF) String() string {
 // exported private key in either a compressed or uncompressed format.  The
 // serialization format chosen depends on the value of w.CompressPubKey.
 func (w *WIF) SerializePubKey() []byte {
-	pk := (*btcec.PublicKey)(&w.PrivKey.PublicKey)
+	pk := w.PrivKey.PubKey()
 	if w.CompressPubKey {
 		return pk.SerializeCompressed()
 	}

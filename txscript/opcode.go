@@ -15,7 +15,8 @@ import (
 
 	"golang.org/x/crypto/ripemd160"
 
-	"github.com/utreexo/utreexod/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -1929,19 +1930,19 @@ func opcodeCheckSig(op *opcode, data []byte, vm *Engine) error {
 		hash = calcSignatureHash(subScript, hashType, &vm.tx, vm.txIdx)
 	}
 
-	pubKey, err := btcec.ParsePubKey(pkBytes, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(pkBytes)
 	if err != nil {
 		vm.dstack.PushBool(false)
 		return nil
 	}
 
-	var signature *btcec.Signature
+	var signature *ecdsa.Signature
 	if vm.hasFlag(ScriptVerifyStrictEncoding) ||
 		vm.hasFlag(ScriptVerifyDERSignatures) {
 
-		signature, err = btcec.ParseDERSignature(sigBytes, btcec.S256())
+		signature, err = ecdsa.ParseDERSignature(sigBytes)
 	} else {
-		signature, err = btcec.ParseSignature(sigBytes, btcec.S256())
+		signature, err = ecdsa.ParseSignature(sigBytes)
 	}
 	if err != nil {
 		vm.dstack.PushBool(false)
@@ -1989,7 +1990,7 @@ func opcodeCheckSigVerify(op *opcode, data []byte, vm *Engine) error {
 // the same signature multiple times when verifying a multisig.
 type parsedSigInfo struct {
 	signature       []byte
-	parsedSignature *btcec.Signature
+	parsedSignature *ecdsa.Signature
 	parsed          bool
 }
 
@@ -2134,7 +2135,7 @@ func opcodeCheckMultiSig(op *opcode, data []byte, vm *Engine) error {
 		signature := rawSig[:len(rawSig)-1]
 
 		// Only parse and check the signature encoding once.
-		var parsedSig *btcec.Signature
+		var parsedSig *ecdsa.Signature
 		if !sigInfo.parsed {
 			if err := vm.checkHashTypeEncoding(hashType); err != nil {
 				return err
@@ -2148,11 +2149,9 @@ func opcodeCheckMultiSig(op *opcode, data []byte, vm *Engine) error {
 			if vm.hasFlag(ScriptVerifyStrictEncoding) ||
 				vm.hasFlag(ScriptVerifyDERSignatures) {
 
-				parsedSig, err = btcec.ParseDERSignature(signature,
-					btcec.S256())
+				parsedSig, err = ecdsa.ParseDERSignature(signature)
 			} else {
-				parsedSig, err = btcec.ParseSignature(signature,
-					btcec.S256())
+				parsedSig, err = ecdsa.ParseSignature(signature)
 			}
 			sigInfo.parsed = true
 			if err != nil {
@@ -2174,7 +2173,7 @@ func opcodeCheckMultiSig(op *opcode, data []byte, vm *Engine) error {
 		}
 
 		// Parse the pubkey.
-		parsedPubKey, err := btcec.ParsePubKey(pubKey, btcec.S256())
+		parsedPubKey, err := btcec.ParsePubKey(pubKey)
 		if err != nil {
 			continue
 		}
