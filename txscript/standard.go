@@ -7,7 +7,7 @@ package txscript
 import (
 	"fmt"
 
-	"github.com/utreexo/utreexod/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"

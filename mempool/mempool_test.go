@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/utreexo/utreexod/blockchain"
-	"github.com/utreexo/utreexod/btcec"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -291,7 +291,7 @@ func newPoolHarness(chainParams *chaincfg.Params) (*poolHarness, []spendableOutp
 	if err != nil {
 		return nil, nil, err
 	}
-	signKey, signPub := btcec.PrivKeyFromBytes(btcec.S256(), keyBytes)
+	signKey, signPub := btcec.PrivKeyFromBytes(keyBytes)
 
 	// Generate associated pay-to-script-hash address and resulting payment
 	// script.

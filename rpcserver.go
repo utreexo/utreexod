@@ -27,10 +27,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/websocket"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
-	"github.com/utreexo/utreexod/btcec"
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -3944,8 +3944,7 @@ func handleSignMessageWithPrivKey(s *rpcServer, cmd interface{}, closeChan <-cha
 	wire.WriteVarString(&buf, 0, c.Message)
 	messageHash := chainhash.DoubleHashB(buf.Bytes())
 
-	sig, err := btcec.SignCompact(btcec.S256(), wif.PrivKey,
-		messageHash, wif.CompressPubKey)
+	sig, err := ecdsa.SignCompact(wif.PrivKey, messageHash, wif.CompressPubKey)
 	if err != nil {
 		return nil, &btcjson.RPCError{
 			Code:    btcjson.ErrRPCInvalidAddressOrKey,
@@ -4139,8 +4138,7 @@ func handleVerifyMessage(s *rpcServer, cmd interface{}, closeChan <-chan struct{
 	wire.WriteVarString(&buf, 0, messageSignatureHeader)
 	wire.WriteVarString(&buf, 0, c.Message)
 	expectedMessageHash := chainhash.DoubleHashB(buf.Bytes())
-	pk, wasCompressed, err := btcec.RecoverCompact(btcec.S256(), sig,
-		expectedMessageHash)
+	pk, wasCompressed, err := ecdsa.RecoverCompact(sig, expectedMessageHash)
 	if err != nil {
 		// Mirror Bitcoin Core behavior, which treats error in
 		// RecoverCompact as invalid signature.

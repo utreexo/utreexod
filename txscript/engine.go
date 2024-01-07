@@ -12,7 +12,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/utreexo/utreexod/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/utreexo/utreexod/wire"
 )
 

@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/utreexo/utreexod/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/wire"
@@ -20,7 +21,7 @@ const (
 	//   Signature hash type (1 byte)
 	//   Public key length (1 byte)
 	//   Public key (33 byte)
-	minPubKeyHashSigScriptLen = 1 + btcec.MinSigLen + 1 + 1 + 33
+	minPubKeyHashSigScriptLen = 1 + ecdsa.MinSigLen + 1 + 1 + 33
 
 	// maxPubKeyHashSigScriptLen is the maximum length of a signature script
 	// that spends a P2PKH output. The length is composed of the following:
