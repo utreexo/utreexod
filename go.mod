@@ -14,7 +14,7 @@ require (
 	github.com/jrick/logrotate v1.0.0
 	github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/utreexo/utreexo v0.0.0-20231219090807-8a536d991e56
+	github.com/utreexo/utreexo v0.0.0-20240107135703-1173e8c06c0a
 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
 )
 
