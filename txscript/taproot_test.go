@@ -166,8 +166,8 @@ func TestControlBlockParsing(t *testing.T) {
 // key, then generating a public key from that. This test a quickcheck test to
 // assert the following invariant:
 //
-// * taproot_tweak_pubkey(pubkey_gen(seckey), h)[1] ==
-//   pubkey_gen(taproot_tweak_seckey(seckey, h))
+//   - taproot_tweak_pubkey(pubkey_gen(seckey), h)[1] ==
+//     pubkey_gen(taproot_tweak_seckey(seckey, h))
 func TestTaprootScriptSpendTweak(t *testing.T) {
 	t.Parallel()
 
