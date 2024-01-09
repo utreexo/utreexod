@@ -38,3 +38,7 @@ profile.tmp
 profile.cov
 
 utreexod
+
+# Cargo
+target/
+Cargo.lock
