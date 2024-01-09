@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/utreexo/utreexod/addrmgr"
+	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/connmgr"
@@ -73,6 +74,7 @@ var (
 	txmpLog = backendLog.Logger("TXMP")
 	wlltLog = backendLog.Logger("WLLT")
 	elecLog = backendLog.Logger("ELEC")
+	bdkwLog = backendLog.Logger("BDKW")
 )
 
 // Initialize package-global logger variables.
@@ -90,6 +92,7 @@ func init() {
 	mempool.UseLogger(txmpLog)
 	wallet.UseLogger(wlltLog)
 	electrum.UseLogger(elecLog)
+	bdkwallet.UseLogger(bdkwLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -111,6 +114,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"TXMP": txmpLog,
 	"WLLT": wlltLog,
 	"ELEC": elecLog,
+	"BDKW": bdkwLog,
 }
 
 // initLogRotator initializes the logging rotater to write logs to logFile and

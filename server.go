@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/utreexo/utreexod/addrmgr"
+	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcutil"
@@ -266,6 +267,9 @@ type server struct {
 	// electrumServer is a stateless personal electrum server and it fetches data from
 	// the database and the watch only wallet and serves them to the connected client.
 	electrumServer *electrum.ElectrumServer
+
+	// bdkWallet keeps track of a wallet
+	bdkWallet *bdkwallet.Manager
 
 	// cfCheckptCaches stores a cached slice of filter headers for cfcheckpt
 	// messages for each filter type.
@@ -3531,6 +3535,18 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 				return nil, err
 			}
 		}
+	}
+
+	// auto create bdk wallet manager
+	// TODO: We should let the user disable this!
+	s.bdkWallet, err = bdkwallet.NewManager(bdkwallet.ManagerConfig{
+		Chain:       s.chain,
+		TxMemPool:   s.txMemPool,
+		ChainParams: chainParams,
+		DataDir:     cfg.DataDir,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	if !cfg.DisableRPC {

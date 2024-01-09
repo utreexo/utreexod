@@ -1,0 +1,77 @@
+namespace bdkgo {};
+
+[Error]
+enum CreateNewError {
+    "ParseNetwork",
+    "ParseGenesisHash",
+    "Database",
+    "Wallet",
+};
+
+[Error]
+enum LoadError {
+    "Database",
+    "ParseHeader",
+    "HeaderVersion",
+    "Wallet",
+};
+
+[Error]
+enum DatabaseError {
+    "Write",
+};
+
+[Error]
+enum ApplyBlockError {
+    "DecodeBlock",
+    "CannotConnect",
+    "Database",
+};
+
+dictionary AddressInfo {
+    u32 index;
+    string address;
+};
+
+dictionary Balance {
+    u64 immature;
+    u64 trusted_pending;
+    u64 untrusted_pending;
+    u64 confirmed;
+};
+
+interface Wallet {
+    [Name=create_new, Throws=CreateNewError]
+    constructor(string db_path, string network, bytes genesis_hash);
+
+    [Name=load, Throws=LoadError]
+    constructor(string db_path);
+
+    [Throws=DatabaseError]
+    AddressInfo last_unused_address();
+
+    [Throws=DatabaseError]
+    AddressInfo fresh_address();
+
+    [Throws=DatabaseError]
+    AddressInfo peek_address(u32 index);
+
+    Balance balance();
+
+    bytes genesis_hash();
+
+    sequence<BlockId> recent_blocks(u32 count);
+
+    [Throws=ApplyBlockError]
+    void apply_block(u32 height, Block block_bytes);
+};
+
+interface Block {
+    constructor([ByRef] bytes b);
+    bytes hash();
+};
+
+dictionary BlockId {
+    u32 height;
+    bytes hash;
+};
