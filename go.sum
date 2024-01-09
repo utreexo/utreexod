@@ -119,6 +119,8 @@ github.com/utreexo/utreexo v0.0.0-20231219090807-8a536d991e56 h1:B/HrgsWj2wgq7p1
 github.com/utreexo/utreexo v0.0.0-20231219090807-8a536d991e56/go.mod h1:RT9JpZADhLr2YJVBgp48tmUxVeAHaAbOSr6p6nAEJpI=
 github.com/utreexo/utreexo v0.0.0-20240107135703-1173e8c06c0a h1:I13nd87S1t6CgJakPy3SkbXbRnmNHrE46YSiN4LDX1g=
 github.com/utreexo/utreexo v0.0.0-20240107135703-1173e8c06c0a/go.mod h1:RT9JpZADhLr2YJVBgp48tmUxVeAHaAbOSr6p6nAEJpI=
+github.com/utreexo/utreexo v0.0.0-20240108093304-8fd7201a9da4 h1:osXdu/UVk3j5pR6gYtJ56RBfU6qYAAEub91BNhKQbJk=
+github.com/utreexo/utreexo v0.0.0-20240108093304-8fd7201a9da4/go.mod h1:RT9JpZADhLr2YJVBgp48tmUxVeAHaAbOSr6p6nAEJpI=
 golang.org/x/crypto v0.0.0-20170930174604-9419663f5a44/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20200115085410-6d4e4cb37c7d/go.mod h1:LzIPMQfyMNhhGPhUkYOs5KpL4U8rLKemX1yGLhDgUto=
