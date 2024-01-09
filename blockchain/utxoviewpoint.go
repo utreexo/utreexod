@@ -741,6 +741,11 @@ func NewUtxoViewpoint() *UtxoViewpoint {
 //
 // This function is safe for concurrent access however the returned view is NOT.
 func (b *BlockChain) FetchUtxoView(tx *btcutil.Tx) (*UtxoViewpoint, error) {
+	// For utreexo nodes, they may not have utxocache.
+	if b.utxoCache == nil {
+		return nil, nil
+	}
+
 	// Create a set of needed outputs based on those referenced by the
 	// inputs of the passed transaction and the outputs of the transaction
 	// itself.
@@ -782,6 +787,11 @@ func (b *BlockChain) FetchUtxoView(tx *btcutil.Tx) (*UtxoViewpoint, error) {
 func (b *BlockChain) FetchUtxoEntry(outpoint wire.OutPoint) (*UtxoEntry, error) {
 	b.chainLock.RLock()
 	defer b.chainLock.RUnlock()
+
+	// For utreexo nodes, they may not have utxocache.
+	if b.utxoCache == nil {
+		return nil, nil
+	}
 
 	entries, err := b.utxoCache.fetchEntries([]wire.OutPoint{outpoint})
 	if err != nil {
