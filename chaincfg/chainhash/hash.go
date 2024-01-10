@@ -7,10 +7,12 @@ package chainhash
 
 import (
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 )
 
@@ -57,6 +59,14 @@ var (
 		string(TagTapLeaf):          sha256.Sum256(TagTapLeaf),
 		string(TagTapBranch):        sha256.Sum256(TagTapBranch),
 		string(TagTapTweak):         sha256.Sum256(TagTapTweak),
+	}
+
+	// TagUtreexoV1 is the tag used by utreexo v1 serialized hashes to
+	// generate the leaf hashes to be committed into the accumulator.
+	TagUtreexoV1 = []byte("UtreexoV1")
+
+	precomputedUtreexoTags = map[string][64]byte{
+		string(TagUtreexoV1): sha512.Sum512(TagUtreexoV1),
 	}
 )
 
@@ -171,6 +181,27 @@ func TaggedHash(tag []byte, msgs ...[]byte) *Hash {
 	hash, _ := NewHash(taggedHash)
 
 	return hash
+}
+
+// TaggedHash512_256 implements a tagged hash scheme for utreexo leaves. We use
+// sha-512_256 to bind a message hash to a specific context using a tag:
+// sha512_256(sha512(tag) || sha512(tag) || leafdata).
+func TaggedHash512_256(tag []byte, serialize func(io.Writer)) *Hash {
+	// Check to see if we've already pre-computed the hash of the tag. If
+	// so then this'll save us an extra sha512 hash.
+	shaTag, ok := precomputedUtreexoTags[string(tag)]
+	if !ok {
+		shaTag = sha512.Sum512(tag)
+	}
+
+	// h = sha512_256(sha512(tag) || sha512(tag) || leafdata)
+	h := sha512.New512_256()
+	h.Write(shaTag[:])
+	h.Write(shaTag[:])
+	serialize(h)
+
+	taggedHash := h.Sum(nil)
+	return (*Hash)(taggedHash)
 }
 
 // NewHashFromStr creates a Hash from a hash string.  The string should be
