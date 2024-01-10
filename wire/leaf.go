@@ -6,7 +6,6 @@ package wire
 
 import (
 	"bytes"
-	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -115,14 +114,11 @@ func (l *LeafData) UnmarshalJSON(data []byte) error {
 
 // LeafHash concats and hashes all the data in LeafData.
 func (l *LeafData) LeafHash() [32]byte {
-	digest := sha512.New512_256()
-	l.Serialize(digest)
-
-	// TODO go 1.17 support slice to array conversion so we
-	// can avoid this extra copy.
-	hash := [32]byte{}
-	copy(hash[:], digest.Sum(nil))
-	return hash
+	return *chainhash.TaggedHash512_256(chainhash.TagUtreexoV1,
+		func(w io.Writer) {
+			l.Serialize(w)
+		},
+	)
 }
 
 // ToString turns a LeafData into a string for logging.
