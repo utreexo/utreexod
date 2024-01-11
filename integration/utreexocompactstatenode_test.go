@@ -32,7 +32,8 @@ func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
 
 		utreexoProof, err := harness.Client.GetUtreexoProof(blockhash)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to fetch proof for block %s. %v",
+				blockhash.String(), err)
 		}
 
 		jsonToUdata := func(*btcjson.GetUtreexoProofVerboseResult) (*wire.UData, error) {
