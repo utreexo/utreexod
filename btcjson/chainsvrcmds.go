@@ -754,6 +754,19 @@ func NewGetUtreexoProofCmd(blockhash string, verbosity *int) *GetUtreexoProofCmd
 	}
 }
 
+// GetUtreexoRootsCmd defines the getutreexoroots JSON-RPC command.
+type GetUtreexoRootsCmd struct {
+	BlockHash string
+}
+
+// NewGetUtreexoRootsCmd returns a new instance which can be used
+// to issue a getutreexoroots JSON-RPC command.
+func NewGetUtreexoRootsCmd(blockhash string) *GetUtreexoRootsCmd {
+	return &GetUtreexoRootsCmd{
+		BlockHash: blockhash,
+	}
+}
+
 // GetWorkCmd defines the getwork JSON-RPC command.
 type GetWorkCmd struct {
 	Data *string
@@ -1195,6 +1208,7 @@ func init() {
 	MustRegisterCmd("gettxoutproof", (*GetTxOutProofCmd)(nil), flags)
 	MustRegisterCmd("gettxoutsetinfo", (*GetTxOutSetInfoCmd)(nil), flags)
 	MustRegisterCmd("getutreexoproof", (*GetUtreexoProofCmd)(nil), flags)
+	MustRegisterCmd("getutreexoroots", (*GetUtreexoRootsCmd)(nil), flags)
 	MustRegisterCmd("getwork", (*GetWorkCmd)(nil), flags)
 	MustRegisterCmd("getwatchonlybalance", (*GetWatchOnlyBalanceCmd)(nil), flags)
 	MustRegisterCmd("help", (*HelpCmd)(nil), flags)

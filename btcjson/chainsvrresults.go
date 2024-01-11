@@ -892,6 +892,12 @@ type GetUtreexoProofVerboseResult struct {
 	ProofTargets    []uint64 `json:"prooftargets"`
 }
 
+// GetUtreexoRootsResult models the data from the getutreexoroots command.
+type GetUtreexoRootsResult struct {
+	Roots     []string `json:"roots"`
+	NumLeaves uint64   `json:"numleaves"`
+}
+
 // ProveWatchOnlyChainTipInclusionVerboseResult models the data from the
 // provewatchonlychaintipinclusion command when the verbose flag is set.  When the
 // verbose flag is not set, just the hex-encoded string of the entire proof
