@@ -576,6 +576,14 @@ var helpDescsEnUS = map[string]string{
 	"getutreexoproofverboseresult-prooftargets": "One half of the utreexo accumulator proof (the other half being proofhashes).\n" +
 		"The locations of the given UTXOs in the accumulator.",
 
+	// GetUtreexoRoots help.
+	"getutreexoroots--synopsis": "Returns an utreexo accumulator roots and the number of leaves at the desired block",
+	"getutreexoroots-blockhash": "The block in which to fetch the accumulator state",
+
+	// GetUtreexoRootsResult help.
+	"getutreexorootsresult-numleaves": "The number of leaves committed in the accumulator at the given block",
+	"getutreexorootsresult-roots":     "The roots of the accumulator at the given block",
+
 	// GetWatchOnlyBalanceCmd help.
 	"getwatchonlybalance--synopsis": "Returns the total balance of the watch only wallet",
 	"getwatchonlybalance--result0":  "The total balance of the watch only wallet in satoshis",
@@ -837,6 +845,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getnettotals":                       {(*btcjson.GetNetTotalsResult)(nil)},
 	"gettxtotals":                        {(*btcjson.GetTxTotalsResult)(nil)},
 	"getutreexoproof":                    {(*btcjson.GetUtreexoProofVerboseResult)(nil)},
+	"getutreexoroots":                    {(*btcjson.GetUtreexoRootsResult)(nil)},
 	"getwatchonlybalance":                {(*int64)(nil)},
 	"getnetworkhashps":                   {(*int64)(nil)},
 	"getnodeaddresses":                   {(*[]btcjson.GetNodeAddressesResult)(nil)},
