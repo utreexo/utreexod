@@ -1492,6 +1492,45 @@ func (c *Client) GetUtreexoProof(blockHash *chainhash.Hash) (*btcjson.GetUtreexo
 	return c.GetUtreexoProofAsync(blockHash).Receive()
 }
 
+// FutureGetUtreexoRootsResult is a future promise to deliver the result of a
+// GetUtreexoRootsAsync RPC invocation (or an applicable error).
+type FutureGetUtreexoRootsResult chan *Response
+
+// Receive waits for the Response promised by the future and returns the raw
+// block requested from the server given its hash.
+func (r FutureGetUtreexoRootsResult) Receive() (*btcjson.GetUtreexoRootsResult, error) {
+	res, err := ReceiveFuture(r)
+
+	var utreexoRootsResult btcjson.GetUtreexoRootsResult
+
+	err = json.Unmarshal(res, &utreexoRootsResult)
+	if err != nil {
+		return nil, err
+	}
+
+	return &utreexoRootsResult, nil
+}
+
+// GetUtreexoRootsAsync returns an instance of a type that can be used to get the
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See GetUtreexoRoots for the blocking version and more details.
+func (c *Client) GetUtreexoRootsAsync(blockHash *chainhash.Hash) FutureGetUtreexoRootsResult {
+	hash := ""
+	if blockHash != nil {
+		hash = blockHash.String()
+	}
+
+	cmd := btcjson.NewGetUtreexoRootsCmd(hash)
+	return c.SendCmd(cmd)
+}
+
+// GetUtreexoRoots reconsiders a specific block and the branch that the block is included in.
+func (c *Client) GetUtreexoRoots(blockHash *chainhash.Hash) (*btcjson.GetUtreexoRootsResult, error) {
+	return c.GetUtreexoRootsAsync(blockHash).Receive()
+}
+
 // FutureProveWatchOnlyChainTipInclusion is a future promise to deliver the result of a
 // ProveWatchOnlyChainTipInclusionAsync RPC invocation (or an applicable error).
 type FutureProveWatchOnlyChainTipInclusion chan *Response

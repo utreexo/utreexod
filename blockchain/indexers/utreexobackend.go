@@ -12,6 +12,7 @@ import (
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/database"
 )
 
 const (
@@ -102,6 +103,68 @@ func checkUtreexoExists(cfg *UtreexoConfig, basePath string) bool {
 		return false
 	}
 	return true
+}
+
+// FetchCurrentUtreexoState returns the current utreexo state.
+func (idx *UtreexoProofIndex) FetchCurrentUtreexoState() ([]*chainhash.Hash, uint64) {
+	idx.mtx.RLock()
+	defer idx.mtx.RUnlock()
+
+	roots := idx.utreexoState.state.GetRoots()
+	chainhashRoots := make([]*chainhash.Hash, len(roots))
+
+	for i, root := range roots {
+		newRoot := chainhash.Hash(root)
+		chainhashRoots[i] = &newRoot
+	}
+
+	return chainhashRoots, idx.utreexoState.state.NumLeaves
+}
+
+// FetchCurrentUtreexoState returns the current utreexo state.
+func (idx *FlatUtreexoProofIndex) FetchCurrentUtreexoState() ([]*chainhash.Hash, uint64) {
+	idx.mtx.RLock()
+	defer idx.mtx.RUnlock()
+
+	roots := idx.utreexoState.state.GetRoots()
+
+	chainhashRoots := make([]*chainhash.Hash, len(roots))
+	for i, root := range roots {
+		newRoot := chainhash.Hash(root)
+		chainhashRoots[i] = &newRoot
+	}
+
+	return chainhashRoots, idx.utreexoState.state.NumLeaves
+}
+
+// FetchUtreexoState returns the utreexo state at the desired block.
+func (idx *UtreexoProofIndex) FetchUtreexoState(dbTx database.Tx, blockHash *chainhash.Hash) ([]*chainhash.Hash, uint64, error) {
+	stump, err := dbFetchUtreexoState(dbTx, blockHash)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	chainhashRoots := make([]*chainhash.Hash, len(stump.Roots))
+	for i, root := range stump.Roots {
+		newRoot := chainhash.Hash(root)
+		chainhashRoots[i] = &newRoot
+	}
+	return chainhashRoots, stump.NumLeaves, nil
+}
+
+// FetchUtreexoState returns the utreexo state at the desired block.
+func (idx *FlatUtreexoProofIndex) FetchUtreexoState(blockHeight int32) ([]*chainhash.Hash, uint64, error) {
+	stump, err := idx.fetchRoots(blockHeight)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	chainhashRoots := make([]*chainhash.Hash, len(stump.Roots))
+	for i, root := range stump.Roots {
+		newRoot := chainhash.Hash(root)
+		chainhashRoots[i] = &newRoot
+	}
+	return chainhashRoots, stump.NumLeaves, nil
 }
 
 // FlushUtreexoState saves the utreexo state to disk.

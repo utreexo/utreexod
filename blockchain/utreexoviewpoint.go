@@ -15,6 +15,7 @@ import (
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -1058,6 +1059,32 @@ func (b *BlockChain) GetNeededPositions(packedPositions []chainhash.Hash) []chai
 	positions := chainhash.PackedHashesToUint64(packedPositions)
 	missing := b.utreexoView.accumulator.GetMissingPositions(positions)
 	return chainhash.Uint64sToPackedHashes(missing)
+}
+
+// FetchUtreexoViewpoint returns the utreexo viewpoint at the given block hash.
+// returns nil if it wasn't found.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) FetchUtreexoViewpoint(blockHash *chainhash.Hash) (*UtreexoViewpoint, error) {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	// Quick check to not panic.
+	if b.utreexoView == nil {
+		return nil, nil
+	}
+
+	var utreexoView *UtreexoViewpoint
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		utreexoView, err = dbFetchUtreexoView(dbTx, blockHash)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return utreexoView, nil
 }
 
 // ChainTipProof represents all the information that is needed to prove that a
