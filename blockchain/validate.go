@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -58,6 +59,34 @@ var (
 	// set forth in BIP0030.  It is defined as a package level variable to
 	// avoid the need to create a new instance every time a check is needed.
 	block91880Hash = newHashFromStr("00000000000743f190a18c5577a3c2d2a1f610ae9601ac046a38084ccb7cd721")
+
+	// block91722UnspendableUtreexoLeafHash is the unspendable utxo that exists
+	// because of the historical BIP0030 violation. For utreexo, this utxo is not
+	// overwritten as we commit the block hash in the leafhash. But since non-utreexo
+	// nodes consider this as unspendable as it's already been overwritten, we also
+	// need to make it not spendable.
+	//
+	// Encoded in hex string is 84b3af0783b410b4564c5d1f361868559f7cf77cfc65ce2be951210357022fe3.
+	block91722UnspendableUtreexoLeafHash = utreexo.Hash{
+		0x84, 0xb3, 0xaf, 0x07, 0x83, 0xb4, 0x10, 0xb4,
+		0x56, 0x4c, 0x5d, 0x1f, 0x36, 0x18, 0x68, 0x55,
+		0x9f, 0x7c, 0xf7, 0x7c, 0xfc, 0x65, 0xce, 0x2b,
+		0xe9, 0x51, 0x21, 0x03, 0x57, 0x02, 0x2f, 0xe3,
+	}
+
+	// block91812UnspendableUtreexoLeafHash is the unspendable utxo that exists
+	// because of the historical BIP0030 violation. For utreexo, this utxo is not
+	// overwritten as we commit the block hash in the leafhash. But since non-utreexo
+	// nodes consider this as unspendable as it's already been overwritten, we also
+	// need to make it not spendable.
+	//
+	// Encoded in hex string is bc6b4bf7cebbd33a18d6b0fe1f8ecc7aa5403083c39ee343b985d51fd0295ad8
+	block91812UnspendableUtreexoLeafHash = utreexo.Hash{
+		0xbc, 0x6b, 0x4b, 0xf7, 0xce, 0xbb, 0xd3, 0x3a,
+		0x18, 0xd6, 0xb0, 0xfe, 0x1f, 0x8e, 0xcc, 0x7a,
+		0xa5, 0x40, 0x30, 0x83, 0xc3, 0x9e, 0xe3, 0x43,
+		0xb9, 0x85, 0xd5, 0x1f, 0xd0, 0x29, 0x5a, 0xd8,
+	}
 )
 
 // isNullOutpoint determines whether or not a previous transaction output point

@@ -5,6 +5,8 @@
 package blockchain
 
 import (
+	"bytes"
+	"encoding/hex"
 	"math"
 	"reflect"
 	"testing"
@@ -484,4 +486,105 @@ var Block100000 = wire.MsgBlock{
 			LockTime: 0,
 		},
 	},
+}
+
+// Everything is hardcoded in so we shouldn't have any problems but this sanity checking
+// makes me feel a bit better and it makes it easier to check for others.
+func TestUtreexoUnspendableBIP0030LeafHashes(t *testing.T) {
+	tests := []struct {
+		outpoint   wire.OutPoint
+		pkScript   []byte
+		isCoinbase bool
+		amount     int64
+
+		firstBlockHash, secondBlockHash     chainhash.Hash
+		firstBlockHeight, secondBlockHeight int32
+	}{
+		/*
+		 *
+		 * First pair of duplicate outpoints.
+		 *
+		 */
+		{
+			outpoint: wire.OutPoint{
+				Hash:  *newHashFromStr("e3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468"),
+				Index: 0,
+			},
+			pkScript:   hexToBytes("4104124b212f5416598a92ccec88819105179dcb2550d571842601492718273fe0f2179a9695096bff94cd99dcccdea7cd9bd943bfca8fea649cac963411979a33e9ac"),
+			isCoinbase: true,
+			amount:     5_000_000_000,
+
+			firstBlockHash:   *newHashFromStr("00000000000271a2dc26e7667f8419f2e15416dc6955e5a6c6cdf3f2574dd08e"),
+			firstBlockHeight: 91_722,
+
+			secondBlockHeight: 91_880,
+			secondBlockHash:   *block91880Hash,
+		},
+
+		/*
+		 *
+		 * Second pair of duplicate outpoints.
+		 *
+		 */
+		{
+			outpoint: wire.OutPoint{
+				Hash:  *newHashFromStr("d5d27987d2a3dfc724e359870c6644b40e497bdc0589a033220fe15429d88599"),
+				Index: 0,
+			},
+			pkScript:   hexToBytes("41046896ecfc449cb8560594eb7f413f199deb9b4e5d947a142e7dc7d2de0b811b8e204833ea2a2fd9d4c7b153a8ca7661d0a0b7fc981df1f42f55d64b26b3da1e9cac"),
+			isCoinbase: true,
+			amount:     5_000_000_000,
+
+			firstBlockHeight: 91_812,
+			firstBlockHash:   *newHashFromStr("00000000000af0aed4792b1acee3d966af36cf5def14935db8de83d6f9306f2f"),
+
+			secondBlockHeight: 91_842,
+			secondBlockHash:   *block91842Hash,
+		},
+	}
+
+	for i, test := range tests {
+		firstLd := wire.LeafData{
+			BlockHash:  test.firstBlockHash,
+			OutPoint:   test.outpoint,
+			Height:     test.firstBlockHeight,
+			IsCoinBase: test.isCoinbase,
+			Amount:     test.amount,
+			PkScript:   test.pkScript,
+		}
+
+		secondLd := wire.LeafData{
+			BlockHash:  test.secondBlockHash,
+			OutPoint:   test.outpoint,
+			Height:     test.secondBlockHeight,
+			IsCoinBase: test.isCoinbase,
+			Amount:     test.amount,
+			PkScript:   test.pkScript,
+		}
+
+		firstHash, secondHash := firstLd.LeafHash(), secondLd.LeafHash()
+
+		// Sanity check.
+		if firstHash == secondHash {
+			t.Fatalf("expect the testhashes to have different leaf hashes "+
+				"but have %s",
+				hex.EncodeToString(firstHash[:]),
+			)
+		}
+
+		// Firsthash is the overwritten one.
+		if i == 0 && !bytes.Equal(firstHash[:], block91722UnspendableUtreexoLeafHash[:]) {
+			t.Fatalf("expect the leaf hashes to have the same "+
+				"but have %s and %s",
+				hex.EncodeToString(firstHash[:]),
+				hex.EncodeToString(block91722UnspendableUtreexoLeafHash[:]),
+			)
+		} else if i == 1 && !bytes.Equal(firstHash[:], block91812UnspendableUtreexoLeafHash[:]) {
+			t.Fatalf("expect the leaf hashes to have the same "+
+				"but have %s and %s",
+				hex.EncodeToString(firstHash[:]),
+				hex.EncodeToString(block91812UnspendableUtreexoLeafHash[:]),
+			)
+		}
+	}
 }
