@@ -1206,6 +1206,11 @@ func loadConfig() (*config, []string, error) {
 		cfg.NoUtreexo = true
 	}
 
+	// Set --prune=550 if the node is a utreexo node.
+	if !cfg.NoUtreexo {
+		cfg.Prune = 550
+	}
+
 	// Specifying --noonion means the onion address dial function results in
 	// an error.
 	if cfg.NoOnion {
