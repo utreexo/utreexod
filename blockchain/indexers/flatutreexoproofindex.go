@@ -233,10 +233,6 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	if block.Height()%1000 == 0 {
-		idx.pStats.LogProofStats()
-	}
-
 	return nil
 }
 
