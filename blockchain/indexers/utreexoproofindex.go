@@ -71,8 +71,9 @@ func (idx *UtreexoProofIndex) NeedsInputs() bool {
 
 // Init initializes the utreexo proof index. This is part of the Indexer
 // interface.
-func (idx *UtreexoProofIndex) Init() error {
-	return nil // nothing to do
+func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
+	idx.chain = chain
+	return nil
 }
 
 // Name returns the human-readable name of the index.
@@ -363,11 +364,6 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 func (idx *UtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
 	proof *utreexo.Proof) error {
 	return idx.utreexoState.state.Verify(toProve, *proof, false)
-}
-
-// SetChain sets the given chain as the chain to be used for blockhash fetching.
-func (idx *UtreexoProofIndex) SetChain(chain *blockchain.BlockChain) {
-	idx.chain = chain
 }
 
 // PruneBlock is invoked when an older block is deleted after it's been
