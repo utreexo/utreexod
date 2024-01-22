@@ -479,3 +479,15 @@ func dbDeleteUtreexoState(dbTx database.Tx, hash *chainhash.Hash) error {
 	idx := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoStateKey)
 	return idx.Delete(hash[:])
 }
+
+// UtreexoProofIndexInitialized returns true if the cfindex has been created previously.
+func UtreexoProofIndexInitialized(db database.DB) bool {
+	var exists bool
+	db.View(func(dbTx database.Tx) error {
+		bucket := dbTx.Metadata().Bucket(utreexoParentBucketKey)
+		exists = bucket != nil
+		return nil
+	})
+
+	return exists
+}

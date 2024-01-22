@@ -1188,3 +1188,15 @@ func DropFlatUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan 
 	path := utreexoBasePath(&UtreexoConfig{DataDir: dataDir, Name: flatUtreexoProofIndexType})
 	return deleteUtreexoState(path)
 }
+
+// FlatUtreexoProofIndexInitialized returns true if the cfindex has been created previously.
+func FlatUtreexoProofIndexInitialized(db database.DB) bool {
+	var exists bool
+	db.View(func(dbTx database.Tx) error {
+		bucket := dbTx.Metadata().Bucket(flatUtreexoBucketKey)
+		exists = bucket != nil
+		return nil
+	})
+
+	return exists
+}
