@@ -18,7 +18,10 @@ func TestReorg(t *testing.T) {
 
 	// Create block at height 1.
 	var emptySpendableOuts []*SpendableOut
-	b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+	b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var allSpends []*SpendableOut
 	nextBlock := b1
@@ -26,7 +29,10 @@ func TestReorg(t *testing.T) {
 
 	// Create a chain with 101 blocks.
 	for b := 0; b < 100; b++ {
-		newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+		newBlock, newSpendableOuts, err := AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
 		nextBlock = newBlock
 
 		allSpends = append(allSpends, newSpendableOuts...)
@@ -57,7 +63,10 @@ func TestReorg(t *testing.T) {
 	altNextBlock := b1
 	for i := range altBlocks {
 		var newSpends []*SpendableOut
-		altBlocks[i], newSpends = AddBlock(chain, altNextBlock, altNextSpends)
+		altBlocks[i], newSpends, err = AddBlock(chain, altNextBlock, altNextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
 		altNextBlock = altBlocks[i]
 
 		altSpends = append(altSpends, newSpends...)

@@ -544,7 +544,10 @@ func TestProveUtxos(t *testing.T) {
 	// Create a chain with 101 blocks.
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
 	for i := 0; i < 100; i++ {
-		newBlock, newSpendableOuts := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
 		nextBlock = newBlock
 
 		allSpends = append(allSpends, newSpendableOuts...)
@@ -676,7 +679,10 @@ func TestUtreexoProofIndex(t *testing.T) {
 
 	// Create block at height 1.
 	var emptySpendableOuts []*blockchain.SpendableOut
-	b1, spendableOuts1 := blockchain.AddBlock(chain, tip, emptySpendableOuts)
+	b1, spendableOuts1, err := blockchain.AddBlock(chain, tip, emptySpendableOuts)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var allSpends []*blockchain.SpendableOut
 	nextBlock := b1
@@ -684,7 +690,10 @@ func TestUtreexoProofIndex(t *testing.T) {
 
 	// Create a chain with 101 blocks.
 	for b := 0; b < 100; b++ {
-		newBlock, newSpendableOuts := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
 		nextBlock = newBlock
 
 		allSpends = append(allSpends, newSpendableOuts...)
@@ -701,7 +710,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 
 		// Test that the proof that the indexes generated verify on those
 		// same indexes.
-		err := testUtreexoProof(newBlock, chain, indexes)
+		err = testUtreexoProof(newBlock, chain, indexes)
 		if err != nil {
 			t.Fatalf("TestUtreexoProofIndex failed testUtreexoProof. err: %v", err)
 		}
@@ -715,7 +724,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	}
 
 	// Check that the added 100 blocks are equal for both indexes.
-	err := compareUtreexoIdx(1, 100, chain, indexes)
+	err = compareUtreexoIdx(1, 100, chain, indexes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,7 +751,10 @@ func TestUtreexoProofIndex(t *testing.T) {
 	altNextBlock := b1
 	for i := range altBlocks {
 		var newSpends []*blockchain.SpendableOut
-		altBlocks[i], newSpends = blockchain.AddBlock(chain, altNextBlock, altNextSpends)
+		altBlocks[i], newSpends, err = blockchain.AddBlock(chain, altNextBlock, altNextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
 		altNextBlock = altBlocks[i]
 
 		altSpends = append(altSpends, newSpends...)
@@ -796,7 +808,10 @@ func TestMultiBlockProof(t *testing.T) {
 
 	// Create a chain with 100 blocks.
 	for b := 0; b < 100; b++ {
-		newBlock, newSpendableOuts := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
 		nextBlock = newBlock
 
 		allSpends = append(allSpends, newSpendableOuts...)

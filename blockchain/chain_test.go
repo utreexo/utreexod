@@ -1328,7 +1328,10 @@ func TestInvalidateBlock(t *testing.T) {
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
-				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+				b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				var allSpends []*SpendableOut
 				nextBlock := b1
@@ -1338,7 +1341,10 @@ func TestInvalidateBlock(t *testing.T) {
 
 				// Create a chain with 11 blocks.
 				for b := 0; b < 10; b++ {
-					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					newBlock, newSpendableOuts, err := AddBlock(chain, nextBlock, nextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					nextBlock = newBlock
 
 					if newBlock.Height() == 5 {
@@ -1379,7 +1385,10 @@ func TestInvalidateBlock(t *testing.T) {
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
-				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+				b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				var allSpends []*SpendableOut
 				nextBlock := b1
@@ -1389,7 +1398,10 @@ func TestInvalidateBlock(t *testing.T) {
 
 				// Create a chain with 11 blocks.
 				for b := 0; b < 10; b++ {
-					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					newBlock, newSpendableOuts, err := AddBlock(chain, nextBlock, nextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					nextBlock = newBlock
 
 					if newBlock.Height() == 5 {
@@ -1422,7 +1434,10 @@ func TestInvalidateBlock(t *testing.T) {
 				altNextBlock := b1
 				var invalidateHash2 *chainhash.Hash
 				for b := 0; b < 6; b++ {
-					altNewBlock, newSpends := AddBlock(chain, altNextBlock, altNextSpends)
+					altNewBlock, newSpends, err := AddBlock(chain, altNextBlock, altNextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					altNextBlock = altNewBlock
 
 					altSpends = append(altSpends, newSpends...)
@@ -1463,7 +1478,10 @@ func TestInvalidateBlock(t *testing.T) {
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
-				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+				b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				var allSpends []*SpendableOut
 				nextBlock := b1
@@ -1471,7 +1489,10 @@ func TestInvalidateBlock(t *testing.T) {
 
 				// Create a chain with 11 blocks.
 				for b := 0; b < 10; b++ {
-					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					newBlock, newSpendableOuts, err := AddBlock(chain, nextBlock, nextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					nextBlock = newBlock
 
 					allSpends = append(allSpends, newSpendableOuts...)
@@ -1500,7 +1521,10 @@ func TestInvalidateBlock(t *testing.T) {
 				altNextBlock := b1
 				var invalidateHash *chainhash.Hash
 				for b := 0; b < 6; b++ {
-					altNewBlock, newSpends := AddBlock(chain, altNextBlock, altNextSpends)
+					altNewBlock, newSpends, err := AddBlock(chain, altNextBlock, altNextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					altNextBlock = altNewBlock
 
 					altSpends = append(altSpends, newSpends...)
@@ -1677,7 +1701,10 @@ func TestReconsiderBlock(t *testing.T) {
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
-				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+				b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				var allSpends []*SpendableOut
 				nextBlock := b1
@@ -1687,7 +1714,10 @@ func TestReconsiderBlock(t *testing.T) {
 
 				// Create a chain with 101 blocks.
 				for b := 0; b < 10; b++ {
-					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					newBlock, newSpendableOuts, err := AddBlock(chain, nextBlock, nextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					nextBlock = newBlock
 
 					if newBlock.Height() == 5 {
@@ -1728,7 +1758,10 @@ func TestReconsiderBlock(t *testing.T) {
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
-				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+				b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				var allSpends []*SpendableOut
 				nextBlock := b1
@@ -1737,7 +1770,10 @@ func TestReconsiderBlock(t *testing.T) {
 				var invalidateHash *chainhash.Hash
 				// Create a chain with 101 blocks.
 				for b := 0; b < 10; b++ {
-					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					newBlock, newSpendableOuts, err := AddBlock(chain, nextBlock, nextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					nextBlock = newBlock
 
 					if newBlock.Height() == 5 {
@@ -1768,7 +1804,10 @@ func TestReconsiderBlock(t *testing.T) {
 				altNextSpends := spendableOuts1
 				altNextBlock := b1
 				for b := 0; b < 6; b++ {
-					altNewBlock, newSpends := AddBlock(chain, altNextBlock, altNextSpends)
+					altNewBlock, newSpends, err := AddBlock(chain, altNextBlock, altNextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					altNextBlock = altNewBlock
 
 					altSpends = append(altSpends, newSpends...)
@@ -1805,7 +1844,10 @@ func TestReconsiderBlock(t *testing.T) {
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
-				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+				b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				var allSpends []*SpendableOut
 				nextBlock := b1
@@ -1813,7 +1855,10 @@ func TestReconsiderBlock(t *testing.T) {
 
 				// Create a chain with 101 blocks.
 				for b := 0; b < 10; b++ {
-					newBlock, newSpendableOuts := AddBlock(chain, nextBlock, nextSpends)
+					newBlock, newSpendableOuts, err := AddBlock(chain, nextBlock, nextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					nextBlock = newBlock
 
 					allSpends = append(allSpends, newSpendableOuts...)
@@ -1841,7 +1886,10 @@ func TestReconsiderBlock(t *testing.T) {
 				altNextBlock := b1
 				var invalidateHash *chainhash.Hash
 				for b := 0; b < 6; b++ {
-					altNewBlock, newSpends := AddBlock(chain, altNextBlock, altNextSpends)
+					altNewBlock, newSpends, err := AddBlock(chain, altNextBlock, altNextSpends)
+					if err != nil {
+						t.Fatal(err)
+					}
 					altNextBlock = altNewBlock
 
 					if altNewBlock.Height() == 4 {
@@ -1882,7 +1930,10 @@ func TestReconsiderBlock(t *testing.T) {
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
-				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+				b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				var allSpends []*SpendableOut
 				nextBlock := b1
@@ -1907,7 +1958,10 @@ func TestReconsiderBlock(t *testing.T) {
 						// Modify the amount again so it's valid.
 						nextSpends[0].Amount -= lowFee
 					} else {
-						newBlock, newSpendableOuts = AddBlock(chain, nextBlock, nextSpends)
+						newBlock, newSpendableOuts, err = AddBlock(chain, nextBlock, nextSpends)
+						if err != nil {
+							t.Fatal(err)
+						}
 						nextBlock = newBlock
 					}
 
@@ -1945,7 +1999,10 @@ func TestReconsiderBlock(t *testing.T) {
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
-				b1, spendableOuts1 := AddBlock(chain, tip, emptySpendableOuts)
+				b1, spendableOuts1, err := AddBlock(chain, tip, emptySpendableOuts)
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				var allSpends []*SpendableOut
 				nextBlock := b1
@@ -1970,7 +2027,10 @@ func TestReconsiderBlock(t *testing.T) {
 						// Modify the amount again so it's valid.
 						nextSpends[0].Amount -= lowFee
 					} else {
-						newBlock, newSpendableOuts = AddBlock(chain, nextBlock, nextSpends)
+						newBlock, newSpendableOuts, err = AddBlock(chain, nextBlock, nextSpends)
+						if err != nil {
+							t.Fatal(err)
+						}
 						nextBlock = newBlock
 					}
 
