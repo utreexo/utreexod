@@ -173,15 +173,15 @@ func MakeSpendableOutForTx(tx *wire.MsgTx, txOutIndex uint32) SpendableOut {
 // the new spendable outputs created in the block.
 //
 // Panics on errors.
-func AddBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*btcutil.Block, []*SpendableOut) {
+func AddBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*btcutil.Block, []*SpendableOut, error) {
 	block, outs := NewBlock(chain, prev, spends)
 
 	_, _, err := chain.ProcessBlock(block, BFNone)
 	if err != nil {
-		panic(err)
+		return nil, nil, err
 	}
 
-	return block, outs
+	return block, outs, nil
 }
 
 // NewBlock creates a block to the blockchain that succeeds the prev block.  The blocks spends
