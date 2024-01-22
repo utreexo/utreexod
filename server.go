@@ -3270,13 +3270,6 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		return nil, err
 	}
 
-	if s.utreexoProofIndex != nil {
-		s.utreexoProofIndex.SetChain(s.chain)
-	}
-	if s.flatUtreexoProofIndex != nil {
-		s.flatUtreexoProofIndex.SetChain(s.chain)
-	}
-
 	// Search for a FeeEstimator state in the database. If none can be found
 	// or if it cannot be loaded, create a new one.
 	db.Update(func(tx database.Tx) error {

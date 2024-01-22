@@ -112,8 +112,9 @@ func (idx *FlatUtreexoProofIndex) NeedsInputs() bool {
 
 // Init initializes the flat utreexo proof index. This is part of the Indexer
 // interface.
-func (idx *FlatUtreexoProofIndex) Init() error {
-	return nil // nothing to do
+func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
+	idx.chain = chain
+	return nil
 }
 
 // Name returns the human-readable name of the index.
@@ -1047,11 +1048,6 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 func (idx *FlatUtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
 	proof *utreexo.Proof) error {
 	return idx.utreexoState.state.Verify(toProve, *proof, false)
-}
-
-// SetChain sets the given chain as the chain to be used for blockhash fetching.
-func (idx *FlatUtreexoProofIndex) SetChain(chain *blockchain.BlockChain) {
-	idx.chain = chain
 }
 
 // flatFilePath returns the path to the flatfile.
