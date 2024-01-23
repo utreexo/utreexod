@@ -37,6 +37,11 @@ var (
 	// utreexoStateKey is the name of the utreexo state data.  It is included
 	// in the utreexoParentBucketKey and contains the utreexo state data.
 	utreexoStateKey = []byte("utreexostatekey")
+
+	// utreexoUndoKey is the name of the utreexo undo data bucket. It is included
+	// in the utreexoParentBucketKey and contains the data necessary for disconnecting
+	// blocks.
+	utreexoUndoKey = []byte("utreexoundokey")
 )
 
 // Ensure the UtreexoProofIndex type implements the Indexer interface.
@@ -472,6 +477,33 @@ func dbFetchUtreexoState(dbTx database.Tx, hash *chainhash.Hash) (utreexo.Stump,
 	}
 
 	return utreexo.Stump{Roots: roots, NumLeaves: numLeaves}, nil
+}
+
+// Stores the data necessary for undoing blocks.
+func dbStoreUndoData(dbTx database.Tx, numAdds uint64,
+	targets []uint64, blockHash *chainhash.Hash, delHashes []utreexo.Hash) error {
+
+	bytes, err := serializeUndoBlock(numAdds, targets, delHashes)
+	if err != nil {
+		return err
+	}
+
+	undoBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoUndoKey)
+	return undoBucket.Put(blockHash[:], bytes)
+}
+
+// Fetches the data necessary for undoing blocks.
+func dbFetchUndoData(dbTx database.Tx, blockHash *chainhash.Hash) (uint64, []uint64, []utreexo.Hash, error) {
+	undoBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoUndoKey)
+	bytes := undoBucket.Get(blockHash[:])
+
+	return deserializeUndoBlock(bytes)
+}
+
+// Deletes the data for undoing blocks.
+func dbDeleteUndoData(dbTx database.Tx, blockHash *chainhash.Hash) error {
+	undoBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoUndoKey)
+	return undoBucket.Delete(blockHash[:])
 }
 
 // Deletes the utreexo state in the database.
