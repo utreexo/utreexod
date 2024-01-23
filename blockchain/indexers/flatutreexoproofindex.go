@@ -806,7 +806,7 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, excludeAccProof bool,
 
 		err = idx.proofState.StoreData(height, bytesBuf.Bytes())
 		if err != nil {
-			return err
+			return fmt.Errorf("store proof err. %v", err)
 		}
 	} else {
 		bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSizeCompact(udataSerializeBool)))
@@ -817,7 +817,7 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, excludeAccProof bool,
 
 		err = idx.proofState.StoreData(height, bytesBuf.Bytes())
 		if err != nil {
-			return err
+			return fmt.Errorf("store proof err. %v", err)
 		}
 	}
 
@@ -862,7 +862,7 @@ func (idx *FlatUtreexoProofIndex) storeMultiBlockProof(height int32, ud, multiUd
 
 	err = idx.proofState.StoreData(height, bytesBuf.Bytes())
 	if err != nil {
-		return err
+		return fmt.Errorf("store multiblock proof err. %v", err)
 	}
 
 	return nil
@@ -879,7 +879,7 @@ func (idx *FlatUtreexoProofIndex) storeUndoBlock(height int32,
 
 	err = idx.undoState.StoreData(height, bytes)
 	if err != nil {
-		return err
+		return fmt.Errorf("store undoblock err. %v", err)
 	}
 
 	return nil
@@ -894,7 +894,7 @@ func (idx *FlatUtreexoProofIndex) storeRoots(height int32, p *utreexo.Pollard) e
 
 	err = idx.rootsState.StoreData(height, serialized)
 	if err != nil {
-		return err
+		return fmt.Errorf("store roots err. %v", err)
 	}
 
 	return nil
@@ -918,7 +918,7 @@ func (idx *FlatUtreexoProofIndex) storeRemembers(remembers [][]uint32, startHeig
 
 		err = idx.rememberIdxState.StoreData(startHeight+int32(i), bytesBuf.Bytes())
 		if err != nil {
-			return err
+			return fmt.Errorf("store remembers err. %v", err)
 		}
 	}
 
@@ -939,6 +939,8 @@ func (idx *FlatUtreexoProofIndex) fetchUndoBlock(height int32) (uint64, []uint64
 	return deserializeUndoBlock(undoBytes)
 }
 
+// fetchRoots returns the roots at the given height. It doesn't work for the current hegiht
+// and will return an error.
 func (idx *FlatUtreexoProofIndex) fetchRoots(height int32) (utreexo.Stump, error) {
 	if height == 0 {
 		return utreexo.Stump{}, nil
