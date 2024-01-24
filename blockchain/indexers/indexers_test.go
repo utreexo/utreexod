@@ -928,3 +928,221 @@ func TestMultiBlockProof(t *testing.T) {
 			csnChain.BestSnapshot().Hash.String(), csnChain.BestSnapshot().Height)
 	}
 }
+
+func TestBridgeNodePruneUndoDataGen(t *testing.T) {
+	// Always remove the root on return.
+	defer os.RemoveAll(testDbRoot)
+
+	chain, indexes, params, indexManager, tearDown := indexersTestChain("TestBridgeNodePruneUndoDataGen", 1)
+	defer tearDown()
+
+	var allSpends []*blockchain.SpendableOut
+	var nextSpends []*blockchain.SpendableOut
+
+	// Number of blocks we'll generate for the test.
+	maxHeight := int32(300)
+
+	// We'll use these to compare against the utreexo state after undo.
+	utreexoStates := make([][]*chainhash.Hash, 0, maxHeight)
+	utreexoNumLeaves := make([]uint64, 0, maxHeight)
+
+	// Grab the utreexo state and numLeaves.
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+			utreexoStates = append(utreexoStates, utreexoState)
+			utreexoNumLeaves = append(utreexoNumLeaves, numLeaves)
+		}
+	}
+
+	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	for i := int32(0); i < maxHeight; i++ {
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextBlock = newBlock
+
+		allSpends = append(allSpends, newSpendableOuts...)
+
+		var nextSpendsTmp []*blockchain.SpendableOut
+		for j := 0; j < len(allSpends); j++ {
+			randIdx := rand.Intn(len(allSpends))
+
+			spend := allSpends[randIdx]                                       // get
+			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+			nextSpendsTmp = append(nextSpendsTmp, spend)
+		}
+		nextSpends = nextSpendsTmp
+
+		// Grab the utreexo state and numLeaves.
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+				utreexoStates = append(utreexoStates, utreexoState)
+				utreexoNumLeaves = append(utreexoNumLeaves, numLeaves)
+			}
+		}
+
+		// Compare against the flatutreexo proof index.
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *UtreexoProofIndex:
+				expectRoots := utreexoStates[len(utreexoStates)-1]
+				expectNumLeaves := utreexoNumLeaves[len(utreexoNumLeaves)-1]
+
+				utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+				if expectNumLeaves != numLeaves {
+					t.Fatalf("expected numLeaves of %v but got %v",
+						expectNumLeaves, numLeaves)
+				}
+
+				if !reflect.DeepEqual(expectRoots, utreexoState) {
+					t.Fatalf("block %v, expected roots of %v but got %v",
+						i, expectRoots, utreexoState)
+				}
+			}
+		}
+
+		if i%10 == 0 {
+			// Commit the two base blocks to DB
+			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
+				t.Fatalf("TestProveUtxos fail. Unexpected error while flushing cache: %v", err)
+			}
+		}
+	}
+
+	// Sanity checking that the proofs are equal.
+	err := compareUtreexoIdx(1, maxHeight, false, chain, indexes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Mark the indexes as pruned. We try fetching proofs just to make sure
+	// it's possible to fetch them before marking them as pruned.
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			for height := int32(1); height <= maxHeight; height++ {
+				_, err := idxType.FetchUtreexoProof(height, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			idxType.pruned = true
+
+		case *UtreexoProofIndex:
+			for height := int32(1); height <= maxHeight; height++ {
+				hash, err := chain.BlockHashByHeight(height)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				_, err = idxType.FetchUtreexoProof(hash)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			idxType.pruned = true
+		}
+	}
+
+	// Here we generate the undo data and delete the proof files.
+	err = indexManager.Init(chain, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make sure that the undo data is the same.
+	err = compareUtreexoIdx(1, maxHeight, true, chain, indexes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Sanity check that the proofs are not fetchable now.
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			_, err := idxType.FetchUtreexoProof(maxHeight, false)
+			if err == nil {
+				t.Fatalf("expected an error when trying to" +
+					"fetch proofs from pruned bridges")
+			}
+		case *UtreexoProofIndex:
+			hash, err := chain.BlockHashByHeight(maxHeight)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = idxType.FetchUtreexoProof(hash)
+			if err == nil {
+				t.Fatalf("expected an error when trying to" +
+					"fetch proofs from pruned bridges")
+			}
+		}
+	}
+
+	// Disconnect utreexostate to genesis. Since we only generate undo blocks
+	// til maxHeight-288, don't go all the way to the genesis.
+	for i := maxHeight; i > maxHeight-288; i-- {
+		block, err := chain.BlockByHeight(i)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stxos, err := chain.FetchSpendJournal(block)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Pop off oen because we're gonna check the previous utreexo state.
+		utreexoStates = utreexoStates[:len(utreexoStates)-1]
+		utreexoNumLeaves = utreexoNumLeaves[:len(utreexoNumLeaves)-1]
+
+		// Grab the last one.
+		expectState := utreexoStates[len(utreexoStates)-1]
+		expectNumLeaves := utreexoNumLeaves[len(utreexoNumLeaves)-1]
+
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				err = idxType.DisconnectBlock(nil, block, stxos)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+				if numLeaves != expectNumLeaves {
+					t.Fatalf("expected numLeaves of %v but got %v",
+						expectNumLeaves, numLeaves)
+				}
+
+				if !reflect.DeepEqual(expectState, utreexoState) {
+					t.Fatalf("block %v, expected roots of %v but got %v",
+						i, expectState, utreexoState)
+				}
+
+			case *UtreexoProofIndex:
+				err = idxType.db.Update(func(dbTx database.Tx) error {
+					return idxType.DisconnectBlock(dbTx, block, stxos)
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+				if !reflect.DeepEqual(expectState, utreexoState) {
+					t.Fatalf("height %v, expected roots of:\n%v\nbut got:\n%v",
+						i, expectState, utreexoState)
+				}
+
+				if numLeaves != expectNumLeaves {
+					t.Fatalf("at height %d, expected numLeaves of %v but got %v",
+						i, expectNumLeaves, numLeaves)
+				}
+			}
+		}
+	}
+}
