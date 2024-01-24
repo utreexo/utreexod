@@ -92,7 +92,7 @@ func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincf
 	return indexManager, indexes, nil
 }
 
-func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, func()) {
+func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
 	params := chaincfg.RegressionNetParams
 	params.CoinbaseMaturity = 1
 
@@ -139,7 +139,7 @@ func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.Blo
 		panic(fmt.Errorf("failed to init indexs: %v", err))
 	}
 
-	return chain, indexes, &params, tearDown
+	return chain, indexes, &params, indexManager, tearDown
 }
 
 // csnTestChain creates a chain using the compact utreexo state.
@@ -535,7 +535,7 @@ func TestProveUtxos(t *testing.T) {
 	source := rand.NewSource(time.Now().UnixNano())
 	rand := rand.New(source)
 
-	chain, indexes, params, tearDown := indexersTestChain("TestProveUtxos", 1)
+	chain, indexes, params, _, tearDown := indexersTestChain("TestProveUtxos", 1)
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -672,7 +672,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	source := rand.NewSource(time.Now().UnixNano())
 	rand := rand.New(source)
 
-	chain, indexes, params, tearDown := indexersTestChain("TestUtreexoProofIndex", 1)
+	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoProofIndex", 1)
 	defer tearDown()
 
 	tip := btcutil.NewBlock(params.GenesisBlock)
@@ -797,7 +797,7 @@ func TestMultiBlockProof(t *testing.T) {
 	source := rand.NewSource(time.Now().UnixNano())
 	rand := rand.New(source)
 
-	chain, indexes, params, tearDown := indexersTestChain("TestMultiBlockProof", defaultProofGenInterval)
+	chain, indexes, params, _, tearDown := indexersTestChain("TestMultiBlockProof", defaultProofGenInterval)
 	defer tearDown()
 
 	tip := btcutil.NewBlock(params.GenesisBlock)
