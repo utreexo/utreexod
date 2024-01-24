@@ -79,7 +79,7 @@ func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincf
 		return nil, nil, err
 	}
 
-	utreexoProofIndex, err := NewUtreexoProofIndex(*db, dbPath, params)
+	utreexoProofIndex, err := NewUtreexoProofIndex(*db, false, dbPath, params)
 	if err != nil {
 		return nil, nil, err
 	}

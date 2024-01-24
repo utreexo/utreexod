@@ -3209,7 +3209,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 
 		var err error
 		s.utreexoProofIndex, err = indexers.NewUtreexoProofIndex(
-			db, cfg.DataDir, chainParams)
+			db, cfg.Prune != 0, cfg.DataDir, chainParams)
 		if err != nil {
 			return nil, err
 		}

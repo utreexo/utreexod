@@ -55,6 +55,9 @@ type UtreexoProofIndex struct {
 	db          database.DB
 	chainParams *chaincfg.Params
 
+	// If the node is a pruned node or not.
+	pruned bool
+
 	// The blockchain instance the index corresponds to.
 	chain *blockchain.BlockChain
 
@@ -78,6 +81,113 @@ func (idx *UtreexoProofIndex) NeedsInputs() bool {
 // interface.
 func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 	idx.chain = chain
+
+	// Nothing else to do if the node is an archive node.
+	if !idx.pruned {
+		return nil
+	}
+
+	// Check if the utreexo undo bucket exists.
+	var exists bool
+	err := idx.db.View(func(dbTx database.Tx) error {
+		parentBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey)
+		bucket := parentBucket.Bucket(utreexoUndoKey)
+		exists = bucket != nil
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// If the undo bucket exists, we can return now. If the undo bucket
+	// doesn't exist, the node is just now being pruned after being an
+	// archive node.
+	if exists {
+		return nil
+	}
+
+	// Create the undo bucket as we're a pruned node now.
+	err = idx.db.Update(func(dbTx database.Tx) error {
+		parentBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey)
+		_, err = parentBucket.CreateBucket(utreexoUndoKey)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// The bestHeight is less than 288, then just undo all the blocks we have.
+	bestHeight := chain.BestSnapshot().Height
+	if bestHeight <= 0 {
+		return nil
+	}
+
+	// Make undo blocks for blocks up to 288 block from the tip. 288 since
+	// that's the basis used for NODE_NETWORK_LIMITED. Reorgs that go past
+	// that are gonna be problematic anyways.
+	undoCount := int32(288)
+
+	// The bestHeight is less than 288, then just undo all the blocks we have.
+	if undoCount > bestHeight {
+		undoCount = bestHeight
+	}
+
+	for i := int32(0); i < undoCount; i++ {
+		height := bestHeight - i
+
+		block, err := idx.chain.BlockByHeight(height)
+		if err != nil {
+			return err
+		}
+
+		ud := new(wire.UData)
+		err = idx.db.View(func(dbTx database.Tx) error {
+			proofBytes, err := dbFetchUtreexoProofEntry(dbTx, block.Hash())
+			if err != nil {
+				return err
+			}
+			r := bytes.NewReader(proofBytes)
+
+			err = ud.DeserializeCompact(r, udataSerializeBool, 0)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+
+		// Generate the data for the undo block.
+		_, outCount, _, outskip := blockchain.DedupeBlock(block)
+		adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+		delHashes, err := idx.chain.ReconstructUData(ud, *block.Hash())
+		if err != nil {
+			return err
+		}
+
+		// Store undo block.
+		err = idx.db.Update(func(dbTx database.Tx) error {
+			err = dbStoreUndoData(dbTx, uint64(len(adds)),
+				ud.AccProof.Targets, block.Hash(), delHashes)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+	}
+
+	// Remove all proofs.
+	err = idx.db.Update(func(tx database.Tx) error {
+		parentBucket := tx.Metadata().Bucket(utreexoParentBucketKey)
+		return parentBucket.DeleteBucket(utreexoProofIndexKey)
+	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -115,6 +225,14 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 		return err
 	}
 
+	// Only create the undo bucket if the node is pruned.
+	if idx.pruned {
+		_, err = utreexoParentBucket.CreateBucket(utreexoUndoKey)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -148,9 +266,12 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
-	err = dbStoreUtreexoProof(dbTx, block.Hash(), ud)
-	if err != nil {
-		return err
+	// Only store the proofs if the node is not pruned.
+	if !idx.pruned {
+		err = dbStoreUtreexoProof(dbTx, block.Hash(), ud)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = dbStoreUtreexoState(dbTx, block.Hash(), idx.utreexoState.state)
@@ -163,6 +284,15 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		delHashes[i] = ud.LeafDatas[i].LeafHash()
 	}
 
+	// For pruned nodes, the undo data is necessary for reorgs.
+	if idx.pruned {
+		err = dbStoreUndoData(dbTx,
+			uint64(len(adds)), ud.AccProof.Targets, block.Hash(), delHashes)
+		if err != nil {
+			return err
+		}
+	}
+
 	idx.mtx.Lock()
 	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
@@ -173,6 +303,44 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	return nil
 }
 
+// getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from
+// the undo block. For archive nodes, we generate the data from the proof.
+func (idx *UtreexoProofIndex) getUndoData(dbTx database.Tx, block *btcutil.Block) (uint64, []uint64, []utreexo.Hash, error) {
+	var (
+		numAdds   uint64
+		targets   []uint64
+		delHashes []utreexo.Hash
+	)
+
+	if !idx.pruned {
+		ud, err := idx.FetchUtreexoProof(block.Hash())
+		if err != nil {
+			return 0, nil, nil, err
+		}
+
+		targets = ud.AccProof.Targets
+
+		// Need to call reconstruct since the saved utreexo data is in the compact form.
+		delHashes, err = idx.chain.ReconstructUData(ud, *block.Hash())
+		if err != nil {
+			return 0, nil, nil, err
+		}
+
+		_, outCount, _, outskip := blockchain.DedupeBlock(block)
+		adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+
+		numAdds = uint64(len(adds))
+	} else {
+		var err error
+		numAdds, targets, delHashes, err = dbFetchUndoData(dbTx, block.Hash())
+		if err != nil {
+			return 0, nil, nil, err
+		}
+	}
+
+	return numAdds, targets, delHashes, nil
+}
+
 // DisconnectBlock is invoked by the index manager when a new block has been
 // disconnected to the main chain.
 //
@@ -180,33 +348,19 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
-	ud, err := idx.FetchUtreexoProof(block.Hash())
-	if err != nil {
-		return err
-	}
-
-	// Need to call reconstruct since the saved utreexo data is in the compact form.
-	delHashes, err := idx.chain.ReconstructUData(ud, *block.Hash())
-	if err != nil {
-		return err
-	}
-
 	state, err := dbFetchUtreexoState(dbTx, block.Hash())
 	if err != nil {
 		return err
 	}
 
-	_, outCount, _, outskip := blockchain.DedupeBlock(block)
-	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
-
-	idx.mtx.Lock()
-	err = idx.utreexoState.state.Undo(uint64(len(adds)), utreexo.Proof{Targets: ud.AccProof.Targets}, delHashes, state.Roots)
-	idx.mtx.Unlock()
+	numAdds, targets, delHashes, err := idx.getUndoData(dbTx, block)
 	if err != nil {
 		return err
 	}
 
-	err = dbDeleteUtreexoProofEntry(dbTx, block.Hash())
+	idx.mtx.Lock()
+	err = idx.utreexoState.state.Undo(numAdds, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
+	idx.mtx.Unlock()
 	if err != nil {
 		return err
 	}
@@ -216,11 +370,27 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		return err
 	}
 
+	if idx.pruned {
+		err = dbDeleteUndoData(dbTx, block.Hash())
+		if err != nil {
+			return err
+		}
+	} else {
+		err = dbDeleteUtreexoProofEntry(dbTx, block.Hash())
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 // FetchUtreexoProof returns the Utreexo proof data for the given block hash.
 func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UData, error) {
+	if idx.pruned {
+		return nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
+	}
+
 	ud := new(wire.UData)
 	err := idx.db.View(func(dbTx database.Tx) error {
 		proofBytes, err := dbFetchUtreexoProofEntry(dbTx, hash)
@@ -376,16 +546,6 @@ func (idx *UtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
 //
 // This is part of the Indexer interface.
 func (idx *UtreexoProofIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
-	err := dbDeleteUtreexoProofEntry(dbTx, blockHash)
-	if err != nil {
-		return err
-	}
-
-	err = dbDeleteUtreexoState(dbTx, blockHash)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -394,7 +554,7 @@ func (idx *UtreexoProofIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.
 // It implements the Indexer interface which plugs into the IndexManager that in
 // turn is used by the blockchain package.  This allows the index to be
 // seamlessly maintained along with the chain.
-func NewUtreexoProofIndex(db database.DB, dataDir string, chainParams *chaincfg.Params) (*UtreexoProofIndex, error) {
+func NewUtreexoProofIndex(db database.DB, pruned bool, dataDir string, chainParams *chaincfg.Params) (*UtreexoProofIndex, error) {
 	idx := &UtreexoProofIndex{
 		db:          db,
 		chainParams: chainParams,
@@ -410,6 +570,7 @@ func NewUtreexoProofIndex(db database.DB, dataDir string, chainParams *chaincfg.
 		return nil, err
 	}
 	idx.utreexoState = uState
+	idx.pruned = pruned
 
 	return idx, nil
 }
