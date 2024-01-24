@@ -18,6 +18,7 @@ import (
 	_ "github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
+	"golang.org/x/exp/slices"
 )
 
 const (
@@ -175,22 +176,21 @@ func csnTestChain(testName string) (*blockchain.BlockChain, *chaincfg.Params, fu
 
 // compareUtreexoIdx compares the indexed proof and the undo blocks from start
 // to end.
-func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes []Indexer) error {
+func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockChain, indexes []Indexer) error {
 	// Check that the newly added data to both of the indexes are equal.
 	for b := start; b < end; b++ {
 		// Declare the utreexo data and the undo blocks that we'll be
 		// comparing.
 		var utreexoUD, flatUD *wire.UData
 		var stump, flatStump utreexo.Stump
+		var numAdds, flatNumAdds uint64
+		var targets, flatTargets []uint64
+		var delHashes, flatDelHashes []utreexo.Hash
 
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
 			case *UtreexoProofIndex:
 				block, err := chain.BlockByHeight(b)
-				utreexoUD, err = idxType.FetchUtreexoProof(block.Hash())
-				if err != nil {
-					return err
-				}
 
 				err = idxType.db.View(func(dbTx database.Tx) error {
 					stump, err = dbFetchUtreexoState(dbTx, block.Hash())
@@ -203,11 +203,36 @@ func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes [
 					return err
 				}
 
+				if !idxType.pruned {
+					utreexoUD, err = idxType.FetchUtreexoProof(block.Hash())
+					if err != nil {
+						return err
+					}
+
+				} else {
+					err = idxType.db.View(func(dbTx database.Tx) error {
+						numAdds, targets, delHashes, err = dbFetchUndoData(dbTx, block.Hash())
+						if err != nil {
+							return err
+						}
+
+						return nil
+					})
+				}
+
 			case *FlatUtreexoProofIndex:
 				var err error
-				flatUD, err = idxType.FetchUtreexoProof(b, false)
-				if err != nil {
-					return err
+				if !idxType.pruned {
+					flatUD, err = idxType.FetchUtreexoProof(b, false)
+					if err != nil {
+						return err
+					}
+				} else {
+					var err error
+					flatNumAdds, flatTargets, flatDelHashes, err = idxType.fetchUndoBlock(b)
+					if err != nil {
+						return err
+					}
 				}
 
 				flatStump, err = idxType.fetchRoots(b)
@@ -217,16 +242,53 @@ func compareUtreexoIdx(start, end int32, chain *blockchain.BlockChain, indexes [
 			}
 		}
 
-		if !reflect.DeepEqual(utreexoUD, flatUD) {
-			err := fmt.Errorf("Fetched utreexo data differ for "+
-				"utreexo proof index and flat utreexo proof index at height %d", b)
-			return err
+		if pruned {
+			if numAdds != flatNumAdds ||
+				!slices.Equal(targets, flatTargets) ||
+				!slices.Equal(delHashes, flatDelHashes) {
+
+				err := fmt.Errorf("Fetched undo data differ for "+
+					"utreexo proof index and flat utreexo proof index at height %d", b)
+				return err
+			}
+		} else {
+			if !reflect.DeepEqual(utreexoUD, flatUD) {
+				err := fmt.Errorf("Fetched utreexo data differ for "+
+					"utreexo proof index and flat utreexo proof index at height %d", b)
+				return err
+			}
 		}
 
 		if !reflect.DeepEqual(stump, flatStump) {
 			err := fmt.Errorf("Fetched root data differ for "+
 				"utreexo proof index and flat utreexo proof index at height %d", b)
 			return err
+		}
+	}
+
+	// Compare the current utreexo state.
+	var expectRoots []*chainhash.Hash
+	var expectNumLeaves uint64
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *UtreexoProofIndex:
+			expectRoots, expectNumLeaves = idxType.FetchCurrentUtreexoState()
+		}
+	}
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			roots, numLeaves := idxType.FetchCurrentUtreexoState()
+
+			if !reflect.DeepEqual(roots, expectRoots) {
+				return fmt.Errorf("expected roots of:\n%v\nbut got:\n%v",
+					expectRoots, roots)
+			}
+
+			if numLeaves != expectNumLeaves {
+				return fmt.Errorf("expected numLeaves of %v but got %v",
+					expectNumLeaves, numLeaves)
+			}
 		}
 	}
 
@@ -571,7 +633,7 @@ func TestProveUtxos(t *testing.T) {
 	}
 
 	// Check that the newly added data to both of the indexes are equal.
-	err := compareUtreexoIdx(1, 100, chain, indexes)
+	err := compareUtreexoIdx(1, 100, false, chain, indexes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -724,7 +786,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	}
 
 	// Check that the added 100 blocks are equal for both indexes.
-	err = compareUtreexoIdx(1, 100, chain, indexes)
+	err = compareUtreexoIdx(1, 100, false, chain, indexes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -771,7 +833,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	}
 
 	// Check that the newly added data to both of the indexes are equal.
-	err = compareUtreexoIdx(1, 100, chain, indexes)
+	err = compareUtreexoIdx(1, 100, false, chain, indexes)
 	if err != nil {
 		t.Fatal(err)
 	}
