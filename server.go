@@ -3118,6 +3118,14 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	}
 	if cfg.Prune != 0 {
 		services &^= wire.SFNodeNetwork
+
+		if cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
+			// We purposely don't serve the last 288 blocks for utreexo bridge nodes as
+			// we don't keep any of the historical utreexo proofs. We're able to serve
+			// those blocks for pruned nodes but don't since it may confuse other utreexo
+			// nodes.
+			services &^= wire.SFNodeNetworkLimited
+		}
 	}
 	if !cfg.NoUtreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
 		services |= wire.SFNodeUtreexo
