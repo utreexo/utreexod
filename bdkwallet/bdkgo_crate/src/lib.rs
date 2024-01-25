@@ -17,6 +17,7 @@ use bdk::{
 };
 use bincode::Options;
 use rand::RngCore;
+use uniffi::deps::bytes::Buf;
 
 uniffi::include_scaffolding!("bdkgo");
 
@@ -138,11 +139,28 @@ impl WalletHeader {
     }
 }
 
+type WalletInner = Mutex<BdkWallet>;
+
 pub struct Wallet {
-    inner: Mutex<BdkWallet>,
+    inner: WalletInner,
 }
 
 impl Wallet {
+    /// Increments the `Arc` pointer exposed via uniffi.
+    ///
+    /// This is due to a bug with golang uniffi where decrementing this counter is too aggressive.
+    /// The caveat of this is that `Wallet` will never be destroyed. This is an okay sacrifice as
+    /// typically you want to keep the wallet for the lifetime of the node.
+    pub fn increment_reference_counter(self: &Arc<Self>) {
+
+        let count = Arc::strong_count(self);
+        eprintln!("The pointer reference count is: {}", count);
+
+        unsafe {
+            Arc::increment_strong_count(Arc::into_raw(Arc::clone(self)));
+        }
+    }
+
     pub fn create_new(
         db_path: String,
         network: String,
@@ -153,13 +171,9 @@ impl Wallet {
             BlockHash::from_slice(&genesis_hash).map_err(CreateNewError::ParseGenesisHash)?;
 
         let mut db_header = WalletHeader::new(network);
-        let db_header_bytes = Box::new(db_header.encode()).leak();
-
-        let db = match bdk_file_store::Store::create_new(db_header_bytes, &db_path) {
-            Ok(db) => db,
-            Err(err) => return Err(CreateNewError::Database(err)),
-        };
-
+        let db_header_bytes = db_header.encode();
+        let db =
+            bdk_file_store::Store::create_new(&db_header_bytes, &db_path).expect("must create db");
         let bdk_wallet = match bdk::Wallet::new_with_genesis_hash(
             db_header.descriptor(KeychainKind::External),
             Some(db_header.descriptor(KeychainKind::Internal)),
@@ -174,18 +188,15 @@ impl Wallet {
             }
         };
 
-        Ok(Self {
-            inner: Mutex::new(bdk_wallet),
-        })
+        let inner = Mutex::new(bdk_wallet);
+        Ok(Self { inner })
     }
 
     pub fn load(db_path: String) -> Result<Self, LoadError> {
         let file = std::fs::File::open(&db_path)
             .map_err(|err| LoadError::Database(bdk_file_store::FileError::Io(err)))?;
         let (db_header, db_header_bytes) = WalletHeader::decode(file)?;
-        let db_header_bytes = Box::new(db_header_bytes).leak();
-        let db =
-            bdk_file_store::Store::open(db_header_bytes, db_path).map_err(LoadError::Database)?;
+        let db = bdk_file_store::Store::open(&db_header_bytes, db_path).expect("must load db");
         let bdk_wallet = bdk::Wallet::load(
             db_header.descriptor(KeychainKind::External),
             Some(db_header.descriptor(KeychainKind::Internal)),
@@ -193,12 +204,12 @@ impl Wallet {
         )
         .map_err(LoadError::Wallet)?;
 
-        Ok(Self {
-            inner: Mutex::new(bdk_wallet),
-        })
+        let inner = Mutex::new(bdk_wallet);
+        Ok(Self { inner })
     }
 
     fn address(self: Arc<Self>, index: AddressIndex) -> Result<AddressInfo, DatabaseError> {
+        self.increment_reference_counter();
         let mut wallet = self.inner.lock().unwrap();
         let address_info = wallet
             .try_get_address(index)
@@ -210,23 +221,28 @@ impl Wallet {
     }
 
     pub fn last_unused_address(self: Arc<Self>) -> Result<AddressInfo, DatabaseError> {
+        self.increment_reference_counter();
         self.address(AddressIndex::LastUnused)
     }
 
     pub fn fresh_address(self: Arc<Self>) -> Result<AddressInfo, DatabaseError> {
+        self.increment_reference_counter();
         self.address(AddressIndex::New)
     }
 
     pub fn peek_address(self: Arc<Self>, index: u32) -> Result<AddressInfo, DatabaseError> {
+        self.increment_reference_counter();
         self.address(AddressIndex::Peek(index))
     }
 
     pub fn balance(self: Arc<Self>) -> bdk::wallet::Balance {
+        self.increment_reference_counter();
         let wallet = self.inner.lock().unwrap();
         wallet.get_balance()
     }
 
     pub fn genesis_hash(self: Arc<Self>) -> Vec<u8> {
+        self.increment_reference_counter();
         self.inner
             .lock()
             .unwrap()
@@ -237,6 +253,7 @@ impl Wallet {
     }
 
     pub fn recent_blocks(self: Arc<Self>, count: u32) -> Vec<BlockId> {
+        self.increment_reference_counter();
         let tip = self.inner.lock().unwrap().latest_checkpoint();
         tip.into_iter()
             .take(count as _)
@@ -250,23 +267,23 @@ impl Wallet {
     pub fn apply_block(
         self: Arc<Self>,
         height: u32,
-        block: Arc<Block>,
+        block_bytes: &[u8],
     ) -> Result<(), ApplyBlockError> {
+        self.increment_reference_counter();
+
         let mut wallet = self.inner.lock().unwrap();
-        eprintln!("lib.rs: Got wallet");
+
+        let mut reader = block_bytes.reader();
+        let block = bitcoin::Block::consensus_decode_from_finite_reader(&mut reader)
+            .map_err(ApplyBlockError::DecodeBlock)?;
 
         let tip = wallet.latest_checkpoint();
-        eprintln!("lib.rs: Got tip {:?}", tip.block_id());
-        eprintln!(
-            "lib.rs: Found genesis from tip: {:?}",
-            tip.clone().into_iter().last().unwrap().block_id()
-        );
+
         if tip.height() == 0 {
             wallet
-                .apply_block_connected_to(&block.0, height, tip.block_id())
+                .apply_block_connected_to(&block, height, tip.block_id())
                 .map_err(|err| match err {
                     bdk::chain::local_chain::ApplyHeaderError::InconsistentBlocks => {
-                        eprintln!("lib.rs: Inconsistent block!");
                         unreachable!("cannot happen")
                     }
                     bdk::chain::local_chain::ApplyHeaderError::CannotConnect(err) => {
@@ -274,35 +291,15 @@ impl Wallet {
                     }
                 })?;
         } else {
-            eprintln!("lib.rs: Cloning out of block...");
-            let block = block.0.clone();
-            eprintln!("lib.rs: Actually applying...");
-            wallet.apply_block(&block, height).map_err(|err| {
-                eprintln!("lib.rs: Failed to apply block: {}", err);
-                ApplyBlockError::CannotConnect(err)
-            })?;
+            wallet
+                .apply_block(&block, height)
+                .map_err(|err| ApplyBlockError::CannotConnect(err))?;
         }
-
-        eprintln!("lib.rs: Commiting to db!");
         wallet.commit().map_err(ApplyBlockError::Database)?;
         Ok(())
     }
-}
 
-pub struct Block(bitcoin::Block);
-
-impl Block {
-    pub fn new(b: &[u8]) -> Self {
-        let mut reader = b;
-        Block(
-            bitcoin::Block::consensus_decode_from_finite_reader(&mut reader)
-                .expect("must decode block"),
-        )
-    }
-
-    pub fn hash(&self) -> Vec<u8> {
-        self.0.block_hash().as_byte_array().to_vec()
-    }
+    //pub fn create_tx(self: Arc<Self>, recipients: Vec<>)
 }
 
 pub struct BlockId {

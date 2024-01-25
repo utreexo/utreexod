@@ -346,18 +346,9 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_block_hash(uniffiStatus)
-		})
-		if checksum != 33317 {
-			// If this happens try cleaning and rebuilding your project
-			panic("bdkgo: uniffi_bdkgo_checksum_method_block_hash: UniFFI API checksum mismatch")
-		}
-	}
-	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_bdkgo_checksum_method_wallet_apply_block(uniffiStatus)
 		})
-		if checksum != 60553 {
+		if checksum != 20455 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_apply_block: UniFFI API checksum mismatch")
 		}
@@ -391,6 +382,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_increment_reference_counter(uniffiStatus)
+		})
+		if checksum != 61284 {
+			// If this happens try cleaning and rebuilding your project
+			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_increment_reference_counter: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_bdkgo_checksum_method_wallet_last_unused_address(uniffiStatus)
 		})
 		if checksum != 34780 {
@@ -414,15 +414,6 @@ func uniffiCheckChecksums() {
 		if checksum != 57902 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_recent_blocks: UniFFI API checksum mismatch")
-		}
-	}
-	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_constructor_block_new(uniffiStatus)
-		})
-		if checksum != 33914 {
-			// If this happens try cleaning and rebuilding your project
-			panic("bdkgo: uniffi_bdkgo_checksum_constructor_block_new: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -642,69 +633,6 @@ func (ffiObject *FfiObject) freeRustArcPtr() {
 	})
 }
 
-type Block struct {
-	ffiObject FfiObject
-}
-
-func NewBlock(b []byte) *Block {
-	return FfiConverterBlockINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_bdkgo_fn_constructor_block_new(FfiConverterBytesINSTANCE.Lower(b), _uniffiStatus)
-	}))
-}
-
-func (_self *Block) Hash() []byte {
-	_pointer := _self.ffiObject.incrementPointer("*Block")
-	defer _self.ffiObject.decrementPointer()
-	return FfiConverterBytesINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_block_hash(
-			_pointer, _uniffiStatus)
-	}))
-}
-
-func (object *Block) Destroy() {
-	runtime.SetFinalizer(object, nil)
-	object.ffiObject.destroy()
-}
-
-type FfiConverterBlock struct{}
-
-var FfiConverterBlockINSTANCE = FfiConverterBlock{}
-
-func (c FfiConverterBlock) Lift(pointer unsafe.Pointer) *Block {
-	result := &Block{
-		newFfiObject(
-			pointer,
-			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
-				C.uniffi_bdkgo_fn_free_block(pointer, status)
-			}),
-	}
-	runtime.SetFinalizer(result, (*Block).Destroy)
-	return result
-}
-
-func (c FfiConverterBlock) Read(reader io.Reader) *Block {
-	return c.Lift(unsafe.Pointer(uintptr(readUint64(reader))))
-}
-
-func (c FfiConverterBlock) Lower(value *Block) unsafe.Pointer {
-	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
-	// because the pointer will be decremented immediately after this function returns,
-	// and someone will be left holding onto a non-locked pointer.
-	pointer := value.ffiObject.incrementPointer("*Block")
-	defer value.ffiObject.decrementPointer()
-	return pointer
-}
-
-func (c FfiConverterBlock) Write(writer io.Writer, value *Block) {
-	writeUint64(writer, uint64(uintptr(c.Lower(value))))
-}
-
-type FfiDestroyerBlock struct{}
-
-func (_ FfiDestroyerBlock) Destroy(value *Block) {
-	value.Destroy()
-}
-
 type Wallet struct {
 	ffiObject FfiObject
 }
@@ -732,12 +660,12 @@ func WalletLoad(dbPath string) (*Wallet, error) {
 	}
 }
 
-func (_self *Wallet) ApplyBlock(height uint32, blockBytes *Block) error {
+func (_self *Wallet) ApplyBlock(height uint32, blockBytes []byte) error {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError(FfiConverterTypeApplyBlockError{}, func(_uniffiStatus *C.RustCallStatus) bool {
 		C.uniffi_bdkgo_fn_method_wallet_apply_block(
-			_pointer, FfiConverterUint32INSTANCE.Lower(height), FfiConverterBlockINSTANCE.Lower(blockBytes), _uniffiStatus)
+			_pointer, FfiConverterUint32INSTANCE.Lower(height), FfiConverterBytesINSTANCE.Lower(blockBytes), _uniffiStatus)
 		return false
 	})
 	return _uniffiErr
@@ -774,6 +702,16 @@ func (_self *Wallet) GenesisHash() []byte {
 		return C.uniffi_bdkgo_fn_method_wallet_genesis_hash(
 			_pointer, _uniffiStatus)
 	}))
+}
+
+func (_self *Wallet) IncrementReferenceCounter() {
+	_pointer := _self.ffiObject.incrementPointer("*Wallet")
+	defer _self.ffiObject.decrementPointer()
+	rustCall(func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_bdkgo_fn_method_wallet_increment_reference_counter(
+			_pointer, _uniffiStatus)
+		return false
+	})
 }
 
 func (_self *Wallet) LastUnusedAddress() (AddressInfo, error) {

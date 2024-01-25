@@ -27,7 +27,7 @@ type Manager struct {
 }
 
 func NewManager(config ManagerConfig) (*Manager, error) {
-	log.Debug("Creating new BDK Wallet Manager!")
+	log.Info("Starting the BDK wallet manager.")
 	walletDir := filepath.Join(config.DataDir, defaultWalletPath)
 	if _, err := os.Stat(walletDir); err != nil {
 		if !os.IsNotExist(err) {
@@ -70,11 +70,11 @@ func (m *Manager) handleBlockchainNotification(notification *blockchain.Notifica
 		block, ok := notification.Data.(*btcutil.Block)
 		if !ok {
 			log.Warnf("Chain connected notification is not a block.")
-			break
+			return
 		}
 		err := m.wallet.ApplyBlock(block)
 		if err != nil {
-			log.Warnf("Couldn't apply block to the wallet. %v", err)
+			log.Criticalf("Couldn't apply block to the wallet. %v", err)
 		}
 	}
 }

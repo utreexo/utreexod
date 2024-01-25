@@ -47,6 +47,8 @@ interface Wallet {
     [Name=load, Throws=LoadError]
     constructor(string db_path);
 
+    void increment_reference_counter();
+
     [Throws=DatabaseError]
     AddressInfo last_unused_address();
 
@@ -63,12 +65,7 @@ interface Wallet {
     sequence<BlockId> recent_blocks(u32 count);
 
     [Throws=ApplyBlockError]
-    void apply_block(u32 height, Block block_bytes);
-};
-
-interface Block {
-    constructor([ByRef] bytes b);
-    bytes hash();
+    void apply_block(u32 height, [ByRef] bytes block_bytes);
 };
 
 dictionary BlockId {

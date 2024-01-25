@@ -68,21 +68,6 @@ int8_t uniffiForeignExecutorCallbackbdkgo(uint64_t, uint32_t, RustTaskCallback, 
 
 void uniffiFutureContinuationCallbackbdkgo(void*, int8_t);
 
-void uniffi_bdkgo_fn_free_block(
-	void* ptr,
-	RustCallStatus* out_status
-);
-
-void* uniffi_bdkgo_fn_constructor_block_new(
-	RustBuffer b,
-	RustCallStatus* out_status
-);
-
-RustBuffer uniffi_bdkgo_fn_method_block_hash(
-	void* ptr,
-	RustCallStatus* out_status
-);
-
 void uniffi_bdkgo_fn_free_wallet(
 	void* ptr,
 	RustCallStatus* out_status
@@ -103,7 +88,7 @@ void* uniffi_bdkgo_fn_constructor_wallet_load(
 void uniffi_bdkgo_fn_method_wallet_apply_block(
 	void* ptr,
 	uint32_t height,
-	void* block_bytes,
+	RustBuffer block_bytes,
 	RustCallStatus* out_status
 );
 
@@ -118,6 +103,11 @@ RustBuffer uniffi_bdkgo_fn_method_wallet_fresh_address(
 );
 
 RustBuffer uniffi_bdkgo_fn_method_wallet_genesis_hash(
+	void* ptr,
+	RustCallStatus* out_status
+);
+
+void uniffi_bdkgo_fn_method_wallet_increment_reference_counter(
 	void* ptr,
 	RustCallStatus* out_status
 );
@@ -438,10 +428,6 @@ void ffi_bdkgo_rust_future_complete_void(
 	RustCallStatus* out_status
 );
 
-uint16_t uniffi_bdkgo_checksum_method_block_hash(
-	RustCallStatus* out_status
-);
-
 uint16_t uniffi_bdkgo_checksum_method_wallet_apply_block(
 	RustCallStatus* out_status
 );
@@ -458,6 +444,10 @@ uint16_t uniffi_bdkgo_checksum_method_wallet_genesis_hash(
 	RustCallStatus* out_status
 );
 
+uint16_t uniffi_bdkgo_checksum_method_wallet_increment_reference_counter(
+	RustCallStatus* out_status
+);
+
 uint16_t uniffi_bdkgo_checksum_method_wallet_last_unused_address(
 	RustCallStatus* out_status
 );
@@ -467,10 +457,6 @@ uint16_t uniffi_bdkgo_checksum_method_wallet_peek_address(
 );
 
 uint16_t uniffi_bdkgo_checksum_method_wallet_recent_blocks(
-	RustCallStatus* out_status
-);
-
-uint16_t uniffi_bdkgo_checksum_constructor_block_new(
 	RustCallStatus* out_status
 );
 

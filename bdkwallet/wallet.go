@@ -66,6 +66,11 @@ func Create(dbPath string, chainParams *chaincfg.Params) (*Wallet, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// This increments the reference count of the Arc pointer in rust. We are
+	// doing this due to a bug with uniffi-bindgen-go's generated code
+	// decrementing this count too aggressively.
+	inner.IncrementReferenceCounter()
 	return &Wallet{*inner}, nil
 }
 
@@ -75,6 +80,11 @@ func Load(dbPath string) (*Wallet, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// This increments the reference count of the Arc pointer in rust. We are
+	// doing this due to a bug with uniffi-bindgen-go's generated code
+	// decrementing this count too aggressively.
+	inner.IncrementReferenceCounter()
 	return &Wallet{*inner}, nil
 }
 
@@ -137,22 +147,13 @@ func (w *Wallet) RecentBlocks(count uint32) []BlockId {
 
 // ApplyBlock updates the wallet with the given block.
 func (w *Wallet) ApplyBlock(block *btcutil.Block) error {
-	log.Infof("Got block [%v:%v]", block.Height(), block.Hash())
 	var b bytes.Buffer
 	if err := block.MsgBlock().BtcEncode(&b, wire.FeeFilterVersion, wire.WitnessEncoding); err != nil {
 		return err
 	}
 
-	bb := bdkgo.NewBlock(b.Bytes()[:b.Len()])
 	bheight := uint32(block.Height())
-	bhash, err := chainhash.NewHash(bb.Hash())
-	if err != nil {
-		return err
-	}
-	log.Infof("Applying [%v:%v] from %v bytes", bheight, bhash, b.Len())
-	err = w.inner.ApplyBlock(bheight, bb)
-	log.Info("Applied block!")
-	bb = nil
-	log.Info("Block deleted?")
+	err := w.inner.ApplyBlock(bheight, b.Bytes())
+	log.Infof("Applied block [%v:%v]", block.Height(), block.Hash())
 	return err
 }
