@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     io::Read,
     str::FromStr,
     sync::{Arc, Mutex},
@@ -7,13 +8,16 @@ use std::{
 pub use bdk::wallet::Balance;
 use bdk::{
     bitcoin::{
-        self, consensus::Decodable, hashes::Hash, network::constants::ParseNetworkError, BlockHash,
-        Network,
+        self,
+        consensus::{Decodable, Encodable},
+        hashes::Hash,
+        network::constants::ParseNetworkError,
+        BlockHash, Network, ScriptBuf, Transaction,
     },
     keys::{DerivableKey, ExtendedKey},
     template::Bip86,
     wallet::AddressIndex,
-    KeychainKind,
+    FeeRate, KeychainKind, SignOptions,
 };
 use bincode::Options;
 use rand::RngCore;
@@ -69,6 +73,14 @@ pub enum ApplyBlockError {
     CannotConnect(bdk::chain::local_chain::CannotConnectError),
     #[error("failed to write block to db: {0}")]
     Database(std::io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CreateTxError {
+    #[error("failed to create tx: {0}")]
+    CreateTx(bdk::wallet::error::CreateTxError<std::io::Error>),
+    #[error("failed to sign tx: {0}")]
+    SignTx(bdk::wallet::signer::SignerError),
 }
 
 pub struct AddressInfo {
@@ -137,12 +149,17 @@ impl WalletHeader {
         };
         Bip86(ext_key, keychain)
     }
+
+    pub fn mnemonic_words(&self) -> Vec<String> {
+        let mnemonic =
+            bdk::keys::bip39::Mnemonic::from_entropy(&self.entropy).expect("must get mnemonic");
+        mnemonic.word_iter().map(|w| w.to_string()).collect()
+    }
 }
 
-type WalletInner = Mutex<BdkWallet>;
-
 pub struct Wallet {
-    inner: WalletInner,
+    inner: Mutex<BdkWallet>,
+    header: Mutex<WalletHeader>,
 }
 
 impl Wallet {
@@ -152,13 +169,7 @@ impl Wallet {
     /// The caveat of this is that `Wallet` will never be destroyed. This is an okay sacrifice as
     /// typically you want to keep the wallet for the lifetime of the node.
     pub fn increment_reference_counter(self: &Arc<Self>) {
-
-        let count = Arc::strong_count(self);
-        eprintln!("The pointer reference count is: {}", count);
-
-        unsafe {
-            Arc::increment_strong_count(Arc::into_raw(Arc::clone(self)));
-        }
+        unsafe { Arc::increment_strong_count(Arc::into_raw(Arc::clone(self))) }
     }
 
     pub fn create_new(
@@ -170,13 +181,13 @@ impl Wallet {
         let genesis_hash =
             BlockHash::from_slice(&genesis_hash).map_err(CreateNewError::ParseGenesisHash)?;
 
-        let mut db_header = WalletHeader::new(network);
-        let db_header_bytes = db_header.encode();
+        let mut header = WalletHeader::new(network);
+        let header_bytes = header.encode();
         let db =
-            bdk_file_store::Store::create_new(&db_header_bytes, &db_path).expect("must create db");
+            bdk_file_store::Store::create_new(&header_bytes, &db_path).expect("must create db");
         let bdk_wallet = match bdk::Wallet::new_with_genesis_hash(
-            db_header.descriptor(KeychainKind::External),
-            Some(db_header.descriptor(KeychainKind::Internal)),
+            header.descriptor(KeychainKind::External),
+            Some(header.descriptor(KeychainKind::Internal)),
             db,
             network,
             genesis_hash,
@@ -189,23 +200,25 @@ impl Wallet {
         };
 
         let inner = Mutex::new(bdk_wallet);
-        Ok(Self { inner })
+        let header = Mutex::new(header);
+        Ok(Self { inner, header })
     }
 
     pub fn load(db_path: String) -> Result<Self, LoadError> {
         let file = std::fs::File::open(&db_path)
             .map_err(|err| LoadError::Database(bdk_file_store::FileError::Io(err)))?;
-        let (db_header, db_header_bytes) = WalletHeader::decode(file)?;
-        let db = bdk_file_store::Store::open(&db_header_bytes, db_path).expect("must load db");
+        let (header, header_bytes) = WalletHeader::decode(file)?;
+        let db = bdk_file_store::Store::open(&header_bytes, db_path).expect("must load db");
         let bdk_wallet = bdk::Wallet::load(
-            db_header.descriptor(KeychainKind::External),
-            Some(db_header.descriptor(KeychainKind::Internal)),
+            header.descriptor(KeychainKind::External),
+            Some(header.descriptor(KeychainKind::Internal)),
             db,
         )
         .map_err(LoadError::Wallet)?;
 
         let inner = Mutex::new(bdk_wallet);
-        Ok(Self { inner })
+        let header = Mutex::new(header);
+        Ok(Self { inner, header })
     }
 
     fn address(self: Arc<Self>, index: AddressIndex) -> Result<AddressInfo, DatabaseError> {
@@ -299,10 +312,149 @@ impl Wallet {
         Ok(())
     }
 
-    //pub fn create_tx(self: Arc<Self>, recipients: Vec<>)
+    pub fn apply_mempool(self: Arc<Self>, txs: Vec<MempoolTx>) {
+        self.increment_reference_counter();
+        let mut wallet = self.inner.lock().unwrap();
+        let txs = txs
+            .into_iter()
+            .map(|mtx| {
+                (
+                    Transaction::consensus_decode_from_finite_reader(&mut mtx.tx.reader())
+                        .expect("must decode tx"),
+                    mtx.added_unix,
+                )
+            })
+            .collect::<Vec<_>>();
+        wallet.apply_unconfirmed_txs(txs.iter().map(|(tx, added)| (tx, *added)))
+        // TODO: Do we need to commit to persistence after receiving memory txs?
+    }
+
+    pub fn create_tx(
+        self: Arc<Self>,
+        feerate: f32,
+        recipients: Vec<Recipient>,
+    ) -> Result<Vec<u8>, CreateTxError> {
+        self.increment_reference_counter();
+        let mut wallet = self.inner.lock().unwrap();
+        let mut psbt = wallet
+            .build_tx()
+            .set_recipients(
+                recipients
+                    .into_iter()
+                    .map(|r| (ScriptBuf::from_bytes(r.script_pubkey), r.amount))
+                    .collect(),
+            )
+            .fee_rate(FeeRate::from_sat_per_vb(feerate))
+            .enable_rbf()
+            .clone()
+            .finish()
+            .map_err(CreateTxError::CreateTx)?;
+        let is_finalized = wallet
+            .sign(&mut psbt, SignOptions::default())
+            .map_err(CreateTxError::SignTx)?;
+        assert!(is_finalized, "tx should always be finalized");
+
+        let mut raw_bytes = Vec::<u8>::new();
+        psbt.extract_tx()
+            .consensus_encode(&mut raw_bytes)
+            .expect("must encode tx");
+        Ok(raw_bytes)
+    }
+
+    pub fn mnemonic_words(self: Arc<Self>) -> Vec<String> {
+        self.increment_reference_counter();
+        self.header.lock().unwrap().mnemonic_words()
+    }
+
+    pub fn transactions(self: Arc<Self>) -> Vec<TxInfo> {
+        self.increment_reference_counter();
+        let wallet = self.inner.lock().unwrap();
+        let height = wallet.latest_checkpoint().height();
+        let mut txs = wallet
+            .transactions()
+            .map(|ctx| {
+                let txid = ctx.tx_node.txid.to_byte_array().to_vec();
+                let mut tx = Vec::<u8>::new();
+                ctx.tx_node
+                    .tx
+                    .consensus_encode(&mut tx)
+                    .expect("must encode");
+                let (spent, received) = wallet.sent_and_received(ctx.tx_node.tx);
+                let confirmations = ctx
+                    .chain_position
+                    .confirmation_height_upper_bound()
+                    .map(|conf_height| height.saturating_sub(conf_height));
+                TxInfo {
+                    txid,
+                    tx,
+                    spent,
+                    received,
+                    confirmations,
+                }
+            })
+            .collect::<Vec<_>>();
+        txs.sort_unstable_by_key(|tx| Reverse(tx.confirmations));
+        txs
+    }
+
+    pub fn utxos(self: Arc<Self>) -> Vec<UtxoInfo> {
+        self.increment_reference_counter();
+        let wallet = self.inner.lock().unwrap();
+        let wallet_height = wallet.latest_checkpoint().height();
+        let mut utxos = wallet
+            .list_unspent()
+            .map(|utxo| UtxoInfo {
+                txid: utxo.outpoint.txid.to_byte_array().to_vec(),
+                vout: utxo.outpoint.vout,
+                amount: utxo.txout.value,
+                script_pubkey: utxo.txout.script_pubkey.to_bytes(),
+                is_change: utxo.keychain == KeychainKind::Internal,
+                derivation_index: utxo.derivation_index,
+                confirmations: match utxo.confirmation_time {
+                    bdk::chain::ConfirmationTime::Confirmed { height, .. } => {
+                        Some(wallet_height.saturating_sub(height))
+                    }
+                    bdk::chain::ConfirmationTime::Unconfirmed { .. } => None,
+                },
+            })
+            .collect::<Vec<_>>();
+        utxos.sort_unstable_by_key(|utxo| Reverse(utxo.confirmations));
+        utxos
+    }
+}
+
+pub struct Recipient {
+    pub script_pubkey: Vec<u8>,
+    pub amount: u64,
 }
 
 pub struct BlockId {
     pub height: u32,
     pub hash: Vec<u8>,
+}
+
+pub struct TxInfo {
+    pub txid: Vec<u8>,
+    pub tx: Vec<u8>,
+    /// Sum of inputs spending from owned script pubkeys.
+    pub spent: u64,
+    /// Sum of outputs containing owned script pubkeys.
+    pub received: u64,
+    /// How confirmed is this transaction?
+    pub confirmations: Option<u32>,
+}
+
+pub struct UtxoInfo {
+    pub txid: Vec<u8>,
+    pub vout: u32,
+    pub amount: u64,
+    pub script_pubkey: Vec<u8>,
+    pub is_change: bool,
+    pub derivation_index: u32,
+    pub confirmations: Option<u32>,
+}
+
+pub struct MempoolTx {
+    pub tx: Vec<u8>,
+    pub added_unix: u64,
 }

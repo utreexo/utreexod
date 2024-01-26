@@ -355,11 +355,29 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_apply_mempool(uniffiStatus)
+		})
+		if checksum != 23416 {
+			// If this happens try cleaning and rebuilding your project
+			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_apply_mempool: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_bdkgo_checksum_method_wallet_balance(uniffiStatus)
 		})
 		if checksum != 26195 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_balance: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_create_tx(uniffiStatus)
+		})
+		if checksum != 54855 {
+			// If this happens try cleaning and rebuilding your project
+			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_create_tx: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -400,6 +418,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_mnemonic_words(uniffiStatus)
+		})
+		if checksum != 3138 {
+			// If this happens try cleaning and rebuilding your project
+			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_mnemonic_words: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_bdkgo_checksum_method_wallet_peek_address(uniffiStatus)
 		})
 		if checksum != 60510 {
@@ -414,6 +441,24 @@ func uniffiCheckChecksums() {
 		if checksum != 57902 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_recent_blocks: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_transactions(uniffiStatus)
+		})
+		if checksum != 39598 {
+			// If this happens try cleaning and rebuilding your project
+			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_transactions: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_utxos(uniffiStatus)
+		})
+		if checksum != 53540 {
+			// If this happens try cleaning and rebuilding your project
+			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_utxos: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -483,6 +528,61 @@ func (FfiConverterUint64) Read(reader io.Reader) uint64 {
 type FfiDestroyerUint64 struct{}
 
 func (FfiDestroyerUint64) Destroy(_ uint64) {}
+
+type FfiConverterFloat32 struct{}
+
+var FfiConverterFloat32INSTANCE = FfiConverterFloat32{}
+
+func (FfiConverterFloat32) Lower(value float32) C.float {
+	return C.float(value)
+}
+
+func (FfiConverterFloat32) Write(writer io.Writer, value float32) {
+	writeFloat32(writer, value)
+}
+
+func (FfiConverterFloat32) Lift(value C.float) float32 {
+	return float32(value)
+}
+
+func (FfiConverterFloat32) Read(reader io.Reader) float32 {
+	return readFloat32(reader)
+}
+
+type FfiDestroyerFloat32 struct{}
+
+func (FfiDestroyerFloat32) Destroy(_ float32) {}
+
+type FfiConverterBool struct{}
+
+var FfiConverterBoolINSTANCE = FfiConverterBool{}
+
+func (FfiConverterBool) Lower(value bool) C.int8_t {
+	if value {
+		return C.int8_t(1)
+	}
+	return C.int8_t(0)
+}
+
+func (FfiConverterBool) Write(writer io.Writer, value bool) {
+	if value {
+		writeInt8(writer, 1)
+	} else {
+		writeInt8(writer, 0)
+	}
+}
+
+func (FfiConverterBool) Lift(value C.int8_t) bool {
+	return value != 0
+}
+
+func (FfiConverterBool) Read(reader io.Reader) bool {
+	return readInt8(reader) != 0
+}
+
+type FfiDestroyerBool struct{}
+
+func (FfiDestroyerBool) Destroy(_ bool) {}
 
 type FfiConverterString struct{}
 
@@ -671,6 +771,16 @@ func (_self *Wallet) ApplyBlock(height uint32, blockBytes []byte) error {
 	return _uniffiErr
 }
 
+func (_self *Wallet) ApplyMempool(txs []MempoolTx) {
+	_pointer := _self.ffiObject.incrementPointer("*Wallet")
+	defer _self.ffiObject.decrementPointer()
+	rustCall(func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_bdkgo_fn_method_wallet_apply_mempool(
+			_pointer, FfiConverterSequenceTypeMempoolTxINSTANCE.Lower(txs), _uniffiStatus)
+		return false
+	})
+}
+
 func (_self *Wallet) Balance() Balance {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
@@ -678,6 +788,21 @@ func (_self *Wallet) Balance() Balance {
 		return C.uniffi_bdkgo_fn_method_wallet_balance(
 			_pointer, _uniffiStatus)
 	}))
+}
+
+func (_self *Wallet) CreateTx(feerate float32, recipients []Recipient) ([]byte, error) {
+	_pointer := _self.ffiObject.incrementPointer("*Wallet")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeCreateTxError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return C.uniffi_bdkgo_fn_method_wallet_create_tx(
+			_pointer, FfiConverterFloat32INSTANCE.Lower(feerate), FfiConverterSequenceTypeRecipientINSTANCE.Lower(recipients), _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue []byte
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterBytesINSTANCE.Lift(_uniffiRV), _uniffiErr
+	}
 }
 
 func (_self *Wallet) FreshAddress() (AddressInfo, error) {
@@ -729,6 +854,15 @@ func (_self *Wallet) LastUnusedAddress() (AddressInfo, error) {
 	}
 }
 
+func (_self *Wallet) MnemonicWords() []string {
+	_pointer := _self.ffiObject.incrementPointer("*Wallet")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterSequenceStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return C.uniffi_bdkgo_fn_method_wallet_mnemonic_words(
+			_pointer, _uniffiStatus)
+	}))
+}
+
 func (_self *Wallet) PeekAddress(index uint32) (AddressInfo, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
@@ -750,6 +884,24 @@ func (_self *Wallet) RecentBlocks(count uint32) []BlockId {
 	return FfiConverterSequenceTypeBlockIdINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return C.uniffi_bdkgo_fn_method_wallet_recent_blocks(
 			_pointer, FfiConverterUint32INSTANCE.Lower(count), _uniffiStatus)
+	}))
+}
+
+func (_self *Wallet) Transactions() []TxInfo {
+	_pointer := _self.ffiObject.incrementPointer("*Wallet")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterSequenceTypeTxInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return C.uniffi_bdkgo_fn_method_wallet_transactions(
+			_pointer, _uniffiStatus)
+	}))
+}
+
+func (_self *Wallet) Utxos() []UtxoInfo {
+	_pointer := _self.ffiObject.incrementPointer("*Wallet")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterSequenceTypeUtxoInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return C.uniffi_bdkgo_fn_method_wallet_utxos(
+			_pointer, _uniffiStatus)
 	}))
 }
 
@@ -922,6 +1074,198 @@ func (c FfiConverterTypeBlockId) Write(writer io.Writer, value BlockId) {
 type FfiDestroyerTypeBlockId struct{}
 
 func (_ FfiDestroyerTypeBlockId) Destroy(value BlockId) {
+	value.Destroy()
+}
+
+type MempoolTx struct {
+	Tx        []byte
+	AddedUnix uint64
+}
+
+func (r *MempoolTx) Destroy() {
+	FfiDestroyerBytes{}.Destroy(r.Tx)
+	FfiDestroyerUint64{}.Destroy(r.AddedUnix)
+}
+
+type FfiConverterTypeMempoolTx struct{}
+
+var FfiConverterTypeMempoolTxINSTANCE = FfiConverterTypeMempoolTx{}
+
+func (c FfiConverterTypeMempoolTx) Lift(rb RustBufferI) MempoolTx {
+	return LiftFromRustBuffer[MempoolTx](c, rb)
+}
+
+func (c FfiConverterTypeMempoolTx) Read(reader io.Reader) MempoolTx {
+	return MempoolTx{
+		FfiConverterBytesINSTANCE.Read(reader),
+		FfiConverterUint64INSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterTypeMempoolTx) Lower(value MempoolTx) RustBuffer {
+	return LowerIntoRustBuffer[MempoolTx](c, value)
+}
+
+func (c FfiConverterTypeMempoolTx) Write(writer io.Writer, value MempoolTx) {
+	FfiConverterBytesINSTANCE.Write(writer, value.Tx)
+	FfiConverterUint64INSTANCE.Write(writer, value.AddedUnix)
+}
+
+type FfiDestroyerTypeMempoolTx struct{}
+
+func (_ FfiDestroyerTypeMempoolTx) Destroy(value MempoolTx) {
+	value.Destroy()
+}
+
+type Recipient struct {
+	ScriptPubkey []byte
+	Amount       uint64
+}
+
+func (r *Recipient) Destroy() {
+	FfiDestroyerBytes{}.Destroy(r.ScriptPubkey)
+	FfiDestroyerUint64{}.Destroy(r.Amount)
+}
+
+type FfiConverterTypeRecipient struct{}
+
+var FfiConverterTypeRecipientINSTANCE = FfiConverterTypeRecipient{}
+
+func (c FfiConverterTypeRecipient) Lift(rb RustBufferI) Recipient {
+	return LiftFromRustBuffer[Recipient](c, rb)
+}
+
+func (c FfiConverterTypeRecipient) Read(reader io.Reader) Recipient {
+	return Recipient{
+		FfiConverterBytesINSTANCE.Read(reader),
+		FfiConverterUint64INSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterTypeRecipient) Lower(value Recipient) RustBuffer {
+	return LowerIntoRustBuffer[Recipient](c, value)
+}
+
+func (c FfiConverterTypeRecipient) Write(writer io.Writer, value Recipient) {
+	FfiConverterBytesINSTANCE.Write(writer, value.ScriptPubkey)
+	FfiConverterUint64INSTANCE.Write(writer, value.Amount)
+}
+
+type FfiDestroyerTypeRecipient struct{}
+
+func (_ FfiDestroyerTypeRecipient) Destroy(value Recipient) {
+	value.Destroy()
+}
+
+type TxInfo struct {
+	Txid          []byte
+	Tx            []byte
+	Spent         uint64
+	Received      uint64
+	Confirmations *uint32
+}
+
+func (r *TxInfo) Destroy() {
+	FfiDestroyerBytes{}.Destroy(r.Txid)
+	FfiDestroyerBytes{}.Destroy(r.Tx)
+	FfiDestroyerUint64{}.Destroy(r.Spent)
+	FfiDestroyerUint64{}.Destroy(r.Received)
+	FfiDestroyerOptionalUint32{}.Destroy(r.Confirmations)
+}
+
+type FfiConverterTypeTxInfo struct{}
+
+var FfiConverterTypeTxInfoINSTANCE = FfiConverterTypeTxInfo{}
+
+func (c FfiConverterTypeTxInfo) Lift(rb RustBufferI) TxInfo {
+	return LiftFromRustBuffer[TxInfo](c, rb)
+}
+
+func (c FfiConverterTypeTxInfo) Read(reader io.Reader) TxInfo {
+	return TxInfo{
+		FfiConverterBytesINSTANCE.Read(reader),
+		FfiConverterBytesINSTANCE.Read(reader),
+		FfiConverterUint64INSTANCE.Read(reader),
+		FfiConverterUint64INSTANCE.Read(reader),
+		FfiConverterOptionalUint32INSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterTypeTxInfo) Lower(value TxInfo) RustBuffer {
+	return LowerIntoRustBuffer[TxInfo](c, value)
+}
+
+func (c FfiConverterTypeTxInfo) Write(writer io.Writer, value TxInfo) {
+	FfiConverterBytesINSTANCE.Write(writer, value.Txid)
+	FfiConverterBytesINSTANCE.Write(writer, value.Tx)
+	FfiConverterUint64INSTANCE.Write(writer, value.Spent)
+	FfiConverterUint64INSTANCE.Write(writer, value.Received)
+	FfiConverterOptionalUint32INSTANCE.Write(writer, value.Confirmations)
+}
+
+type FfiDestroyerTypeTxInfo struct{}
+
+func (_ FfiDestroyerTypeTxInfo) Destroy(value TxInfo) {
+	value.Destroy()
+}
+
+type UtxoInfo struct {
+	Txid            []byte
+	Vout            uint32
+	Amount          uint64
+	ScriptPubkey    []byte
+	IsChange        bool
+	DerivationIndex uint32
+	Confirmations   *uint32
+}
+
+func (r *UtxoInfo) Destroy() {
+	FfiDestroyerBytes{}.Destroy(r.Txid)
+	FfiDestroyerUint32{}.Destroy(r.Vout)
+	FfiDestroyerUint64{}.Destroy(r.Amount)
+	FfiDestroyerBytes{}.Destroy(r.ScriptPubkey)
+	FfiDestroyerBool{}.Destroy(r.IsChange)
+	FfiDestroyerUint32{}.Destroy(r.DerivationIndex)
+	FfiDestroyerOptionalUint32{}.Destroy(r.Confirmations)
+}
+
+type FfiConverterTypeUtxoInfo struct{}
+
+var FfiConverterTypeUtxoInfoINSTANCE = FfiConverterTypeUtxoInfo{}
+
+func (c FfiConverterTypeUtxoInfo) Lift(rb RustBufferI) UtxoInfo {
+	return LiftFromRustBuffer[UtxoInfo](c, rb)
+}
+
+func (c FfiConverterTypeUtxoInfo) Read(reader io.Reader) UtxoInfo {
+	return UtxoInfo{
+		FfiConverterBytesINSTANCE.Read(reader),
+		FfiConverterUint32INSTANCE.Read(reader),
+		FfiConverterUint64INSTANCE.Read(reader),
+		FfiConverterBytesINSTANCE.Read(reader),
+		FfiConverterBoolINSTANCE.Read(reader),
+		FfiConverterUint32INSTANCE.Read(reader),
+		FfiConverterOptionalUint32INSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterTypeUtxoInfo) Lower(value UtxoInfo) RustBuffer {
+	return LowerIntoRustBuffer[UtxoInfo](c, value)
+}
+
+func (c FfiConverterTypeUtxoInfo) Write(writer io.Writer, value UtxoInfo) {
+	FfiConverterBytesINSTANCE.Write(writer, value.Txid)
+	FfiConverterUint32INSTANCE.Write(writer, value.Vout)
+	FfiConverterUint64INSTANCE.Write(writer, value.Amount)
+	FfiConverterBytesINSTANCE.Write(writer, value.ScriptPubkey)
+	FfiConverterBoolINSTANCE.Write(writer, value.IsChange)
+	FfiConverterUint32INSTANCE.Write(writer, value.DerivationIndex)
+	FfiConverterOptionalUint32INSTANCE.Write(writer, value.Confirmations)
+}
+
+type FfiDestroyerTypeUtxoInfo struct{}
+
+func (_ FfiDestroyerTypeUtxoInfo) Destroy(value UtxoInfo) {
 	value.Destroy()
 }
 
@@ -1178,6 +1522,98 @@ func (c FfiConverterTypeCreateNewError) Write(writer io.Writer, value *CreateNew
 	}
 }
 
+type CreateTxError struct {
+	err error
+}
+
+func (err CreateTxError) Error() string {
+	return fmt.Sprintf("CreateTxError: %s", err.err.Error())
+}
+
+func (err CreateTxError) Unwrap() error {
+	return err.err
+}
+
+// Err* are used for checking error type with `errors.Is`
+var ErrCreateTxErrorCreateTx = fmt.Errorf("CreateTxErrorCreateTx")
+var ErrCreateTxErrorSignTx = fmt.Errorf("CreateTxErrorSignTx")
+
+// Variant structs
+type CreateTxErrorCreateTx struct {
+	message string
+}
+
+func NewCreateTxErrorCreateTx() *CreateTxError {
+	return &CreateTxError{
+		err: &CreateTxErrorCreateTx{},
+	}
+}
+
+func (err CreateTxErrorCreateTx) Error() string {
+	return fmt.Sprintf("CreateTx: %s", err.message)
+}
+
+func (self CreateTxErrorCreateTx) Is(target error) bool {
+	return target == ErrCreateTxErrorCreateTx
+}
+
+type CreateTxErrorSignTx struct {
+	message string
+}
+
+func NewCreateTxErrorSignTx() *CreateTxError {
+	return &CreateTxError{
+		err: &CreateTxErrorSignTx{},
+	}
+}
+
+func (err CreateTxErrorSignTx) Error() string {
+	return fmt.Sprintf("SignTx: %s", err.message)
+}
+
+func (self CreateTxErrorSignTx) Is(target error) bool {
+	return target == ErrCreateTxErrorSignTx
+}
+
+type FfiConverterTypeCreateTxError struct{}
+
+var FfiConverterTypeCreateTxErrorINSTANCE = FfiConverterTypeCreateTxError{}
+
+func (c FfiConverterTypeCreateTxError) Lift(eb RustBufferI) error {
+	return LiftFromRustBuffer[error](c, eb)
+}
+
+func (c FfiConverterTypeCreateTxError) Lower(value *CreateTxError) RustBuffer {
+	return LowerIntoRustBuffer[*CreateTxError](c, value)
+}
+
+func (c FfiConverterTypeCreateTxError) Read(reader io.Reader) error {
+	errorID := readUint32(reader)
+
+	message := FfiConverterStringINSTANCE.Read(reader)
+	switch errorID {
+	case 1:
+		return &CreateTxError{&CreateTxErrorCreateTx{message}}
+	case 2:
+		return &CreateTxError{&CreateTxErrorSignTx{message}}
+	default:
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTypeCreateTxError.Read()", errorID))
+	}
+
+}
+
+func (c FfiConverterTypeCreateTxError) Write(writer io.Writer, value *CreateTxError) {
+	switch variantValue := value.err.(type) {
+	case *CreateTxErrorCreateTx:
+		writeInt32(writer, 1)
+	case *CreateTxErrorSignTx:
+		writeInt32(writer, 2)
+	default:
+		_ = variantValue
+		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeCreateTxError.Write", value))
+	}
+}
+
 type DatabaseError struct {
 	err error
 }
@@ -1385,6 +1821,86 @@ func (c FfiConverterTypeLoadError) Write(writer io.Writer, value *LoadError) {
 	}
 }
 
+type FfiConverterOptionalUint32 struct{}
+
+var FfiConverterOptionalUint32INSTANCE = FfiConverterOptionalUint32{}
+
+func (c FfiConverterOptionalUint32) Lift(rb RustBufferI) *uint32 {
+	return LiftFromRustBuffer[*uint32](c, rb)
+}
+
+func (_ FfiConverterOptionalUint32) Read(reader io.Reader) *uint32 {
+	if readInt8(reader) == 0 {
+		return nil
+	}
+	temp := FfiConverterUint32INSTANCE.Read(reader)
+	return &temp
+}
+
+func (c FfiConverterOptionalUint32) Lower(value *uint32) RustBuffer {
+	return LowerIntoRustBuffer[*uint32](c, value)
+}
+
+func (_ FfiConverterOptionalUint32) Write(writer io.Writer, value *uint32) {
+	if value == nil {
+		writeInt8(writer, 0)
+	} else {
+		writeInt8(writer, 1)
+		FfiConverterUint32INSTANCE.Write(writer, *value)
+	}
+}
+
+type FfiDestroyerOptionalUint32 struct{}
+
+func (_ FfiDestroyerOptionalUint32) Destroy(value *uint32) {
+	if value != nil {
+		FfiDestroyerUint32{}.Destroy(*value)
+	}
+}
+
+type FfiConverterSequenceString struct{}
+
+var FfiConverterSequenceStringINSTANCE = FfiConverterSequenceString{}
+
+func (c FfiConverterSequenceString) Lift(rb RustBufferI) []string {
+	return LiftFromRustBuffer[[]string](c, rb)
+}
+
+func (c FfiConverterSequenceString) Read(reader io.Reader) []string {
+	length := readInt32(reader)
+	if length == 0 {
+		return nil
+	}
+	result := make([]string, 0, length)
+	for i := int32(0); i < length; i++ {
+		result = append(result, FfiConverterStringINSTANCE.Read(reader))
+	}
+	return result
+}
+
+func (c FfiConverterSequenceString) Lower(value []string) RustBuffer {
+	return LowerIntoRustBuffer[[]string](c, value)
+}
+
+func (c FfiConverterSequenceString) Write(writer io.Writer, value []string) {
+	if len(value) > math.MaxInt32 {
+		panic("[]string is too large to fit into Int32")
+	}
+
+	writeInt32(writer, int32(len(value)))
+	for _, item := range value {
+		FfiConverterStringINSTANCE.Write(writer, item)
+	}
+}
+
+type FfiDestroyerSequenceString struct{}
+
+func (FfiDestroyerSequenceString) Destroy(sequence []string) {
+	for _, value := range sequence {
+		FfiDestroyerString{}.Destroy(value)
+	}
+}
+
 type FfiConverterSequenceTypeBlockId struct{}
 
 var FfiConverterSequenceTypeBlockIdINSTANCE = FfiConverterSequenceTypeBlockId{}
@@ -1425,5 +1941,177 @@ type FfiDestroyerSequenceTypeBlockId struct{}
 func (FfiDestroyerSequenceTypeBlockId) Destroy(sequence []BlockId) {
 	for _, value := range sequence {
 		FfiDestroyerTypeBlockId{}.Destroy(value)
+	}
+}
+
+type FfiConverterSequenceTypeMempoolTx struct{}
+
+var FfiConverterSequenceTypeMempoolTxINSTANCE = FfiConverterSequenceTypeMempoolTx{}
+
+func (c FfiConverterSequenceTypeMempoolTx) Lift(rb RustBufferI) []MempoolTx {
+	return LiftFromRustBuffer[[]MempoolTx](c, rb)
+}
+
+func (c FfiConverterSequenceTypeMempoolTx) Read(reader io.Reader) []MempoolTx {
+	length := readInt32(reader)
+	if length == 0 {
+		return nil
+	}
+	result := make([]MempoolTx, 0, length)
+	for i := int32(0); i < length; i++ {
+		result = append(result, FfiConverterTypeMempoolTxINSTANCE.Read(reader))
+	}
+	return result
+}
+
+func (c FfiConverterSequenceTypeMempoolTx) Lower(value []MempoolTx) RustBuffer {
+	return LowerIntoRustBuffer[[]MempoolTx](c, value)
+}
+
+func (c FfiConverterSequenceTypeMempoolTx) Write(writer io.Writer, value []MempoolTx) {
+	if len(value) > math.MaxInt32 {
+		panic("[]MempoolTx is too large to fit into Int32")
+	}
+
+	writeInt32(writer, int32(len(value)))
+	for _, item := range value {
+		FfiConverterTypeMempoolTxINSTANCE.Write(writer, item)
+	}
+}
+
+type FfiDestroyerSequenceTypeMempoolTx struct{}
+
+func (FfiDestroyerSequenceTypeMempoolTx) Destroy(sequence []MempoolTx) {
+	for _, value := range sequence {
+		FfiDestroyerTypeMempoolTx{}.Destroy(value)
+	}
+}
+
+type FfiConverterSequenceTypeRecipient struct{}
+
+var FfiConverterSequenceTypeRecipientINSTANCE = FfiConverterSequenceTypeRecipient{}
+
+func (c FfiConverterSequenceTypeRecipient) Lift(rb RustBufferI) []Recipient {
+	return LiftFromRustBuffer[[]Recipient](c, rb)
+}
+
+func (c FfiConverterSequenceTypeRecipient) Read(reader io.Reader) []Recipient {
+	length := readInt32(reader)
+	if length == 0 {
+		return nil
+	}
+	result := make([]Recipient, 0, length)
+	for i := int32(0); i < length; i++ {
+		result = append(result, FfiConverterTypeRecipientINSTANCE.Read(reader))
+	}
+	return result
+}
+
+func (c FfiConverterSequenceTypeRecipient) Lower(value []Recipient) RustBuffer {
+	return LowerIntoRustBuffer[[]Recipient](c, value)
+}
+
+func (c FfiConverterSequenceTypeRecipient) Write(writer io.Writer, value []Recipient) {
+	if len(value) > math.MaxInt32 {
+		panic("[]Recipient is too large to fit into Int32")
+	}
+
+	writeInt32(writer, int32(len(value)))
+	for _, item := range value {
+		FfiConverterTypeRecipientINSTANCE.Write(writer, item)
+	}
+}
+
+type FfiDestroyerSequenceTypeRecipient struct{}
+
+func (FfiDestroyerSequenceTypeRecipient) Destroy(sequence []Recipient) {
+	for _, value := range sequence {
+		FfiDestroyerTypeRecipient{}.Destroy(value)
+	}
+}
+
+type FfiConverterSequenceTypeTxInfo struct{}
+
+var FfiConverterSequenceTypeTxInfoINSTANCE = FfiConverterSequenceTypeTxInfo{}
+
+func (c FfiConverterSequenceTypeTxInfo) Lift(rb RustBufferI) []TxInfo {
+	return LiftFromRustBuffer[[]TxInfo](c, rb)
+}
+
+func (c FfiConverterSequenceTypeTxInfo) Read(reader io.Reader) []TxInfo {
+	length := readInt32(reader)
+	if length == 0 {
+		return nil
+	}
+	result := make([]TxInfo, 0, length)
+	for i := int32(0); i < length; i++ {
+		result = append(result, FfiConverterTypeTxInfoINSTANCE.Read(reader))
+	}
+	return result
+}
+
+func (c FfiConverterSequenceTypeTxInfo) Lower(value []TxInfo) RustBuffer {
+	return LowerIntoRustBuffer[[]TxInfo](c, value)
+}
+
+func (c FfiConverterSequenceTypeTxInfo) Write(writer io.Writer, value []TxInfo) {
+	if len(value) > math.MaxInt32 {
+		panic("[]TxInfo is too large to fit into Int32")
+	}
+
+	writeInt32(writer, int32(len(value)))
+	for _, item := range value {
+		FfiConverterTypeTxInfoINSTANCE.Write(writer, item)
+	}
+}
+
+type FfiDestroyerSequenceTypeTxInfo struct{}
+
+func (FfiDestroyerSequenceTypeTxInfo) Destroy(sequence []TxInfo) {
+	for _, value := range sequence {
+		FfiDestroyerTypeTxInfo{}.Destroy(value)
+	}
+}
+
+type FfiConverterSequenceTypeUtxoInfo struct{}
+
+var FfiConverterSequenceTypeUtxoInfoINSTANCE = FfiConverterSequenceTypeUtxoInfo{}
+
+func (c FfiConverterSequenceTypeUtxoInfo) Lift(rb RustBufferI) []UtxoInfo {
+	return LiftFromRustBuffer[[]UtxoInfo](c, rb)
+}
+
+func (c FfiConverterSequenceTypeUtxoInfo) Read(reader io.Reader) []UtxoInfo {
+	length := readInt32(reader)
+	if length == 0 {
+		return nil
+	}
+	result := make([]UtxoInfo, 0, length)
+	for i := int32(0); i < length; i++ {
+		result = append(result, FfiConverterTypeUtxoInfoINSTANCE.Read(reader))
+	}
+	return result
+}
+
+func (c FfiConverterSequenceTypeUtxoInfo) Lower(value []UtxoInfo) RustBuffer {
+	return LowerIntoRustBuffer[[]UtxoInfo](c, value)
+}
+
+func (c FfiConverterSequenceTypeUtxoInfo) Write(writer io.Writer, value []UtxoInfo) {
+	if len(value) > math.MaxInt32 {
+		panic("[]UtxoInfo is too large to fit into Int32")
+	}
+
+	writeInt32(writer, int32(len(value)))
+	for _, item := range value {
+		FfiConverterTypeUtxoInfoINSTANCE.Write(writer, item)
+	}
+}
+
+type FfiDestroyerSequenceTypeUtxoInfo struct{}
+
+func (FfiDestroyerSequenceTypeUtxoInfo) Destroy(sequence []UtxoInfo) {
+	for _, value := range sequence {
+		FfiDestroyerTypeUtxoInfo{}.Destroy(value)
 	}
 }

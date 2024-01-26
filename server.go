@@ -1509,6 +1509,10 @@ func (s *server) AnnounceNewTransactions(txns []*mempool.TxDesc) {
 		s.rpcServer.NotifyNewTransactions(txns)
 	}
 
+	if s.bdkWallet != nil {
+		s.bdkWallet.NotifyNewTransactions(txns)
+	}
+
 	if s.watchOnlyWallet != nil {
 		s.watchOnlyWallet.NotifyNewTransactions(txns)
 	}

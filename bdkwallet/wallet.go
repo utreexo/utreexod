@@ -5,13 +5,17 @@ import "C"
 
 import (
 	"bytes"
+	"errors"
 
 	"github.com/utreexo/utreexod/bdkwallet/bdkgo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/wire"
 )
+
+var ErrNoRecipient = errors.New("must have atleast one recipient")
 
 // Balance in satoshis.
 type Balance struct {
@@ -38,6 +42,31 @@ func (id *BlockId) Height() uint32 {
 
 func (id *BlockId) Hash() chainhash.Hash {
 	return *(*[32]byte)(id.BlockId.Hash)
+}
+
+type Recipient struct {
+	Amount  btcutil.Amount
+	Address btcutil.Address
+}
+
+type TxInfo struct{ bdkgo.TxInfo }
+
+func (tx *TxInfo) Txid() chainhash.Hash {
+	return *(*[32]byte)(tx.TxInfo.Txid)
+}
+
+func (tx *TxInfo) Tx() btcutil.Tx {
+	var msgTx wire.MsgTx
+	if err := msgTx.BtcDecode(bytes.NewReader(tx.TxInfo.Tx), wire.FeeFilterVersion, wire.WitnessEncoding); err != nil {
+		panic("Must decode tx from rust.")
+	}
+	return *btcutil.NewTx(&msgTx)
+}
+
+type UtxoInfo struct{ bdkgo.UtxoInfo }
+
+func (utxo *UtxoInfo) Txid() chainhash.Hash {
+	return *(*[32]byte)(utxo.UtxoInfo.Txid)
 }
 
 // Wallet is a BDK wallet.
@@ -156,4 +185,54 @@ func (w *Wallet) ApplyBlock(block *btcutil.Block) error {
 	err := w.inner.ApplyBlock(bheight, b.Bytes())
 	log.Infof("Applied block [%v:%v]", block.Height(), block.Hash())
 	return err
+}
+
+func (w *Wallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
+	genTxns := make([]bdkgo.MempoolTx, 0, len(txns))
+	for _, tx := range txns {
+		var txb bytes.Buffer
+		if err := tx.Tx.MsgTx().BtcEncode(&txb, wire.FeeFilterVersion, wire.WitnessEncoding); err != nil {
+			return err
+		}
+		genTxns = append(genTxns, bdkgo.MempoolTx{
+			Tx:        txb.Bytes(),
+			AddedUnix: uint64(tx.Added.Unix()),
+		})
+	}
+	w.inner.ApplyMempool(genTxns)
+	log.Infof("Applied %v mempool transactions.", len(txns))
+	return nil
+}
+
+func (w *Wallet) CreateTx(feerate float32, recipients []Recipient) ([]byte, error) {
+	genRecipients := make([]bdkgo.Recipient, 0, len(recipients))
+	for _, r := range recipients {
+		genRecipients = append(genRecipients, bdkgo.Recipient{
+			ScriptPubkey: r.Address.ScriptAddress(),
+			Amount:       uint64(r.Amount),
+		})
+	}
+	return w.inner.CreateTx(feerate, genRecipients)
+}
+
+func (w *Wallet) MnemonicWords() []string {
+	return w.inner.MnemonicWords()
+}
+
+func (w *Wallet) Transactions() []TxInfo {
+	genOut := w.inner.Transactions()
+	out := make([]TxInfo, 0, len(genOut))
+	for _, info := range genOut {
+		out = append(out, TxInfo{info})
+	}
+	return out
+}
+
+func (w *Wallet) Utxos() []UtxoInfo {
+	genOut := w.inner.Utxos()
+	out := make([]UtxoInfo, 0, len(genOut))
+	for _, info := range genOut {
+		out = append(out, UtxoInfo{info})
+	}
+	return out
 }

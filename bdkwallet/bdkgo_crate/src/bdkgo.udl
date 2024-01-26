@@ -28,6 +28,12 @@ enum ApplyBlockError {
     "Database",
 };
 
+[Error]
+enum CreateTxError {
+    "CreateTx",
+    "SignTx",
+};
+
 dictionary AddressInfo {
     u32 index;
     string address;
@@ -66,9 +72,48 @@ interface Wallet {
 
     [Throws=ApplyBlockError]
     void apply_block(u32 height, [ByRef] bytes block_bytes);
+
+    void apply_mempool(sequence<MempoolTx> txs);
+
+    [Throws=CreateTxError]
+    bytes create_tx(f32 feerate, sequence<Recipient> recipients);
+
+    sequence<string> mnemonic_words();
+
+    sequence<TxInfo> transactions();
+
+    sequence<UtxoInfo> utxos();
+};
+
+dictionary Recipient {
+    bytes script_pubkey;
+    u64 amount;
 };
 
 dictionary BlockId {
     u32 height;
     bytes hash;
+};
+
+dictionary TxInfo {
+    bytes txid;
+    bytes tx;
+    u64 spent;
+    u64 received;
+    u32? confirmations;
+};
+
+dictionary UtxoInfo {
+    bytes txid;
+    u32 vout;
+    u64 amount;
+    bytes script_pubkey;
+    boolean is_change;
+    u32 derivation_index;
+    u32? confirmations;
+};
+
+dictionary MempoolTx {
+    bytes tx;
+    u64 added_unix;
 };

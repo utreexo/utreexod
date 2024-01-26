@@ -63,6 +63,12 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 	return &m, nil
 }
 
+func (m *Manager) NotifyNewTransactions(txns []*mempool.TxDesc) {
+	if err := m.wallet.ApplyMempoolTransactions(txns); err != nil {
+		log.Errorf("Failed to apply mempool txs to the wallet. %v", err)
+	}
+}
+
 func (m *Manager) handleBlockchainNotification(notification *blockchain.Notification) {
 	switch notification.Type {
 	// A block has been accepted into the block chain.
