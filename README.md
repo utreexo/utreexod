@@ -14,7 +14,7 @@ than development and testing is not recommended.
 
 ## Requirements
 
-[Go](http://golang.org) 1.17 or newer.
+[Go](http://golang.org) 1.18 or newer.
 
 ## Installation
 
