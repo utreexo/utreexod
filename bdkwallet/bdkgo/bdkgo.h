@@ -85,14 +85,14 @@ void* uniffi_bdkgo_fn_constructor_wallet_load(
 	RustCallStatus* out_status
 );
 
-void uniffi_bdkgo_fn_method_wallet_apply_block(
+RustBuffer uniffi_bdkgo_fn_method_wallet_apply_block(
 	void* ptr,
 	uint32_t height,
 	RustBuffer block_bytes,
 	RustCallStatus* out_status
 );
 
-void uniffi_bdkgo_fn_method_wallet_apply_mempool(
+RustBuffer uniffi_bdkgo_fn_method_wallet_apply_mempool(
 	void* ptr,
 	RustBuffer txs,
 	RustCallStatus* out_status

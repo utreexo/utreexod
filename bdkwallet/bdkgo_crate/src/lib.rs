@@ -76,6 +76,12 @@ pub enum ApplyBlockError {
 }
 
 #[derive(Debug, thiserror::Error)]
+pub enum ApplyMempoolError {
+    #[error("failed to write mempool txs to db: {0}")]
+    Database(std::io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum CreateTxError {
     #[error("failed to create tx: {0}")]
     CreateTx(bdk::wallet::error::CreateTxError<std::io::Error>),
@@ -281,7 +287,7 @@ impl Wallet {
         self: Arc<Self>,
         height: u32,
         block_bytes: &[u8],
-    ) -> Result<(), ApplyBlockError> {
+    ) -> Result<ApplyResult, ApplyBlockError> {
         self.increment_reference_counter();
 
         let mut wallet = self.inner.lock().unwrap();
@@ -308,11 +314,12 @@ impl Wallet {
                 .apply_block(&block, height)
                 .map_err(|err| ApplyBlockError::CannotConnect(err))?;
         }
+        let res = ApplyResult::new(&wallet);
         wallet.commit().map_err(ApplyBlockError::Database)?;
-        Ok(())
+        Ok(res)
     }
 
-    pub fn apply_mempool(self: Arc<Self>, txs: Vec<MempoolTx>) {
+    pub fn apply_mempool(self: Arc<Self>, txs: Vec<MempoolTx>) -> Result<ApplyResult, ApplyMempoolError> {
         self.increment_reference_counter();
         let mut wallet = self.inner.lock().unwrap();
         let txs = txs
@@ -325,8 +332,11 @@ impl Wallet {
                 )
             })
             .collect::<Vec<_>>();
-        wallet.apply_unconfirmed_txs(txs.iter().map(|(tx, added)| (tx, *added)))
-        // TODO: Do we need to commit to persistence after receiving memory txs?
+        wallet.apply_unconfirmed_txs(txs.iter().map(|(tx, added)| (tx, *added)));
+
+        let res = ApplyResult::new(&wallet);
+        wallet.commit().map_err(ApplyMempoolError::Database)?;
+        Ok(res)
     }
 
     pub fn create_tx(
@@ -457,4 +467,15 @@ pub struct UtxoInfo {
 pub struct MempoolTx {
     pub tx: Vec<u8>,
     pub added_unix: u64,
+}
+
+pub struct ApplyResult {
+    pub relevant_txids: Vec<Vec<u8>>,
+}
+
+impl ApplyResult {
+    pub fn new(wallet: &BdkWallet) -> Self {
+        let relevant_txids = wallet.staged().indexed_tx_graph.graph.txs.iter().map(|tx| tx.txid().to_byte_array().to_vec()).collect::<Vec<_>>();
+        Self { relevant_txids }
+    }
 }

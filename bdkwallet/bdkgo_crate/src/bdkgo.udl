@@ -29,6 +29,11 @@ enum ApplyBlockError {
 };
 
 [Error]
+enum ApplyMempoolError {
+    "Database",
+};
+
+[Error]
 enum CreateTxError {
     "CreateTx",
     "SignTx",
@@ -71,9 +76,10 @@ interface Wallet {
     sequence<BlockId> recent_blocks(u32 count);
 
     [Throws=ApplyBlockError]
-    void apply_block(u32 height, [ByRef] bytes block_bytes);
+    ApplyResult apply_block(u32 height, [ByRef] bytes block_bytes);
 
-    void apply_mempool(sequence<MempoolTx> txs);
+    [Throws=ApplyMempoolError]
+    ApplyResult apply_mempool(sequence<MempoolTx> txs);
 
     [Throws=CreateTxError]
     bytes create_tx(f32 feerate, sequence<Recipient> recipients);
@@ -116,4 +122,8 @@ dictionary UtxoInfo {
 dictionary MempoolTx {
     bytes tx;
     u64 added_unix;
+};
+
+dictionary ApplyResult {
+    sequence<bytes> relevant_txids;
 };

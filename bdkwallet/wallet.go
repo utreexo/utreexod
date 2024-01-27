@@ -186,15 +186,24 @@ func (w *Wallet) ApplyBlock(block *btcutil.Block) error {
 	if err := block.MsgBlock().BtcEncode(&b, wire.FeeFilterVersion, wire.WitnessEncoding); err != nil {
 		return err
 	}
-
 	bheight := uint32(block.Height())
-	err := w.inner.ApplyBlock(bheight, b.Bytes())
-	log.Infof("Applied block [%v:%v]", block.Height(), block.Hash())
-	return err
+	res, err := w.inner.ApplyBlock(bheight, b.Bytes())
+	if err != nil {
+		return err
+	}
+	bhash := block.Hash()
+	for _, genTxid := range res.RelevantTxids {
+		txid := *(*[32]byte)(genTxid)
+		log.Infof("Found relevant tx %v in block %v:%v.", txid, bheight, bhash)
+	}
+	return nil
 }
 
 // ApplyMempoolTransactions updates the wallet with the given mempool transactions.
 func (w *Wallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
+	if len(txns) == 0 {
+		return nil
+	}
 	genTxns := make([]bdkgo.MempoolTx, 0, len(txns))
 	for _, tx := range txns {
 		var txb bytes.Buffer
@@ -206,8 +215,14 @@ func (w *Wallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
 			AddedUnix: uint64(tx.Added.Unix()),
 		})
 	}
-	w.inner.ApplyMempool(genTxns)
-	log.Infof("Applied %v mempool transactions.", len(txns))
+	res, err := w.inner.ApplyMempool(genTxns)
+	if err != nil {
+		return err
+	}
+	for _, genTxid := range res.RelevantTxids {
+		txid := *(*[32]byte)(genTxid)
+		log.Infof("Found relevant tx %v in mempool.", txid)
+	}
 	return nil
 }
 
