@@ -32,23 +32,28 @@ func (b *Balance) Total() uint64 {
 	return b.Immature + b.TrustedPending + b.UntrustedPending + b.Confirmed
 }
 
+// BlockId consists of a block height and a block hash. This identifies a block.
 type BlockId struct {
 	bdkgo.BlockId
 }
 
+// Height gets the block height.
 func (id *BlockId) Height() uint32 {
 	return id.BlockId.Height
 }
 
+// Hash gets the block hash.
 func (id *BlockId) Hash() chainhash.Hash {
 	return *(*[32]byte)(id.BlockId.Hash)
 }
 
+// Recipient specifies the intended amount and destination address for a transaction output.
 type Recipient struct {
 	Amount  btcutil.Amount
 	Address btcutil.Address
 }
 
+// TxInfo is information on a given transaction.
 type TxInfo struct{ bdkgo.TxInfo }
 
 func (tx *TxInfo) Txid() chainhash.Hash {
@@ -63,6 +68,7 @@ func (tx *TxInfo) Tx() btcutil.Tx {
 	return *btcutil.NewTx(&msgTx)
 }
 
+// UtxoInfo is information on a given transaction.
 type UtxoInfo struct{ bdkgo.UtxoInfo }
 
 func (utxo *UtxoInfo) Txid() chainhash.Hash {
@@ -187,6 +193,7 @@ func (w *Wallet) ApplyBlock(block *btcutil.Block) error {
 	return err
 }
 
+// ApplyMempoolTransactions updates the wallet with the given mempool transactions.
 func (w *Wallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
 	genTxns := make([]bdkgo.MempoolTx, 0, len(txns))
 	for _, tx := range txns {
@@ -204,6 +211,7 @@ func (w *Wallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
 	return nil
 }
 
+// CreateTx creates and signs a transaction spending from the wallet.
 func (w *Wallet) CreateTx(feerate float32, recipients []Recipient) ([]byte, error) {
 	genRecipients := make([]bdkgo.Recipient, 0, len(recipients))
 	for _, r := range recipients {
@@ -215,10 +223,12 @@ func (w *Wallet) CreateTx(feerate float32, recipients []Recipient) ([]byte, erro
 	return w.inner.CreateTx(feerate, genRecipients)
 }
 
+// MnemonicWords returns the mnemonic words to backup the wallet.
 func (w *Wallet) MnemonicWords() []string {
 	return w.inner.MnemonicWords()
 }
 
+// Transactions returns the list of wallet transactions.
 func (w *Wallet) Transactions() []TxInfo {
 	genOut := w.inner.Transactions()
 	out := make([]TxInfo, 0, len(genOut))
@@ -228,6 +238,7 @@ func (w *Wallet) Transactions() []TxInfo {
 	return out
 }
 
+// Utxos returns the list of wallet UTXOs.
 func (w *Wallet) Utxos() []UtxoInfo {
 	genOut := w.inner.Utxos()
 	out := make([]UtxoInfo, 0, len(genOut))
