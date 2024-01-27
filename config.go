@@ -216,6 +216,7 @@ type config struct {
 	RegisterAddressToWatchOnlyWallet                     []string `long:"registeraddresstowatchonlywallet" description:"Registers addresses to be watched to the watch only wallet. Must have --watchonlywallet enabled"`
 	RegisterExtendedPubKeysToWatchOnlyWallet             []string `long:"registerextendedpubkeystowatchonlywallet" description:"Registers extended pubkeys to be watched to the watch only wallet. Must have --watchonlywallet enabled."`
 	RegisterExtendedPubKeysWithAddrTypeToWatchOnlyWallet []string `long:"registerextendedpubkeyswithaddresstypetowatchonlywallet" description:"Registers extended pubkeys to be watched to the watch only wallet and let's the user override the hd type of the extended public key. Must have --watchonlywallet enabled. Format: '<extendedpubkey>:<address type>. Supported address types: '{p2pkh, p2wpkh, p2sh}'"`
+	BdkWallet                                            bool     `long:"bdkwallet" description:"Enable the BDK wallet."`
 
 	// Electrum server options.
 	ElectrumListeners    []string `long:"electrumlisteners" description:"Interface/port for the electrum server to listen to. (default 50001). Electrum server is only enabled when --watchonlywallet is enabled"`

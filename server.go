@@ -3541,16 +3541,17 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		}
 	}
 
-	// auto create bdk wallet manager
-	// TODO: We should let the user disable this!
-	s.bdkWallet, err = bdkwallet.NewManager(bdkwallet.ManagerConfig{
-		Chain:       s.chain,
-		TxMemPool:   s.txMemPool,
-		ChainParams: chainParams,
-		DataDir:     cfg.DataDir,
-	})
-	if err != nil {
-		return nil, err
+	if cfg.BdkWallet {
+		// Setup BDK wallet if it is enabled.
+		s.bdkWallet, err = bdkwallet.NewManager(bdkwallet.ManagerConfig{
+			Chain:       s.chain,
+			TxMemPool:   s.txMemPool,
+			ChainParams: chainParams,
+			DataDir:     cfg.DataDir,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if !cfg.DisableRPC {

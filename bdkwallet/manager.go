@@ -26,14 +26,25 @@ type Manager struct {
 	wallet Wallet // wallet does not need a mutex as it's done in Rust
 }
 
-func NewManager(config ManagerConfig) (*Manager, error) {
-	log.Info("Starting the BDK wallet manager.")
-	walletDir := filepath.Join(config.DataDir, defaultWalletPath)
+func WalletDir(dataDir string) string {
+	return filepath.Join(dataDir, defaultWalletPath)
+}
+
+func DoesWalletDirExist(dataDir string) (bool, error) {
+	walletDir := WalletDir(dataDir)
 	if _, err := os.Stat(walletDir); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, err
+		if os.IsNotExist(err) {
+			return false, nil
 		}
-		os.MkdirAll(walletDir, os.ModePerm)
+		return false, err
+	}
+	return true, nil
+}
+
+func NewManager(config ManagerConfig) (*Manager, error) {
+	walletDir := WalletDir(config.DataDir)
+	if err := os.MkdirAll(walletDir, os.ModePerm); err != nil {
+		return nil, err
 	}
 
 	dbPath := filepath.Join(walletDir, defaultWalletFileName)
@@ -60,6 +71,7 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 		config.Chain.Subscribe(m.handleBlockchainNotification)
 	}
 
+	log.Info("Started the BDK wallet manager.")
 	return &m, nil
 }
 
