@@ -42,29 +42,34 @@ func DoesWalletDirExist(dataDir string) (bool, error) {
 }
 
 func NewManager(config ManagerConfig) (*Manager, error) {
+	factory, err := factory()
+	if err != nil {
+		return nil, err
+	}
+
 	walletDir := WalletDir(config.DataDir)
 	if err := os.MkdirAll(walletDir, os.ModePerm); err != nil {
 		return nil, err
 	}
 
 	dbPath := filepath.Join(walletDir, defaultWalletFileName)
-	var wallet *Wallet
+	var wallet Wallet
 	if _, err := os.Stat(dbPath); err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
 		}
-		if wallet, err = Create(dbPath, config.ChainParams); err != nil {
+		if wallet, err = factory.Create(dbPath, config.ChainParams); err != nil {
 			return nil, err
 		}
 	} else {
-		if wallet, err = Load(dbPath); err != nil {
+		if wallet, err = factory.Load(dbPath); err != nil {
 			return nil, err
 		}
 	}
 
 	m := Manager{
 		config: config,
-		wallet: *wallet,
+		wallet: wallet,
 	}
 	if config.Chain != nil {
 		// Subscribe to new blocks/reorged blocks.
@@ -76,12 +81,20 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 }
 
 func (m *Manager) NotifyNewTransactions(txns []*mempool.TxDesc) {
+	if m.wallet == nil {
+		return
+	}
+
 	if err := m.wallet.ApplyMempoolTransactions(txns); err != nil {
 		log.Errorf("Failed to apply mempool txs to the wallet. %v", err)
 	}
 }
 
 func (m *Manager) handleBlockchainNotification(notification *blockchain.Notification) {
+	if m.wallet == nil {
+		return
+	}
+
 	switch notification.Type {
 	// A block has been accepted into the block chain.
 	case blockchain.NTBlockConnected:

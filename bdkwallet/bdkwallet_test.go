@@ -1,3 +1,5 @@
+//go:build bdkwallet
+
 package bdkwallet
 
 import (
@@ -8,10 +10,15 @@ import (
 )
 
 func TestCreateAndLoad(t *testing.T) {
+	factory, err := factory()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	dbPath := filepath.Join(t.TempDir(), "bdk.db")
 
 	{
-		wallet, err := Create(dbPath, &chaincfg.MainNetParams)
+		wallet, err := factory.Create(dbPath, &chaincfg.MainNetParams)
 		if err != nil {
 			t.Fatalf("failed to create db: %v", err)
 		}
@@ -50,7 +57,7 @@ func TestCreateAndLoad(t *testing.T) {
 
 	// load wallet and see what happens
 	{
-		wallet, err := Load(dbPath)
+		wallet, err := factory.Load(dbPath)
 		if err != nil {
 			t.Fatalf("failed to load wallet: %v", err)
 		}
