@@ -405,7 +405,7 @@ func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView 
 	// return sequence lock values of -1 indicating that this transaction
 	// can be included within a block at any given height or time.
 	mTx := tx.MsgTx()
-	sequenceLockActive := mTx.Version >= 2 && csvSoftforkActive
+	sequenceLockActive := uint32(mTx.Version) >= 2 && csvSoftforkActive
 	if !sequenceLockActive || IsCoinBase(tx) {
 		return sequenceLock, nil
 	}
