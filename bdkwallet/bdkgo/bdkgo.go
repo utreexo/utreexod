@@ -1207,7 +1207,7 @@ type TxInfo struct {
 	Tx            []byte
 	Spent         uint64
 	Received      uint64
-	Confirmations *uint32
+	Confirmations uint32
 }
 
 func (r *TxInfo) Destroy() {
@@ -1215,7 +1215,7 @@ func (r *TxInfo) Destroy() {
 	FfiDestroyerBytes{}.Destroy(r.Tx)
 	FfiDestroyerUint64{}.Destroy(r.Spent)
 	FfiDestroyerUint64{}.Destroy(r.Received)
-	FfiDestroyerOptionalUint32{}.Destroy(r.Confirmations)
+	FfiDestroyerUint32{}.Destroy(r.Confirmations)
 }
 
 type FfiConverterTypeTxInfo struct{}
@@ -1232,7 +1232,7 @@ func (c FfiConverterTypeTxInfo) Read(reader io.Reader) TxInfo {
 		FfiConverterBytesINSTANCE.Read(reader),
 		FfiConverterUint64INSTANCE.Read(reader),
 		FfiConverterUint64INSTANCE.Read(reader),
-		FfiConverterOptionalUint32INSTANCE.Read(reader),
+		FfiConverterUint32INSTANCE.Read(reader),
 	}
 }
 
@@ -1245,7 +1245,7 @@ func (c FfiConverterTypeTxInfo) Write(writer io.Writer, value TxInfo) {
 	FfiConverterBytesINSTANCE.Write(writer, value.Tx)
 	FfiConverterUint64INSTANCE.Write(writer, value.Spent)
 	FfiConverterUint64INSTANCE.Write(writer, value.Received)
-	FfiConverterOptionalUint32INSTANCE.Write(writer, value.Confirmations)
+	FfiConverterUint32INSTANCE.Write(writer, value.Confirmations)
 }
 
 type FfiDestroyerTypeTxInfo struct{}
@@ -1261,7 +1261,7 @@ type UtxoInfo struct {
 	ScriptPubkey    []byte
 	IsChange        bool
 	DerivationIndex uint32
-	Confirmations   *uint32
+	Confirmations   uint32
 }
 
 func (r *UtxoInfo) Destroy() {
@@ -1271,7 +1271,7 @@ func (r *UtxoInfo) Destroy() {
 	FfiDestroyerBytes{}.Destroy(r.ScriptPubkey)
 	FfiDestroyerBool{}.Destroy(r.IsChange)
 	FfiDestroyerUint32{}.Destroy(r.DerivationIndex)
-	FfiDestroyerOptionalUint32{}.Destroy(r.Confirmations)
+	FfiDestroyerUint32{}.Destroy(r.Confirmations)
 }
 
 type FfiConverterTypeUtxoInfo struct{}
@@ -1290,7 +1290,7 @@ func (c FfiConverterTypeUtxoInfo) Read(reader io.Reader) UtxoInfo {
 		FfiConverterBytesINSTANCE.Read(reader),
 		FfiConverterBoolINSTANCE.Read(reader),
 		FfiConverterUint32INSTANCE.Read(reader),
-		FfiConverterOptionalUint32INSTANCE.Read(reader),
+		FfiConverterUint32INSTANCE.Read(reader),
 	}
 }
 
@@ -1305,7 +1305,7 @@ func (c FfiConverterTypeUtxoInfo) Write(writer io.Writer, value UtxoInfo) {
 	FfiConverterBytesINSTANCE.Write(writer, value.ScriptPubkey)
 	FfiConverterBoolINSTANCE.Write(writer, value.IsChange)
 	FfiConverterUint32INSTANCE.Write(writer, value.DerivationIndex)
-	FfiConverterOptionalUint32INSTANCE.Write(writer, value.Confirmations)
+	FfiConverterUint32INSTANCE.Write(writer, value.Confirmations)
 }
 
 type FfiDestroyerTypeUtxoInfo struct{}
@@ -1932,43 +1932,6 @@ func (c FfiConverterTypeLoadError) Write(writer io.Writer, value *LoadError) {
 	default:
 		_ = variantValue
 		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeLoadError.Write", value))
-	}
-}
-
-type FfiConverterOptionalUint32 struct{}
-
-var FfiConverterOptionalUint32INSTANCE = FfiConverterOptionalUint32{}
-
-func (c FfiConverterOptionalUint32) Lift(rb RustBufferI) *uint32 {
-	return LiftFromRustBuffer[*uint32](c, rb)
-}
-
-func (_ FfiConverterOptionalUint32) Read(reader io.Reader) *uint32 {
-	if readInt8(reader) == 0 {
-		return nil
-	}
-	temp := FfiConverterUint32INSTANCE.Read(reader)
-	return &temp
-}
-
-func (c FfiConverterOptionalUint32) Lower(value *uint32) RustBuffer {
-	return LowerIntoRustBuffer[*uint32](c, value)
-}
-
-func (_ FfiConverterOptionalUint32) Write(writer io.Writer, value *uint32) {
-	if value == nil {
-		writeInt8(writer, 0)
-	} else {
-		writeInt8(writer, 1)
-		FfiConverterUint32INSTANCE.Write(writer, *value)
-	}
-}
-
-type FfiDestroyerOptionalUint32 struct{}
-
-func (_ FfiDestroyerOptionalUint32) Destroy(value *uint32) {
-	if value != nil {
-		FfiDestroyerUint32{}.Destroy(*value)
 	}
 }
 

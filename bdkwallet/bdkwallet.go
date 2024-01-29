@@ -206,7 +206,7 @@ func (w *BDKWallet) Transactions() []TxInfo {
 			Tx:            txFromBytes(info.Tx),
 			Spent:         btcutil.Amount(info.Spent),
 			Received:      btcutil.Amount(info.Received),
-			Confirmations: info.Confirmations,
+			Confirmations: uint(info.Confirmations),
 		})
 	}
 	return out
@@ -224,7 +224,7 @@ func (w *BDKWallet) UTXOs() []UTXOInfo {
 			ScriptPubKey:    info.ScriptPubkey,
 			IsChange:        info.IsChange,
 			DerivationIndex: uint(info.DerivationIndex),
-			Confirmations:   info.Confirmations,
+			Confirmations:   uint(info.Confirmations),
 		})
 	}
 	return out

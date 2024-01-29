@@ -106,7 +106,7 @@ dictionary TxInfo {
     bytes tx;
     u64 spent;
     u64 received;
-    u32? confirmations;
+    u32 confirmations;
 };
 
 dictionary UtxoInfo {
@@ -116,7 +116,7 @@ dictionary UtxoInfo {
     bytes script_pubkey;
     boolean is_change;
     u32 derivation_index;
-    u32? confirmations;
+    u32 confirmations;
 };
 
 dictionary MempoolTx {

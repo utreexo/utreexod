@@ -16,8 +16,10 @@ var (
 	ErrNoBDK       = errors.New("utreexod must be built with the 'bdkwallet' tag to enable the BDK wallet")
 )
 
+// walletFactory is nil unless we build with the 'bdkwallet' build tag.
 var walletFactory WalletFactory
 
+// factory returns the wallet factory (if it exists). Otherwise, an error will be returned.
 func factory() (WalletFactory, error) {
 	if walletFactory == nil {
 		return nil, ErrNoBDK
@@ -25,11 +27,14 @@ func factory() (WalletFactory, error) {
 	return walletFactory, nil
 }
 
+// WalletFactory creates wallets.
 type WalletFactory interface {
 	Create(dbPath string, chainParams *chaincfg.Params) (Wallet, error)
 	Load(dbPath string) (Wallet, error)
 }
 
+// Wallet tracks addresses and transactions sending/receiving to/from those addresses. The wallet is
+// updated by incoming blocks and new mempool transactions.
 type Wallet interface {
 	UnusedAddress() (uint, btcutil.Address, error)
 	FreshAddress() (uint, btcutil.Address, error)
@@ -46,10 +51,10 @@ type Wallet interface {
 
 // Balance in satoshis.
 type Balance struct {
-	Immature         btcutil.Amount
-	TrustedPending   btcutil.Amount
-	UntrustedPending btcutil.Amount
-	Confirmed        btcutil.Amount
+	Immature         btcutil.Amount // immature coinbase balance
+	TrustedPending   btcutil.Amount // unconfirmed balance that is part of our change keychain
+	UntrustedPending btcutil.Amount // unconfirmed balance that is part of our public keychain
+	Confirmed        btcutil.Amount // confirmed balance
 }
 
 // TrustedSpendable are funds that are safe to spend.
@@ -64,23 +69,23 @@ func (b *Balance) Total() btcutil.Amount {
 
 // BlockId consists of a block height and a block hash. This identifies a block.
 type BlockId struct {
-	Height uint
-	Hash   chainhash.Hash
+	Height uint           // block height
+	Hash   chainhash.Hash // block hash
 }
 
 // Recipient specifies the intended amount and destination address for a transaction output.
 type Recipient struct {
-	Amount  btcutil.Amount
-	Address btcutil.Address
+	Amount  btcutil.Amount  // amount to send
+	Address btcutil.Address // recipient address to send to
 }
 
 // TxInfo is information on a given transaction.
 type TxInfo struct {
 	Txid          chainhash.Hash
 	Tx            btcutil.Tx
-	Spent         btcutil.Amount
-	Received      btcutil.Amount
-	Confirmations *uint32
+	Spent         btcutil.Amount // sum of owned inputs
+	Received      btcutil.Amount // sum of owned outputs
+	Confirmations uint           // number of confirmations for this tx
 }
 
 // UtxoInfo is information on a given transaction.
@@ -91,7 +96,7 @@ type UTXOInfo struct {
 	ScriptPubKey    []byte
 	IsChange        bool
 	DerivationIndex uint
-	Confirmations   *uint32
+	Confirmations   uint // number of confirmations for this utxo
 }
 
 func hashFromBytes(b []byte) chainhash.Hash {
