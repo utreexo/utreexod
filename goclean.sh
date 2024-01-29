@@ -14,4 +14,5 @@ golangci-lint run --deadline=10m --disable-all \
 --enable=gofmt \
 --enable=vet \
 --enable=gosimple \
---enable=unconvert
+--enable=unconvert \
+--skip-dirs=bdkwallet/bdkgo # these are generated files
