@@ -29,6 +29,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/websocket"
+	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcjson"
@@ -5248,6 +5249,9 @@ type rpcserverConfig struct {
 	// WatchOnlyWallet keeps track of relevant utxos and its utreexo proof
 	// for the given addresses and xpubs.
 	WatchOnlyWallet *wallet.WatchOnlyWalletManager
+
+	// BDKWallet is the underlying bdk wallet that is a part of this node.
+	BDKWallet *bdkwallet.Manager
 }
 
 // newRPCServer returns a new instance of the rpcServer struct.
