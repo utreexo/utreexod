@@ -64,6 +64,27 @@ type TransactionInput struct {
 	Vout uint32 `json:"vout"`
 }
 
+// Recipient is the recipient information needed to create a transaction from the bdk wallet.
+type Recipient struct {
+	Amount  int64  `json:"amount"`
+	Address string `json:"address"`
+}
+
+// CreateTransactionFromBDKWalletCmd defines the createtransactionfrombdkwallet JSON-RPC command.
+type CreateTransactionFromBDKWalletCmd struct {
+	FeeRate    float32
+	Recipients []Recipient
+}
+
+// NewCreateTransactionFromBDKWalletCmd returns a new instance which can be used to issue
+// a createtransactionfrombdkwallet command.
+func NewCreateTransactionFromBDKWalletCmd(feeRate float32, recipients []Recipient) *CreateTransactionFromBDKWalletCmd {
+	return &CreateTransactionFromBDKWalletCmd{
+		FeeRate:    feeRate,
+		Recipients: recipients,
+	}
+}
+
 // CreateRawTransactionCmd defines the createrawtransaction JSON-RPC command.
 type CreateRawTransactionCmd struct {
 	Inputs   []TransactionInput
@@ -1206,6 +1227,7 @@ func init() {
 
 	MustRegisterCmd("addnode", (*AddNodeCmd)(nil), flags)
 	MustRegisterCmd("balance", (*BalanceCmd)(nil), flags)
+	MustRegisterCmd("createtransactionfrombdkwallet", (*CreateTransactionFromBDKWalletCmd)(nil), flags)
 	MustRegisterCmd("createrawtransaction", (*CreateRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("decoderawtransaction", (*DecodeRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("decodescript", (*DecodeScriptCmd)(nil), flags)
