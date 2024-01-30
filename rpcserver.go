@@ -133,6 +133,7 @@ type commandHandler func(*rpcServer, interface{}, <-chan struct{}) (interface{},
 var rpcHandlers map[string]commandHandler
 var rpcHandlersBeforeInit = map[string]commandHandler{
 	"addnode":                            handleAddNode,
+	"balance":                            handleBalance,
 	"createrawtransaction":               handleCreateRawTransaction,
 	"debuglevel":                         handleDebugLevel,
 	"decoderawtransaction":               handleDecodeRawTransaction,
@@ -414,6 +415,17 @@ func handleAddNode(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (in
 
 	// no data returned unless an error.
 	return nil, nil
+}
+
+// handleBalance handles the balance command.
+func handleBalance(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	balance := s.cfg.BDKWallet.Wallet.Balance()
+	return btcjson.BalanceResult{
+		Immature:         int64(balance.Immature),
+		TrustedPending:   int64(balance.TrustedPending),
+		UntrustedPending: int64(balance.UntrustedPending),
+		Confirmed:        int64(balance.Confirmed),
+	}, nil
 }
 
 // handleNode handles node commands.

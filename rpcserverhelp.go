@@ -34,6 +34,15 @@ var helpDescsEnUS = map[string]string{
 	"addnode-addr":      "IP address and port of the peer to operate on",
 	"addnode-subcmd":    "'add' to add a persistent peer, 'remove' to remove a persistent peer, or 'onetry' to try a single connection to a peer",
 
+	// BalanceCmd help.
+	"balance--synopsis": "Retrieves the balance from the underlying bdkwallet.",
+
+	// BalanceResult help.
+	"balanceresult-immature":         "The coinbase balance that's not been confirmed 100 times and therefore can't be spent.",
+	"balanceresult-trustedpending":   "The balance that's part of our change keychain.",
+	"balanceresult-untrustedpending": "The balance that's part of our public keychain.",
+	"balanceresult-confirmed":        "The confirmed balance.",
+
 	// NodeCmd help.
 	"node--synopsis":     "Attempts to add or remove a peer.",
 	"node-subcmd":        "'disconnect' to remove all matching non-persistent peers, 'remove' to remove a persistent peer, or 'connect' to connect to a peer",
@@ -830,6 +839,7 @@ var helpDescsEnUS = map[string]string{
 // pointer to the type (or nil to indicate no return value).
 var rpcResultTypes = map[string][]interface{}{
 	"addnode":                            nil,
+	"balance":                            {(*btcjson.BalanceResult)(nil)},
 	"createrawtransaction":               {(*string)(nil)},
 	"debuglevel":                         {(*string)(nil), (*string)(nil)},
 	"decoderawtransaction":               {(*btcjson.TxRawDecodeResult)(nil)},
