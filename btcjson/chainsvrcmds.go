@@ -48,6 +48,15 @@ func NewAddNodeCmd(addr string, subCmd AddNodeSubCmd) *AddNodeCmd {
 	}
 }
 
+// BalanceCmd defines the balance JSON-RPC command.
+type BalanceCmd struct{}
+
+// NewBalanceCmd returns a new instance which can be used to issue an balance
+// JSON-RPC command.
+func NewBalanceCmd() *BalanceCmd {
+	return &BalanceCmd{}
+}
+
 // TransactionInput represents the inputs to a transaction.  Specifically a
 // transaction hash and output number pair.
 type TransactionInput struct {
@@ -1196,6 +1205,7 @@ func init() {
 	flags := UsageFlag(0)
 
 	MustRegisterCmd("addnode", (*AddNodeCmd)(nil), flags)
+	MustRegisterCmd("balance", (*BalanceCmd)(nil), flags)
 	MustRegisterCmd("createrawtransaction", (*CreateRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("decoderawtransaction", (*DecodeRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("decodescript", (*DecodeScriptCmd)(nil), flags)

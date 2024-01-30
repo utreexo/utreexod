@@ -15,6 +15,18 @@ import (
 	"github.com/utreexo/utreexod/wire"
 )
 
+// BalanceResult models the data from the balance command.
+type BalanceResult struct {
+	// Immature is the coinbase balance that's not been confirmed 100 times.
+	Immature int64 `json:"immature"`
+	// TrustedPending is the balance that's part of our change keychain.
+	TrustedPending int64 `json:"trustedpending"`
+	// UntrustedPending is the balance that's part of our public keychain.
+	UntrustedPending int64 `json:"untrustedpending"`
+	// Confirmed is the confirmed balance.
+	Confirmed int64 `json:"confirmed"`
+}
+
 // GetBlockHeaderVerboseResult models the data from the getblockheader command when
 // the verbose flag is set.  When the verbose flag is not set, getblockheader
 // returns a hex-encoded string.
