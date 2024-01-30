@@ -608,6 +608,10 @@ var helpDescsEnUS = map[string]string{
 	"help--result0":    "List of commands",
 	"help--result1":    "Help for specified command",
 
+	// PeekAddressCmd help.
+	"peekaddress--synopsis": "Returns an address of the desired derivation index",
+	"peekaddress-index":     "The desired derivation index you want to fetch the address at",
+
 	// PingCmd help.
 	"ping--synopsis": "Queues a ping to be sent to each connected peer.\n" +
 		"Ping times are provided by getpeerinfo via the pingtime and pingwait fields.",
@@ -869,6 +873,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"node":                               nil,
 	"help":                               {(*string)(nil), (*string)(nil)},
 	"invalidateblock":                    nil,
+	"peekaddress":                        {(*btcjson.BDKAddressResult)(nil)},
 	"ping":                               nil,
 	"proveutxochaintipinclusion":         {(*btcjson.ProveUtxoChainTipInclusionVerboseResult)(nil)},
 	"provewatchonlychaintipinclusion":    {(*btcjson.ProveWatchOnlyChainTipInclusionVerboseResult)(nil)},

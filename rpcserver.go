@@ -176,6 +176,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"invalidateblock":                    handleInvalidateBlock,
 	"help":                               handleHelp,
 	"node":                               handleNode,
+	"peekaddress":                        handlePeekAddress,
 	"ping":                               handlePing,
 	"proveutxochaintipinclusion":         handleProveUtxoChainTipInclusion,
 	"provewatchonlychaintipinclusion":    handleProveWatchOnlyChainTipInclusion,
@@ -2985,6 +2986,23 @@ func handleHelp(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (inter
 		return nil, internalRPCError(err.Error(), context)
 	}
 	return help, nil
+}
+
+// handlePeekAddress implements the peekaddress command.
+func handlePeekAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.PeekAddressCmd)
+
+	index, address, err := s.cfg.BDKWallet.Wallet.PeekAddress(c.Index)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Failed to retrieve address at index %v: %v",
+				c.Index, err),
+		}
+	}
+
+	result := btcjson.BDKAddressResult{Index: int(index), Address: address.String()}
+	return result, nil
 }
 
 // handlePing implements the ping command.
