@@ -830,6 +830,17 @@ func NewInvalidateBlockCmd(blockHash string) *InvalidateBlockCmd {
 	}
 }
 
+// PeekAddressCmd defines the peekaddress JSON-RPC command.
+type PeekAddressCmd struct {
+	Index uint32
+}
+
+// NewPeekAddressCmd returns a new instance which can be used to issue a peekaddress JSON-RPC
+// command.
+func NewPeekAddressCmd() *PeekAddressCmd {
+	return &PeekAddressCmd{}
+}
+
 // PingCmd defines the ping JSON-RPC command.
 type PingCmd struct{}
 
@@ -1232,6 +1243,7 @@ func init() {
 	MustRegisterCmd("getwatchonlybalance", (*GetWatchOnlyBalanceCmd)(nil), flags)
 	MustRegisterCmd("help", (*HelpCmd)(nil), flags)
 	MustRegisterCmd("invalidateblock", (*InvalidateBlockCmd)(nil), flags)
+	MustRegisterCmd("peekaddress", (*PeekAddressCmd)(nil), flags)
 	MustRegisterCmd("ping", (*PingCmd)(nil), flags)
 	MustRegisterCmd("preciousblock", (*PreciousBlockCmd)(nil), flags)
 	MustRegisterCmd("proveutxochaintipinclusion", (*ProveUtxoChainTipInclusionCmd)(nil), flags)
