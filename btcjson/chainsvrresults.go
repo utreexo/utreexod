@@ -909,3 +909,10 @@ type ProveWatchOnlyChainTipInclusionVerboseResult struct {
 	HashesProven []string `json:"hashesproven"`
 	Hex          string   `json:"hex"`
 }
+
+// BDKAddressResult models the data for all rpc calls that the bdk wallet returns.
+// This includes the following commands: unusedaddress, freshaddress, and peekaddress.
+type BDKAddressResult struct {
+	Index   int    `json:"index"`
+	Address string `json:"address"`
+}
