@@ -138,6 +138,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"decoderawtransaction":               handleDecodeRawTransaction,
 	"decodescript":                       handleDecodeScript,
 	"estimatefee":                        handleEstimateFee,
+	"freshaddress":                       handleFreshAddress,
 	"generate":                           handleGenerate,
 	"getaddednodeinfo":                   handleGetAddedNodeInfo,
 	"getbestblock":                       handleGetBestBlock,
@@ -899,6 +900,20 @@ func handleEstimateFee(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 
 	// Convert to satoshis per kb.
 	return float64(feeRate), nil
+}
+
+// handleFreshAddress implements the freshaddress command.
+func handleFreshAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	index, address, err := s.cfg.BDKWallet.Wallet.FreshAddress()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "Failed to retrieve new address: " + err.Error(),
+		}
+	}
+
+	result := btcjson.BDKAddressResult{Index: int(index), Address: address.String()}
+	return result, nil
 }
 
 // handleGenerate handles generate commands.

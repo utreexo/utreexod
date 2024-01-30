@@ -128,6 +128,10 @@ var helpDescsEnUS = map[string]string{
 	"estimatefee--result0": "Estimated fee per kilobyte in satoshis for a block to " +
 		"be mined in the next NumBlocks blocks.",
 
+	// FreshAddressCmd help.
+	"freshaddress--synopsis": "Returns an address of the next derivation index regardless of if the " +
+		"preivous derivation address has received funds or not.",
+
 	// GenerateCmd help
 	"generate--synopsis": "Generates a set number of blocks (simnet or regtest only) and returns a JSON\n" +
 		" array of their hashes.",
@@ -827,6 +831,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"decoderawtransaction":               {(*btcjson.TxRawDecodeResult)(nil)},
 	"decodescript":                       {(*btcjson.DecodeScriptResult)(nil)},
 	"estimatefee":                        {(*float64)(nil)},
+	"freshaddress":                       {(*btcjson.BDKAddressResult)(nil)},
 	"generate":                           {(*[]string)(nil)},
 	"getaddednodeinfo":                   {(*[]string)(nil), (*[]btcjson.GetAddedNodeInfoResult)(nil)},
 	"getbestblock":                       {(*btcjson.GetBestBlockResult)(nil)},
