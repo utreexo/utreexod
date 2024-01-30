@@ -21,9 +21,14 @@ type ManagerConfig struct {
 	DataDir     string
 }
 
+// Manager handles the configuration and handling data in between the utreexo node
+// and the bdk wallet library.
 type Manager struct {
 	config ManagerConfig
-	wallet Wallet // wallet does not need a mutex as it's done in Rust
+
+	// Wallet is the underlying wallet that calls out to the
+	// bdk rust library.
+	Wallet Wallet // wallet does not need a mutex as it's done in Rust
 }
 
 func WalletDir(dataDir string) string {
@@ -69,7 +74,7 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 
 	m := Manager{
 		config: config,
-		wallet: wallet,
+		Wallet: wallet,
 	}
 	if config.Chain != nil {
 		// Subscribe to new blocks/reorged blocks.
@@ -81,17 +86,17 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 }
 
 func (m *Manager) NotifyNewTransactions(txns []*mempool.TxDesc) {
-	if m.wallet == nil {
+	if m.Wallet == nil {
 		return
 	}
 
-	if err := m.wallet.ApplyMempoolTransactions(txns); err != nil {
+	if err := m.Wallet.ApplyMempoolTransactions(txns); err != nil {
 		log.Errorf("Failed to apply mempool txs to the wallet. %v", err)
 	}
 }
 
 func (m *Manager) handleBlockchainNotification(notification *blockchain.Notification) {
-	if m.wallet == nil {
+	if m.Wallet == nil {
 		return
 	}
 
@@ -103,7 +108,7 @@ func (m *Manager) handleBlockchainNotification(notification *blockchain.Notifica
 			log.Warnf("Chain connected notification is not a block.")
 			return
 		}
-		err := m.wallet.ApplyBlock(block)
+		err := m.Wallet.ApplyBlock(block)
 		if err != nil {
 			log.Criticalf("Couldn't apply block to the wallet. %v", err)
 		}
