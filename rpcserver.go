@@ -134,6 +134,7 @@ var rpcHandlers map[string]commandHandler
 var rpcHandlersBeforeInit = map[string]commandHandler{
 	"addnode":                            handleAddNode,
 	"balance":                            handleBalance,
+	"createtransactionfrombdkwallet":     handleCreateTransactionFromBDKWallet,
 	"createrawtransaction":               handleCreateRawTransaction,
 	"debuglevel":                         handleDebugLevel,
 	"decoderawtransaction":               handleDecodeRawTransaction,
@@ -532,6 +533,80 @@ func peerExists(connMgr rpcserverConnManager, addr string, nodeID int32) bool {
 		}
 	}
 	return false
+}
+
+// handleCreateTransactionFromBDKWallet handles createtransactionfrombdkwallet command.
+func handleCreateTransactionFromBDKWallet(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
+	c := cmd.(*btcjson.CreateTransactionFromBDKWalletCmd)
+
+	recipients := make([]bdkwallet.Recipient, len(c.Recipients))
+	for i := range recipients {
+		addr, err := btcutil.DecodeAddress(c.Recipients[i].Address, s.cfg.ChainParams)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't decode address %v. %v",
+					c.Recipients[i].Address, err),
+			}
+		}
+
+		recipients[i].Address = addr.String()
+		recipients[i].Amount = btcutil.Amount(c.Recipients[i].Amount)
+	}
+
+	bytes, err := s.cfg.BDKWallet.Wallet.CreateTx(c.FeeRate, recipients)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Failed to create tx. %v", err),
+		}
+	}
+
+	tx, err := btcutil.NewTxFromBytes(bytes)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Failed to create tx. %v", err),
+		}
+	}
+
+	// The below code just broadcasts the tx without checking the validity.
+	// Since bdk isn't handling the utreexo proofs, there's no way for a utreexo
+	// node to check the transaction's validity.
+	//
+	// This is also better in general as mempool txs aren't being saved so on a restart
+	// the validation will fail for spending txs that aren't yet spent.
+	// We just trust bdk that it's doing things right.
+	txD := &mempool.TxDesc{
+		TxDesc: mining.TxDesc{Tx: tx},
+	}
+
+	// Generate and relay inventory vectors.
+	s.cfg.ConnMgr.RelayTransactions([]*mempool.TxDesc{txD})
+
+	// Notify both websocket and getblocktemplate long poll clients of all
+	// newly accepted transactions.
+	s.NotifyNewTransactions([]*mempool.TxDesc{txD})
+
+	// Keep track of the tx so that they can be rebroadcast
+	// if they don't make their way into a block.
+	iv := wire.NewInvVect(wire.InvTypeTx, txD.Tx.Hash())
+	s.cfg.ConnMgr.AddRebroadcastInventory(iv, txD)
+
+	res := btcjson.CreateTransactionFromBDKWalletResult{
+		TxHash:   tx.Hash().String(),
+		RawBytes: hex.EncodeToString(bytes),
+	}
+
+	return res, nil
 }
 
 // messageToHex serializes a message to the wire protocol encoding using the

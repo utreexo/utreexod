@@ -43,6 +43,19 @@ var helpDescsEnUS = map[string]string{
 	"balanceresult-untrustedpending": "The balance that's part of our public keychain.",
 	"balanceresult-confirmed":        "The confirmed balance.",
 
+	// Recipient help.
+	"recipient-amount":  "The amount in satoshis to send to the recipient.",
+	"recipient-address": "The address of the recipient.",
+
+	// CreateTransactionFromBDKWalletCmd help.
+	"createtransactionfrombdkwallet--synopsis":  "Creates and returns a hex encoded transaction from the underlying bdk walllet that's ready to broadcast",
+	"createtransactionfrombdkwallet-feerate":    "Feerate in satoshis that this tx will be paying",
+	"createtransactionfrombdkwallet-recipients": "List of recipients that this tx will be paying",
+
+	// CreateTransactionFromBDKWalletResult help.
+	"createtransactionfrombdkwalletresult-txhash":   "Txid of the transaction",
+	"createtransactionfrombdkwalletresult-rawbytes": "Hex-encoded bytes of the serialized transaction",
+
 	// NodeCmd help.
 	"node--synopsis":     "Attempts to add or remove a peer.",
 	"node-subcmd":        "'disconnect' to remove all matching non-persistent peers, 'remove' to remove a persistent peer, or 'connect' to connect to a peer",
@@ -841,6 +854,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"addnode":                            nil,
 	"balance":                            {(*btcjson.BalanceResult)(nil)},
 	"createrawtransaction":               {(*string)(nil)},
+	"createtransactionfrombdkwallet":     {(*btcjson.CreateTransactionFromBDKWalletResult)(nil)},
 	"debuglevel":                         {(*string)(nil), (*string)(nil)},
 	"decoderawtransaction":               {(*btcjson.TxRawDecodeResult)(nil)},
 	"decodescript":                       {(*btcjson.DecodeScriptResult)(nil)},
