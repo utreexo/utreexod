@@ -149,6 +149,15 @@ type FundRawTransactionOpts struct {
 	EstimateMode           *EstimateSmartFeeMode `json:"estimate_mode,omitempty"`
 }
 
+// FreshAddressCmd defines the freshaddress JSON-RPC command
+type FreshAddressCmd struct{}
+
+// NewFreshAddressCmd returns a new instance which can be used to issue a
+// freshaddress JSON-RPC command.
+func NewFreshAddressCmd() *FreshAddressCmd {
+	return &FreshAddressCmd{}
+}
+
 // FundRawTransactionCmd defines the fundrawtransaction JSON-RPC command
 type FundRawTransactionCmd struct {
 	HexTx     string
@@ -1180,6 +1189,7 @@ func init() {
 	MustRegisterCmd("decoderawtransaction", (*DecodeRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("decodescript", (*DecodeScriptCmd)(nil), flags)
 	MustRegisterCmd("deriveaddresses", (*DeriveAddressesCmd)(nil), flags)
+	MustRegisterCmd("freshaddress", (*FreshAddressCmd)(nil), flags)
 	MustRegisterCmd("fundrawtransaction", (*FundRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("getaddednodeinfo", (*GetAddedNodeInfoCmd)(nil), flags)
 	MustRegisterCmd("getbestblockhash", (*GetBestBlockHashCmd)(nil), flags)
