@@ -7,7 +7,7 @@
 
 set -ex
 
-go test -short -race -tags="rpctest" ./...
+go test -short -race -tags="rpctest" -tags="bdkwallet" ./...
 
 # Automatic checks
 golangci-lint run --deadline=10m --disable-all \
