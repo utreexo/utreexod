@@ -120,7 +120,7 @@ var (
 	// command is recognized as a wallet command.
 	ErrRPCNoWallet = &btcjson.RPCError{
 		Code:    btcjson.ErrRPCNoWallet,
-		Message: "This implementation does not implement wallet commands",
+		Message: "This implementation does not implement btcwallet commands",
 	}
 )
 
