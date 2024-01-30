@@ -1081,6 +1081,15 @@ func NewSubmitBlockCmd(hexBlock string, options *SubmitBlockOptions) *SubmitBloc
 	}
 }
 
+// UnusedAddressCmd defines the unusedaddress JSON-RPC command.
+type UnusedAddressCmd struct{}
+
+// NewUnusedAddressCmd returns a new instance which can be used to issue an unusedaddress
+// JSON-RPC command.
+func NewUnusedAddressCmd() *UnusedAddressCmd {
+	return &UnusedAddressCmd{}
+}
+
 // UptimeCmd defines the uptime JSON-RPC command.
 type UptimeCmd struct{}
 
@@ -1225,6 +1234,7 @@ func init() {
 	MustRegisterCmd("signmessagewithprivkey", (*SignMessageWithPrivKeyCmd)(nil), flags)
 	MustRegisterCmd("stop", (*StopCmd)(nil), flags)
 	MustRegisterCmd("submitblock", (*SubmitBlockCmd)(nil), flags)
+	MustRegisterCmd("unusedaddress", (*UnusedAddressCmd)(nil), flags)
 	MustRegisterCmd("uptime", (*UptimeCmd)(nil), flags)
 	MustRegisterCmd("validateaddress", (*ValidateAddressCmd)(nil), flags)
 	MustRegisterCmd("verifychain", (*VerifyChainCmd)(nil), flags)
