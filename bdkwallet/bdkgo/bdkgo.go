@@ -1163,12 +1163,12 @@ func (_ FfiDestroyerTypeMempoolTx) Destroy(value MempoolTx) {
 }
 
 type Recipient struct {
-	ScriptPubkey []byte
-	Amount       uint64
+	Address string
+	Amount  uint64
 }
 
 func (r *Recipient) Destroy() {
-	FfiDestroyerBytes{}.Destroy(r.ScriptPubkey)
+	FfiDestroyerString{}.Destroy(r.Address)
 	FfiDestroyerUint64{}.Destroy(r.Amount)
 }
 
@@ -1182,7 +1182,7 @@ func (c FfiConverterTypeRecipient) Lift(rb RustBufferI) Recipient {
 
 func (c FfiConverterTypeRecipient) Read(reader io.Reader) Recipient {
 	return Recipient{
-		FfiConverterBytesINSTANCE.Read(reader),
+		FfiConverterStringINSTANCE.Read(reader),
 		FfiConverterUint64INSTANCE.Read(reader),
 	}
 }
@@ -1192,7 +1192,7 @@ func (c FfiConverterTypeRecipient) Lower(value Recipient) RustBuffer {
 }
 
 func (c FfiConverterTypeRecipient) Write(writer io.Writer, value Recipient) {
-	FfiConverterBytesINSTANCE.Write(writer, value.ScriptPubkey)
+	FfiConverterStringINSTANCE.Write(writer, value.Address)
 	FfiConverterUint64INSTANCE.Write(writer, value.Amount)
 }
 
@@ -1649,10 +1649,29 @@ func (err CreateTxError) Unwrap() error {
 }
 
 // Err* are used for checking error type with `errors.Is`
+var ErrCreateTxErrorInvalidAddress = fmt.Errorf("CreateTxErrorInvalidAddress")
 var ErrCreateTxErrorCreateTx = fmt.Errorf("CreateTxErrorCreateTx")
 var ErrCreateTxErrorSignTx = fmt.Errorf("CreateTxErrorSignTx")
 
 // Variant structs
+type CreateTxErrorInvalidAddress struct {
+	message string
+}
+
+func NewCreateTxErrorInvalidAddress() *CreateTxError {
+	return &CreateTxError{
+		err: &CreateTxErrorInvalidAddress{},
+	}
+}
+
+func (err CreateTxErrorInvalidAddress) Error() string {
+	return fmt.Sprintf("InvalidAddress: %s", err.message)
+}
+
+func (self CreateTxErrorInvalidAddress) Is(target error) bool {
+	return target == ErrCreateTxErrorInvalidAddress
+}
+
 type CreateTxErrorCreateTx struct {
 	message string
 }
@@ -1707,8 +1726,10 @@ func (c FfiConverterTypeCreateTxError) Read(reader io.Reader) error {
 	message := FfiConverterStringINSTANCE.Read(reader)
 	switch errorID {
 	case 1:
-		return &CreateTxError{&CreateTxErrorCreateTx{message}}
+		return &CreateTxError{&CreateTxErrorInvalidAddress{message}}
 	case 2:
+		return &CreateTxError{&CreateTxErrorCreateTx{message}}
+	case 3:
 		return &CreateTxError{&CreateTxErrorSignTx{message}}
 	default:
 		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTypeCreateTxError.Read()", errorID))
@@ -1718,10 +1739,12 @@ func (c FfiConverterTypeCreateTxError) Read(reader io.Reader) error {
 
 func (c FfiConverterTypeCreateTxError) Write(writer io.Writer, value *CreateTxError) {
 	switch variantValue := value.err.(type) {
-	case *CreateTxErrorCreateTx:
+	case *CreateTxErrorInvalidAddress:
 		writeInt32(writer, 1)
-	case *CreateTxErrorSignTx:
+	case *CreateTxErrorCreateTx:
 		writeInt32(writer, 2)
+	case *CreateTxErrorSignTx:
+		writeInt32(writer, 3)
 	default:
 		_ = variantValue
 		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeCreateTxError.Write", value))

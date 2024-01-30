@@ -12,7 +12,7 @@ use bdk::{
         consensus::{Decodable, Encodable},
         hashes::Hash,
         network::constants::ParseNetworkError,
-        BlockHash, Network, ScriptBuf, Transaction,
+        Address, BlockHash, Network, Transaction,
     },
     keys::{DerivableKey, ExtendedKey},
     template::Bip86,
@@ -83,6 +83,8 @@ pub enum ApplyMempoolError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateTxError {
+    #[error("recipient address is invalid: {0}")]
+    InvalidAddress(bdk::bitcoin::address::Error),
     #[error("failed to create tx: {0}")]
     CreateTx(bdk::wallet::error::CreateTxError<std::io::Error>),
     #[error("failed to sign tx: {0}")]
@@ -312,7 +314,7 @@ impl Wallet {
         } else {
             wallet
                 .apply_block(&block, height)
-                .map_err(|err| ApplyBlockError::CannotConnect(err))?;
+                .map_err(ApplyBlockError::CannotConnect)?;
         }
         let res = ApplyResult::new(&wallet);
         wallet.commit().map_err(ApplyBlockError::Database)?;
@@ -349,14 +351,20 @@ impl Wallet {
     ) -> Result<Vec<u8>, CreateTxError> {
         self.increment_reference_counter();
         let mut wallet = self.inner.lock().unwrap();
+        let recipients = recipients
+            .into_iter()
+            .map(|r| -> Result<_, _> {
+                let addr = Address::from_str(&r.address)
+                    .map_err(CreateTxError::InvalidAddress)?
+                    .require_network(wallet.network())
+                    .map_err(CreateTxError::InvalidAddress)?;
+                Ok((addr.script_pubkey(), r.amount))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         let mut psbt = wallet
             .build_tx()
-            .set_recipients(
-                recipients
-                    .into_iter()
-                    .map(|r| (ScriptBuf::from_bytes(r.script_pubkey), r.amount))
-                    .collect(),
-            )
+            .set_recipients(recipients)
             .fee_rate(FeeRate::from_sat_per_vb(feerate))
             .enable_rbf()
             .clone()
@@ -437,7 +445,7 @@ impl Wallet {
 }
 
 pub struct Recipient {
-    pub script_pubkey: Vec<u8>,
+    pub address: String,
     pub amount: u64,
 }
 

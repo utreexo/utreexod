@@ -75,8 +75,8 @@ type BlockId struct {
 
 // Recipient specifies the intended amount and destination address for a transaction output.
 type Recipient struct {
-	Amount  btcutil.Amount  // amount to send
-	Address btcutil.Address // recipient address to send to
+	Amount  btcutil.Amount // amount to send
+	Address string         // recipient address to send to (in human-readable form)
 }
 
 // TxInfo is information on a given transaction.

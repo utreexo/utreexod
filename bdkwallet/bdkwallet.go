@@ -184,8 +184,8 @@ func (w *BDKWallet) CreateTx(feerate float32, recipients []Recipient) ([]byte, e
 	genRecipients := make([]bdkgo.Recipient, 0, len(recipients))
 	for _, r := range recipients {
 		genRecipients = append(genRecipients, bdkgo.Recipient{
-			ScriptPubkey: r.Address.ScriptAddress(),
-			Amount:       uint64(r.Amount),
+			Address: r.Address,
+			Amount:  uint64(r.Amount),
 		})
 	}
 	return w.inner.CreateTx(feerate, genRecipients)
