@@ -100,6 +100,10 @@ var helpDescsEnUS = map[string]string{
 	"txrawdecoderesult-vin":      "The transaction inputs as JSON objects",
 	"txrawdecoderesult-vout":     "The transaction outputs as JSON objects",
 
+	// BDKAddressResult help.
+	"bdkaddressresult-index":   "BIP86 index of the address",
+	"bdkaddressresult-address": "Taproot address that you can receive funds to",
+
 	// DecodeRawTransactionCmd help.
 	"decoderawtransaction--synopsis": "Returns a JSON object representing the provided serialized, hex-encoded transaction.",
 	"decoderawtransaction-hextx":     "Serialized, hex-encoded transaction",
@@ -791,6 +795,9 @@ var helpDescsEnUS = map[string]string{
 	"rescannedblock-hash":         "Hash of the matching block.",
 	"rescannedblock-transactions": "List of matching transactions, serialized and hex-encoded.",
 
+	// UnusedAddressCmd help.
+	"unusedaddress--synopsis": "Returns an address that never received funds from the bdkwallet.",
+
 	// Uptime help.
 	"uptime--synopsis": "Returns the total uptime of the server.",
 	"uptime--result0":  "The number of seconds that the server has been running",
@@ -868,6 +875,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"signmessagewithprivkey":             {(*string)(nil)},
 	"stop":                               {(*string)(nil)},
 	"submitblock":                        {nil, (*string)(nil)},
+	"unusedaddress":                      {(*btcjson.BDKAddressResult)(nil)},
 	"uptime":                             {(*int64)(nil)},
 	"validateaddress":                    {(*btcjson.ValidateAddressChainResult)(nil)},
 	"verifychain":                        {(*bool)(nil)},

@@ -186,6 +186,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"signmessagewithprivkey":             handleSignMessageWithPrivKey,
 	"stop":                               handleStop,
 	"submitblock":                        handleSubmitBlock,
+	"unusedaddress":                      handleUnusedAddress,
 	"uptime":                             handleUptime,
 	"validateaddress":                    handleValidateAddress,
 	"verifychain":                        handleVerifyChain,
@@ -4150,6 +4151,20 @@ func handleSubmitBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 
 	rpcsLog.Infof("Accepted block %s via submitblock", block.Hash())
 	return nil, nil
+}
+
+// handleUnusedAddress implements the unusedaddress command.
+func handleUnusedAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	index, address, err := s.cfg.BDKWallet.Wallet.UnusedAddress()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "Failed to retrieve unused address: " + err.Error(),
+		}
+	}
+
+	result := btcjson.BDKAddressResult{Index: int(index), Address: address.String()}
+	return result, nil
 }
 
 // handleUptime implements the uptime command.
