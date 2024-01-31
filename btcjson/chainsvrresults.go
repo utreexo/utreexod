@@ -27,6 +27,15 @@ type BalanceResult struct {
 	Confirmed int64 `json:"confirmed"`
 }
 
+// ListBDKTransactionsResult models the data from the listbdktransactions command.
+type ListBDKTransactionsResult struct {
+	Txid          string `json:"txid"`          // txid of the tx
+	RawBytes      string `json:"rawbytes"`      // hex encoded raw tx
+	Spent         int64  `json:"spent"`         // sum of owned inputs
+	Received      int64  `json:"received"`      // sum of owned outputs
+	Confirmations uint   `json:"confirmations"` // number of confirmations for this tx
+}
+
 // GetBlockHeaderVerboseResult models the data from the getblockheader command when
 // the verbose flag is set.  When the verbose flag is not set, getblockheader
 // returns a hex-encoded string.
