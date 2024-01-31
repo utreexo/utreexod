@@ -968,6 +968,16 @@ func NewRegisterAddressesToWatchOnlyWalletCmd(addresses []string) *RegisterAddre
 	}
 }
 
+// RebroadcastUnconfirmedBDKTxsCmd defines the rebroadcastunconfirmedbdktxs JSON-RPC
+// command.
+type RebroadcastUnconfirmedBDKTxsCmd struct{}
+
+// NewRebroadcastUnconfirmedBDKTxsCmd returns a new instance which can be used to issue a
+// registeraddressestowatchonlywallet JSON-RPC command.
+func NewRebroadcastUnconfirmedBDKTxsCmd() *RebroadcastUnconfirmedBDKTxsCmd {
+	return &RebroadcastUnconfirmedBDKTxsCmd{}
+}
+
 // SearchRawTransactionsCmd defines the searchrawtransactions JSON-RPC command.
 type SearchRawTransactionsCmd struct {
 	Address     string
@@ -1301,6 +1311,7 @@ func init() {
 	MustRegisterCmd("proveutxochaintipinclusion", (*ProveUtxoChainTipInclusionCmd)(nil), flags)
 	MustRegisterCmd("provewatchonlychaintipinclusion", (*ProveWatchOnlyChainTipInclusionCmd)(nil), flags)
 	MustRegisterCmd("registeraddressestowatchonlywallet", (*RegisterAddressesToWatchOnlyWalletCmd)(nil), flags)
+	MustRegisterCmd("rebroadcastunconfirmedbdktxs", (*RebroadcastUnconfirmedBDKTxsCmd)(nil), flags)
 	MustRegisterCmd("reconsiderblock", (*ReconsiderBlockCmd)(nil), flags)
 	MustRegisterCmd("searchrawtransactions", (*SearchRawTransactionsCmd)(nil), flags)
 	MustRegisterCmd("sendrawtransaction", (*SendRawTransactionCmd)(nil), flags)
