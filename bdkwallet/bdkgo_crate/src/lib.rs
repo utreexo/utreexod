@@ -42,7 +42,7 @@ pub enum CreateNewError {
     #[error("failed to parse genesis hash: {0}")]
     ParseGenesisHash(bdk::bitcoin::hashes::Error),
     #[error("failed to create new db file: {0}")]
-    Database(bdk_file_store::FileError<'static>),
+    Database(bdk_file_store::FileError),
     #[error("failed to init wallet: {0}")]
     Wallet(bdk::wallet::NewError<std::io::Error>),
 }
@@ -50,7 +50,7 @@ pub enum CreateNewError {
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
     #[error("failed to load db: {0}")]
-    Database(bdk_file_store::FileError<'static>),
+    Database(bdk_file_store::FileError),
     #[error("failed to decode wallet header: {0}")]
     ParseHeader(bincode::Error),
     #[error("wallet header version unsupported")]
@@ -191,8 +191,8 @@ impl Wallet {
 
         let mut header = WalletHeader::new(network);
         let header_bytes = header.encode();
-        let db =
-            bdk_file_store::Store::create_new(&header_bytes, &db_path).expect("must create db");
+        let db = bdk_file_store::Store::create_new(&header_bytes, &db_path)
+            .map_err(CreateNewError::Database)?;
         let bdk_wallet = match bdk::Wallet::new_with_genesis_hash(
             header.descriptor(KeychainKind::External),
             Some(header.descriptor(KeychainKind::Internal)),
@@ -216,7 +216,8 @@ impl Wallet {
         let file = std::fs::File::open(&db_path)
             .map_err(|err| LoadError::Database(bdk_file_store::FileError::Io(err)))?;
         let (header, header_bytes) = WalletHeader::decode(file)?;
-        let db = bdk_file_store::Store::open(&header_bytes, db_path).expect("must load db");
+        let db =
+            bdk_file_store::Store::open(&header_bytes, db_path).map_err(LoadError::Database)?;
         let bdk_wallet = bdk::Wallet::load(
             header.descriptor(KeychainKind::External),
             Some(header.descriptor(KeychainKind::Internal)),

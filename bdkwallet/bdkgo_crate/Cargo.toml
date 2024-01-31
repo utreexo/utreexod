@@ -14,8 +14,8 @@ weedle2 = "=4.0.0"
 thiserror = "1.0"
 bincode = "1"
 serde = { version = "1", features = ["derive"] }
-bdk = { git = "https://github.com/bitcoindevkit/bdk.git", rev = "07116df54156315b4f1fc67647a9b8118e464d43", features = ["keys-bip39"] }
-bdk_file_store = { git = "https://github.com/bitcoindevkit/bdk.git", rev = "07116df54156315b4f1fc67647a9b8118e464d43" }
+bdk = { git = "https://github.com/bitcoindevkit/bdk.git", rev = "070fffb95cddb9153f326d5662f206d25ecbcc7c", features = ["keys-bip39"] }
+bdk_file_store = { git = "https://github.com/bitcoindevkit/bdk.git", rev = "070fffb95cddb9153f326d5662f206d25ecbcc7c" }
 rand = "0.8.5"
 
 [build-dependencies]
