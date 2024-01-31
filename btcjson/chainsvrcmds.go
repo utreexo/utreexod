@@ -606,6 +606,15 @@ func NewGetMiningInfoCmd() *GetMiningInfoCmd {
 	return &GetMiningInfoCmd{}
 }
 
+// GetMnemonicWordsCmd defines the getmnemonicwords JSON-RPC command.
+type GetMnemonicWordsCmd struct{}
+
+// NewGetMiningInfoCmd returns a new instance which can be used to issue a
+// getmnemonicwords JSON-RPC command.
+func NewGetMnemonicWordsCmd() *GetMnemonicWordsCmd {
+	return &GetMnemonicWordsCmd{}
+}
+
 // GetNetworkInfoCmd defines the getnetworkinfo JSON-RPC command.
 type GetNetworkInfoCmd struct{}
 
@@ -1257,6 +1266,7 @@ func init() {
 	MustRegisterCmd("getmempoolentry", (*GetMempoolEntryCmd)(nil), flags)
 	MustRegisterCmd("getmempoolinfo", (*GetMempoolInfoCmd)(nil), flags)
 	MustRegisterCmd("getmininginfo", (*GetMiningInfoCmd)(nil), flags)
+	MustRegisterCmd("getmnemonicwords", (*GetMnemonicWordsCmd)(nil), flags)
 	MustRegisterCmd("getnetworkinfo", (*GetNetworkInfoCmd)(nil), flags)
 	MustRegisterCmd("getnettotals", (*GetNetTotalsCmd)(nil), flags)
 	MustRegisterCmd("gettxtotals", (*GetTxTotalsCmd)(nil), flags)
