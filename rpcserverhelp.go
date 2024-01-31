@@ -683,6 +683,10 @@ var helpDescsEnUS = map[string]string{
 		"Note that these are not purely hashes of txid:vout. The preimage also include Amount, PkScript, and other parts of the UTXO",
 	"provewatchonlychaintipinclusionverboseresult-hex": "The raw hash of the entire chain-tip inclusion proof",
 
+	// RebroadcastUnconfirmedBDKTxs help.
+	"rebroadcastunconfirmedbdktxs--synopsis": "Rebroadcasts the unconfirmed txs in the bdk wallet to the network. Won't rebroadcast the txs already in this node's mempool.",
+	"rebroadcastunconfirmedbdktxs--result0":  "List of txids of the rebroadcasted txs",
+
 	// SearchRawTransactionsCmd help.
 	"searchrawtransactions--synopsis": "Returns raw data for transactions involving the passed address.\n" +
 		"Returned transactions are pulled from both the database, and transactions currently in the mempool.\n" +
@@ -917,6 +921,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"ping":                               nil,
 	"proveutxochaintipinclusion":         {(*btcjson.ProveUtxoChainTipInclusionVerboseResult)(nil)},
 	"provewatchonlychaintipinclusion":    {(*btcjson.ProveWatchOnlyChainTipInclusionVerboseResult)(nil)},
+	"rebroadcastunconfirmedbdktxs":       {(*[]string)(nil)},
 	"registeraddressestowatchonlywallet": nil,
 	"reconsiderblock":                    nil,
 	"searchrawtransactions":              {(*string)(nil), (*[]btcjson.SearchRawTransactionsResult)(nil)},

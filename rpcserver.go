@@ -184,6 +184,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"ping":                               handlePing,
 	"proveutxochaintipinclusion":         handleProveUtxoChainTipInclusion,
 	"provewatchonlychaintipinclusion":    handleProveWatchOnlyChainTipInclusion,
+	"rebroadcastunconfirmedbdktxs":       handleRebroadcastUnconfirmedBDKTxs,
 	"reconsiderblock":                    handleReconsiderBlock,
 	"registeraddressestowatchonlywallet": handleRegisterAddressesToWatchOnlyWallet,
 	"searchrawtransactions":              handleSearchRawTransactions,
@@ -3771,6 +3772,93 @@ func fetchMempoolTxnsForAddress(s *rpcServer, addr btcutil.Address, numToSkip, n
 		rangeEnd = numAvailable
 	}
 	return mpTxns[numToSkip:rangeEnd], numToSkip
+}
+
+func sendTxToMempoolSpace(rawTx string, chainParams *chaincfg.Params) (string, error) {
+	client := &http.Client{}
+	var data = strings.NewReader(rawTx)
+
+	link := "https://mempool.space/api/tx"
+	switch chainParams.Name {
+	case chaincfg.MainNetParams.Name:
+	case chaincfg.TestNet3Params.Name:
+		link = "https://mempool.space/testnet/api/tx"
+	case chaincfg.SigNetParams.Name:
+		link = "https://mempool.space/signet/api/tx"
+	default:
+		return "", fmt.Errorf("unsupported network %v", chainParams.Name)
+	}
+
+	req, err := http.NewRequest("POST", link, data)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(bodyText), nil
+}
+
+// handleRebroadcastUnconfirmedBDKTxs implements the rebroadcastunconfirmedbdktxs command.
+func handleRebroadcastUnconfirmedBDKTxs(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	allTxs, err := s.cfg.BDKWallet.Wallet.Transactions()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Failed to fetch transaction from bdk wallet. %v", err),
+		}
+	}
+
+	unconfirmedTxs := make([]bdkwallet.TxInfo, 0, len(allTxs))
+	for _, tx := range allTxs {
+		if tx.Confirmations == 0 {
+			unconfirmedTxs = append(unconfirmedTxs, tx)
+		}
+	}
+
+	// Nothing to rebroadcast.
+	if len(unconfirmedTxs) == 0 {
+		return []string{}, nil
+	}
+
+	rebroadcasted := make([]string, 0, len(unconfirmedTxs))
+	for _, unconfirmedTx := range unconfirmedTxs {
+		tx := unconfirmedTx.Tx
+
+		// If it's already in the mempool, then we've already broadcasted it.
+		if s.cfg.TxMemPool.IsTransactionInPool(tx.Hash()) {
+			continue
+		}
+
+		if s.cfg.Chain.IsUtreexoViewActive() {
+			// This is not ideal but since bdk doesn't handle utreexo proofs yet, there's
+			// no way for us to broadcast it normally unless we make some undesired changes
+			// to the mempool code. Just send it off to mempool.space until we can do things
+			// properly.
+			_, err = sendTxToMempoolSpace(txHexString(tx.MsgTx()), s.cfg.ChainParams)
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Failed to broadcast transaction to mempool.space. %v", err),
+			}
+		} else {
+			err = s.rpcProcessTx(&tx, true, false)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		rebroadcasted = append(rebroadcasted, unconfirmedTx.Tx.Hash().String())
+	}
+
+	return rebroadcasted, nil
 }
 
 // handleReconsiderBlock implements the reconsiderblock command.
