@@ -481,6 +481,10 @@ var helpDescsEnUS = map[string]string{
 	// GetMiningInfoCmd help.
 	"getmininginfo--synopsis": "Returns a JSON object containing mining-related information.",
 
+	// GetMnemonicWordsCmd help.
+	"getmnemonicwords--synopsis": "Returns the mnemonic words of the bdk wallet.",
+	"getmnemonicwords--result0":  "12 mnemonic words of the bdk wallet.",
+
 	// GetNetworkHashPSCmd help.
 	"getnetworkhashps--synopsis": "Returns the estimated network hashes per second for the block heights provided by the parameters.",
 	"getnetworkhashps-blocks":    "The number of blocks, or -1 for blocks since last difficulty change",
@@ -882,6 +886,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getinfo":                            {(*btcjson.InfoChainResult)(nil)},
 	"getmempoolinfo":                     {(*btcjson.GetMempoolInfoResult)(nil)},
 	"getmininginfo":                      {(*btcjson.GetMiningInfoResult)(nil)},
+	"getmnemonicwords":                   {(*[]string)(nil)},
 	"getnettotals":                       {(*btcjson.GetNetTotalsResult)(nil)},
 	"gettxtotals":                        {(*btcjson.GetTxTotalsResult)(nil)},
 	"getutreexoproof":                    {(*btcjson.GetUtreexoProofVerboseResult)(nil)},

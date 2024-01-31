@@ -163,6 +163,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getinfo":                            handleGetInfo,
 	"getmempoolinfo":                     handleGetMempoolInfo,
 	"getmininginfo":                      handleGetMiningInfo,
+	"getmnemonicwords":                   handleGetMnemonicWords,
 	"getnettotals":                       handleGetNetTotals,
 	"gettxtotals":                        handleGetTxTotals,
 	"getnetworkhashps":                   handleGetNetworkHashPS,
@@ -2533,6 +2534,12 @@ func handleGetMiningInfo(s *rpcServer, cmd interface{}, closeChan <-chan struct{
 		TestNet:            cfg.TestNet3,
 	}
 	return &result, nil
+}
+
+// handleGetMnemonicWords implements the getmnemonicwords command.
+func handleGetMnemonicWords(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	words := s.cfg.BDKWallet.Wallet.MnemonicWords()
+	return words, nil
 }
 
 // handleGetNetTotals implements the getnettotals command.
