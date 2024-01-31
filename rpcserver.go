@@ -178,6 +178,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getwatchonlybalance":                handleGetWatchOnlyBalance,
 	"invalidateblock":                    handleInvalidateBlock,
 	"help":                               handleHelp,
+	"listbdktransactions":                handleListBDKTransactions,
 	"node":                               handleNode,
 	"peekaddress":                        handlePeekAddress,
 	"ping":                               handlePing,
@@ -3080,6 +3081,39 @@ func handleHelp(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (inter
 		return nil, internalRPCError(err.Error(), context)
 	}
 	return help, nil
+}
+
+// handleListBDKTransactions handles listbdktransactions commands.
+func handleListBDKTransactions(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	txs, err := s.cfg.BDKWallet.Wallet.Transactions()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "Unable to fetch transactions " + err.Error(),
+		}
+	}
+
+	res := make([]btcjson.ListBDKTransactionsResult, len(txs))
+	for i := range res {
+
+		var buf bytes.Buffer
+		err := txs[i].Tx.MsgTx().Serialize(&buf)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCMisc,
+				Message: "Unable to serialize tx " + err.Error(),
+			}
+		}
+		res[i] = btcjson.ListBDKTransactionsResult{
+			Txid:          txs[i].Txid.String(),
+			RawBytes:      hex.EncodeToString(buf.Bytes()),
+			Spent:         int64(txs[i].Spent),
+			Received:      int64(txs[i].Received),
+			Confirmations: txs[i].Confirmations,
+		}
+	}
+
+	return res, nil
 }
 
 // handlePeekAddress implements the peekaddress command.

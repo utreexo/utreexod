@@ -634,6 +634,16 @@ var helpDescsEnUS = map[string]string{
 	"help--result0":    "List of commands",
 	"help--result1":    "Help for specified command",
 
+	// ListBDKTransactionsCmd help.
+	"listbdktransactions--synopsis": "Returns a list of all the relevant transactions the bdk wallet is holding onto",
+
+	// ListBDKTransactionsResult help.
+	"listbdktransactionsresult-txid":          "The transaction hash of the relevant transaction",
+	"listbdktransactionsresult-rawbytes":      "The consensus encoded transaction in hex.",
+	"listbdktransactionsresult-spent":         "The sum of satoshis that was spent in this tx.",
+	"listbdktransactionsresult-received":      "The sum of satoshis that was received in this tx.",
+	"listbdktransactionsresult-confirmations": "The amount of blockchain confirmations for this tx.",
+
 	// PeekAddressCmd help.
 	"peekaddress--synopsis": "Returns an address of the desired derivation index",
 	"peekaddress-index":     "The desired derivation index you want to fetch the address at",
@@ -902,6 +912,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"node":                               nil,
 	"help":                               {(*string)(nil), (*string)(nil)},
 	"invalidateblock":                    nil,
+	"listbdktransactions":                {(*[]btcjson.ListBDKTransactionsResult)(nil)},
 	"peekaddress":                        {(*btcjson.BDKAddressResult)(nil)},
 	"ping":                               nil,
 	"proveutxochaintipinclusion":         {(*btcjson.ProveUtxoChainTipInclusionVerboseResult)(nil)},
