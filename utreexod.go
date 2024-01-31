@@ -258,45 +258,6 @@ func btcdMain(serverChan chan<- *server) error {
 		return nil
 	}
 
-	// Find out if the user is restarting the node.
-	var chainstateInitialized bool
-	db.View(func(dbTx database.Tx) error {
-		chainstateInitialized = blockchain.ChainstateInitialized(dbTx)
-		return nil
-	})
-
-	// If the node is being re-started, do some checks to prevent the user from switching
-	// between a utreexo node vs a non-utreexo node.
-	if chainstateInitialized {
-		var cacheInitialized bool
-		db.View(func(dbTx database.Tx) error {
-			cacheInitialized = blockchain.UtxoCacheInitialized(dbTx)
-			return nil
-		})
-
-		// If the node has been a non-utreexo node but it was now re-started as a utreexo node.
-		if cacheInitialized && !cfg.NoUtreexo {
-			err = fmt.Errorf("Utreexo enabled but this node has been "+
-				"started as a non-utreexo node previously at datadir of \"%v\". "+
-				"Please completely remove the datadir to start as a utreexo "+
-				"node or pass in a different --datadir.",
-				cfg.DataDir)
-			btcdLog.Error(err)
-			return err
-		}
-
-		// If the node has been a utreexo node but it was now re-started as a non-utreexo node.
-		if !cacheInitialized && cfg.NoUtreexo {
-			err = fmt.Errorf("Utreexo disabled but this node has been previously "+
-				"started as a utreexo node at datadir of \"%v\". Please "+
-				"completely remove the datadir to start as a non-utreexo node "+
-				"or pass in a different --datadir.",
-				cfg.DataDir)
-			btcdLog.Error(err)
-			return err
-		}
-	}
-
 	// Drop indexes and exit if requested.
 	//
 	// NOTE: The order is important here because dropping the tx index also
@@ -349,6 +310,45 @@ func btcdMain(serverChan chan<- *server) error {
 		}
 
 		return nil
+	}
+
+	// Find out if the user is restarting the node.
+	var chainstateInitialized bool
+	db.View(func(dbTx database.Tx) error {
+		chainstateInitialized = blockchain.ChainstateInitialized(dbTx)
+		return nil
+	})
+
+	// If the node is being re-started, do some checks to prevent the user from switching
+	// between a utreexo node vs a non-utreexo node.
+	if chainstateInitialized {
+		var cacheInitialized bool
+		db.View(func(dbTx database.Tx) error {
+			cacheInitialized = blockchain.UtxoCacheInitialized(dbTx)
+			return nil
+		})
+
+		// If the node has been a non-utreexo node but it was now re-started as a utreexo node.
+		if cacheInitialized && !cfg.NoUtreexo {
+			err = fmt.Errorf("Utreexo enabled but this node has been "+
+				"started as a non-utreexo node previously at datadir of \"%v\". "+
+				"Please completely remove the datadir to start as a utreexo "+
+				"node or pass in a different --datadir.",
+				cfg.DataDir)
+			btcdLog.Error(err)
+			return err
+		}
+
+		// If the node has been a utreexo node but it was now re-started as a non-utreexo node.
+		if !cacheInitialized && cfg.NoUtreexo {
+			err = fmt.Errorf("Utreexo disabled but this node has been previously "+
+				"started as a utreexo node at datadir of \"%v\". Please "+
+				"completely remove the datadir to start as a non-utreexo node "+
+				"or pass in a different --datadir.",
+				cfg.DataDir)
+			btcdLog.Error(err)
+			return err
+		}
 	}
 
 	// Check if the user had been pruned before and do basic checks on indexers.
