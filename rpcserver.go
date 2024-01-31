@@ -3915,29 +3915,9 @@ func handleSearchRawTransactions(s *rpcServer, cmd interface{}, closeChan <-chan
 	return srtList, nil
 }
 
-// handleSendRawTransaction implements the sendrawtransaction command.
-func handleSendRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
-	c := cmd.(*btcjson.SendRawTransactionCmd)
-	// Deserialize and send off to tx relay
-	hexStr := c.HexTx
-	if len(hexStr)%2 != 0 {
-		hexStr = "0" + hexStr
-	}
-	serializedTx, err := hex.DecodeString(hexStr)
-	if err != nil {
-		return nil, rpcDecodeHexError(hexStr)
-	}
-	var msgTx wire.MsgTx
-	err = msgTx.Deserialize(bytes.NewReader(serializedTx))
-	if err != nil {
-		return nil, &btcjson.RPCError{
-			Code:    btcjson.ErrRPCDeserialization,
-			Message: "TX decode failed: " + err.Error(),
-		}
-	}
-
-	// Use 0 for the tag to represent local node.
-	tx := btcutil.NewTx(&msgTx)
+// rpcProcessTx checks that the tx is accepted into the mempool and relays it to peers
+// and other processes.
+func (s *rpcServer) rpcProcessTx(tx *btcutil.Tx, allowOrphan, rateLimit bool) error {
 	acceptedTxs, err := s.cfg.TxMemPool.ProcessTransaction(tx, false, false, 0)
 	if err != nil {
 		// When the error is a rule error, it means the transaction was
@@ -3949,7 +3929,7 @@ func handleSendRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan st
 			rpcsLog.Errorf("Failed to process transaction %v: %v",
 				tx.Hash(), err)
 
-			return nil, &btcjson.RPCError{
+			return &btcjson.RPCError{
 				Code:    btcjson.ErrRPCTxError,
 				Message: "TX rejected: " + err.Error(),
 			}
@@ -3978,7 +3958,7 @@ func handleSendRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan st
 			}
 		}
 
-		return nil, &btcjson.RPCError{
+		return &btcjson.RPCError{
 			Code:    code,
 			Message: "TX rejected: " + err.Error(),
 		}
@@ -3996,7 +3976,7 @@ func handleSendRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan st
 
 		errStr := fmt.Sprintf("transaction %v is not in accepted list",
 			tx.Hash())
-		return nil, internalRPCError(errStr, "")
+		return internalRPCError(errStr, "")
 	}
 
 	// Generate and relay inventory vectors for all newly accepted
@@ -4008,11 +3988,42 @@ func handleSendRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan st
 	// newly accepted transactions.
 	s.NotifyNewTransactions(acceptedTxs)
 
-	// Keep track of all the sendrawtransaction request txns so that they
-	// can be rebroadcast if they don't make their way into a block.
+	// Keep track of all the txns so that they can be rebroadcast if they
+	// don't make their way into a block.
 	txD := acceptedTxs[0]
 	iv := wire.NewInvVect(wire.InvTypeTx, txD.Tx.Hash())
 	s.cfg.ConnMgr.AddRebroadcastInventory(iv, txD)
+
+	return nil
+}
+
+// handleSendRawTransaction implements the sendrawtransaction command.
+func handleSendRawTransaction(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.SendRawTransactionCmd)
+	// Deserialize and send off to tx relay
+	hexStr := c.HexTx
+	if len(hexStr)%2 != 0 {
+		hexStr = "0" + hexStr
+	}
+	serializedTx, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return nil, rpcDecodeHexError(hexStr)
+	}
+	var msgTx wire.MsgTx
+	err = msgTx.Deserialize(bytes.NewReader(serializedTx))
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCDeserialization,
+			Message: "TX decode failed: " + err.Error(),
+		}
+	}
+
+	// Use 0 for the tag to represent local node.
+	tx := btcutil.NewTx(&msgTx)
+	err = s.rpcProcessTx(tx, false, false)
+	if err != nil {
+		return nil, err
+	}
 
 	return tx.Hash().String(), nil
 }
