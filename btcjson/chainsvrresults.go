@@ -928,3 +928,10 @@ type BDKAddressResult struct {
 	Index   int    `json:"index"`
 	Address string `json:"address"`
 }
+
+// CreateTransactionFromBDKWalletResult models the data from the
+// createtransactionfrombdkwallet command.
+type CreateTransactionFromBDKWalletResult struct {
+	TxHash   string `json:"txhash"`
+	RawBytes string `json:"rawbytes"`
+}
