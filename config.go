@@ -1319,14 +1319,6 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
-	if cfg.Prune != 0 && cfg.FlatUtreexoProofIndex {
-		err := fmt.Errorf("%s: the --prune and --flatutreexoproofindex options may "+
-			"not be activated at the same time", funcName)
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, usageMessage)
-		return nil, nil, err
-	}
-
 	// Warn about missing config file only after all other configuration is
 	// done.  This prevents the warning on help messages and invalid
 	// options.  Note this should go directly before the return.

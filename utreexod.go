@@ -37,6 +37,124 @@ var (
 // as a service and reacts accordingly.
 var winServiceMain func() (bool, error)
 
+// pruneChecks makes sure that if the user had previously started with a pruned node,
+// then the node remains pruned. Also enforces that indexes are kept enabled or disabled
+// depending on if the node had been previously pruned or not.
+func pruneChecks(db database.DB) error {
+	// Check if the database had previously been pruned.  If it had been, it's
+	// not possible to newly generate the tx index and addr index.
+	var beenPruned bool
+	err := db.View(func(dbTx database.Tx) error {
+		var err error
+		beenPruned, err = dbTx.BeenPruned()
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	// Don't allow the user to turn off pruning after the node has already been pruned.
+	if beenPruned && cfg.Prune == 0 {
+		return fmt.Errorf("--prune cannot be disabled as the node has been "+
+			"previously pruned. You must delete the files in the datadir: \"%s\" "+
+			"and sync from the beginning to disable pruning", cfg.DataDir)
+	}
+	// No way to sync up the tx index if the node has already been pruned.
+	if beenPruned && cfg.TxIndex {
+		return fmt.Errorf("--txindex cannot be enabled as the node has been "+
+			"previously pruned. You must delete the files in the datadir: \"%s\" "+
+			"and sync from the beginning to enable the desired index", cfg.DataDir)
+	}
+	// No way to sync up the addr index if the node has already been pruned.
+	if beenPruned && cfg.AddrIndex {
+		return fmt.Errorf("--addrindex cannot be enabled as the node has been "+
+			"previously pruned. You must delete the files in the datadir: \"%s\" "+
+			"and sync from the beginning to enable the desired index", cfg.DataDir)
+	}
+	// If we've previously been pruned and the utreexoproofindex isn't present, it means that
+	// theh user wants to enable the index after the node has already synced up while being pruned.
+	if beenPruned && !indexers.UtreexoProofIndexInitialized(db) && cfg.UtreexoProofIndex {
+		return fmt.Errorf("--utreexoproofindex cannot be enabled as the node has been "+
+			"previously pruned. You must delete the files in the datadir: \"%s\" "+
+			"and sync from the beginning to enable the desired index", cfg.DataDir)
+	}
+	// If we've previously been pruned and the flatutreexoproofindex isn't present, it means that
+	// theh user wants to enable the index after the node has already synced up while being pruned.
+	if beenPruned && !indexers.FlatUtreexoProofIndexInitialized(db) && cfg.FlatUtreexoProofIndex {
+		return fmt.Errorf("--flatutreexoproofindex cannot be enabled as the node has been "+
+			"previously pruned. You must delete the files in the datadir: \"%s\" "+
+			"and sync from the beginning to enable the desired index", cfg.DataDir)
+	}
+	// If we've previously been pruned and the cfindex isn't present, it means that the
+	// user wants to enable the cfindex after the node has already synced up while being pruned.
+	if beenPruned && !indexers.CfIndexInitialized(db) && cfg.CFilters {
+		return fmt.Errorf("compact filters cannot be enabled as the node has been "+
+			"previously pruned. You must delete the files in the datadir: \"%s\" "+
+			"and sync from the beginning to enable the desired index. You may "+
+			"start the node up without the --cfilters flag", cfg.DataDir)
+	}
+
+	// If the user wants to disable the cfindex and is pruned or has enabled pruning, force
+	// the user to either drop the cfindex manually or restart the node without the --cfilters
+	// flag.
+	if (beenPruned || cfg.Prune != 0) && indexers.CfIndexInitialized(db) && !cfg.CFilters {
+		var prunedStr string
+		if beenPruned {
+			prunedStr = "has been previously pruned"
+		} else {
+			prunedStr = fmt.Sprintf("was started with prune flag (--prune=%d)", cfg.Prune)
+		}
+		return fmt.Errorf("--cfilters flag was not given but the compact filters have "+
+			"previously been enabled on this node and the index data currently "+
+			"exists in the database. The node %s and "+
+			"the database would be left in an inconsistent state if the compact "+
+			"filters don't get indexed now. To disable compact filters, please drop the "+
+			"index completely with the --dropcfindex flag and restart the node. "+
+			"To keep the compact filters, restart the node with the --cfilters "+
+			"flag", prunedStr)
+	}
+	// If the user wants to disable the utreexo proof index and is pruned or has enabled pruning,
+	// force the user to either drop the utreexo proof index manually or restart the node without
+	// the --utreexoproofindex flag.
+	if (beenPruned || cfg.Prune != 0) && indexers.UtreexoProofIndexInitialized(db) && !cfg.UtreexoProofIndex {
+		var prunedStr string
+		if beenPruned {
+			prunedStr = "has been previously pruned"
+		} else {
+			prunedStr = fmt.Sprintf("was started with prune flag (--prune=%d)", cfg.Prune)
+		}
+		return fmt.Errorf("--utreexoproofindex flag was not given but the utreexo proof index has "+
+			"previously been enabled on this node and the index data currently "+
+			"exists in the database. The node %s and "+
+			"the database would be left in an inconsistent state if the utreexo proof "+
+			"index doesn't get indexed now. To disable utreexo proof index, please drop the "+
+			"index completely with the --droputreexoproofindex flag and restart the node. "+
+			"To keep the utreexo proof index, restart the node with the --utreexoproofindex "+
+			"flag", prunedStr)
+	}
+	// If the user wants to disable the flat utreexo proof index and is pruned or has enabled pruning,
+	// force the user to either drop the flat utreexo proof index manually or restart the node without
+	// the --flatutreexoproofindex flag.
+	if (beenPruned || cfg.Prune != 0) && indexers.FlatUtreexoProofIndexInitialized(db) && !cfg.FlatUtreexoProofIndex {
+		var prunedStr string
+		if beenPruned {
+			prunedStr = "has been previously pruned"
+		} else {
+			prunedStr = fmt.Sprintf("was started with prune flag (--prune=%d)", cfg.Prune)
+		}
+		return fmt.Errorf("--flatutreexoproofindex flag was not given but the utreexo proof index has "+
+			"previously been enabled on this node and the index data currently "+
+			"exists in the database. The node %s and "+
+			"the database would be left in an inconsistent state if the utreexo proof "+
+			"index doesn't get indexed now. To disable utreexo proof index, please drop the "+
+			"index completely with the --droputreexoproofindex flag and restart the node. "+
+			"To keep the utreexo proof index, restart the node with the --flatutreexoproofindex "+
+			"flag", prunedStr)
+	}
+
+	return nil
+}
+
 // btcdMain is the real main function for btcd.  It is necessary to work around
 // the fact that deferred functions do not run when os.Exit() is called.  The
 // optional serverChan parameter is mainly used by the service code to be
@@ -140,45 +258,6 @@ func btcdMain(serverChan chan<- *server) error {
 		return nil
 	}
 
-	// Find out if the user is restarting the node.
-	var chainstateInitialized bool
-	db.View(func(dbTx database.Tx) error {
-		chainstateInitialized = blockchain.ChainstateInitialized(dbTx)
-		return nil
-	})
-
-	// If the node is being re-started, do some checks to prevent the user from switching
-	// between a utreexo node vs a non-utreexo node.
-	if chainstateInitialized {
-		var cacheInitialized bool
-		db.View(func(dbTx database.Tx) error {
-			cacheInitialized = blockchain.UtxoCacheInitialized(dbTx)
-			return nil
-		})
-
-		// If the node has been a non-utreexo node but it was now re-started as a utreexo node.
-		if cacheInitialized && !cfg.NoUtreexo {
-			err = fmt.Errorf("Utreexo enabled but this node has been "+
-				"started as a non-utreexo node previously at datadir of \"%v\". "+
-				"Please completely remove the datadir to start as a utreexo "+
-				"node or pass in a different --datadir.",
-				cfg.DataDir)
-			btcdLog.Error(err)
-			return err
-		}
-
-		// If the node has been a utreexo node but it was now re-started as a non-utreexo node.
-		if !cacheInitialized && cfg.NoUtreexo {
-			err = fmt.Errorf("Utreexo disabled but this node has been previously "+
-				"started as a utreexo node at datadir of \"%v\". Please "+
-				"completely remove the datadir to start as a non-utreexo node "+
-				"or pass in a different --datadir.",
-				cfg.DataDir)
-			btcdLog.Error(err)
-			return err
-		}
-	}
-
 	// Drop indexes and exit if requested.
 	//
 	// NOTE: The order is important here because dropping the tx index also
@@ -231,6 +310,52 @@ func btcdMain(serverChan chan<- *server) error {
 		}
 
 		return nil
+	}
+
+	// Find out if the user is restarting the node.
+	var chainstateInitialized bool
+	db.View(func(dbTx database.Tx) error {
+		chainstateInitialized = blockchain.ChainstateInitialized(dbTx)
+		return nil
+	})
+
+	// If the node is being re-started, do some checks to prevent the user from switching
+	// between a utreexo node vs a non-utreexo node.
+	if chainstateInitialized {
+		var cacheInitialized bool
+		db.View(func(dbTx database.Tx) error {
+			cacheInitialized = blockchain.UtxoCacheInitialized(dbTx)
+			return nil
+		})
+
+		// If the node has been a non-utreexo node but it was now re-started as a utreexo node.
+		if cacheInitialized && !cfg.NoUtreexo {
+			err = fmt.Errorf("Utreexo enabled but this node has been "+
+				"started as a non-utreexo node previously at datadir of \"%v\". "+
+				"Please completely remove the datadir to start as a utreexo "+
+				"node or pass in a different --datadir.",
+				cfg.DataDir)
+			btcdLog.Error(err)
+			return err
+		}
+
+		// If the node has been a utreexo node but it was now re-started as a non-utreexo node.
+		if !cacheInitialized && cfg.NoUtreexo {
+			err = fmt.Errorf("Utreexo disabled but this node has been previously "+
+				"started as a utreexo node at datadir of \"%v\". Please "+
+				"completely remove the datadir to start as a non-utreexo node "+
+				"or pass in a different --datadir.",
+				cfg.DataDir)
+			btcdLog.Error(err)
+			return err
+		}
+	}
+
+	// Check if the user had been pruned before and do basic checks on indexers.
+	err = pruneChecks(db)
+	if err != nil {
+		btcdLog.Errorf("%v", err)
+		return err
 	}
 
 	// Create server and start it.

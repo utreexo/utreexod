@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sync"
@@ -87,6 +88,10 @@ type FlatUtreexoProofIndex struct {
 	proofStatsState  FlatFileState
 	rootsState       FlatFileState
 	chainParams      *chaincfg.Params
+	dataDir          string
+
+	// True if the node is pruned.
+	pruned bool
 
 	// The blockchain instance the index corresponds to.
 	chain *blockchain.BlockChain
@@ -114,6 +119,105 @@ func (idx *FlatUtreexoProofIndex) NeedsInputs() bool {
 // interface.
 func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 	idx.chain = chain
+
+	// Nothing to do if the node is not pruned.
+	//
+	// If the node is pruned, then we need to check if it started off as
+	// a pruned node or if the user switch to being a pruned node.
+	if !idx.pruned {
+		return nil
+	}
+
+	proofPath := flatFilePath(idx.dataDir, flatUtreexoProofName)
+	_, err := os.Stat(proofPath)
+	if err != nil {
+		// If the error isn't nil, that means the proofpath
+		// doesn't exist.
+		return nil
+	}
+	proofState, err := loadFlatFileState(idx.dataDir, flatUtreexoProofName)
+	if err != nil {
+		return err
+	}
+	idx.proofState = *proofState
+
+	// Nothing to do if the best height is 0.
+	bestHeight := chain.BestSnapshot().Height
+	if bestHeight <= 0 {
+		return nil
+	}
+
+	// Make undo blocks for blocks up to 288 block from the tip. 288 since
+	// that's the basis used for NODE_NETWORK_LIMITED. Reorgs that go past
+	// that are gonna be problematic anyways.
+	undoCount := int32(288)
+
+	// The bestHeight is less than 288, then just undo all the blocks we have.
+	if undoCount > bestHeight {
+		undoCount = bestHeight
+	}
+
+	// Disconnect blocks.
+	for i := int32(0); i < undoCount; i++ {
+		height := bestHeight - i
+		err = idx.undoState.DisconnectBlock(height)
+		if err != nil {
+			return err
+		}
+	}
+
+	for height := bestHeight - (undoCount - 1); height <= bestHeight; height++ {
+		// Fetch and deserialize proof.
+		proofBytes, err := idx.proofState.FetchData(height)
+		if err != nil {
+			return err
+		}
+		if proofBytes == nil {
+			return fmt.Errorf("Couldn't fetch Utreexo proof for height %d", height)
+		}
+		r := bytes.NewReader(proofBytes)
+		ud := new(wire.UData)
+		err = ud.DeserializeCompact(r, udataSerializeBool, 0)
+		if err != nil {
+			return err
+		}
+
+		// Fetch block.
+		block, err := idx.chain.BlockByHeight(height)
+		if err != nil {
+			return err
+		}
+
+		// Generate the data for the undo block.
+		_, outCount, _, outskip := blockchain.DedupeBlock(block)
+		adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+		delHashes, err := idx.chain.ReconstructUData(ud, *block.Hash())
+		if err != nil {
+			return err
+		}
+
+		// Store undo block.
+		err = idx.storeUndoBlock(height,
+			uint64(len(adds)), ud.AccProof.Targets, delHashes)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Remove all the proofs as we don't serve proofs as a
+	// pruned brigde node.
+	err = deleteFlatFile(proofPath)
+	if err != nil {
+		return err
+	}
+
+	// Delete proof stat file since it's not relevant to a pruned bridge node.
+	proofStatPath := flatFilePath(idx.dataDir, flatUtreexoProofStatsName)
+	err = deleteFlatFile(proofStatPath)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -179,11 +283,22 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	for _, ld := range ud.LeafDatas {
 		delHashes = append(delHashes, ld.LeafHash())
 	}
-
-	err = idx.storeUndoBlock(block.Height(),
-		uint64(len(adds)), ud.AccProof.Targets, delHashes)
-	if err != nil {
-		return err
+	// For pruned nodes and for multi-block proofs, we need to save the
+	// undo block in order to undo a block on reorgs. If we have all the
+	// proofs block by block, that data can be used for reorgs but these
+	// two modes will not have the proofs available.
+	if idx.pruned || idx.proofGenInterVal != 1 {
+		err = idx.storeUndoBlock(block.Height(),
+			uint64(len(adds)), ud.AccProof.Targets, delHashes)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Even if we are an
+		err = idx.storeUndoBlock(block.Height(), 0, nil, nil)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = idx.storeRoots(block.Height(), idx.utreexoState.state)
@@ -203,8 +318,19 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
+	// Don't store proofs if the node is pruned.
+	if idx.pruned {
+		return nil
+	}
+
 	idx.pStats.UpdateTotalDelCount(uint64(len(dels)))
 	idx.pStats.UpdateUDStats(false, ud)
+
+	idx.pStats.BlockHeight = uint64(block.Height())
+	err = idx.pStats.WritePStats(&idx.proofStatsState)
+	if err != nil {
+		return err
+	}
 
 	// If the interval is 1, then just save the utreexo proof and we're done.
 	if idx.proofGenInterVal == 1 {
@@ -226,12 +352,6 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 				return err
 			}
 		}
-	}
-
-	idx.pStats.BlockHeight = uint64(block.Height())
-	err = idx.pStats.WritePStats(&idx.proofStatsState)
-	if err != nil {
-		return err
 	}
 
 	return nil
@@ -586,6 +706,44 @@ func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight
 	return nil
 }
 
+// getUndoData returns the data needed for undo. For pruned nodes and multi-block proof enabled nodes,
+// we fetch the data from the undo block. For archive nodes, we generate the data from the proof.
+func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (uint64, []uint64, []utreexo.Hash, error) {
+	var (
+		numAdds   uint64
+		targets   []uint64
+		delHashes []utreexo.Hash
+	)
+
+	if !idx.pruned || idx.proofGenInterVal != 1 {
+		ud, err := idx.FetchUtreexoProof(block.Height(), false)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+
+		targets = ud.AccProof.Targets
+
+		// Need to call reconstruct since the saved utreexo data is in the compact form.
+		delHashes, err = idx.chain.ReconstructUData(ud, *block.Hash())
+		if err != nil {
+			return 0, nil, nil, err
+		}
+
+		_, outCount, _, outskip := blockchain.DedupeBlock(block)
+		adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+
+		numAdds = uint64(len(adds))
+	} else {
+		var err error
+		numAdds, targets, delHashes, err = idx.fetchUndoBlock(block.Height())
+		if err != nil {
+			return 0, nil, nil, err
+		}
+	}
+
+	return numAdds, targets, delHashes, nil
+}
+
 // DisconnectBlock is invoked by the index manager when a new block has been
 // disconnected to the main chain.
 //
@@ -593,27 +751,18 @@ func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight
 func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
-	ud, err := idx.FetchUtreexoProof(block.Height(), false)
-	if err != nil {
-		return err
-	}
-
-	// Need to call reconstruct since the saved utreexo data is in the compact form.
-	delHashes, err := idx.chain.ReconstructUData(ud, *block.Hash())
-	if err != nil {
-		return err
-	}
-
-	_, outCount, _, outskip := blockchain.DedupeBlock(block)
-	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
-
 	state, err := idx.fetchRoots(block.Height())
 	if err != nil {
 		return err
 	}
 
+	numAdds, targets, delHashes, err := idx.getUndoData(block)
+	if err != nil {
+		return err
+	}
+
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Undo(uint64(len(adds)), utreexo.Proof{Targets: ud.AccProof.Targets}, delHashes, state.Roots)
+	err = idx.utreexoState.state.Undo(numAdds, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -655,6 +804,10 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32, excludeAccProo
 
 	if height == 0 {
 		return nil, fmt.Errorf("No Utreexo Proof for height %d", height)
+	}
+
+	if idx.pruned {
+		return nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
 	}
 
 	proofBytes, err := idx.proofState.FetchData(height)
@@ -727,6 +880,10 @@ func (idx *FlatUtreexoProofIndex) FetchMultiUtreexoProof(height int32) (
 
 	if height == 0 {
 		return nil, nil, nil, fmt.Errorf("No Utreexo Proof for height %d", height)
+	}
+
+	if idx.pruned {
+		return nil, nil, nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
 	}
 
 	if height%idx.proofGenInterVal != 0 {
@@ -806,7 +963,7 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, excludeAccProof bool,
 
 		err = idx.proofState.StoreData(height, bytesBuf.Bytes())
 		if err != nil {
-			return err
+			return fmt.Errorf("store proof err. %v", err)
 		}
 	} else {
 		bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSizeCompact(udataSerializeBool)))
@@ -817,7 +974,7 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, excludeAccProof bool,
 
 		err = idx.proofState.StoreData(height, bytesBuf.Bytes())
 		if err != nil {
-			return err
+			return fmt.Errorf("store proof err. %v", err)
 		}
 	}
 
@@ -862,7 +1019,7 @@ func (idx *FlatUtreexoProofIndex) storeMultiBlockProof(height int32, ud, multiUd
 
 	err = idx.proofState.StoreData(height, bytesBuf.Bytes())
 	if err != nil {
-		return err
+		return fmt.Errorf("store multiblock proof err. %v", err)
 	}
 
 	return nil
@@ -879,7 +1036,7 @@ func (idx *FlatUtreexoProofIndex) storeUndoBlock(height int32,
 
 	err = idx.undoState.StoreData(height, bytes)
 	if err != nil {
-		return err
+		return fmt.Errorf("store undoblock err. %v", err)
 	}
 
 	return nil
@@ -894,7 +1051,7 @@ func (idx *FlatUtreexoProofIndex) storeRoots(height int32, p *utreexo.Pollard) e
 
 	err = idx.rootsState.StoreData(height, serialized)
 	if err != nil {
-		return err
+		return fmt.Errorf("store roots err. %v", err)
 	}
 
 	return nil
@@ -918,7 +1075,7 @@ func (idx *FlatUtreexoProofIndex) storeRemembers(remembers [][]uint32, startHeig
 
 		err = idx.rememberIdxState.StoreData(startHeight+int32(i), bytesBuf.Bytes())
 		if err != nil {
-			return err
+			return fmt.Errorf("store remembers err. %v", err)
 		}
 	}
 
@@ -939,6 +1096,8 @@ func (idx *FlatUtreexoProofIndex) fetchUndoBlock(height int32) (uint64, []uint64
 	return deserializeUndoBlock(undoBytes)
 }
 
+// fetchRoots returns the roots at the given height. It doesn't work for the current hegiht
+// and will return an error.
 func (idx *FlatUtreexoProofIndex) fetchRoots(height int32) (utreexo.Stump, error) {
 	if height == 0 {
 		return utreexo.Stump{}, nil
@@ -1077,7 +1236,7 @@ func loadFlatFileState(dataDir, name string) (*FlatFileState, error) {
 // It implements the Indexer interface which plugs into the IndexManager that in
 // turn is used by the blockchain package.  This allows the index to be
 // seamlessly maintained along with the chain.
-func NewFlatUtreexoProofIndex(dataDir string, chainParams *chaincfg.Params,
+func NewFlatUtreexoProofIndex(dataDir string, pruned bool, chainParams *chaincfg.Params,
 	proofGenInterVal *int32) (*FlatUtreexoProofIndex, error) {
 
 	// If the proofGenInterVal argument is nil, use the default value.
@@ -1092,6 +1251,7 @@ func NewFlatUtreexoProofIndex(dataDir string, chainParams *chaincfg.Params,
 		proofGenInterVal: intervalToUse,
 		chainParams:      chainParams,
 		mtx:              new(sync.RWMutex),
+		dataDir:          dataDir,
 	}
 
 	// Init Utreexo State.
@@ -1105,13 +1265,16 @@ func NewFlatUtreexoProofIndex(dataDir string, chainParams *chaincfg.Params,
 		return nil, err
 	}
 	idx.utreexoState = uState
+	idx.pruned = pruned
 
-	// Init the utreexo proof state.
-	proofState, err := loadFlatFileState(dataDir, flatUtreexoProofName)
-	if err != nil {
-		return nil, err
+	if !idx.pruned {
+		// Init the utreexo proof state.
+		proofState, err := loadFlatFileState(dataDir, flatUtreexoProofName)
+		if err != nil {
+			return nil, err
+		}
+		idx.proofState = *proofState
 	}
-	idx.proofState = *proofState
 
 	// Init the undo block state.
 	undoState, err := loadFlatFileState(dataDir, flatUtreexoUndoName)
@@ -1187,4 +1350,16 @@ func DropFlatUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan 
 
 	path := utreexoBasePath(&UtreexoConfig{DataDir: dataDir, Name: flatUtreexoProofIndexType})
 	return deleteUtreexoState(path)
+}
+
+// FlatUtreexoProofIndexInitialized returns true if the cfindex has been created previously.
+func FlatUtreexoProofIndexInitialized(db database.DB) bool {
+	var exists bool
+	db.View(func(dbTx database.Tx) error {
+		bucket := dbTx.Metadata().Bucket(flatUtreexoBucketKey)
+		exists = bucket != nil
+		return nil
+	})
+
+	return exists
 }
