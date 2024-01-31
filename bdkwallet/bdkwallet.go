@@ -7,6 +7,7 @@ import "C"
 
 import (
 	"bytes"
+	"encoding/hex"
 
 	"github.com/utreexo/utreexod/bdkwallet/bdkgo"
 	"github.com/utreexo/utreexod/btcutil"
@@ -144,10 +145,9 @@ func (w *BDKWallet) ApplyBlock(block *btcutil.Block) error {
 	if err != nil {
 		return err
 	}
-	bhash := block.Hash()
-	for _, genTxid := range res.RelevantTxids {
-		txid := hashFromBytes(genTxid)
-		log.Infof("Found relevant tx %v in block %v:%v.", txid, bheight, bhash)
+	for _, txid := range res.RelevantTxids {
+		log.Infof("Found relevant tx %v in block %v:%v.",
+			hex.EncodeToString(txid), bheight, block.Hash().String())
 	}
 	return nil
 }
@@ -160,7 +160,7 @@ func (w *BDKWallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
 	genTxns := make([]bdkgo.MempoolTx, 0, len(txns))
 	for _, tx := range txns {
 		var txb bytes.Buffer
-		if err := tx.Tx.MsgTx().BtcEncode(&txb, wire.FeeFilterVersion, wire.WitnessEncoding); err != nil {
+		if err := tx.Tx.MsgTx().BtcEncode(&txb, 0, wire.WitnessEncoding); err != nil {
 			return err
 		}
 		genTxns = append(genTxns, bdkgo.MempoolTx{
@@ -172,9 +172,8 @@ func (w *BDKWallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
 	if err != nil {
 		return err
 	}
-	for _, genTxid := range res.RelevantTxids {
-		txid := *(*[32]byte)(genTxid)
-		log.Infof("Found relevant tx %v in mempool.", txid)
+	for _, txid := range res.RelevantTxids {
+		log.Infof("Found relevant tx %v in mempool.", hex.EncodeToString(txid))
 	}
 	return nil
 }
@@ -197,19 +196,26 @@ func (w *BDKWallet) MnemonicWords() []string {
 }
 
 // Transactions returns the list of wallet transactions.
-func (w *BDKWallet) Transactions() []TxInfo {
+func (w *BDKWallet) Transactions() ([]TxInfo, error) {
 	genOut := w.inner.Transactions()
 	out := make([]TxInfo, 0, len(genOut))
+
 	for _, info := range genOut {
+		tx, err := btcutil.NewTxFromBytes(info.Tx)
+		if err != nil {
+			return nil, err
+		}
+
 		out = append(out, TxInfo{
 			Txid:          hashFromBytes(info.Txid),
-			Tx:            txFromBytes(info.Tx),
+			Tx:            *tx,
 			Spent:         btcutil.Amount(info.Spent),
 			Received:      btcutil.Amount(info.Received),
 			Confirmations: uint(info.Confirmations),
 		})
 	}
-	return out
+
+	return out, nil
 }
 
 // Utxos returns the list of wallet UTXOs.

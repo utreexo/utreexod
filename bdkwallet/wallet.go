@@ -1,14 +1,12 @@
 package bdkwallet
 
 import (
-	"bytes"
 	"errors"
 
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/mempool"
-	"github.com/utreexo/utreexod/wire"
 )
 
 var (
@@ -45,7 +43,7 @@ type Wallet interface {
 	ApplyMempoolTransactions(txns []*mempool.TxDesc) error
 	CreateTx(feerate float32, recipients []Recipient) ([]byte, error)
 	MnemonicWords() []string
-	Transactions() []TxInfo
+	Transactions() ([]TxInfo, error)
 	UTXOs() []UTXOInfo
 }
 
@@ -101,14 +99,6 @@ type UTXOInfo struct {
 
 func hashFromBytes(b []byte) chainhash.Hash {
 	return *(*[32]byte)(b)
-}
-
-func txFromBytes(b []byte) btcutil.Tx {
-	var msgTx wire.MsgTx
-	if err := msgTx.BtcDecode(bytes.NewReader(b), wire.FeeFilterVersion, wire.WitnessEncoding); err != nil {
-		panic("must decode tx consensus bytes from rust")
-	}
-	return *btcutil.NewTx(&msgTx)
 }
 
 func uintPointerFromUint32Pointer(v *uint32) *uint {
