@@ -581,28 +581,29 @@ func handleCreateTransactionFromBDKWallet(s *rpcServer, cmd interface{}, closeCh
 		}
 	}
 
-	// The below code just broadcasts the tx without checking the validity.
-	// Since bdk isn't handling the utreexo proofs, there's no way for a utreexo
-	// node to check the transaction's validity.
-	//
-	// This is also better in general as mempool txs aren't being saved so on a restart
-	// the validation will fail for spending txs that aren't yet spent.
-	// We just trust bdk that it's doing things right.
-	txD := &mempool.TxDesc{
-		TxDesc: mining.TxDesc{Tx: tx},
+	if s.cfg.Chain.IsUtreexoViewActive() {
+		// This is not ideal but since bdk doesn't handle utreexo proofs yet, there's
+		// no way for us to broadcast it normally unless we make some undesired changes
+		// to the mempool code. Just send it off to mempool.space until we can do things
+		// properly.
+		_, err = sendTxToMempoolSpace(txHexString(tx.MsgTx()), s.cfg.ChainParams)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Failed to broadcast transaction to mempool.space. %v", err),
+			}
+		}
+		txD := &mempool.TxDesc{
+			TxDesc: mining.TxDesc{Tx: tx},
+		}
+		// Notify bdkwallet and other listeners.
+		s.NotifyNewTransactions([]*mempool.TxDesc{txD})
+	} else {
+		err = s.rpcProcessTx(tx, true, false)
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	// Generate and relay inventory vectors.
-	s.cfg.ConnMgr.RelayTransactions([]*mempool.TxDesc{txD})
-
-	// Notify both websocket and getblocktemplate long poll clients of all
-	// newly accepted transactions.
-	s.NotifyNewTransactions([]*mempool.TxDesc{txD})
-
-	// Keep track of the tx so that they can be rebroadcast
-	// if they don't make their way into a block.
-	iv := wire.NewInvVect(wire.InvTypeTx, txD.Tx.Hash())
-	s.cfg.ConnMgr.AddRebroadcastInventory(iv, txD)
 
 	res := btcjson.CreateTransactionFromBDKWalletResult{
 		TxHash:   tx.Hash().String(),
