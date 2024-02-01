@@ -5,6 +5,7 @@
 package chaincfg
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -76,6 +78,21 @@ var (
 type Checkpoint struct {
 	Height int32
 	Hash   *chainhash.Hash
+}
+
+// AssumeUtreexo is all the information that's needed for a node to start off from
+// a given hardcoded block.
+type AssumeUtreexo struct {
+	BlockHash   *chainhash.Hash // The hash of the block.
+	Roots       []utreexo.Hash  // The utreexo roots at that block.
+	BlockHeight int32           // The height of the block.
+	Bits        uint32          // The difficulty bits of the block.
+	BlockSize   uint64          // The size of the block.
+	BlockWeight uint64          // The weight of the block.
+	NumTxns     uint64          // The number of txns in the block.
+	TotalTxns   uint64          // The total number of txns in the chain.
+	NumLeaves   uint64          // The number of leaves at that block.
+	MedianTime  time.Time       // Median time as per CalcPastMedianTime.
 }
 
 // DNSSeed identifies a DNS seed.
@@ -231,6 +248,10 @@ type Params struct {
 	// Checkpoints ordered from oldest to newest.
 	Checkpoints []Checkpoint
 
+	// AssumeUtreexoPoint is the utreexo roots that a utreexo node can
+	// start off of.
+	AssumeUtreexoPoint AssumeUtreexo
+
 	// These fields are related to voting on consensus rule changes as
 	// defined by BIP0009.
 	//
@@ -336,6 +357,40 @@ var MainNetParams = Params{
 		{691719, newHashFromStr("00000000000000000008a89e854d57e5667df88f1cdef6fde2fbca1de5b639ad")},
 		{724466, newHashFromStr("000000000000000000052d314a259755ca65944e68df6b12a067ea8f1f5a7091")},
 		{751565, newHashFromStr("00000000000000000009c97098b5295f7e5f183ac811fb5d1534040adb93cabd")},
+	},
+
+	AssumeUtreexoPoint: AssumeUtreexo{
+		BlockHash:   newHashFromStr("00000000000000000001d59b50e7f3c6dfc1f83bea022fb4c67effad7b2c8432"),
+		BlockHeight: 827_896,
+		Bits:        386_138_202,
+		BlockSize:   1_890_452,
+		BlockWeight: 3_993_389,
+		NumTxns:     5541,
+		TotalTxns:   959_176_637,
+		MedianTime:  time.Unix(1706494022, 0),
+		NumLeaves:   2_411_693_882,
+		Roots: []utreexo.Hash{
+			newUtreexoHashFromStr("137ab5996edf52bba93ae8a62bd716de5b6d628f7a1aec8b406a3c2e8ac74fe9"),
+			newUtreexoHashFromStr("d1a24f7a9a5019fd2a08b7f53c3c6211ae522e285c76f47002f174d922f14647"),
+			newUtreexoHashFromStr("5bbf17561e53c88beb07f19665ee1c5fb6aafba8bab4899f5cc2c8bbe918cc95"),
+			newUtreexoHashFromStr("842eed303ad5b533fd56e3270cf0ff79936846116b465bf0e04b52720f879ba1"),
+			newUtreexoHashFromStr("acdf7426c896d555919b09724a27353a1e7e25c1ba2f18f2accd9bd351d63c5e"),
+			newUtreexoHashFromStr("aa6b38a9f3fb773fbf5a111d991af0de305af5619361e4705f94a43c1c08a0f7"),
+			newUtreexoHashFromStr("6c1c0bbed67827c625efe78692cd6e228366b5825ee2685f332fff7ee0ade0ea"),
+			newUtreexoHashFromStr("b5ccdbb16a68140ebba0392719c5c12b4eb425ec998864699bf601a1883f88dc"),
+			newUtreexoHashFromStr("1f511ab77a230599126949cd007f35d80db6803a84b91ade39af910e51a9d82a"),
+			newUtreexoHashFromStr("08c754cfabeefae7560a4d0d54047debfdfe7546b50beff49c70636a058e20f7"),
+			newUtreexoHashFromStr("c92789fa2dbf5a18393bdcfa6f80984733dae05346da4b3586d6b40af5e76b9e"),
+			newUtreexoHashFromStr("3d8a6574d6017a587a07df483df956f3033d12948d63bd6f4d9e8f15fb5d4a79"),
+			newUtreexoHashFromStr("485690e920ef689c0568bbd08af5a1b613753129720a8e949420fce13c935331"),
+			newUtreexoHashFromStr("31dbf7a421513c16a0022ded49b257c2d21fb4de119e51bbd22fa3bd9503b2e2"),
+			newUtreexoHashFromStr("8958b33938293139af31004a33119b824d8e5ec0a4a89fc077622af05d4079c0"),
+			newUtreexoHashFromStr("d395b88cc655e361dae49ecd896fa5a438895e8826d75e5a610c75fa19f62b96"),
+			newUtreexoHashFromStr("933f350fe0a99a3a00e1a12b14db6d3646d839cdb91b765c9ecc3329d0ecf06a"),
+			newUtreexoHashFromStr("9b38ed3ca200469dff49ba24aa003c6516292fc029ab320a4fd2cd2f38b577c5"),
+			newUtreexoHashFromStr("c8586560f2b33d93647f8c9c080e5b1ddfc78a865b45a1be78a8814799aa9893"),
+			newUtreexoHashFromStr("fddf07a60d20f61f73d04573405a382fdfea7e1958bd424668a98e8e24c84d65"),
+		},
 	},
 
 	// Consensus rule change deployments.
@@ -582,6 +637,34 @@ var TestNet3Params = Params{
 		{2344474, newHashFromStr("0000000000000004877fa2d36316398528de4f347df2f8a96f76613a298ce060")},
 	},
 
+	AssumeUtreexoPoint: AssumeUtreexo{
+		BlockHash:   newHashFromStr("0000000000000001203bd7a1077069b9e4c40a8bab338c59538fb0e7916e4f23"),
+		BlockHeight: 2_576_614,
+		Bits:        421_623_221,
+		BlockSize:   140_705,
+		BlockWeight: 379_520,
+		NumTxns:     491,
+		TotalTxns:   69_779_708,
+		MedianTime:  time.Unix(1706861100, 0),
+		NumLeaves:   114_223_201,
+		Roots: []utreexo.Hash{
+			newUtreexoHashFromStr("a6a65fecd80a1f9560f5bad45b122143646146d9427f863b760f2b6414a227ec"),
+			newUtreexoHashFromStr("47add3ab053bee995abcda39ef364f38a8e1a01677a6580058d74fe55b8fcd2c"),
+			newUtreexoHashFromStr("d8a7e142a15ea12fbc856e801082cf29953bbac1d4b4a78d20faaf1a87cfc104"),
+			newUtreexoHashFromStr("18858f6adccd89617cde5fdc0a71a12fadce27057bc2976c7671d98f6a46a76b"),
+			newUtreexoHashFromStr("f6ce187fc1a8fa08a8802b61cf5580532c9d1815c99df2c427f91606df7f8601"),
+			newUtreexoHashFromStr("284f2fc969bbcd89d005a91fb8e207a3c85a3de5d4053c990ebf0fe9b071c90c"),
+			newUtreexoHashFromStr("97667b98d108a30acde611a98fe8b80d1958012a8c333bb2599844babb45ab7c"),
+			newUtreexoHashFromStr("9bfd64436944bdcbc347d5c43e156a3b6f2d1eb91849e6c7098bb82a99c9d8a1"),
+			newUtreexoHashFromStr("bdd2430df4a3d4155dd5f07936c18bde3b87b439f9ee3956dfab0ce7d690fb86"),
+			newUtreexoHashFromStr("e0ba481008329ce3d2a153c5f7c250aed7b9701ce3f97ee25d0d5b3805b54204"),
+			newUtreexoHashFromStr("232cd897c4de6fed1e996f214cd1710de387f003212e1cabb517d7e38a6bdbb5"),
+			newUtreexoHashFromStr("6c84fdcc7ece37377e0efd60db23e46ec0385d7036ddf5607bd5135220175f39"),
+			newUtreexoHashFromStr("54b0ad800cfd7e3ec286e02a02b7034be9a8d703fa174278d71bd8df2cc16a06"),
+			newUtreexoHashFromStr("62e43c966218a2b9d6deb6ced8d53d54c60b81a983d175fa4cafc9ed1e0b3d8e"),
+		},
+	},
+
 	// Consensus rule change deployments.
 	//
 	// The miner confirmation window is defined as:
@@ -794,6 +877,42 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		append([]byte{challengeLength}, challenge...),
 	)
 
+	assumeUtreexoPoint := AssumeUtreexo{}
+	checkPoints := []Checkpoint{}
+	if bytes.Equal(challenge, DefaultSignetChallenge) {
+		assumeUtreexoPoint = AssumeUtreexo{
+			BlockHash:   newHashFromStr("000000b4de6d5c61606bafcaf5c7142ed3203c2f5e9fa2de66f68132e4c9e7dc"),
+			BlockHeight: 180_715,
+			Bits:        503_398_507,
+			BlockSize:   2_102,
+			BlockWeight: 6_011,
+			NumTxns:     7,
+			TotalTxns:   2_429_129,
+			MedianTime:  time.Unix(1706790224, 0),
+			NumLeaves:   3_854_054,
+			Roots: []utreexo.Hash{
+				newUtreexoHashFromStr("e40250d1e2d3d3abded6e2446d1d1850bd2afc28df7d05a95ab2338f91e0ce0d"),
+				newUtreexoHashFromStr("c1643b2a77926d8dd0a1b015c78582639d99a07dbd05be9b922e1ac4e46f2fa4"),
+				newUtreexoHashFromStr("e7f566b0815d855cafeaccd187a2fe937fba40ebd232cbd19a25bb04a0fdbb58"),
+				newUtreexoHashFromStr("80d0d8028d2d5ca82aa6e12354c76a0cc296191a1bc001bab9724bc0e50d4f4a"),
+				newUtreexoHashFromStr("9b4eceb1c9f710c0cbe04cd280f24f7b4619649a54cebc3f1c7939168193219b"),
+				newUtreexoHashFromStr("4b93730756cd5fd06d3b1e2933efd8941dad3b053b67aae0b57d0bdbd4f7b18d"),
+				newUtreexoHashFromStr("31512646def9d6ba8ec3020da4e24b5803a6ec7c90eca55c4e9c6a630e670e5c"),
+				newUtreexoHashFromStr("3ce3433eeabeafb2d63f95d207900d94a7b36ecf31c73299ec3555e9d75e0f2f"),
+				newUtreexoHashFromStr("9330e5e4faf23c86a2c384602aacf8ccbd0446ebbabf11b71ec2a49c35b1a3dc"),
+				newUtreexoHashFromStr("78894e9b1a8374d86301c8324d3be1f76ef2bcc747b0df2a251ec64606468bbb"),
+				newUtreexoHashFromStr("b733991557d3170454662f0dda1140aa87b8ca4625c840a507807d66e97197ed"),
+				newUtreexoHashFromStr("166a04d9501b4a49f8ecf1e5b71b90f638237430dae5a2803855d256b25ebef1"),
+				newUtreexoHashFromStr("db72e7d56022be530476bbfc90ff6d2468e234d46a03d43c427e69db11db92d6"),
+				newUtreexoHashFromStr("15da6e141cbe4f90e4e7bdd13fdcf01bf110edbb12ea98a168e31cfc07ce2903"),
+			},
+		}
+
+		checkPoints = []Checkpoint{
+			{150_000, newHashFromStr("0000013d778ba3f914530f11f6b69869c9fab54acff85acd7b8201d111f19b7f")},
+		}
+	}
+
 	// We use little endian encoding of the hash prefix to be in line with
 	// the other wire network identities.
 	net := binary.LittleEndian.Uint32(hashDouble[0:4])
@@ -821,7 +940,9 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		GenerateSupported:        false,
 
 		// Checkpoints ordered from oldest to newest.
-		Checkpoints: nil,
+		Checkpoints: checkPoints,
+
+		AssumeUtreexoPoint: assumeUtreexoPoint,
 
 		// Consensus rule change deployments.
 		//
@@ -1058,6 +1179,23 @@ func newHashFromStr(hexStr string) *chainhash.Hash {
 		panic(err)
 	}
 	return hash
+}
+
+// newUtreexoHashFromStr is just returing a hash from string. Main difference from
+// the newHashFromStr function is that this doesn't reverse the string.
+func newUtreexoHashFromStr(hexStr string) utreexo.Hash {
+	hash, err := hex.DecodeString(hexStr)
+	if err != nil {
+		// Ordinarily I don't like panics in library code since it
+		// can take applications down without them having a chance to
+		// recover which is extremely annoying, however an exception is
+		// being made in this case because the only way this can panic
+		// is if there is an error in the hard-coded hashes.  Thus it
+		// will only ever potentially panic on init and therefore is
+		// 100% predictable.
+		panic(err)
+	}
+	return *(*[32]byte)(hash)
 }
 
 func init() {
