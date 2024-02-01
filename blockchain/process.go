@@ -203,8 +203,11 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 		return false, false, err
 	}
 	if exists {
-		str := fmt.Sprintf("already have block %v", blockHash)
-		return false, false, ruleError(ErrDuplicateBlock, str)
+		node := b.index.LookupNode(blockHash)
+		if node.status != statusNone {
+			str := fmt.Sprintf("already have block %v", blockHash)
+			return false, false, ruleError(ErrDuplicateBlock, str)
+		}
 	}
 
 	// The block must not already exist as an orphan.
