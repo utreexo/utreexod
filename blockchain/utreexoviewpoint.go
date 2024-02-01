@@ -64,6 +64,22 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 			len(dels), len(ud.AccProof.Targets))
 	}
 
+	// For checking if the block is spending the unspendable utxos that were written
+	// over with the historical BIP0030 violations.
+	for _, del := range dels {
+		if del == block91722UnspendableUtreexoLeafHash {
+			return fmt.Errorf("ProcessUData fail. Block %s(%d) attempts "+
+				"to spend unspendable leaf %s", block.Hash().String(),
+				block.Height(), block91722UnspendableUtreexoLeafHash.String())
+		}
+
+		if del == block91812UnspendableUtreexoLeafHash {
+			return fmt.Errorf("ProcessUData fail. Block %s(%d) attempts "+
+				"to spend unspendable leaf %s", block.Hash().String(),
+				block.Height(), block91812UnspendableUtreexoLeafHash.String())
+		}
+	}
+
 	// Update the underlying accumulator.
 	updateData, err := uview.Modify(ud, adds, dels)
 	if err != nil {
