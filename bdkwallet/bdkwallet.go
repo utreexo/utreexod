@@ -7,11 +7,11 @@ import "C"
 
 import (
 	"bytes"
-	"encoding/hex"
 
 	"github.com/utreexo/utreexod/bdkwallet/bdkgo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -145,9 +145,14 @@ func (w *BDKWallet) ApplyBlock(block *btcutil.Block) error {
 	if err != nil {
 		return err
 	}
+
 	for _, txid := range res.RelevantTxids {
+		hash, err := chainhash.NewHash(txid)
+		if err != nil {
+			return err
+		}
 		log.Infof("Found relevant tx %v in block %v:%v.",
-			hex.EncodeToString(txid), bheight, block.Hash().String())
+			hash.String(), bheight, block.Hash().String())
 	}
 	return nil
 }
@@ -173,7 +178,11 @@ func (w *BDKWallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
 		return err
 	}
 	for _, txid := range res.RelevantTxids {
-		log.Infof("Found relevant tx %v in mempool.", hex.EncodeToString(txid))
+		hash, err := chainhash.NewHash(txid)
+		if err != nil {
+			return err
+		}
+		log.Infof("Found relevant tx %v in mempool.", hash.String())
 	}
 	return nil
 }
