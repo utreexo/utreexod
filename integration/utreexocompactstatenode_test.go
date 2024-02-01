@@ -87,6 +87,7 @@ func TestUtreexoCSN(t *testing.T) {
 	bridgeNodeArgs := []string{
 		"--flatutreexoproofindex",
 		"--noutreexo",
+		"--nobdkwallet",
 	}
 	// Set up regtest chain for the bridge node.
 	bridgeNode, err := rpctest.New(&chaincfg.RegressionNetParams, nil, bridgeNodeArgs, "")
@@ -190,6 +191,7 @@ func TestUtreexoCSN(t *testing.T) {
 	// Set up the CSN.
 	csnArgs := []string{
 		"--watchonlywallet",
+		"--nobdkwallet",
 	}
 	for _, addr := range watchAddrs {
 		csnArgs = append(csnArgs, fmt.Sprintf("--registeraddresstowatchonlywallet=%s", addr.String()))

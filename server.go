@@ -3541,7 +3541,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		}
 	}
 
-	if cfg.BdkWallet {
+	if !cfg.NoBdkWallet {
 		// Setup BDK wallet if it is enabled.
 		s.bdkWallet, err = bdkwallet.NewManager(bdkwallet.ManagerConfig{
 			Chain:       s.chain,

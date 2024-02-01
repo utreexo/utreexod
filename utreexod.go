@@ -358,7 +358,7 @@ func btcdMain(serverChan chan<- *server) error {
 			return err
 		}
 		if walletDirExists {
-			cfg.BdkWallet = true
+			cfg.NoBdkWallet = false
 		}
 	}
 
