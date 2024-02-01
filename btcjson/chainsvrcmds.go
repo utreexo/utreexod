@@ -865,6 +865,15 @@ func NewListBDKTransactionsCmd() *ListBDKTransactionsCmd {
 	return &ListBDKTransactionsCmd{}
 }
 
+// ListBDKUTXOsCmd defines the listbdkutxos JSON-RPC command.
+type ListBDKUTXOsCmd struct{}
+
+// NewListBDKUTXOsCmd returns a new instance which can be used to issue a
+// listbdkutxos JSON-RPC command.
+func NewListBDKUTXOsCmd() *ListBDKUTXOsCmd {
+	return &ListBDKUTXOsCmd{}
+}
+
 // InvalidateBlockCmd defines the invalidateblock JSON-RPC command.
 type InvalidateBlockCmd struct {
 	BlockHash string
@@ -1304,6 +1313,7 @@ func init() {
 	MustRegisterCmd("getwatchonlybalance", (*GetWatchOnlyBalanceCmd)(nil), flags)
 	MustRegisterCmd("help", (*HelpCmd)(nil), flags)
 	MustRegisterCmd("listbdktransactions", (*ListBDKTransactionsCmd)(nil), flags)
+	MustRegisterCmd("listbdkutxos", (*ListBDKUTXOsCmd)(nil), flags)
 	MustRegisterCmd("invalidateblock", (*InvalidateBlockCmd)(nil), flags)
 	MustRegisterCmd("peekaddress", (*PeekAddressCmd)(nil), flags)
 	MustRegisterCmd("ping", (*PingCmd)(nil), flags)

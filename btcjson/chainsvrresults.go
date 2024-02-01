@@ -36,6 +36,17 @@ type ListBDKTransactionsResult struct {
 	Confirmations uint   `json:"confirmations"` // number of confirmations for this tx
 }
 
+// ListBDKUTXOsResult models the data from the listbdkutxos command.
+type ListBDKUTXOsResult struct {
+	Txid            string `json:"txid"`
+	Vout            uint   `json:"vout"`
+	Amount          int64  `json:"amount"`
+	ScriptPubKey    string `json:"scriptpubkey"`
+	IsChange        bool   `json:"ischange"`
+	DerivationIndex uint   `json:"derivationindex"`
+	Confirmations   uint   `json:"confirmations"`
+}
+
 // GetBlockHeaderVerboseResult models the data from the getblockheader command when
 // the verbose flag is set.  When the verbose flag is not set, getblockheader
 // returns a hex-encoded string.
