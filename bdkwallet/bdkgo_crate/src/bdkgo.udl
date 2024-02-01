@@ -1,0 +1,130 @@
+namespace bdkgo {};
+
+[Error]
+enum CreateNewError {
+    "ParseNetwork",
+    "ParseGenesisHash",
+    "Database",
+    "Wallet",
+};
+
+[Error]
+enum LoadError {
+    "Database",
+    "ParseHeader",
+    "HeaderVersion",
+    "Wallet",
+};
+
+[Error]
+enum DatabaseError {
+    "Write",
+};
+
+[Error]
+enum ApplyBlockError {
+    "DecodeBlock",
+    "CannotConnect",
+    "Database",
+};
+
+[Error]
+enum ApplyMempoolError {
+    "Database",
+};
+
+[Error]
+enum CreateTxError {
+    "InvalidAddress",
+    "CreateTx",
+    "SignTx",
+};
+
+dictionary AddressInfo {
+    u32 index;
+    string address;
+};
+
+dictionary Balance {
+    u64 immature;
+    u64 trusted_pending;
+    u64 untrusted_pending;
+    u64 confirmed;
+};
+
+interface Wallet {
+    [Name=create_new, Throws=CreateNewError]
+    constructor(string db_path, string network, bytes genesis_hash);
+
+    [Name=load, Throws=LoadError]
+    constructor(string db_path);
+
+    void increment_reference_counter();
+
+    [Throws=DatabaseError]
+    AddressInfo last_unused_address();
+
+    [Throws=DatabaseError]
+    AddressInfo fresh_address();
+
+    [Throws=DatabaseError]
+    AddressInfo peek_address(u32 index);
+
+    Balance balance();
+
+    bytes genesis_hash();
+
+    sequence<BlockId> recent_blocks(u32 count);
+
+    [Throws=ApplyBlockError]
+    ApplyResult apply_block(u32 height, [ByRef] bytes block_bytes);
+
+    [Throws=ApplyMempoolError]
+    ApplyResult apply_mempool(sequence<MempoolTx> txs);
+
+    [Throws=CreateTxError]
+    bytes create_tx(f32 feerate, sequence<Recipient> recipients);
+
+    sequence<string> mnemonic_words();
+
+    sequence<TxInfo> transactions();
+
+    sequence<UtxoInfo> utxos();
+};
+
+dictionary Recipient {
+    string address;
+    u64 amount;
+};
+
+dictionary BlockId {
+    u32 height;
+    bytes hash;
+};
+
+dictionary TxInfo {
+    bytes txid;
+    bytes tx;
+    u64 spent;
+    u64 received;
+    u32 confirmations;
+};
+
+dictionary UtxoInfo {
+    bytes txid;
+    u32 vout;
+    u64 amount;
+    bytes script_pubkey;
+    boolean is_change;
+    u32 derivation_index;
+    u32 confirmations;
+};
+
+dictionary MempoolTx {
+    bytes tx;
+    u64 added_unix;
+};
+
+dictionary ApplyResult {
+    sequence<bytes> relevant_txids;
+};

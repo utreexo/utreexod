@@ -63,6 +63,7 @@ func TestGetUtreexoRoots(t *testing.T) {
 	utreexoProofIdxArgs := []string{
 		"--utreexoproofindex",
 		"--noutreexo",
+		"--nobdkwallet",
 	}
 	utreexoProofNode, err := rpctest.New(&chaincfg.RegressionNetParams, nil, utreexoProofIdxArgs, "")
 	if err != nil {
@@ -77,6 +78,7 @@ func TestGetUtreexoRoots(t *testing.T) {
 	flatUtreexoProofIdxArgs := []string{
 		"--flatutreexoproofindex",
 		"--noutreexo",
+		"--nobdkwallet",
 	}
 	flatUtreexoProofNode, err := rpctest.New(&chaincfg.RegressionNetParams, nil, flatUtreexoProofIdxArgs, "")
 	if err != nil {
@@ -88,7 +90,7 @@ func TestGetUtreexoRoots(t *testing.T) {
 	defer flatUtreexoProofNode.TearDown()
 
 	// Set up the CSN.
-	csn, err := rpctest.New(&chaincfg.RegressionNetParams, nil, nil, "")
+	csn, err := rpctest.New(&chaincfg.RegressionNetParams, nil, []string{"--nobdkwallet"}, "")
 	if err != nil {
 		t.Fatal("TestGetUtreexoRoots fail. Unable to create primary harness: ", err)
 	}

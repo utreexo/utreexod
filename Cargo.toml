@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "bdkwallet/bdkgo_crate",
+]
+
+resolver = "2"

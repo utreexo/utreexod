@@ -48,11 +48,41 @@ func NewAddNodeCmd(addr string, subCmd AddNodeSubCmd) *AddNodeCmd {
 	}
 }
 
+// BalanceCmd defines the balance JSON-RPC command.
+type BalanceCmd struct{}
+
+// NewBalanceCmd returns a new instance which can be used to issue an balance
+// JSON-RPC command.
+func NewBalanceCmd() *BalanceCmd {
+	return &BalanceCmd{}
+}
+
 // TransactionInput represents the inputs to a transaction.  Specifically a
 // transaction hash and output number pair.
 type TransactionInput struct {
 	Txid string `json:"txid"`
 	Vout uint32 `json:"vout"`
+}
+
+// Recipient is the recipient information needed to create a transaction from the bdk wallet.
+type Recipient struct {
+	Amount  int64  `json:"amount"`
+	Address string `json:"address"`
+}
+
+// CreateTransactionFromBDKWalletCmd defines the createtransactionfrombdkwallet JSON-RPC command.
+type CreateTransactionFromBDKWalletCmd struct {
+	FeeRate    float32
+	Recipients []Recipient
+}
+
+// NewCreateTransactionFromBDKWalletCmd returns a new instance which can be used to issue
+// a createtransactionfrombdkwallet command.
+func NewCreateTransactionFromBDKWalletCmd(feeRate float32, recipients []Recipient) *CreateTransactionFromBDKWalletCmd {
+	return &CreateTransactionFromBDKWalletCmd{
+		FeeRate:    feeRate,
+		Recipients: recipients,
+	}
 }
 
 // CreateRawTransactionCmd defines the createrawtransaction JSON-RPC command.
@@ -147,6 +177,15 @@ type FundRawTransactionOpts struct {
 	Replaceable            *bool                 `json:"replaceable,omitempty"`
 	ConfTarget             *int                  `json:"conf_target,omitempty"`
 	EstimateMode           *EstimateSmartFeeMode `json:"estimate_mode,omitempty"`
+}
+
+// FreshAddressCmd defines the freshaddress JSON-RPC command
+type FreshAddressCmd struct{}
+
+// NewFreshAddressCmd returns a new instance which can be used to issue a
+// freshaddress JSON-RPC command.
+func NewFreshAddressCmd() *FreshAddressCmd {
+	return &FreshAddressCmd{}
 }
 
 // FundRawTransactionCmd defines the fundrawtransaction JSON-RPC command
@@ -567,6 +606,15 @@ func NewGetMiningInfoCmd() *GetMiningInfoCmd {
 	return &GetMiningInfoCmd{}
 }
 
+// GetMnemonicWordsCmd defines the getmnemonicwords JSON-RPC command.
+type GetMnemonicWordsCmd struct{}
+
+// NewGetMiningInfoCmd returns a new instance which can be used to issue a
+// getmnemonicwords JSON-RPC command.
+func NewGetMnemonicWordsCmd() *GetMnemonicWordsCmd {
+	return &GetMnemonicWordsCmd{}
+}
+
 // GetNetworkInfoCmd defines the getnetworkinfo JSON-RPC command.
 type GetNetworkInfoCmd struct{}
 
@@ -808,6 +856,24 @@ func NewHelpCmd(command *string) *HelpCmd {
 	}
 }
 
+// ListBDKTransactionsCmd defines the listbdktransactions JSON-RPC command.
+type ListBDKTransactionsCmd struct{}
+
+// NewListBDKTransactionsCmd returns a new instance which can be used to issue a
+// listbdktransactions JSON-RPC command.
+func NewListBDKTransactionsCmd() *ListBDKTransactionsCmd {
+	return &ListBDKTransactionsCmd{}
+}
+
+// ListBDKUTXOsCmd defines the listbdkutxos JSON-RPC command.
+type ListBDKUTXOsCmd struct{}
+
+// NewListBDKUTXOsCmd returns a new instance which can be used to issue a
+// listbdkutxos JSON-RPC command.
+func NewListBDKUTXOsCmd() *ListBDKUTXOsCmd {
+	return &ListBDKUTXOsCmd{}
+}
+
 // InvalidateBlockCmd defines the invalidateblock JSON-RPC command.
 type InvalidateBlockCmd struct {
 	BlockHash string
@@ -819,6 +885,17 @@ func NewInvalidateBlockCmd(blockHash string) *InvalidateBlockCmd {
 	return &InvalidateBlockCmd{
 		BlockHash: blockHash,
 	}
+}
+
+// PeekAddressCmd defines the peekaddress JSON-RPC command.
+type PeekAddressCmd struct {
+	Index uint32
+}
+
+// NewPeekAddressCmd returns a new instance which can be used to issue a peekaddress JSON-RPC
+// command.
+func NewPeekAddressCmd() *PeekAddressCmd {
+	return &PeekAddressCmd{}
 }
 
 // PingCmd defines the ping JSON-RPC command.
@@ -898,6 +975,16 @@ func NewRegisterAddressesToWatchOnlyWalletCmd(addresses []string) *RegisterAddre
 	return &RegisterAddressesToWatchOnlyWalletCmd{
 		Addresses: addresses,
 	}
+}
+
+// RebroadcastUnconfirmedBDKTxsCmd defines the rebroadcastunconfirmedbdktxs JSON-RPC
+// command.
+type RebroadcastUnconfirmedBDKTxsCmd struct{}
+
+// NewRebroadcastUnconfirmedBDKTxsCmd returns a new instance which can be used to issue a
+// registeraddressestowatchonlywallet JSON-RPC command.
+func NewRebroadcastUnconfirmedBDKTxsCmd() *RebroadcastUnconfirmedBDKTxsCmd {
+	return &RebroadcastUnconfirmedBDKTxsCmd{}
 }
 
 // SearchRawTransactionsCmd defines the searchrawtransactions JSON-RPC command.
@@ -1081,6 +1168,15 @@ func NewSubmitBlockCmd(hexBlock string, options *SubmitBlockOptions) *SubmitBloc
 	}
 }
 
+// UnusedAddressCmd defines the unusedaddress JSON-RPC command.
+type UnusedAddressCmd struct{}
+
+// NewUnusedAddressCmd returns a new instance which can be used to issue an unusedaddress
+// JSON-RPC command.
+func NewUnusedAddressCmd() *UnusedAddressCmd {
+	return &UnusedAddressCmd{}
+}
+
 // UptimeCmd defines the uptime JSON-RPC command.
 type UptimeCmd struct{}
 
@@ -1167,10 +1263,13 @@ func init() {
 	flags := UsageFlag(0)
 
 	MustRegisterCmd("addnode", (*AddNodeCmd)(nil), flags)
+	MustRegisterCmd("balance", (*BalanceCmd)(nil), flags)
+	MustRegisterCmd("createtransactionfrombdkwallet", (*CreateTransactionFromBDKWalletCmd)(nil), flags)
 	MustRegisterCmd("createrawtransaction", (*CreateRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("decoderawtransaction", (*DecodeRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("decodescript", (*DecodeScriptCmd)(nil), flags)
 	MustRegisterCmd("deriveaddresses", (*DeriveAddressesCmd)(nil), flags)
+	MustRegisterCmd("freshaddress", (*FreshAddressCmd)(nil), flags)
 	MustRegisterCmd("fundrawtransaction", (*FundRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("getaddednodeinfo", (*GetAddedNodeInfoCmd)(nil), flags)
 	MustRegisterCmd("getbestblockhash", (*GetBestBlockHashCmd)(nil), flags)
@@ -1195,6 +1294,7 @@ func init() {
 	MustRegisterCmd("getmempoolentry", (*GetMempoolEntryCmd)(nil), flags)
 	MustRegisterCmd("getmempoolinfo", (*GetMempoolInfoCmd)(nil), flags)
 	MustRegisterCmd("getmininginfo", (*GetMiningInfoCmd)(nil), flags)
+	MustRegisterCmd("getmnemonicwords", (*GetMnemonicWordsCmd)(nil), flags)
 	MustRegisterCmd("getnetworkinfo", (*GetNetworkInfoCmd)(nil), flags)
 	MustRegisterCmd("getnettotals", (*GetNetTotalsCmd)(nil), flags)
 	MustRegisterCmd("gettxtotals", (*GetTxTotalsCmd)(nil), flags)
@@ -1212,12 +1312,16 @@ func init() {
 	MustRegisterCmd("getwork", (*GetWorkCmd)(nil), flags)
 	MustRegisterCmd("getwatchonlybalance", (*GetWatchOnlyBalanceCmd)(nil), flags)
 	MustRegisterCmd("help", (*HelpCmd)(nil), flags)
+	MustRegisterCmd("listbdktransactions", (*ListBDKTransactionsCmd)(nil), flags)
+	MustRegisterCmd("listbdkutxos", (*ListBDKUTXOsCmd)(nil), flags)
 	MustRegisterCmd("invalidateblock", (*InvalidateBlockCmd)(nil), flags)
+	MustRegisterCmd("peekaddress", (*PeekAddressCmd)(nil), flags)
 	MustRegisterCmd("ping", (*PingCmd)(nil), flags)
 	MustRegisterCmd("preciousblock", (*PreciousBlockCmd)(nil), flags)
 	MustRegisterCmd("proveutxochaintipinclusion", (*ProveUtxoChainTipInclusionCmd)(nil), flags)
 	MustRegisterCmd("provewatchonlychaintipinclusion", (*ProveWatchOnlyChainTipInclusionCmd)(nil), flags)
 	MustRegisterCmd("registeraddressestowatchonlywallet", (*RegisterAddressesToWatchOnlyWalletCmd)(nil), flags)
+	MustRegisterCmd("rebroadcastunconfirmedbdktxs", (*RebroadcastUnconfirmedBDKTxsCmd)(nil), flags)
 	MustRegisterCmd("reconsiderblock", (*ReconsiderBlockCmd)(nil), flags)
 	MustRegisterCmd("searchrawtransactions", (*SearchRawTransactionsCmd)(nil), flags)
 	MustRegisterCmd("sendrawtransaction", (*SendRawTransactionCmd)(nil), flags)
@@ -1225,6 +1329,7 @@ func init() {
 	MustRegisterCmd("signmessagewithprivkey", (*SignMessageWithPrivKeyCmd)(nil), flags)
 	MustRegisterCmd("stop", (*StopCmd)(nil), flags)
 	MustRegisterCmd("submitblock", (*SubmitBlockCmd)(nil), flags)
+	MustRegisterCmd("unusedaddress", (*UnusedAddressCmd)(nil), flags)
 	MustRegisterCmd("uptime", (*UptimeCmd)(nil), flags)
 	MustRegisterCmd("validateaddress", (*ValidateAddressCmd)(nil), flags)
 	MustRegisterCmd("verifychain", (*VerifyChainCmd)(nil), flags)

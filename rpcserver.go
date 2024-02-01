@@ -29,6 +29,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/websocket"
+	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcjson"
@@ -120,7 +121,7 @@ var (
 	// command is recognized as a wallet command.
 	ErrRPCNoWallet = &btcjson.RPCError{
 		Code:    btcjson.ErrRPCNoWallet,
-		Message: "This implementation does not implement wallet commands",
+		Message: "This implementation does not implement btcwallet commands",
 	}
 )
 
@@ -132,11 +133,14 @@ type commandHandler func(*rpcServer, interface{}, <-chan struct{}) (interface{},
 var rpcHandlers map[string]commandHandler
 var rpcHandlersBeforeInit = map[string]commandHandler{
 	"addnode":                            handleAddNode,
+	"balance":                            handleBalance,
+	"createtransactionfrombdkwallet":     handleCreateTransactionFromBDKWallet,
 	"createrawtransaction":               handleCreateRawTransaction,
 	"debuglevel":                         handleDebugLevel,
 	"decoderawtransaction":               handleDecodeRawTransaction,
 	"decodescript":                       handleDecodeScript,
 	"estimatefee":                        handleEstimateFee,
+	"freshaddress":                       handleFreshAddress,
 	"generate":                           handleGenerate,
 	"getaddednodeinfo":                   handleGetAddedNodeInfo,
 	"getbestblock":                       handleGetBestBlock,
@@ -159,6 +163,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getinfo":                            handleGetInfo,
 	"getmempoolinfo":                     handleGetMempoolInfo,
 	"getmininginfo":                      handleGetMiningInfo,
+	"getmnemonicwords":                   handleGetMnemonicWords,
 	"getnettotals":                       handleGetNetTotals,
 	"gettxtotals":                        handleGetTxTotals,
 	"getnetworkhashps":                   handleGetNetworkHashPS,
@@ -173,10 +178,14 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getwatchonlybalance":                handleGetWatchOnlyBalance,
 	"invalidateblock":                    handleInvalidateBlock,
 	"help":                               handleHelp,
+	"listbdktransactions":                handleListBDKTransactions,
+	"listbdkutxos":                       handleListBDKUTXOs,
 	"node":                               handleNode,
+	"peekaddress":                        handlePeekAddress,
 	"ping":                               handlePing,
 	"proveutxochaintipinclusion":         handleProveUtxoChainTipInclusion,
 	"provewatchonlychaintipinclusion":    handleProveWatchOnlyChainTipInclusion,
+	"rebroadcastunconfirmedbdktxs":       handleRebroadcastUnconfirmedBDKTxs,
 	"reconsiderblock":                    handleReconsiderBlock,
 	"registeraddressestowatchonlywallet": handleRegisterAddressesToWatchOnlyWallet,
 	"searchrawtransactions":              handleSearchRawTransactions,
@@ -185,6 +194,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"signmessagewithprivkey":             handleSignMessageWithPrivKey,
 	"stop":                               handleStop,
 	"submitblock":                        handleSubmitBlock,
+	"unusedaddress":                      handleUnusedAddress,
 	"uptime":                             handleUptime,
 	"validateaddress":                    handleValidateAddress,
 	"verifychain":                        handleVerifyChain,
@@ -412,6 +422,17 @@ func handleAddNode(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (in
 	return nil, nil
 }
 
+// handleBalance handles the balance command.
+func handleBalance(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	balance := s.cfg.BDKWallet.Wallet.Balance()
+	return btcjson.BalanceResult{
+		Immature:         int64(balance.Immature),
+		TrustedPending:   int64(balance.TrustedPending),
+		UntrustedPending: int64(balance.UntrustedPending),
+		Confirmed:        int64(balance.Confirmed),
+	}, nil
+}
+
 // handleNode handles node commands.
 func handleNode(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
 	c := cmd.(*btcjson.NodeCmd)
@@ -516,6 +537,81 @@ func peerExists(connMgr rpcserverConnManager, addr string, nodeID int32) bool {
 		}
 	}
 	return false
+}
+
+// handleCreateTransactionFromBDKWallet handles createtransactionfrombdkwallet command.
+func handleCreateTransactionFromBDKWallet(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
+	c := cmd.(*btcjson.CreateTransactionFromBDKWalletCmd)
+
+	recipients := make([]bdkwallet.Recipient, len(c.Recipients))
+	for i := range recipients {
+		addr, err := btcutil.DecodeAddress(c.Recipients[i].Address, s.cfg.ChainParams)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't decode address %v. %v",
+					c.Recipients[i].Address, err),
+			}
+		}
+
+		recipients[i].Address = addr.String()
+		recipients[i].Amount = btcutil.Amount(c.Recipients[i].Amount)
+	}
+
+	bytes, err := s.cfg.BDKWallet.Wallet.CreateTx(c.FeeRate, recipients)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Failed to create tx. %v", err),
+		}
+	}
+
+	tx, err := btcutil.NewTxFromBytes(bytes)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Failed to create tx. %v", err),
+		}
+	}
+
+	if s.cfg.Chain.IsUtreexoViewActive() {
+		// This is not ideal but since bdk doesn't handle utreexo proofs yet, there's
+		// no way for us to broadcast it normally unless we make some undesired changes
+		// to the mempool code. Just send it off to mempool.space until we can do things
+		// properly.
+		_, err = sendTxToMempoolSpace(txHexString(tx.MsgTx()), s.cfg.ChainParams)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Failed to broadcast transaction to mempool.space. %v", err),
+			}
+		}
+		txD := &mempool.TxDesc{
+			TxDesc: mining.TxDesc{Tx: tx},
+		}
+		// Notify bdkwallet and other listeners.
+		s.NotifyNewTransactions([]*mempool.TxDesc{txD})
+	} else {
+		err = s.rpcProcessTx(tx, true, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	res := btcjson.CreateTransactionFromBDKWalletResult{
+		TxHash:   tx.Hash().String(),
+		RawBytes: hex.EncodeToString(bytes),
+	}
+
+	return res, nil
 }
 
 // messageToHex serializes a message to the wire protocol encoding using the
@@ -897,6 +993,20 @@ func handleEstimateFee(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 
 	// Convert to satoshis per kb.
 	return float64(feeRate), nil
+}
+
+// handleFreshAddress implements the freshaddress command.
+func handleFreshAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	index, address, err := s.cfg.BDKWallet.Wallet.FreshAddress()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "Failed to retrieve new address: " + err.Error(),
+		}
+	}
+
+	result := btcjson.BDKAddressResult{Index: int(index), Address: address.String()}
+	return result, nil
 }
 
 // handleGenerate handles generate commands.
@@ -2430,6 +2540,12 @@ func handleGetMiningInfo(s *rpcServer, cmd interface{}, closeChan <-chan struct{
 	return &result, nil
 }
 
+// handleGetMnemonicWords implements the getmnemonicwords command.
+func handleGetMnemonicWords(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	words := s.cfg.BDKWallet.Wallet.MnemonicWords()
+	return words, nil
+}
+
 // handleGetNetTotals implements the getnettotals command.
 func handleGetNetTotals(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
 	totalBytesRecv, totalBytesSent := s.cfg.ConnMgr.NetTotals()
@@ -2968,6 +3084,76 @@ func handleHelp(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (inter
 		return nil, internalRPCError(err.Error(), context)
 	}
 	return help, nil
+}
+
+// handleListBDKTransactions handles listbdktransactions commands.
+func handleListBDKTransactions(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	txs, err := s.cfg.BDKWallet.Wallet.Transactions()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "Unable to fetch transactions " + err.Error(),
+		}
+	}
+
+	res := make([]btcjson.ListBDKTransactionsResult, len(txs))
+	for i := range res {
+
+		var buf bytes.Buffer
+		err := txs[i].Tx.MsgTx().Serialize(&buf)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCMisc,
+				Message: "Unable to serialize tx " + err.Error(),
+			}
+		}
+		res[i] = btcjson.ListBDKTransactionsResult{
+			Txid:          txs[i].Txid.String(),
+			RawBytes:      hex.EncodeToString(buf.Bytes()),
+			Spent:         int64(txs[i].Spent),
+			Received:      int64(txs[i].Received),
+			Confirmations: txs[i].Confirmations,
+		}
+	}
+
+	return res, nil
+}
+
+// handleListBDKUTXOs handles handlelistbdkutxos commands.
+func handleListBDKUTXOs(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	utxos := s.cfg.BDKWallet.Wallet.UTXOs()
+
+	res := make([]btcjson.ListBDKUTXOsResult, len(utxos))
+	for i := range res {
+		res[i] = btcjson.ListBDKUTXOsResult{
+			Txid:            utxos[i].Txid.String(),
+			Vout:            utxos[i].Vout,
+			Amount:          int64(utxos[i].Amount),
+			ScriptPubKey:    hex.EncodeToString(utxos[i].ScriptPubKey),
+			IsChange:        utxos[i].IsChange,
+			DerivationIndex: utxos[i].DerivationIndex,
+			Confirmations:   utxos[i].Confirmations,
+		}
+	}
+
+	return res, nil
+}
+
+// handlePeekAddress implements the peekaddress command.
+func handlePeekAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.PeekAddressCmd)
+
+	index, address, err := s.cfg.BDKWallet.Wallet.PeekAddress(c.Index)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code: btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Failed to retrieve address at index %v: %v",
+				c.Index, err),
+		}
+	}
+
+	result := btcjson.BDKAddressResult{Index: int(index), Address: address.String()}
+	return result, nil
 }
 
 // handlePing implements the ping command.
@@ -3610,6 +3796,93 @@ func fetchMempoolTxnsForAddress(s *rpcServer, addr btcutil.Address, numToSkip, n
 	return mpTxns[numToSkip:rangeEnd], numToSkip
 }
 
+func sendTxToMempoolSpace(rawTx string, chainParams *chaincfg.Params) (string, error) {
+	client := &http.Client{}
+	var data = strings.NewReader(rawTx)
+
+	link := "https://mempool.space/api/tx"
+	switch chainParams.Name {
+	case chaincfg.MainNetParams.Name:
+	case chaincfg.TestNet3Params.Name:
+		link = "https://mempool.space/testnet/api/tx"
+	case chaincfg.SigNetParams.Name:
+		link = "https://mempool.space/signet/api/tx"
+	default:
+		return "", fmt.Errorf("unsupported network %v", chainParams.Name)
+	}
+
+	req, err := http.NewRequest("POST", link, data)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(bodyText), nil
+}
+
+// handleRebroadcastUnconfirmedBDKTxs implements the rebroadcastunconfirmedbdktxs command.
+func handleRebroadcastUnconfirmedBDKTxs(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	allTxs, err := s.cfg.BDKWallet.Wallet.Transactions()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Failed to fetch transaction from bdk wallet. %v", err),
+		}
+	}
+
+	unconfirmedTxs := make([]bdkwallet.TxInfo, 0, len(allTxs))
+	for _, tx := range allTxs {
+		if tx.Confirmations == 0 {
+			unconfirmedTxs = append(unconfirmedTxs, tx)
+		}
+	}
+
+	// Nothing to rebroadcast.
+	if len(unconfirmedTxs) == 0 {
+		return []string{}, nil
+	}
+
+	rebroadcasted := make([]string, 0, len(unconfirmedTxs))
+	for _, unconfirmedTx := range unconfirmedTxs {
+		tx := unconfirmedTx.Tx
+
+		// If it's already in the mempool, then we've already broadcasted it.
+		if s.cfg.TxMemPool.IsTransactionInPool(tx.Hash()) {
+			continue
+		}
+
+		if s.cfg.Chain.IsUtreexoViewActive() {
+			// This is not ideal but since bdk doesn't handle utreexo proofs yet, there's
+			// no way for us to broadcast it normally unless we make some undesired changes
+			// to the mempool code. Just send it off to mempool.space until we can do things
+			// properly.
+			_, err = sendTxToMempoolSpace(txHexString(tx.MsgTx()), s.cfg.ChainParams)
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Failed to broadcast transaction to mempool.space. %v", err),
+			}
+		} else {
+			err = s.rpcProcessTx(&tx, true, false)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		rebroadcasted = append(rebroadcasted, unconfirmedTx.Tx.Hash().String())
+	}
+
+	return rebroadcasted, nil
+}
+
 // handleReconsiderBlock implements the reconsiderblock command.
 func handleReconsiderBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
 	c := cmd.(*btcjson.ReconsiderBlockCmd)
@@ -4151,6 +4424,20 @@ func handleSubmitBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 	return nil, nil
 }
 
+// handleUnusedAddress implements the unusedaddress command.
+func handleUnusedAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	index, address, err := s.cfg.BDKWallet.Wallet.UnusedAddress()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "Failed to retrieve unused address: " + err.Error(),
+		}
+	}
+
+	result := btcjson.BDKAddressResult{Index: int(index), Address: address.String()}
+	return result, nil
+}
+
 // handleUptime implements the uptime command.
 func handleUptime(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
 	return time.Now().Unix() - s.cfg.StartupTime, nil
@@ -4504,6 +4791,14 @@ func (s *rpcServer) NotifyNewTransactions(txns []*mempool.TxDesc) {
 		// Potentially notify any getblocktemplate long poll clients
 		// about stale block templates due to the new transaction.
 		s.gbtWorkState.NotifyMempoolTx(s.cfg.TxMemPool.LastUpdated())
+
+		if s.cfg.BDKWallet != nil {
+			s.cfg.BDKWallet.NotifyNewTransactions(txns)
+		}
+
+		if s.cfg.WatchOnlyWallet != nil {
+			s.cfg.WatchOnlyWallet.NotifyNewTransactions(txns)
+		}
 	}
 }
 
@@ -5248,6 +5543,9 @@ type rpcserverConfig struct {
 	// WatchOnlyWallet keeps track of relevant utxos and its utreexo proof
 	// for the given addresses and xpubs.
 	WatchOnlyWallet *wallet.WatchOnlyWalletManager
+
+	// BDKWallet is the underlying bdk wallet that is a part of this node.
+	BDKWallet *bdkwallet.Manager
 }
 
 // newRPCServer returns a new instance of the rpcServer struct.

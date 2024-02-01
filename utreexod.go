@@ -16,6 +16,7 @@ import (
 	"runtime/pprof"
 	"runtime/trace"
 
+	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/database"
@@ -348,6 +349,16 @@ func btcdMain(serverChan chan<- *server) error {
 				cfg.DataDir)
 			btcdLog.Error(err)
 			return err
+		}
+
+		// If the node had been run with wallet enabled but it now re-started with wallet disabled.
+		var walletDirExists bool
+		if walletDirExists, err = bdkwallet.DoesWalletDirExist(cfg.DataDir); err != nil {
+			btcdLog.Error(err)
+			return err
+		}
+		if walletDirExists {
+			cfg.NoBdkWallet = false
 		}
 	}
 

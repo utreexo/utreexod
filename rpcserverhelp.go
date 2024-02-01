@@ -34,6 +34,28 @@ var helpDescsEnUS = map[string]string{
 	"addnode-addr":      "IP address and port of the peer to operate on",
 	"addnode-subcmd":    "'add' to add a persistent peer, 'remove' to remove a persistent peer, or 'onetry' to try a single connection to a peer",
 
+	// BalanceCmd help.
+	"balance--synopsis": "Retrieves the balance from the underlying bdkwallet.",
+
+	// BalanceResult help.
+	"balanceresult-immature":         "The coinbase balance that's not been confirmed 100 times and therefore can't be spent.",
+	"balanceresult-trustedpending":   "The balance that's part of our change keychain.",
+	"balanceresult-untrustedpending": "The balance that's part of our public keychain.",
+	"balanceresult-confirmed":        "The confirmed balance.",
+
+	// Recipient help.
+	"recipient-amount":  "The amount in satoshis to send to the recipient.",
+	"recipient-address": "The address of the recipient.",
+
+	// CreateTransactionFromBDKWalletCmd help.
+	"createtransactionfrombdkwallet--synopsis":  "Creates and returns a hex encoded transaction from the underlying bdk walllet that's ready to broadcast",
+	"createtransactionfrombdkwallet-feerate":    "Feerate in satoshis that this tx will be paying",
+	"createtransactionfrombdkwallet-recipients": "List of recipients that this tx will be paying",
+
+	// CreateTransactionFromBDKWalletResult help.
+	"createtransactionfrombdkwalletresult-txhash":   "Txid of the transaction",
+	"createtransactionfrombdkwalletresult-rawbytes": "Hex-encoded bytes of the serialized transaction",
+
 	// NodeCmd help.
 	"node--synopsis":     "Attempts to add or remove a peer.",
 	"node-subcmd":        "'disconnect' to remove all matching non-persistent peers, 'remove' to remove a persistent peer, or 'connect' to connect to a peer",
@@ -100,6 +122,10 @@ var helpDescsEnUS = map[string]string{
 	"txrawdecoderesult-vin":      "The transaction inputs as JSON objects",
 	"txrawdecoderesult-vout":     "The transaction outputs as JSON objects",
 
+	// BDKAddressResult help.
+	"bdkaddressresult-index":   "BIP86 index of the address",
+	"bdkaddressresult-address": "Taproot address that you can receive funds to",
+
 	// DecodeRawTransactionCmd help.
 	"decoderawtransaction--synopsis": "Returns a JSON object representing the provided serialized, hex-encoded transaction.",
 	"decoderawtransaction-hextx":     "Serialized, hex-encoded transaction",
@@ -123,6 +149,10 @@ var helpDescsEnUS = map[string]string{
 		"generated before the transaction is mined.",
 	"estimatefee--result0": "Estimated fee per kilobyte in satoshis for a block to " +
 		"be mined in the next NumBlocks blocks.",
+
+	// FreshAddressCmd help.
+	"freshaddress--synopsis": "Returns an address of the next derivation index regardless of if the " +
+		"preivous derivation address has received funds or not.",
 
 	// GenerateCmd help
 	"generate--synopsis": "Generates a set number of blocks (simnet or regtest only) and returns a JSON\n" +
@@ -451,6 +481,10 @@ var helpDescsEnUS = map[string]string{
 	// GetMiningInfoCmd help.
 	"getmininginfo--synopsis": "Returns a JSON object containing mining-related information.",
 
+	// GetMnemonicWordsCmd help.
+	"getmnemonicwords--synopsis": "Returns the mnemonic words of the bdk wallet.",
+	"getmnemonicwords--result0":  "12 mnemonic words of the bdk wallet.",
+
 	// GetNetworkHashPSCmd help.
 	"getnetworkhashps--synopsis": "Returns the estimated network hashes per second for the block heights provided by the parameters.",
 	"getnetworkhashps-blocks":    "The number of blocks, or -1 for blocks since last difficulty change",
@@ -600,6 +634,32 @@ var helpDescsEnUS = map[string]string{
 	"help--result0":    "List of commands",
 	"help--result1":    "Help for specified command",
 
+	// ListBDKTransactionsCmd help.
+	"listbdktransactions--synopsis": "Returns a list of all the relevant transactions the bdk wallet is holding onto",
+
+	// ListBDKTransactionsResult help.
+	"listbdktransactionsresult-txid":          "The transaction hash of the relevant transaction",
+	"listbdktransactionsresult-rawbytes":      "The consensus encoded transaction in hex.",
+	"listbdktransactionsresult-spent":         "The sum of satoshis that was spent in this tx.",
+	"listbdktransactionsresult-received":      "The sum of satoshis that was received in this tx.",
+	"listbdktransactionsresult-confirmations": "The amount of blockchain confirmations for this tx.",
+
+	// ListBDKUTXOsCmd help.
+	"listbdkutxos--synopsis": "Returns a list of all the relevant utxos the bdk wallet is holding onto",
+
+	// ListBDKUTXOsResult help.
+	"listbdkutxosresult-txid":            "The txid of the relevant utxo.",
+	"listbdkutxosresult-vout":            "The output index of the relevant utxo.",
+	"listbdkutxosresult-amount":          "The amount in satoshis this utxo is worth.",
+	"listbdkutxosresult-scriptpubkey":    "The script pubkey of the utxo.",
+	"listbdkutxosresult-ischange":        "Whether or not this utxo is a change output.",
+	"listbdkutxosresult-derivationindex": "The derivation index of the wallet this utxo is located at.",
+	"listbdkutxosresult-confirmations":   "The total amount of blockchain confirmations this utxo has.",
+
+	// PeekAddressCmd help.
+	"peekaddress--synopsis": "Returns an address of the desired derivation index",
+	"peekaddress-index":     "The desired derivation index you want to fetch the address at",
+
 	// PingCmd help.
 	"ping--synopsis": "Queues a ping to be sent to each connected peer.\n" +
 		"Ping times are provided by getpeerinfo via the pingtime and pingwait fields.",
@@ -634,6 +694,10 @@ var helpDescsEnUS = map[string]string{
 	"provewatchonlychaintipinclusionverboseresult-hashesproven": "The hashes of the UTXOs that are committed in the accumulator.\n" +
 		"Note that these are not purely hashes of txid:vout. The preimage also include Amount, PkScript, and other parts of the UTXO",
 	"provewatchonlychaintipinclusionverboseresult-hex": "The raw hash of the entire chain-tip inclusion proof",
+
+	// RebroadcastUnconfirmedBDKTxs help.
+	"rebroadcastunconfirmedbdktxs--synopsis": "Rebroadcasts the unconfirmed txs in the bdk wallet to the network. Won't rebroadcast the txs already in this node's mempool.",
+	"rebroadcastunconfirmedbdktxs--result0":  "List of txids of the rebroadcasted txs",
 
 	// SearchRawTransactionsCmd help.
 	"searchrawtransactions--synopsis": "Returns raw data for transactions involving the passed address.\n" +
@@ -791,6 +855,9 @@ var helpDescsEnUS = map[string]string{
 	"rescannedblock-hash":         "Hash of the matching block.",
 	"rescannedblock-transactions": "List of matching transactions, serialized and hex-encoded.",
 
+	// UnusedAddressCmd help.
+	"unusedaddress--synopsis": "Returns an address that never received funds from the bdkwallet.",
+
 	// Uptime help.
 	"uptime--synopsis": "Returns the total uptime of the server.",
 	"uptime--result0":  "The number of seconds that the server has been running",
@@ -815,11 +882,14 @@ var helpDescsEnUS = map[string]string{
 // pointer to the type (or nil to indicate no return value).
 var rpcResultTypes = map[string][]interface{}{
 	"addnode":                            nil,
+	"balance":                            {(*btcjson.BalanceResult)(nil)},
 	"createrawtransaction":               {(*string)(nil)},
+	"createtransactionfrombdkwallet":     {(*btcjson.CreateTransactionFromBDKWalletResult)(nil)},
 	"debuglevel":                         {(*string)(nil), (*string)(nil)},
 	"decoderawtransaction":               {(*btcjson.TxRawDecodeResult)(nil)},
 	"decodescript":                       {(*btcjson.DecodeScriptResult)(nil)},
 	"estimatefee":                        {(*float64)(nil)},
+	"freshaddress":                       {(*btcjson.BDKAddressResult)(nil)},
 	"generate":                           {(*[]string)(nil)},
 	"getaddednodeinfo":                   {(*[]string)(nil), (*[]btcjson.GetAddedNodeInfoResult)(nil)},
 	"getbestblock":                       {(*btcjson.GetBestBlockResult)(nil)},
@@ -842,6 +912,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getinfo":                            {(*btcjson.InfoChainResult)(nil)},
 	"getmempoolinfo":                     {(*btcjson.GetMempoolInfoResult)(nil)},
 	"getmininginfo":                      {(*btcjson.GetMiningInfoResult)(nil)},
+	"getmnemonicwords":                   {(*[]string)(nil)},
 	"getnettotals":                       {(*btcjson.GetNetTotalsResult)(nil)},
 	"gettxtotals":                        {(*btcjson.GetTxTotalsResult)(nil)},
 	"getutreexoproof":                    {(*btcjson.GetUtreexoProofVerboseResult)(nil)},
@@ -857,9 +928,13 @@ var rpcResultTypes = map[string][]interface{}{
 	"node":                               nil,
 	"help":                               {(*string)(nil), (*string)(nil)},
 	"invalidateblock":                    nil,
+	"listbdktransactions":                {(*[]btcjson.ListBDKTransactionsResult)(nil)},
+	"listbdkutxos":                       {(*[]btcjson.ListBDKUTXOsResult)(nil)},
+	"peekaddress":                        {(*btcjson.BDKAddressResult)(nil)},
 	"ping":                               nil,
 	"proveutxochaintipinclusion":         {(*btcjson.ProveUtxoChainTipInclusionVerboseResult)(nil)},
 	"provewatchonlychaintipinclusion":    {(*btcjson.ProveWatchOnlyChainTipInclusionVerboseResult)(nil)},
+	"rebroadcastunconfirmedbdktxs":       {(*[]string)(nil)},
 	"registeraddressestowatchonlywallet": nil,
 	"reconsiderblock":                    nil,
 	"searchrawtransactions":              {(*string)(nil), (*[]btcjson.SearchRawTransactionsResult)(nil)},
@@ -868,6 +943,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"signmessagewithprivkey":             {(*string)(nil)},
 	"stop":                               {(*string)(nil)},
 	"submitblock":                        {nil, (*string)(nil)},
+	"unusedaddress":                      {(*btcjson.BDKAddressResult)(nil)},
 	"uptime":                             {(*int64)(nil)},
 	"validateaddress":                    {(*btcjson.ValidateAddressChainResult)(nil)},
 	"verifychain":                        {(*bool)(nil)},

@@ -15,6 +15,38 @@ import (
 	"github.com/utreexo/utreexod/wire"
 )
 
+// BalanceResult models the data from the balance command.
+type BalanceResult struct {
+	// Immature is the coinbase balance that's not been confirmed 100 times.
+	Immature int64 `json:"immature"`
+	// TrustedPending is the balance that's part of our change keychain.
+	TrustedPending int64 `json:"trustedpending"`
+	// UntrustedPending is the balance that's part of our public keychain.
+	UntrustedPending int64 `json:"untrustedpending"`
+	// Confirmed is the confirmed balance.
+	Confirmed int64 `json:"confirmed"`
+}
+
+// ListBDKTransactionsResult models the data from the listbdktransactions command.
+type ListBDKTransactionsResult struct {
+	Txid          string `json:"txid"`          // txid of the tx
+	RawBytes      string `json:"rawbytes"`      // hex encoded raw tx
+	Spent         int64  `json:"spent"`         // sum of owned inputs
+	Received      int64  `json:"received"`      // sum of owned outputs
+	Confirmations uint   `json:"confirmations"` // number of confirmations for this tx
+}
+
+// ListBDKUTXOsResult models the data from the listbdkutxos command.
+type ListBDKUTXOsResult struct {
+	Txid            string `json:"txid"`
+	Vout            uint   `json:"vout"`
+	Amount          int64  `json:"amount"`
+	ScriptPubKey    string `json:"scriptpubkey"`
+	IsChange        bool   `json:"ischange"`
+	DerivationIndex uint   `json:"derivationindex"`
+	Confirmations   uint   `json:"confirmations"`
+}
+
 // GetBlockHeaderVerboseResult models the data from the getblockheader command when
 // the verbose flag is set.  When the verbose flag is not set, getblockheader
 // returns a hex-encoded string.
@@ -908,4 +940,18 @@ type ProveWatchOnlyChainTipInclusionVerboseResult struct {
 	ProofTargets []uint64 `json:"prooftargets"`
 	HashesProven []string `json:"hashesproven"`
 	Hex          string   `json:"hex"`
+}
+
+// BDKAddressResult models the data for all rpc calls that the bdk wallet returns.
+// This includes the following commands: unusedaddress, freshaddress, and peekaddress.
+type BDKAddressResult struct {
+	Index   int    `json:"index"`
+	Address string `json:"address"`
+}
+
+// CreateTransactionFromBDKWalletResult models the data from the
+// createtransactionfrombdkwallet command.
+type CreateTransactionFromBDKWalletResult struct {
+	TxHash   string `json:"txhash"`
+	RawBytes string `json:"rawbytes"`
 }

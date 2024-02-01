@@ -13,6 +13,10 @@ jobs:
     strategy:
       matrix:
         go: ["1.20", "1.21"]
+        rust:
+          - version: stable
+            clippy: true
+          - version: 1.72.0 # As specified in rust-toolchain
     steps:
     - uses: actions/checkout@v3
 
@@ -21,11 +25,18 @@ jobs:
       with:
         go-version: ${{ matrix.go }}
 
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust.version }}
+        override: true
+        profile: minimal
+
     - name: Build
-      run: go build -v ./...
+      run: make all
 
     - name: Install Linters
       run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55.2
 
     - name: Test
-      run: sh ./goclean.sh
+      run: make test

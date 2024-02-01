@@ -167,7 +167,7 @@ func TestGetChainTips(t *testing.T) {
 		"0000000000000000000000000000000000000000000000000000"
 
 	// Set up regtest chain.
-	r, err := rpctest.New(&chaincfg.RegressionNetParams, nil, []string{"--noutreexo"}, "")
+	r, err := rpctest.New(&chaincfg.RegressionNetParams, nil, []string{"--noutreexo", "--nobdkwallet"}, "")
 	if err != nil {
 		t.Fatal("TestGetChainTips fail. Unable to create primary harness: ", err)
 	}

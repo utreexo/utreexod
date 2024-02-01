@@ -7,11 +7,12 @@
 
 set -ex
 
-go test -short -race -tags="rpctest" ./...
+go test -short -race -tags="rpctest" -tags="bdkwallet" ./...
 
 # Automatic checks
 golangci-lint run --deadline=10m --disable-all \
 --enable=gofmt \
 --enable=vet \
 --enable=gosimple \
---enable=unconvert
+--enable=unconvert \
+--skip-dirs=bdkwallet/bdkgo # these are generated files
