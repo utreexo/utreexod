@@ -357,13 +357,8 @@ func btcdMain(serverChan chan<- *server) error {
 			btcdLog.Error(err)
 			return err
 		}
-		if walletDirExists && !cfg.BdkWallet {
-			err = fmt.Errorf("BDK wallet is disabled but this node has been previously "+
-				"started with BDK wallet enabled with walletdir of \"%v\". Please "+
-				"completely remove the walletdir to start the node without wallet.",
-				bdkwallet.WalletDir(cfg.DataDir))
-			btcdLog.Error(err)
-			return err
+		if walletDirExists {
+			cfg.BdkWallet = true
 		}
 	}
 
