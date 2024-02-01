@@ -176,6 +176,7 @@ type config struct {
 	// Chain related options.
 	AddCheckpoints     []string `long:"addcheckpoint" description:"Add a custom checkpoint.  Format: '<height>:<hash>'"`
 	DisableCheckpoints bool     `long:"nocheckpoints" description:"Disable built-in checkpoints.  Don't do this unless you know what you're doing."`
+	NoAssumeUtreexo    bool     `long:"noassumeutreexo" description:"Disable starting from the assume utreexo point and start the initial block download from the genesis block"`
 
 	// Relay and mempool policy.
 	BlocksOnly        bool    `long:"blocksonly" description:"Do not accept transactions from remote peers."`
@@ -1209,7 +1210,12 @@ func loadConfig() (*config, []string, error) {
 
 	// Set --prune=550 if the node is a utreexo node.
 	if !cfg.NoUtreexo {
-		cfg.Prune = 550
+		if cfg.Prune == 0 {
+			cfg.Prune = pruneMinSize
+		}
+	} else {
+		// Set --noassumeutreexo if the node is not a utreexo node.
+		cfg.NoAssumeUtreexo = true
 	}
 
 	// Specifying --noonion means the onion address dial function results in

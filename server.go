@@ -3267,20 +3267,26 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		utreexo = blockchain.NewUtreexoViewpoint()
 	}
 
+	assumeUtreexoPoint := chainParams.AssumeUtreexoPoint
+	if cfg.NoAssumeUtreexo {
+		assumeUtreexoPoint = chaincfg.AssumeUtreexo{}
+	}
+
 	// Create a new block chain instance with the appropriate configuration.
 	var err error
 	s.chain, err = blockchain.New(&blockchain.Config{
-		DB:               s.db,
-		Interrupt:        interrupt,
-		ChainParams:      s.chainParams,
-		Checkpoints:      checkpoints,
-		TimeSource:       s.timeSource,
-		SigCache:         s.sigCache,
-		IndexManager:     indexManager,
-		HashCache:        s.hashCache,
-		UtxoCacheMaxSize: uint64(cfg.UtxoCacheMaxSizeMiB) * 1024 * 1024,
-		UtreexoView:      utreexo,
-		Prune:            cfg.Prune * 1024 * 1024,
+		DB:                 s.db,
+		Interrupt:          interrupt,
+		ChainParams:        s.chainParams,
+		Checkpoints:        checkpoints,
+		TimeSource:         s.timeSource,
+		SigCache:           s.sigCache,
+		IndexManager:       indexManager,
+		HashCache:          s.hashCache,
+		UtxoCacheMaxSize:   uint64(cfg.UtxoCacheMaxSizeMiB) * 1024 * 1024,
+		UtreexoView:        utreexo,
+		Prune:              cfg.Prune * 1024 * 1024,
+		AssumeUtreexoPoint: assumeUtreexoPoint,
 	})
 	if err != nil {
 		return nil, err
