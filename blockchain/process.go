@@ -175,10 +175,6 @@ func (b *BlockChain) ProcessBlockHeader(header *wire.BlockHeader) error {
 	if err != nil {
 		return err
 	}
-	err = b.index.flushToDB()
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
