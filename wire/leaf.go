@@ -6,10 +6,13 @@ package wire
 
 import (
 	"bytes"
+	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
+	"sync"
 
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
@@ -112,13 +115,22 @@ func (l *LeafData) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+var sha512DigestPool = sync.Pool{
+	New: func() interface{} {
+		return sha512.New512_256()
+	},
+}
+
 // LeafHash concats and hashes all the data in LeafData.
 func (l *LeafData) LeafHash() [32]byte {
-	return *chainhash.TaggedHash512_256(chainhash.TagUtreexoV1,
-		func(w io.Writer) {
-			l.Serialize(w)
-		},
-	)
+	digest := sha512DigestPool.Get().(hash.Hash)
+	digest.Reset()
+	defer sha512DigestPool.Put(digest)
+
+	digest.Write(chainhash.UTREEXO_TAG_V1_APPEND[:])
+	l.Serialize(digest)
+
+	return *(*[32]byte)(digest.Sum(nil))
 }
 
 // ToString turns a LeafData into a string for logging.
