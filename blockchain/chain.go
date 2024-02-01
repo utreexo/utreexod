@@ -87,6 +87,48 @@ func newBestState(node *blockNode, blockSize, blockWeight, numTxns,
 	}
 }
 
+// AssumeUtreexoHeight returns the height of the assumed utreexo point.
+func (b *BlockChain) AssumeUtreexoHeight() int32 {
+	return b.assumeUtreexoPoint.BlockHeight
+}
+
+// AssumeUtreexoHash returns the blockhash of the assumed utreexo point.
+func (b *BlockChain) AssumeUtreexoHash() chainhash.Hash {
+	return *b.assumeUtreexoPoint.BlockHash
+}
+
+// SetNewBestStateFromAssumedUtreexoPoint sets the best state for the node based
+// on the current blockIndex and the assumed utreexo point. Also marks all the
+// blocks in the blockIndex prior to the assumed utreexo point as valid.
+func (b *BlockChain) SetNewBestStateFromAssumedUtreexoPoint() {
+	// Create best state.
+	node := b.index.LookupNode(b.assumeUtreexoPoint.BlockHash)
+	state := newBestState(
+		node,
+		b.assumeUtreexoPoint.BlockSize,
+		b.assumeUtreexoPoint.BlockWeight,
+		b.assumeUtreexoPoint.NumTxns,
+		b.assumeUtreexoPoint.TotalTxns,
+		node.CalcPastMedianTime(),
+	)
+
+	// Set best state.
+	b.stateLock.Lock()
+	b.stateSnapshot = state
+	b.stateLock.Unlock()
+
+	// Since the block indexes prior to the assume valid point aren't marked
+	// as valid, we need to set the status flags here as valid. On restart
+	// these will be marked valid anyways but with loud logs for the user so
+	// we do it here.
+	tip := b.index.LookupNode(&state.Hash)
+	for iterNode := tip; iterNode != nil; iterNode = iterNode.parent {
+		if !iterNode.status.KnownValid() {
+			b.index.SetStatusFlags(iterNode, statusValid)
+		}
+	}
+}
+
 // BlockChain provides functions for working with the bitcoin block chain.
 // It includes functionality such as rejecting duplicate blocks, ensuring blocks
 // follow all rules, orphan handling, checkpoint handling, and best chain
@@ -97,6 +139,7 @@ type BlockChain struct {
 	// separate mutex.
 	checkpoints         []chaincfg.Checkpoint
 	checkpointsByHeight map[int32]*chaincfg.Checkpoint
+	assumeUtreexoPoint  chaincfg.AssumeUtreexo
 	db                  database.DB
 	chainParams         *chaincfg.Params
 	timeSource          MedianTimeSource
@@ -2344,6 +2387,10 @@ type Config struct {
 	// checkpoints.
 	Checkpoints []chaincfg.Checkpoint
 
+	// AssumeUtreexoPoint holds the utreexo point in where the chain starts
+	// syncing from.
+	AssumeUtreexoPoint chaincfg.AssumeUtreexo
+
 	// TimeSource defines the median time source to use for things such as
 	// block processing and determining whether or not the chain is current.
 	//
@@ -2437,6 +2484,7 @@ func New(config *Config) (*BlockChain, error) {
 	b := BlockChain{
 		checkpoints:         config.Checkpoints,
 		checkpointsByHeight: checkpointsByHeight,
+		assumeUtreexoPoint:  config.AssumeUtreexoPoint,
 		db:                  config.DB,
 		chainParams:         params,
 		timeSource:          config.TimeSource,
