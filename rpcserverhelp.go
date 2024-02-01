@@ -644,6 +644,18 @@ var helpDescsEnUS = map[string]string{
 	"listbdktransactionsresult-received":      "The sum of satoshis that was received in this tx.",
 	"listbdktransactionsresult-confirmations": "The amount of blockchain confirmations for this tx.",
 
+	// ListBDKUTXOsCmd help.
+	"listbdkutxos--synopsis": "Returns a list of all the relevant utxos the bdk wallet is holding onto",
+
+	// ListBDKUTXOsResult help.
+	"listbdkutxosresult-txid":            "The txid of the relevant utxo.",
+	"listbdkutxosresult-vout":            "The output index of the relevant utxo.",
+	"listbdkutxosresult-amount":          "The amount in satoshis this utxo is worth.",
+	"listbdkutxosresult-scriptpubkey":    "The script pubkey of the utxo.",
+	"listbdkutxosresult-ischange":        "Whether or not this utxo is a change output.",
+	"listbdkutxosresult-derivationindex": "The derivation index of the wallet this utxo is located at.",
+	"listbdkutxosresult-confirmations":   "The total amount of blockchain confirmations this utxo has.",
+
 	// PeekAddressCmd help.
 	"peekaddress--synopsis": "Returns an address of the desired derivation index",
 	"peekaddress-index":     "The desired derivation index you want to fetch the address at",
@@ -917,6 +929,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"help":                               {(*string)(nil), (*string)(nil)},
 	"invalidateblock":                    nil,
 	"listbdktransactions":                {(*[]btcjson.ListBDKTransactionsResult)(nil)},
+	"listbdkutxos":                       {(*[]btcjson.ListBDKUTXOsResult)(nil)},
 	"peekaddress":                        {(*btcjson.BDKAddressResult)(nil)},
 	"ping":                               nil,
 	"proveutxochaintipinclusion":         {(*btcjson.ProveUtxoChainTipInclusionVerboseResult)(nil)},

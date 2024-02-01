@@ -179,6 +179,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"invalidateblock":                    handleInvalidateBlock,
 	"help":                               handleHelp,
 	"listbdktransactions":                handleListBDKTransactions,
+	"listbdkutxos":                       handleListBDKUTXOs,
 	"node":                               handleNode,
 	"peekaddress":                        handlePeekAddress,
 	"ping":                               handlePing,
@@ -3112,6 +3113,26 @@ func handleListBDKTransactions(s *rpcServer, cmd interface{}, closeChan <-chan s
 			Spent:         int64(txs[i].Spent),
 			Received:      int64(txs[i].Received),
 			Confirmations: txs[i].Confirmations,
+		}
+	}
+
+	return res, nil
+}
+
+// handleListBDKUTXOs handles handlelistbdkutxos commands.
+func handleListBDKUTXOs(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	utxos := s.cfg.BDKWallet.Wallet.UTXOs()
+
+	res := make([]btcjson.ListBDKUTXOsResult, len(utxos))
+	for i := range res {
+		res[i] = btcjson.ListBDKUTXOsResult{
+			Txid:            utxos[i].Txid.String(),
+			Vout:            utxos[i].Vout,
+			Amount:          int64(utxos[i].Amount),
+			ScriptPubKey:    hex.EncodeToString(utxos[i].ScriptPubKey),
+			IsChange:        utxos[i].IsChange,
+			DerivationIndex: utxos[i].DerivationIndex,
+			Confirmations:   utxos[i].Confirmations,
 		}
 	}
 
