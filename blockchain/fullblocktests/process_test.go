@@ -40,6 +40,10 @@ func TestProcessLogic(t *testing.T) {
 				harness.AcceptHeader(item.Name)
 			case RejectedHeader:
 				harness.RejectHeader(item.Name, item.RejectCode)
+			case AcceptedBlock:
+				harness.AcceptBlock(item)
+			case RejectedBlock:
+				harness.RejectBlock(item)
 			default:
 				t.Fatalf("test #%d, item #%d is not one of "+
 					"the supported test instance types -- "+

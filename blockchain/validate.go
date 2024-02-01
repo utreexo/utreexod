@@ -496,9 +496,15 @@ func checkBlockHeaderSanity(header *wire.BlockHeader, powLimit *big.Int, timeSou
 func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
 	msgBlock := block.MsgBlock()
 	header := &msgBlock.Header
-	err := checkBlockHeaderSanity(header, powLimit, timeSource, flags)
-	if err != nil {
-		return err
+
+	// If the BFHeaderValidated flag is set, it means that the header
+	// has already been validated, so we don't need to re-validate it. Only
+	// check block header sanity if BFHeaderValidated is not set.
+	if flags&BFHeaderValidated != BFHeaderValidated {
+		err := checkBlockHeaderSanity(header, powLimit, timeSource, flags)
+		if err != nil {
+			return err
+		}
 	}
 
 	// A block must have at least one transaction.
@@ -755,9 +761,15 @@ func (b *BlockChain) checkBlockHeaderContext(header *wire.BlockHeader, prevNode 
 func (b *BlockChain) checkBlockContext(block *btcutil.Block, prevNode *blockNode, flags BehaviorFlags) error {
 	// Perform all block header related validation checks.
 	header := &block.MsgBlock().Header
-	err := b.checkBlockHeaderContext(header, prevNode, flags)
-	if err != nil {
-		return err
+
+	// If BFHeaderValidated flag is set, then it means that the header has
+	// already been validated and we don't need to re-validate it. We check
+	// block header context, only when BFHeaderValidated flag is not set.
+	if flags&BFHeaderValidated != BFHeaderValidated {
+		err := b.checkBlockHeaderContext(header, prevNode, flags)
+		if err != nil {
+			return err
+		}
 	}
 
 	fastAdd := flags&BFFastAdd == BFFastAdd

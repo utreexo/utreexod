@@ -31,6 +31,11 @@ const (
 	// not be performed.
 	BFNoPoWCheck
 
+	// BFHeaderValidated indicates the header has already been validated
+	// and the header validation can be skipped when block validation is
+	// being performed.
+	BFHeaderValidated
+
 	// BFNone is a convenience value to specifically indicate no flags.
 	BFNone BehaviorFlags = 0
 )
@@ -200,13 +205,25 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 
 	blockHash := block.Hash()
 	log.Tracef("Processing block %v", blockHash)
-
-	// The block must not already exist in the main chain or side chains.
+	// Check if the block is present in main chain or any of the side chains.
 	exists, err := b.blockExists(blockHash)
 	if err != nil {
 		return false, false, err
 	}
+	// If the block node is present, it means that the header is already verified.
+	// So we add this to the behavioural flag and the flag is then passed to further
+	// functions, so that we don't have to re-validate the header.
 	if exists {
+		flags |= BFHeaderValidated
+	}
+	// Look up the node and check if the block data is already stored.
+	node := b.index.LookupNode(blockHash)
+	haveData := false
+	if node != nil {
+		haveData = node.status.HaveData()
+	}
+	// Return an error if the block data is already present.
+	if exists && haveData {
 		str := fmt.Sprintf("already have block %v", blockHash)
 		return false, false, ruleError(ErrDuplicateBlock, str)
 	}
@@ -217,6 +234,13 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 		return false, false, ruleError(ErrDuplicateBlock, str)
 	}
 
+	// Reject blocks that are already known to be invalid immediately to avoid
+	// additional work when possible.
+	if node != nil {
+		if err := b.checkKnownInvalidBlock(node); err != nil {
+			return false, false, err
+		}
+	}
 	// Perform preliminary sanity checks on the block and its transactions.
 	err = checkBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
 	if err != nil {

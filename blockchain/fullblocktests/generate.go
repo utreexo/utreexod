@@ -2214,7 +2214,15 @@ func GenerateHeaders() (generator *testGenerator, tests [][]TestInstance) {
 		blockHeight := g.blockHeights[blockName]
 		return RejectedHeader{blockName, blockHeader, blockHeight, code}
 	}
-
+	acceptBlock := func(blockName string, block *wire.MsgBlock, isMainChain, isOrphan bool) TestInstance {
+		blockHeight := g.blockHeights[blockName]
+		return AcceptedBlock{blockName, block, blockHeight, isMainChain,
+			isOrphan}
+	}
+	rejectBlock := func(blockName string, block *wire.MsgBlock, code blockchain.ErrorCode) TestInstance {
+		blockHeight := g.blockHeights[blockName]
+		return RejectedBlock{blockName, block, blockHeight, code}
+	}
 	// Define some convenience helper functions to populate the tests slice
 	// with test instances that have the described characteristics.
 	//
@@ -2224,6 +2232,13 @@ func GenerateHeaders() (generator *testGenerator, tests [][]TestInstance) {
 	//
 	// rejected creates and appends a single rejectHeader test instance for
 	// the current tip.
+	//
+	// acceptedBlock creates and appends a single acceptBlock test instance for
+	// the current tip which expects the block to be accepted to the main
+	// chain.
+	//
+	// rejectedBlock creates and appends a single rejectBlock test instance for
+	// the current tip.
 	accepted := func() {
 		tests = append(tests, []TestInstance{
 			acceptHeader(g.tipName, g.tip),
@@ -2232,6 +2247,16 @@ func GenerateHeaders() (generator *testGenerator, tests [][]TestInstance) {
 	rejected := func(code blockchain.ErrorCode) {
 		tests = append(tests, []TestInstance{
 			rejectHeader(g.tipName, g.tip, code),
+		})
+	}
+	acceptedBlock := func() {
+		tests = append(tests, []TestInstance{
+			acceptBlock(g.tipName, g.tip, true, false),
+		})
+	}
+	rejectedBlock := func(code blockchain.ErrorCode) {
+		tests = append(tests, []TestInstance{
+			rejectBlock(g.tipName, g.tip, code),
 		})
 	}
 	// ---------------------------------------------------------------------
@@ -2317,11 +2342,79 @@ func GenerateHeaders() (generator *testGenerator, tests [][]TestInstance) {
 		g.updateBlockState("b3", origHash, "b3", b3)
 	}
 	rejected(blockchain.ErrUnexpectedDifficulty)
-	// Adding a block with valid header
+	// Adding a block with valid header but invalid spend
 	//
-	// ... -> b0() -> b4(1)
+	// ... -> b0() -> b4(2)
 	g.setTip("b0")
-	g.nextBlock("b4", outs[1])
+	g.nextBlock("b4", outs[2])
 	accepted()
+	// Adding a block with valid header and valid spend, but invalid parent
+	//
+	// ... -> b0() -> b5(1)
+	g.nextBlock("b5", outs[1])
+	accepted()
+	// Adding a block with valid header and valid spend and valid parent
+	//
+	// ... -> b0() -> b6(1)
+	g.setTip("b0")
+	g.nextBlock("b6", outs[1])
+	// Accepting/Rejecting the blocks for the headers that were
+	// accepted/rejected
+	testInstances = make([]TestInstance, 0)
+	for i := uint16(0); i < coinbaseMaturity; i++ {
+		blockName := fmt.Sprintf("bm%d", i)
+		g.setTip(blockName)
+		testInstances = append(testInstances, acceptBlock(g.tipName,
+			g.tip, true, false))
+	}
+	tests = append(tests, testInstances)
+	// Accepting the block b0
+	//
+	// ... -> b0
+	g.setTip("b0")
+	acceptedBlock()
+	// Rejecting the block data for b1 because of high hash
+	//	 ... -> b0()
+	// 					\-> b1(1)
+	g.setTip("b1")
+	rejectedBlock(blockchain.ErrHighHash)
+	// Acccept the block as orphan
+	//
+	//	 -> b1a(1)
+	g.setTip("b1a")
+	tests = append(tests, []TestInstance{
+		acceptBlock(g.tipName, g.tip, false, true),
+	})
+	// Reject the block with invalid proof of work
+	//
+	//   ... -> b0()
+	//                 \-> b2(1)
+	g.setTip("b2")
+	rejectedBlock(blockchain.ErrUnexpectedDifficulty)
+	// Reject the block with invalid negative proof of work
+	//
+	//   ... -> b0()
+	//                 \-> b3(1)
+	g.setTip("b3")
+	rejectedBlock(blockchain.ErrUnexpectedDifficulty)
+	// Rejecting the block with valid header but invalid spend
+	//
+	//   ... -> b0()
+	//                 \-> b4(2)
+	g.setTip("b4")
+	rejectedBlock(blockchain.ErrImmatureSpend)
+	// Since the block is rejected, so rejecting the header also
+	// which was earlier accepted.
+	rejected(blockchain.ErrKnownInvalidBlock)
+	// Rejecting a block with valid header and valid spend, but invalid parent
+	//
+	//  -> b4(2) -> b5(1)
+	g.setTip("b5")
+	rejectedBlock(blockchain.ErrInvalidAncestorBlock)
+	// Accepting the block
+	//
+	// ... -> b0() -> b6(1)
+	g.setTip("b6")
+	acceptedBlock()
 	return &g, tests
 }

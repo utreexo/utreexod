@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/utreexo/utreexod/blockchain"
+	"github.com/utreexo/utreexod/btcutil"
 )
 
 type chaingenHarness struct {
@@ -128,5 +129,77 @@ func (g *chaingenHarness) RejectHeader(blockName string, code blockchain.ErrorCo
 	if !status.KnownInvalid() {
 		g.t.Fatalf("rejected block header %q (hash %s) is NOT "+
 			"marked as known invalid", blockName, blockHash)
+	}
+}
+
+// testAcceptedBlock attempts to process the block in the provided test
+// instance and ensures that it was accepted according to the flags
+// specified in the test.
+func (g *chaingenHarness) AcceptBlock(item AcceptedBlock) {
+	g.t.Helper()
+
+	blockHeight := item.Height
+	block := btcutil.NewBlock(item.Block)
+	block.SetHeight(blockHeight)
+	g.t.Logf("Testing block %s (hash %s, height %d)",
+		item.Name, block.Hash(), blockHeight)
+
+	isMainChain, isOrphan, err := g.chain.ProcessBlock(block,
+		blockchain.BFNone)
+	if err != nil {
+		g.t.Fatalf("block %q (hash %s, height %d) should "+
+			"have been accepted: %v", item.Name,
+			block.Hash(), blockHeight, err)
+	}
+
+	// Ensure the main chain and orphan flags match the values
+	// specified in the test.
+	if isMainChain != item.IsMainChain {
+		g.t.Fatalf("block %q (hash %s, height %d) unexpected main "+
+			"chain flag -- got %v, want %v", item.Name,
+			block.Hash(), blockHeight, isMainChain,
+			item.IsMainChain)
+	}
+	if isOrphan != item.IsOrphan {
+		g.t.Fatalf("block %q (hash %s, height %d) unexpected "+
+			"orphan flag -- got %v, want %v", item.Name,
+			block.Hash(), blockHeight, isOrphan,
+			item.IsOrphan)
+	}
+}
+
+// testRejectedBlock attempts to process the block in the provided test
+// instance and ensures that it was rejected with the reject code
+// specified in the test.
+func (g *chaingenHarness) RejectBlock(item RejectedBlock) {
+	g.t.Helper()
+
+	blockHeight := item.Height
+	block := btcutil.NewBlock(item.Block)
+	block.SetHeight(blockHeight)
+	g.t.Logf("Testing block %s (hash %s, height %d)",
+		item.Name, block.Hash(), blockHeight)
+
+	_, _, err := g.chain.ProcessBlock(block, blockchain.BFNone)
+	if err == nil {
+		g.t.Fatalf("block %q (hash %s, height %d) should not "+
+			"have been accepted", item.Name, block.Hash(),
+			blockHeight)
+	}
+
+	// Ensure the error code is of the expected type and the reject
+	// code matches the value specified in the test instance.
+	rerr, ok := err.(blockchain.RuleError)
+	if !ok {
+		g.t.Fatalf("block %q (hash %s, height %d) returned "+
+			"unexpected error type -- got %T, want "+
+			"blockchain.RuleError", item.Name, block.Hash(),
+			blockHeight, err)
+	}
+	if rerr.ErrorCode != item.RejectCode {
+		g.t.Fatalf("block %q (hash %s, height %d) does not have "+
+			"expected reject code -- got %v, want %v",
+			item.Name, block.Hash(), blockHeight,
+			rerr.ErrorCode, item.RejectCode)
 	}
 }
