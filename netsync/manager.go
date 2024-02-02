@@ -8,6 +8,7 @@ import (
 	"container/list"
 	"math/rand"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -198,6 +199,9 @@ type SyncManager struct {
 	peerStates       map[*peerpkg.Peer]*peerSyncState
 	lastProgressTime time.Time
 
+	// headersBuildMode downloads and builds the entire header index.
+	headersBuildMode bool
+
 	// The following fields are used for headers-first mode.
 	headersFirstMode bool
 	headerList       *list.List
@@ -366,7 +370,14 @@ func (sm *SyncManager) startSync() {
 		// and fully validate them.  Finally, regression test mode does
 		// not support the headers-first approach so do normal block
 		// downloads when in regression test mode.
-		if sm.nextCheckpoint != nil &&
+		if sm.headersBuildMode && best.Height < sm.nextCheckpoint.Height &&
+			sm.chainParams != &chaincfg.RegressionNetParams {
+
+			bestPeer.PushGetHeadersMsg(locator, &zeroHash)
+			log.Infof("Downloading headers from %d to "+
+				"%d from peer %s", best.Height+1,
+				bestPeer.LastBlock(), bestPeer.Addr())
+		} else if sm.nextCheckpoint != nil &&
 			best.Height < sm.nextCheckpoint.Height &&
 			sm.chainParams != &chaincfg.RegressionNetParams {
 
@@ -962,7 +973,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	// The remote peer is misbehaving if we didn't request headers.
 	msg := hmsg.headers
 	numHeaders := len(msg.Headers)
-	if !sm.headersFirstMode {
+	if !sm.headersFirstMode && !sm.headersBuildMode {
 		log.Warnf("Got %d unrequested headers from %s -- "+
 			"disconnecting", numHeaders, peer.Addr())
 		peer.Disconnect()
@@ -971,6 +982,88 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 
 	// Nothing to do for an empty headers message.
 	if numHeaders == 0 {
+		return
+	}
+
+	if sm.headersBuildMode {
+		var finalHeader *wire.BlockHeader
+		for _, blockHeader := range msg.Headers {
+			finalHeader = blockHeader
+
+			err := sm.chain.ProcessBlockHeader(blockHeader)
+			if err != nil {
+				log.Warnf("Received block header that does not "+
+					"properly connect to the chain from peer %s "+
+					"-- disconnecting", peer.Addr())
+				peer.Disconnect()
+				return
+			}
+		}
+
+		finalHash := finalHeader.BlockHash()
+		finalHeight, err := sm.chain.BlockHeightByHash(&finalHash)
+		if err != nil {
+			log.Warnf("Failed to grab block height for last block hash "+
+				"%v. %v.", finalHash.String(), err)
+			return
+		}
+
+		// We're now done downloading headers at this point.
+		if finalHeight >= sm.chain.AssumeUtreexoHeight() {
+			assumeUtreexoHeight := sm.chain.AssumeUtreexoHeight()
+			indexHash, err := sm.chain.BlockHashByHeight(assumeUtreexoHeight)
+			if err != nil {
+				log.Warnf("Failed to grab block height for last block hash "+
+					"%v. %v.", finalHash.String(), err)
+				return
+			}
+			if sm.chain.AssumeUtreexoHash() != *indexHash {
+				log.Warnf("The nodea had hash %v hardcoded in but the valid proof-of-work "+
+					"chain has the hash %v at height %v. The user should not trust this "+
+					"software as genuine and there may be attempts to steal funds. The user "+
+					"should delete the datadir at %v ", sm.chain.AssumeUtreexoHash().String(),
+					indexHash.String(), assumeUtreexoHeight)
+				os.Exit(1)
+			}
+
+			// We're done downloading headers.
+			sm.headersBuildMode = false
+
+			// No more headers first mode either.
+			sm.headersFirstMode = false
+			sm.headerList.Init()
+
+			// Set the best state and the utreexo state.
+			sm.chain.SetNewBestStateFromAssumedUtreexoPoint()
+			sm.chain.SetUtreexoStateFromAssumePoint()
+
+			bestState := sm.chain.BestSnapshot()
+			log.Infof("Finished building headers. Initialized assumed utreexo point "+
+				"at block %v(%d)", bestState.Hash.String(), bestState.Height)
+
+			locator := blockchain.BlockLocator([]*chainhash.Hash{&bestState.Hash})
+			err = peer.PushGetBlocksMsg(locator, &zeroHash)
+			if err != nil {
+				log.Warnf("Failed to send getblocks message to "+
+					"peer %s: %v", peer.Addr(), err)
+				return
+			}
+
+			return
+		}
+
+		// This header is not a checkpoint, so request the next batch of
+		// headers starting from the latest known header and ending with the
+		// next checkpoint.
+		locator := blockchain.BlockLocator([]*chainhash.Hash{&finalHash})
+		stopHash := sm.chain.AssumeUtreexoHash()
+		err = peer.PushGetHeadersMsg(locator, &stopHash)
+		if err != nil {
+			log.Warnf("Failed to send getheaders message to "+
+				"peer %s: %v", peer.Addr(), err)
+			return
+		}
+
 		return
 	}
 
@@ -1594,6 +1687,12 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 	// A block has been connected to the main block chain.
 	case blockchain.NTBlockConnected:
+		// Don't relay if we are not current. Other peers that are
+		// current should already know about it.
+		if !sm.current() {
+			return
+		}
+
 		block, ok := notification.Data.(*btcutil.Block)
 		if !ok {
 			log.Warnf("Chain connected notification is not a block.")
@@ -1827,6 +1926,12 @@ func New(config *Config) (*SyncManager, error) {
 		}
 	} else {
 		log.Info("Checkpoints are disabled")
+	}
+
+	// If we're at assume utreexo mode, then build headers first.
+	if sm.chain.IsUtreexoViewActive() && sm.chain.IsAssumeUtreexo() {
+		log.Info("Assumed Utreexo is enabled. Downloading headers...")
+		sm.headersBuildMode = true
 	}
 
 	sm.chain.Subscribe(sm.handleBlockchainNotification)

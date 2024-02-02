@@ -62,14 +62,22 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 		return false, err
 	}
 
-	// Create a new block node for the block and add it to the node index. Even
-	// if the block ultimately gets connected to the main chain, it starts out
-	// on a side chain.
-	blockHeader := &block.MsgBlock().Header
-	newNode := newBlockNode(blockHeader, prevNode)
-	newNode.status = statusDataStored
+	// Check to see if we already have the blocknode in our index.
+	node := b.index.LookupNode(block.Hash())
+	if node == nil {
+		// Create a new block node for the block and add it to the node index. Even
+		// if the block ultimately gets connected to the main chain, it starts out
+		// on a side chain.
+		blockHeader := &block.MsgBlock().Header
+		newNode := newBlockNode(blockHeader, prevNode)
+		newNode.status = statusDataStored
 
-	b.index.AddNode(newNode)
+		b.index.AddNode(newNode)
+		node = newNode
+	} else {
+		// If we already have it, then just set the status as data stored.
+		b.index.SetStatusFlags(node, statusDataStored)
+	}
 	err = b.index.flushToDB()
 	if err != nil {
 		return false, err
@@ -78,7 +86,7 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	// Connect the passed block to the chain while respecting proper chain
 	// selection according to the chain with the most proof of work.  This
 	// also handles validation of the transaction scripts.
-	isMainChain, err := b.connectBestChain(newNode, block, flags)
+	isMainChain, err := b.connectBestChain(node, block, flags)
 	if err != nil {
 		return false, err
 	}
@@ -163,5 +171,8 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeade
 	// known since that information is not available in the header.
 	newNode := newBlockNode(header, prevNode)
 	b.index.AddNode(newNode)
+
+	// This node is now the end of the best chain.
+	b.bestChain.SetTip(newNode)
 	return newNode, nil
 }

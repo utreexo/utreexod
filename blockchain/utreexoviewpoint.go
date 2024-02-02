@@ -809,6 +809,17 @@ func NewUtreexoViewpoint() *UtreexoViewpoint {
 	}
 }
 
+// SetUtreexoStateFromAssumePoint sets an initialized utreexoviewpoint from the
+// assumedUtreexoPoint.
+func (b *BlockChain) SetUtreexoStateFromAssumePoint() {
+	b.utreexoView = &UtreexoViewpoint{
+		// Use 1 as a default value.
+		proofInterval: 1,
+		accumulator: utreexo.NewMapPollardFromRoots(
+			b.assumeUtreexoPoint.Roots, b.assumeUtreexoPoint.NumLeaves),
+	}
+}
+
 // GetUtreexoView returns the underlying utreexo viewpoint.
 func (b *BlockChain) GetUtreexoView() *UtreexoViewpoint {
 	return b.utreexoView
@@ -830,6 +841,11 @@ func (b *BlockChain) IsUtreexoViewActive() bool {
 	b.chainLock.Unlock()
 
 	return utreexoActive
+}
+
+// IsAssumeUtreexo returns true if the assume utreexo points are set.
+func (b *BlockChain) IsAssumeUtreexo() bool {
+	return len(b.assumeUtreexoPoint.Roots) > 0 && len(b.utreexoView.GetRoots()) == 0
 }
 
 // VerifyUData processes the given UData and then verifies that the proof validates
