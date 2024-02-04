@@ -88,6 +88,7 @@ func TestUtreexoCSN(t *testing.T) {
 		"--flatutreexoproofindex",
 		"--noutreexo",
 		"--nobdkwallet",
+		"--prune=0",
 	}
 	// Set up regtest chain for the bridge node.
 	bridgeNode, err := rpctest.New(&chaincfg.RegressionNetParams, nil, bridgeNodeArgs, "")

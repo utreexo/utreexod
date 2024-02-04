@@ -110,7 +110,7 @@ type config struct {
 	UtxoCacheMaxSizeMiB uint   `long:"utxocachemaxsize" description:"The maximum size in MiB of the UTXO cache"`
 	NoUtreexo           bool   `long:"noutreexo" description:"Disable utreexo compact state during block validation"`
 	NoWinService        bool   `long:"nowinservice" description:"Do not start as a background service on Windows -- NOTE: This flag only works on the command line, not in the config file"`
-	Prune               uint64 `long:"prune" description:"Prune already validated blocks from the database. Must specify a target size in MiB (minimum value of 550, default of 0 to disable pruning)"`
+	Prune               uint64 `long:"prune" description:"Prune already validated blocks from the database. Must specify a target size in MiB (minimum value of 550, default of 550. Set to 0 to disable pruning.)"`
 
 	// Profiling options.
 	Profile       string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
@@ -494,6 +494,7 @@ func loadConfig() (*config, []string, error) {
 		TxIndex:              defaultTxIndex,
 		TTLIndex:             defaultTTLIndex,
 		AddrIndex:            defaultAddrIndex,
+		Prune:                pruneMinSize,
 	}
 
 	// Service options which are only added on Windows.
@@ -1208,13 +1209,8 @@ func loadConfig() (*config, []string, error) {
 		cfg.NoUtreexo = true
 	}
 
-	// Set --prune=550 if the node is a utreexo node.
-	if !cfg.NoUtreexo {
-		if cfg.Prune == 0 {
-			cfg.Prune = pruneMinSize
-		}
-	} else {
-		// Set --noassumeutreexo if the node is not a utreexo node.
+	// Set --noassumeutreexo if the node is not a utreexo node.
+	if cfg.NoUtreexo {
 		cfg.NoAssumeUtreexo = true
 	}
 
@@ -1304,7 +1300,7 @@ func loadConfig() (*config, []string, error) {
 
 	if cfg.Prune != 0 && cfg.TxIndex {
 		err := fmt.Errorf("%s: the --prune and --txindex options may "+
-			"not be activated at the same time", funcName)
+			"not be activated at the same time. Set --prune=0 to disable pruning.", funcName)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, nil, err
@@ -1312,7 +1308,7 @@ func loadConfig() (*config, []string, error) {
 
 	if cfg.Prune != 0 && cfg.AddrIndex {
 		err := fmt.Errorf("%s: the --prune and --addrindex options may "+
-			"not be activated at the same time", funcName)
+			"not be activated at the same time. Set --prune=0 to disable pruning.", funcName)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, nil, err
@@ -1320,7 +1316,7 @@ func loadConfig() (*config, []string, error) {
 
 	if cfg.Prune != 0 && cfg.TTLIndex {
 		err := fmt.Errorf("%s: the --prune and --ttlindex options may "+
-			"not be activated at the same time", funcName)
+			"not be activated at the same time. Set --prune=0 to disable pruning.", funcName)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, nil, err

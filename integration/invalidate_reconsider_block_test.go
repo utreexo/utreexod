@@ -9,7 +9,7 @@ import (
 
 func TestInvalidateAndReconsiderBlock(t *testing.T) {
 	// Set up regtest chain.
-	r, err := rpctest.New(&chaincfg.RegressionNetParams, nil, []string{"--flatutreexoproofindex", "--utreexoproofindex", "--nobdkwallet"}, "")
+	r, err := rpctest.New(&chaincfg.RegressionNetParams, nil, []string{"--flatutreexoproofindex", "--utreexoproofindex", "--nobdkwallet", "--prune=0"}, "")
 	if err != nil {
 		t.Fatalf("TestInvalidateAndReconsiderBlock fail. Unable to create primary harness: %v", err)
 	}
