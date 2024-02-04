@@ -424,6 +424,14 @@ func handleAddNode(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (in
 
 // handleBalance handles the balance command.
 func handleBalance(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
 	balance := s.cfg.BDKWallet.Wallet.Balance()
 	return btcjson.BalanceResult{
 		Immature:         int64(balance.Immature),
@@ -997,6 +1005,14 @@ func handleEstimateFee(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 
 // handleFreshAddress implements the freshaddress command.
 func handleFreshAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
 	index, address, err := s.cfg.BDKWallet.Wallet.FreshAddress()
 	if err != nil {
 		return nil, &btcjson.RPCError{
@@ -2542,6 +2558,14 @@ func handleGetMiningInfo(s *rpcServer, cmd interface{}, closeChan <-chan struct{
 
 // handleGetMnemonicWords implements the getmnemonicwords command.
 func handleGetMnemonicWords(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
 	words := s.cfg.BDKWallet.Wallet.MnemonicWords()
 	return words, nil
 }
@@ -3088,6 +3112,14 @@ func handleHelp(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (inter
 
 // handleListBDKTransactions handles listbdktransactions commands.
 func handleListBDKTransactions(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
 	txs, err := s.cfg.BDKWallet.Wallet.Transactions()
 	if err != nil {
 		return nil, &btcjson.RPCError{
@@ -3121,6 +3153,14 @@ func handleListBDKTransactions(s *rpcServer, cmd interface{}, closeChan <-chan s
 
 // handleListBDKUTXOs handles handlelistbdkutxos commands.
 func handleListBDKUTXOs(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
 	utxos := s.cfg.BDKWallet.Wallet.UTXOs()
 
 	res := make([]btcjson.ListBDKUTXOsResult, len(utxos))
@@ -3141,6 +3181,14 @@ func handleListBDKUTXOs(s *rpcServer, cmd interface{}, closeChan <-chan struct{}
 
 // handlePeekAddress implements the peekaddress command.
 func handlePeekAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
 	c := cmd.(*btcjson.PeekAddressCmd)
 
 	index, address, err := s.cfg.BDKWallet.Wallet.PeekAddress(c.Index)
@@ -3831,6 +3879,14 @@ func sendTxToMempoolSpace(rawTx string, chainParams *chaincfg.Params) (string, e
 
 // handleRebroadcastUnconfirmedBDKTxs implements the rebroadcastunconfirmedbdktxs command.
 func handleRebroadcastUnconfirmedBDKTxs(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
 	allTxs, err := s.cfg.BDKWallet.Wallet.Transactions()
 	if err != nil {
 		return nil, &btcjson.RPCError{
@@ -4426,6 +4482,14 @@ func handleSubmitBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 
 // handleUnusedAddress implements the unusedaddress command.
 func handleUnusedAddress(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Before doing anything, check that the bdk wallet is active.
+	if s.cfg.BDKWallet == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: "BDK wallet must be enabled. (--bdkwallet)",
+		}
+	}
+
 	index, address, err := s.cfg.BDKWallet.Wallet.UnusedAddress()
 	if err != nil {
 		return nil, &btcjson.RPCError{

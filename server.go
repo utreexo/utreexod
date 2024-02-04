@@ -3556,7 +3556,14 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			DataDir:     cfg.DataDir,
 		})
 		if err != nil {
-			return nil, err
+			if err == bdkwallet.ErrNoBDK {
+				s.bdkWallet = nil
+				cfg.NoBdkWallet = true
+				btcdLog.Infof("Unable to enable bkdwallet as utreexod wasn't built with bdkwallet. " +
+					"Starting node without bdkwallet.")
+			} else {
+				return nil, err
+			}
 		}
 	}
 
