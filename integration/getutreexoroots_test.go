@@ -64,6 +64,7 @@ func TestGetUtreexoRoots(t *testing.T) {
 		"--utreexoproofindex",
 		"--noutreexo",
 		"--nobdkwallet",
+		"--prune=0",
 	}
 	utreexoProofNode, err := rpctest.New(&chaincfg.RegressionNetParams, nil, utreexoProofIdxArgs, "")
 	if err != nil {
@@ -79,6 +80,7 @@ func TestGetUtreexoRoots(t *testing.T) {
 		"--flatutreexoproofindex",
 		"--noutreexo",
 		"--nobdkwallet",
+		"--prune=0",
 	}
 	flatUtreexoProofNode, err := rpctest.New(&chaincfg.RegressionNetParams, nil, flatUtreexoProofIdxArgs, "")
 	if err != nil {
