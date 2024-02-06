@@ -526,7 +526,14 @@ func main() {
 	// limits the garbage collector from excessively overallocating during
 	// bursts.  This value was arrived at with the help of profiling live
 	// usage.
-	debug.SetGCPercent(30)
+	// If GOGC is not explicitly set, override GC percent.
+	if os.Getenv("GOGC") == "" {
+		// Block and transaction processing can cause bursty allocations.  This
+		// limits the garbage collector from excessively overallocating during
+		// bursts.  This value was arrived at with the help of profiling live
+		// usage.
+		debug.SetGCPercent(30)
+	}
 
 	// Up some limits.
 	if err := limits.SetLimits(); err != nil {
