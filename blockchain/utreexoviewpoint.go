@@ -39,7 +39,7 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 	roots := uview.accumulator.GetRoots()
 	rootPositions := utreexo.RootPositions(uview.accumulator.NumLeaves, uview.accumulator.TotalRows)
 	for i := range roots {
-		newUview.accumulator.Nodes[rootPositions[i]] = utreexo.Leaf{Hash: roots[i]}
+		newUview.accumulator.Nodes.Put(rootPositions[i], utreexo.Leaf{Hash: roots[i]})
 	}
 	newUview.accumulator.NumLeaves = uview.accumulator.NumLeaves
 
@@ -805,7 +805,7 @@ func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
 		// Use 1 as a default value.
 		proofInterval: 1,
-		accumulator:   utreexo.NewMapPollard(),
+		accumulator:   utreexo.NewMapPollard(false),
 	}
 }
 
@@ -816,7 +816,7 @@ func (b *BlockChain) SetUtreexoStateFromAssumePoint() {
 		// Use 1 as a default value.
 		proofInterval: 1,
 		accumulator: utreexo.NewMapPollardFromRoots(
-			b.assumeUtreexoPoint.Roots, b.assumeUtreexoPoint.NumLeaves),
+			b.assumeUtreexoPoint.Roots, b.assumeUtreexoPoint.NumLeaves, false),
 	}
 }
 

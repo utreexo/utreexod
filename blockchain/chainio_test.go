@@ -825,20 +825,38 @@ func TestUtreexoViewSerialize(t *testing.T) {
 				gotUtreexoView.accumulator.NumLeaves)
 			continue
 		}
-		for k, v := range test.uView.accumulator.Nodes {
-			if v != gotUtreexoView.accumulator.Nodes[k] {
-				t.Errorf("expected %v for key of %d but got %v",
-					v, k, gotUtreexoView.accumulator.Nodes[k])
-				break
+		err = test.uView.accumulator.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
+			gotV, found := gotUtreexoView.accumulator.Nodes.Get(k)
+			if !found {
+				return fmt.Errorf("expected %v for key of %d but it wasn't found",
+					v, k)
 			}
+			if gotV != v {
+				return fmt.Errorf("expected %v for key of %d but got %v",
+					v, k, gotV)
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
 
-		for k, v := range test.uView.accumulator.CachedLeaves {
-			if v != gotUtreexoView.accumulator.CachedLeaves[k] {
-				t.Errorf("expected %v for key of %d but got %v",
-					v, k, gotUtreexoView.accumulator.CachedLeaves[k])
-				break
+		err = test.uView.accumulator.CachedLeaves.ForEach(func(k utreexo.Hash, v uint64) error {
+			gotV, found := gotUtreexoView.accumulator.CachedLeaves.Get(k)
+			if !found {
+				return fmt.Errorf("expected %v for key of %d but it wasn't found",
+					v, k)
 			}
+			if gotV != v {
+				return fmt.Errorf("expected %v for key of %d but got %v",
+					v, k, gotV)
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
 }

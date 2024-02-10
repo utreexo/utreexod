@@ -840,7 +840,13 @@ func (idx *FlatUtreexoProofIndex) GetLeafHashPositions(delHashes []utreexo.Hash)
 	idx.mtx.RLock()
 	defer idx.mtx.RUnlock()
 
-	return idx.utreexoState.state.GetLeafPositions(delHashes)
+	positions := make([]uint64, len(delHashes))
+	for i, delHash := range delHashes {
+		pos, _ := idx.utreexoState.state.GetLeafPosition(delHash)
+		positions[i] = pos
+	}
+
+	return positions
 }
 
 // GenerateUDataPartial generates a utreexo data based on the current state of the accumulator.
@@ -863,7 +869,12 @@ func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, pos
 		hashes[i] = idx.utreexoState.state.GetHash(pos)
 	}
 
-	targets := idx.utreexoState.state.GetLeafPositions(delHashes)
+	targets := make([]uint64, len(delHashes))
+	for i, delHash := range delHashes {
+		pos, _ := idx.utreexoState.state.GetLeafPosition(delHash)
+		targets[i] = pos
+	}
+
 	ud.AccProof = utreexo.Proof{
 		Targets: targets,
 		Proof:   hashes,

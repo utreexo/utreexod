@@ -228,7 +228,7 @@ func TestUDataSerializeSize(t *testing.T) {
 
 	for _, testData := range testDatas {
 		// New forest object.
-		p := utreexo.NewAccumulator(true)
+		p := utreexo.NewAccumulator()
 
 		// Create hashes to add from the stxo data.
 		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
@@ -383,7 +383,7 @@ func TestUDataSerialize(t *testing.T) {
 
 	for _, testData := range testDatas {
 		// New forest object.
-		p := utreexo.NewAccumulator(true)
+		p := utreexo.NewAccumulator()
 
 		// Create hashes to add from the stxo data.
 		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
@@ -456,7 +456,7 @@ func TestUDataSerializeCompact(t *testing.T) {
 
 	for _, testData := range testDatas {
 		// New forest object.
-		p := utreexo.NewAccumulator(true)
+		p := utreexo.NewAccumulator()
 
 		// Create hashes to add from the stxo data.
 		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
@@ -549,7 +549,7 @@ func TestSerializeNoAccProof(t *testing.T) {
 
 	for _, testData := range testDatas {
 		// New forest object.
-		p := utreexo.NewAccumulator(true)
+		p := utreexo.NewAccumulator()
 
 		// Create hashes to add from the stxo data.
 		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
@@ -650,7 +650,7 @@ func TestGenerateUData(t *testing.T) {
 		}
 	}
 
-	p := utreexo.NewAccumulator(true)
+	p := utreexo.NewAccumulator()
 	err := p.Modify(addLeaves, nil, utreexo.Proof{})
 	if err != nil {
 		t.Fatal(err)
