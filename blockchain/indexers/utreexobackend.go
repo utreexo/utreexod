@@ -341,6 +341,6 @@ func restoreUtreexoState(cfg *UtreexoConfig, basePath string) (*utreexo.Pollard,
 
 // createUtreexoState creates a new utreexo state and returns it.
 func createUtreexoState(cfg *UtreexoConfig, basePath string) (*utreexo.Pollard, error) {
-	p := utreexo.NewAccumulator(true)
+	p := utreexo.NewAccumulator()
 	return &p, nil
 }

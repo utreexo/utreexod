@@ -1128,7 +1128,7 @@ func deserializeUtreexoView(uView *UtreexoViewpoint, serializedUView []byte) err
 	uView.accumulator.NumLeaves = numLeaves
 	rootPositions := utreexo.RootPositions(numLeaves, uView.accumulator.TotalRows)
 	for i := range roots {
-		uView.accumulator.Nodes[rootPositions[i]] = utreexo.Leaf{Hash: roots[i]}
+		uView.accumulator.Nodes.Put(rootPositions[i], utreexo.Leaf{Hash: roots[i]})
 	}
 
 	return nil
