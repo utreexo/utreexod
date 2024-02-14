@@ -1171,22 +1171,28 @@ func ReconstructScript(sigScript []byte, witness wire.TxWitness, class ScriptCla
 	var script []byte
 	var err error
 
+	// A closure to check if a function is an uncompressed pubkey. If the length is right
+	// and the prepended byte is the byte for uncompressed pubkeys, we can safely assume that
+	// it's an uncompressed pubkey.
+	isUncompressedPubKey := func(pubKey []byte) bool {
+		return len(pubKey) == uncompressedPubKeyLen &&
+			(pubKey[0]&^byte(0x1) == pubkeyUncompressed)
+	}
+
 	switch class {
 	case PubKeyHashTy:
-		var data []byte
-
+		// Extract out the pubkey data.
+		var pubkeyData, data []byte
 		tokenizer := MakeScriptTokenizer(0, sigScript)
 		for tokenizer.Next() {
 			data = tokenizer.Data()
 
-			// If we found the key, break immediately.  This prevents
-			// erroring out from OP_DUP OP_DROP opcodes that are appended
-			// to some redeem scripts.
-			if btcec.IsCompressedPubKey(data) {
-				break
+			if btcec.IsCompressedPubKey(data) || isUncompressedPubKey(data) {
+				pubkeyData = data
 			}
 		}
-		hash := btcutil.Hash160(data)
+
+		hash := btcutil.Hash160(pubkeyData)
 		script, err = payToPubKeyHashScript(hash)
 		if err != nil {
 			return nil, err
@@ -1218,14 +1224,14 @@ func ReconstructScript(sigScript []byte, witness wire.TxWitness, class ScriptCla
 			return nil, fmt.Errorf("unable to reconstruct script due to missing witness: %v", witness)
 		}
 		last := witness[len(witness)-1]
-		hash := chainhash.HashB(last)
+		hash := chainhash.HashH(last)
 
-		script, err = payToWitnessScriptHashScript(hash)
+		script, err = payToWitnessScriptHashScript(hash[:])
 		if err != nil {
 			return nil, err
 		}
 	default:
-		return nil, nil
+		return nil, fmt.Errorf("unsupported scriptclass %v", class.String())
 	}
 
 	return script, nil

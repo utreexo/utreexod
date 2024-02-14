@@ -1326,6 +1326,47 @@ func TestReconstructScript(t *testing.T) {
 		expectErr bool
 	}{
 		{
+			// a44d40b3a14aca3f19ccf47244ef4a70ed02d00f5d840c38756368e9a7cc24b1:4 on testnet3
+			name: "uncompressed-p2pkh",
+			pkScript: "OP_DUP OP_HASH160 DATA_20 " +
+				"0x6b2044146a4438e6e5bfbc65f147afeb64d14fbb " +
+				"OP_EQUALVERIFY OP_CHECKSIG",
+			sigScript: "DATA_71 0x3044022075c0666d413fc85cca94ea2f24adc0fedb61a3ba0fcfb240" +
+				"c1a4fd2587b03bf90220525ad4d92c6bf635f8b97c188ebf491c6e342b767a5432f" +
+				"318cbb0245a7f64be01 DATA_65 0x04c4bee5e6dbb5c1651437cb4386c1515c7776" +
+				"c64535077204c6f24f05a37d04a32bc78beb2193b53b104c9954c44b0ce168bc78efd5f1e1c7db9d6c21b3016599",
+			class:     PubKeyHashTy,
+			expectErr: false,
+		},
+		{
+			// a44d40b3a14aca3f19ccf47244ef4a70ed02d00f5d840c38756368e9a7cc24b1:4 on testnet3
+			name: "uncompressed-p2pkh-with-op-dup-and-op-drop-at-the-end",
+			pkScript: "OP_DUP OP_HASH160 DATA_20 " +
+				"0x6b2044146a4438e6e5bfbc65f147afeb64d14fbb " +
+				"OP_EQUALVERIFY OP_CHECKSIG",
+			sigScript: "DATA_71 0x3044022075c0666d413fc85cca94ea2f24adc0fedb61a3ba0fcfb240" +
+				"c1a4fd2587b03bf90220525ad4d92c6bf635f8b97c188ebf491c6e342b767a5432f" +
+				"318cbb0245a7f64be01 DATA_65 0x04c4bee5e6dbb5c1651437cb4386c1515c7776" +
+				"c64535077204c6f24f05a37d04a32bc78beb2193b53b104c9954c44b0ce168bc78efd5f1e1c7db9d6c21b3016599 " +
+				"OP_DUP OP_DROP",
+			class:     PubKeyHashTy,
+			expectErr: false,
+		},
+		{
+			// e244bacd69d8f5ae77c349f0e7e4f977f21f8e219ac8e0a35afd43414efdee90:1 on testnet3
+			name: "p2pkh-that-has-a-op-drop-in-the-middle",
+			pkScript: "OP_DUP OP_HASH160 DATA_20 " +
+				"0xe1c5ba4d1fef0a3c7806603de565929684f9c2b1 " +
+				"OP_EQUALVERIFY OP_CHECKSIG",
+			sigScript: "DATA_33 0x035922db6794aac9676322fb72d0cf4fb3148770d5a1931de2ab3263b7ec9e8ec9 " +
+				"OP_DROP DATA_72 " +
+				"0x304502210086c4ff9fb0fccd6a626c4e902d4c3c05b32f6abc1cdafc6c4b08ce88ae4bb9e0022" +
+				"02367a6cfd15d5aa98903c83f60773616da2b6e01b20c9c76fc8cfbfb5ccbefee01 " +
+				"DATA_33 0x0270e4215fbe540cab09ac91c9586eba4fc797537859489f4a23d3e22356f1732f",
+			class:     PubKeyHashTy,
+			expectErr: false,
+		},
+		{
 			// 8ea059a12212dd6d2ca3a87b9550bbaa290211679a6be990e9ed8152094c987d:0 on testnet3
 			name: "p2pkh",
 			pkScript: "OP_DUP OP_HASH160 DATA_20 " +

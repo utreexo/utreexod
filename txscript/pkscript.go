@@ -14,6 +14,9 @@ import (
 )
 
 const (
+	// pubkeyUncompressed is the byte prepended to uncompressed pubkeys.
+	pubkeyUncompressed byte = 0x4 // x coord + y coord
+
 	// minPubKeyHashSigScriptLen is the minimum length of a signature script
 	// that spends a P2PKH output. The length is composed of the following:
 	//   Signature length (1 byte)
@@ -35,6 +38,10 @@ const (
 	// compressedPubKeyLen is the length in bytes of a compressed public
 	// key.
 	compressedPubKeyLen = 33
+
+	// uncompressedPubKeyLen is the length in bytes of a uncompressed public
+	// key.
+	uncompressedPubKeyLen = 65
 
 	// pubKeyHashLen is the length of a P2PKH script.
 	pubKeyHashLen = 25
