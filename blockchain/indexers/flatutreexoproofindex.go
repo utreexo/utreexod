@@ -1054,8 +1054,8 @@ func (idx *FlatUtreexoProofIndex) storeUndoBlock(height int32,
 }
 
 // storeRoots serializes and stores roots to the roots state.
-func (idx *FlatUtreexoProofIndex) storeRoots(height int32, p *utreexo.Pollard) error {
-	serialized, err := blockchain.SerializeUtreexoRoots(p.NumLeaves, p.GetRoots())
+func (idx *FlatUtreexoProofIndex) storeRoots(height int32, p utreexo.Utreexo) error {
+	serialized, err := blockchain.SerializeUtreexoRoots(p.GetNumLeaves(), p.GetRoots())
 	if err != nil {
 		return err
 	}
@@ -1271,7 +1271,7 @@ func NewFlatUtreexoProofIndex(dataDir string, pruned bool, chainParams *chaincfg
 		Name:    flatUtreexoProofIndexType,
 		// Default to ram for now.
 		Params: chainParams,
-	})
+	}, true)
 	if err != nil {
 		return nil, err
 	}
