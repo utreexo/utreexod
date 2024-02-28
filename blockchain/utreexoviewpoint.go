@@ -563,7 +563,13 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 
 			var pkType wire.PkType
 
-			scriptType := txscript.GetScriptClass(stxo.PkScript)
+			scriptType, err := txscript.GetReconstructScriptType(
+				txIn.SignatureScript, stxo.PkScript, txIn.Witness)
+			if err != nil {
+				log.Debugf("GetReconstructScriptType error. %v. "+
+					"Defaulting to wire.OtherTy", err)
+				scriptType = txscript.NonStandardTy
+			}
 			switch scriptType {
 			case txscript.PubKeyHashTy:
 				pkType = wire.PubKeyHashTy
@@ -657,7 +663,13 @@ func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]wire.LeafData, error) {
 
 		var pkType wire.PkType
 
-		scriptType := txscript.GetScriptClass(entry.PkScript())
+		scriptType, err := txscript.GetReconstructScriptType(
+			txIn.SignatureScript, entry.PkScript(), txIn.Witness)
+		if err != nil {
+			log.Debugf("GetReconstructScriptType error. %v. "+
+				"Defaulting to wire.OtherTy", err)
+			scriptType = txscript.NonStandardTy
+		}
 		switch scriptType {
 		case txscript.PubKeyHashTy:
 			pkType = wire.PubKeyHashTy

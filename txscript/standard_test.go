@@ -1318,12 +1318,13 @@ func TestReconstructScript(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		sigScript string
-		pkScript  string
-		witness   []string
-		class     ScriptClass
-		expectErr bool
+		name        string
+		sigScript   string
+		pkScript    string
+		witness     []string
+		class       ScriptClass
+		expectErr   bool
+		expectEqual bool
 	}{
 		{
 			// a44d40b3a14aca3f19ccf47244ef4a70ed02d00f5d840c38756368e9a7cc24b1:4 on testnet3
@@ -1335,8 +1336,22 @@ func TestReconstructScript(t *testing.T) {
 				"c1a4fd2587b03bf90220525ad4d92c6bf635f8b97c188ebf491c6e342b767a5432f" +
 				"318cbb0245a7f64be01 DATA_65 0x04c4bee5e6dbb5c1651437cb4386c1515c7776" +
 				"c64535077204c6f24f05a37d04a32bc78beb2193b53b104c9954c44b0ce168bc78efd5f1e1c7db9d6c21b3016599",
-			class:     PubKeyHashTy,
-			expectErr: false,
+			class:       PubKeyHashTy,
+			expectErr:   false,
+			expectEqual: true,
+		},
+		{
+			// 32350969d79813e8c6ec33d0bc2cd1e78536391fe795f4369aa38f3a72220c2b:1 on testnet3
+			name: "compressed-p2pkh",
+			pkScript: "OP_DUP OP_HASH160 DATA_20 0x9e4ebbeb42dfdf60420b45e2c3a65f90e8df7d63 " +
+				"OP_EQUALVERIFY OP_CHECKSIG",
+			sigScript: "DATA_72 0x3045022100f47da779a8ce9da3a051a1e8f51043e035e02878e74a7b7ba" +
+				"96846a460fe5a43022064e04f9e0385aee9fe011b9d51f1c0068244e2fa43e737a990" +
+				"261e89b4d1797f01 DATA_33 0x0232dff012d75cb8eb49e760db17f5e2fc5436f738bd" +
+				"47922c36d699a7fcd4e403",
+			class:       PubKeyHashTy,
+			expectErr:   false,
+			expectEqual: true,
 		},
 		{
 			// a44d40b3a14aca3f19ccf47244ef4a70ed02d00f5d840c38756368e9a7cc24b1:4 on testnet3
@@ -1349,8 +1364,9 @@ func TestReconstructScript(t *testing.T) {
 				"318cbb0245a7f64be01 DATA_65 0x04c4bee5e6dbb5c1651437cb4386c1515c7776" +
 				"c64535077204c6f24f05a37d04a32bc78beb2193b53b104c9954c44b0ce168bc78efd5f1e1c7db9d6c21b3016599 " +
 				"OP_DUP OP_DROP",
-			class:     PubKeyHashTy,
-			expectErr: false,
+			class:       PubKeyHashTy,
+			expectErr:   false,
+			expectEqual: false,
 		},
 		{
 			// e244bacd69d8f5ae77c349f0e7e4f977f21f8e219ac8e0a35afd43414efdee90:1 on testnet3
@@ -1363,12 +1379,13 @@ func TestReconstructScript(t *testing.T) {
 				"0x304502210086c4ff9fb0fccd6a626c4e902d4c3c05b32f6abc1cdafc6c4b08ce88ae4bb9e0022" +
 				"02367a6cfd15d5aa98903c83f60773616da2b6e01b20c9c76fc8cfbfb5ccbefee01 " +
 				"DATA_33 0x0270e4215fbe540cab09ac91c9586eba4fc797537859489f4a23d3e22356f1732f",
-			class:     PubKeyHashTy,
-			expectErr: false,
+			class:       PubKeyHashTy,
+			expectErr:   false,
+			expectEqual: false,
 		},
 		{
 			// 8ea059a12212dd6d2ca3a87b9550bbaa290211679a6be990e9ed8152094c987d:0 on testnet3
-			name: "p2pkh",
+			name: "p2pkh-with-op-drop-at-the-end",
 			pkScript: "OP_DUP OP_HASH160 DATA_20 " +
 				"0x00da9fa0c8d40f1344f6488eef501096f05fa80e " +
 				"OP_EQUALVERIFY OP_CHECKSIG",
@@ -1379,8 +1396,9 @@ func TestReconstructScript(t *testing.T) {
 				"DATA_33 0x037b80492279732766f5960bd3" +
 				"8b18a2ae7089a1efdaf188d2a536bffd3430c574 " +
 				"OP_DUP OP_DROP",
-			class:     PubKeyHashTy,
-			expectErr: false,
+			class:       PubKeyHashTy,
+			expectErr:   false,
+			expectEqual: false,
 		},
 		{
 			// 37096812a90af1a8a3267d3f9d75111a25e2a8c5411770998e0ee5f75599c9cc:1 on mainnet
@@ -1396,8 +1414,9 @@ func TestReconstructScript(t *testing.T) {
 				"03f7fda7194f762c315362487d2f65f3807d0cd34e" +
 					"285bab7c2a5db2155911ece3",
 			},
-			class:     ScriptHashTy,
-			expectErr: false,
+			class:       ScriptHashTy,
+			expectErr:   false,
+			expectEqual: true,
 		},
 		{
 			// 8127acdb257b70c74857be882e869e80f081f460f70dc8b6490cd32ecc14c55f:1 on mainnet
@@ -1411,8 +1430,9 @@ func TestReconstructScript(t *testing.T) {
 					"c1aed639fdfd818ac7028259"},
 			pkScript: "0 DATA_20 " +
 				"0x8d6046312c5c9d4bf42dc53e1b5a668a23d573eb",
-			class:     WitnessV0PubKeyHashTy,
-			expectErr: false,
+			class:       WitnessV0PubKeyHashTy,
+			expectErr:   false,
+			expectEqual: true,
 		},
 		{
 			// b714a52258e3034e532a188433a4506ca806cf1885d21034fb26906cc4a1c3c3:1 on mainnet
@@ -1435,8 +1455,9 @@ func TestReconstructScript(t *testing.T) {
 					"6d495bfdd5ba4145e3e046fee45e84a8a4" +
 					"8ad05bd8dbb395c011a32cf9f88053ae",
 			},
-			class:     WitnessV0ScriptHashTy,
-			expectErr: false,
+			class:       WitnessV0ScriptHashTy,
+			expectErr:   false,
+			expectEqual: true,
 		},
 		{
 			// b714a52258e3034e532a188433a4506ca806cf1885d21034fb26906cc4a1c3c3:1 on mainnet
@@ -1444,9 +1465,10 @@ func TestReconstructScript(t *testing.T) {
 			name: "p2wsh",
 			pkScript: "0 DATA_32 0x701a8d401c84fb13e6baf169d5968" +
 				"4e17abd9fa216c8cc5b9fc63d622ff8c58d",
-			witness:   []string{},
-			class:     WitnessV0ScriptHashTy,
-			expectErr: true,
+			witness:     []string{},
+			class:       WitnessV0ScriptHashTy,
+			expectErr:   true,
+			expectEqual: false,
 		},
 		{
 			// 4cd658ba8b5f10f2544becf4f1756d5e929d72f0a7372a120cc2affc16679e8d:0 on mainnet
@@ -1459,8 +1481,9 @@ func TestReconstructScript(t *testing.T) {
 				"f28ed45df7fb4d9f71764c9aaad3e46f4c36921934" +
 				"cc6022100ef76bcd57a871129836d7fe3b898e97bf" +
 				"6a241e7d81c2ae3b026567b9246c4dc01",
-			class:     PubKeyTy,
-			expectErr: false,
+			class:       PubKeyTy,
+			expectErr:   false,
+			expectEqual: false,
 		},
 	}
 
@@ -1496,7 +1519,7 @@ func TestReconstructScript(t *testing.T) {
 			(test.class == WitnessV0PubKeyHashTy) ||
 			(test.class == WitnessV0ScriptHashTy) {
 
-			if !bytes.Equal(reconScript, pkScript) {
+			if !bytes.Equal(reconScript, pkScript) && test.expectEqual {
 				t.Errorf("%s: expect %s, got %s",
 					test.name,
 					hex.EncodeToString(pkScript),

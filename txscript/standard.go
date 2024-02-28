@@ -5,9 +5,10 @@
 package txscript
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -1163,6 +1164,90 @@ func ExtractAtomicSwapDataPushes(version uint16, pkScript []byte) (*AtomicSwapDa
 	return &pushes, nil
 }
 
+// GetReconstructScriptType returns the script class of the passed in pkscript. It'll attempt to
+// first reconstruct the pkscript from the sigScript or the witness and if it's able to reconstruct
+// it, only then will it be considered reconstructable. The types of pkscripts that are eligible are:
+// p2pkh, p2sh, p2wpkh, p2wsh.
+func GetReconstructScriptType(sigScript, pkScript []byte, witness wire.TxWitness) (ScriptClass, error) {
+	class := GetScriptClass(pkScript)
+	switch class {
+	case PubKeyHashTy:
+		if len(sigScript) == 0 {
+			return NonStandardTy,
+				fmt.Errorf("Have %v script but sigscript is %v", class.String(), sigScript)
+		}
+		script, err := ReconstructScript(sigScript, witness, PubKeyHashTy)
+		if err != nil {
+			return NonStandardTy, err
+		}
+		if !bytes.Equal(script, pkScript) {
+			log.Debugf("expected pkscript of %v but got %v",
+				hex.EncodeToString(pkScript),
+				hex.EncodeToString(script))
+			return NonStandardTy, nil
+		}
+
+		return PubKeyHashTy, nil
+
+	case ScriptHashTy:
+		if len(sigScript) == 0 {
+			return NonStandardTy,
+				fmt.Errorf("Have %v script but sigscript is %v", class.String(), sigScript)
+		}
+		script, err := ReconstructScript(sigScript, witness, ScriptHashTy)
+		if err != nil {
+			return NonStandardTy, err
+		}
+		if !bytes.Equal(script, pkScript) {
+			log.Debugf("expected pkscript of %v but got %v",
+				hex.EncodeToString(pkScript),
+				hex.EncodeToString(script))
+			return NonStandardTy, nil
+		}
+
+		return ScriptHashTy, nil
+
+	case WitnessV0PubKeyHashTy:
+		if len(witness) == 0 {
+			return NonStandardTy,
+				fmt.Errorf("Have %v script but witness is %v", class.String(), witness)
+		}
+		script, err := ReconstructScript(sigScript, witness, WitnessV0PubKeyHashTy)
+		if err != nil {
+			return NonStandardTy, err
+		}
+		if !bytes.Equal(script, pkScript) {
+			log.Debugf("expected pkscript of %v but got %v",
+				hex.EncodeToString(pkScript),
+				hex.EncodeToString(script))
+			return NonStandardTy, nil
+		}
+
+		return WitnessV0PubKeyHashTy, nil
+
+	case WitnessV0ScriptHashTy:
+		if len(witness) == 0 {
+			return NonStandardTy,
+				fmt.Errorf("Have %v script but witness is %v", class.String(), witness)
+		}
+		script, err := ReconstructScript(sigScript, witness, WitnessV0ScriptHashTy)
+		if err != nil {
+			return NonStandardTy, err
+		}
+		if !bytes.Equal(script, pkScript) {
+			log.Debugf("expected pkscript of %v but got %v",
+				hex.EncodeToString(pkScript),
+				hex.EncodeToString(script))
+			return NonStandardTy, nil
+		}
+
+		return WitnessV0ScriptHashTy, nil
+	default:
+	}
+
+	return NonStandardTy, nil
+}
+
 // ReconstructScript reconstructs the script from the witness for standard
 // transactions.  This function only works for p2pkh, p2wpkh, p2sh and p2wsh.
 // Only version 0 witness scripts are supported.  Returns nil for types that
@@ -1171,39 +1256,25 @@ func ReconstructScript(sigScript []byte, witness wire.TxWitness, class ScriptCla
 	var script []byte
 	var err error
 
-	// A closure to check if a function is an uncompressed pubkey. If the length is right
-	// and the prepended byte is the byte for uncompressed pubkeys, we can safely assume that
-	// it's an uncompressed pubkey.
-	isUncompressedPubKey := func(pubKey []byte) bool {
-		return len(pubKey) == uncompressedPubKeyLen &&
-			(pubKey[0]&^byte(0x1) == pubkeyUncompressed)
+	getLastData := func(bytes []byte) []byte {
+		var data []byte
+		tokenizer := MakeScriptTokenizer(0, bytes)
+		for tokenizer.Next() {
+			data = tokenizer.Data()
+		}
+
+		return data
 	}
 
 	switch class {
 	case PubKeyHashTy:
-		// Extract out the pubkey data.
-		var pubkeyData, data []byte
-		tokenizer := MakeScriptTokenizer(0, sigScript)
-		for tokenizer.Next() {
-			data = tokenizer.Data()
-
-			if btcec.IsCompressedPubKey(data) || isUncompressedPubKey(data) {
-				pubkeyData = data
-			}
-		}
-
-		hash := btcutil.Hash160(pubkeyData)
+		hash := btcutil.Hash160(getLastData(sigScript))
 		script, err = payToPubKeyHashScript(hash)
 		if err != nil {
 			return nil, err
 		}
 	case ScriptHashTy:
-		var data []byte
-		tokenizer := MakeScriptTokenizer(0, sigScript)
-		for tokenizer.Next() {
-			data = tokenizer.Data()
-		}
-		hash := btcutil.Hash160(data)
+		hash := btcutil.Hash160(getLastData(sigScript))
 		script, err = payToScriptHashScript(hash)
 		if err != nil {
 			return nil, err
