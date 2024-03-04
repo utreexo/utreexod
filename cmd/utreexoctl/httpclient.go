@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
@@ -9,6 +10,9 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/go-socks/socks"
@@ -61,6 +65,35 @@ func newHTTPClient(cfg *config) (*http.Client, error) {
 	return &client, nil
 }
 
+// readCookieFile reads the cookie file from the given path. Throws an error if
+// the contents of the cookie file doesn't match the format: `username:password`.
+func readCookieFile(path string) (username, password string, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		retErr := fmt.Errorf("%v. Cookiefile only exists if the node is running", err)
+		err = retErr
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Scan()
+	err = scanner.Err()
+	if err != nil {
+		return
+	}
+	s := scanner.Text()
+
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		err = fmt.Errorf("malformed cookie file. Read %v", s)
+		return
+	}
+
+	username, password = parts[0], parts[1]
+	return
+}
+
 // sendPostRequest sends the marshalled JSON-RPC command using HTTP-POST mode
 // to the server described in the passed config struct.  It also attempts to
 // unmarshal the response as a JSON-RPC response and returns either the result
@@ -80,8 +113,17 @@ func sendPostRequest(marshalledJSON []byte, cfg *config) ([]byte, error) {
 	httpRequest.Close = true
 	httpRequest.Header.Set("Content-Type", "application/json")
 
-	// Configure basic access authorization.
-	httpRequest.SetBasicAuth(cfg.RPCUser, cfg.RPCPassword)
+	if cfg.RPCUser != "" && cfg.RPCPassword != "" {
+		// Configure basic access authorization.
+		httpRequest.SetBasicAuth(cfg.RPCUser, cfg.RPCPassword)
+	} else {
+		// Configure basic access authorization with the cookie file.
+		user, pass, err := readCookieFile(filepath.Join(cfg.DataDir, cookieFileName))
+		if err != nil {
+			return nil, err
+		}
+		httpRequest.SetBasicAuth(user, pass)
+	}
 
 	// Create the new HTTP client that is configured according to the user-
 	// specified options and submit the request.

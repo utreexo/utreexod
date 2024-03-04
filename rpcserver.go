@@ -21,11 +21,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	cryptorand "crypto/rand"
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/websocket"
@@ -4829,6 +4832,14 @@ func (s *rpcServer) Stop() error {
 			return err
 		}
 	}
+
+	cookiePath := filepath.Join(cfg.DataDir, defaultCookieFileName)
+	err := os.Remove(cookiePath)
+	if err != nil {
+		rpcsLog.Errorf("Problem removing cookie file at path %v. %v",
+			cookiePath, err)
+	}
+
 	s.ntfnMgr.Shutdown()
 	s.ntfnMgr.WaitForShutdown()
 	close(s.quit)
@@ -5435,6 +5446,29 @@ func genCertPair(certFile, keyFile string) error {
 	return nil
 }
 
+// makeCookie creates a user and login for the rpcserver at the given path.
+func makeCookie(path string) (string, error) {
+	randomBytes := make([]byte, 32)
+	_, err := cryptorand.Read(randomBytes)
+	if err != nil {
+		return "", err
+	}
+	login := "__cookie__" + ":" + hex.EncodeToString(randomBytes)
+
+	f, err := os.OpenFile(path,
+		os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = f.WriteString(login)
+	if err != nil {
+		return "", err
+	}
+
+	return login, err
+}
+
 // rpcserverPeer represents a peer for use with the RPC server.
 //
 // The interface contract requires that all of these methods are safe for
@@ -5624,6 +5658,15 @@ func newRPCServer(config *rpcserverConfig) (*rpcServer, error) {
 	}
 	if cfg.RPCUser != "" && cfg.RPCPass != "" {
 		login := cfg.RPCUser + ":" + cfg.RPCPass
+		auth := "Basic " + base64.StdEncoding.EncodeToString([]byte(login))
+		rpc.authsha = sha256.Sum256([]byte(auth))
+	} else {
+		cookiePath := filepath.Join(cfg.DataDir, defaultCookieFileName)
+		rpcsLog.Infof("RPCUser or RPCPassword not set. Making cookiefile at %v", cookiePath)
+		login, err := makeCookie(cookiePath)
+		if err != nil {
+			return nil, err
+		}
 		auth := "Basic " + base64.StdEncoding.EncodeToString([]byte(login))
 		rpc.authsha = sha256.Sum256([]byte(auth))
 	}
