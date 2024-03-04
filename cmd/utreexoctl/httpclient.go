@@ -70,6 +70,8 @@ func newHTTPClient(cfg *config) (*http.Client, error) {
 func readCookieFile(path string) (username, password string, err error) {
 	f, err := os.Open(path)
 	if err != nil {
+		retErr := fmt.Errorf("%v. Cookiefile only exists if the node is running", err)
+		err = retErr
 		return
 	}
 	defer f.Close()
