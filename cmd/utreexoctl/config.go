@@ -27,6 +27,8 @@ const (
 )
 
 var (
+	defaultDataDirname    = "data"
+	defaultDataDir        = filepath.Join(utreexodHomeDir, defaultDataDirname)
 	utreexodHomeDir       = btcutil.AppDataDir("utreexod", false)
 	utreexoctlHomeDir     = btcutil.AppDataDir("utreexoctl", false)
 	utreexowalletHomeDir  = btcutil.AppDataDir("utreexowallet", false)
@@ -94,6 +96,7 @@ func listCommands() {
 // See loadConfig for details on the configuration load process.
 type config struct {
 	ConfigFile     string `short:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir        string `long:"datadir" description:"Path to the utreexod datadir"`
 	ListCommands   bool   `short:"l" long:"listcommands" description:"List all of the supported commands and exit"`
 	NoTLS          bool   `long:"notls" description:"Disable TLS"`
 	Proxy          string `long:"proxy" description:"Connect via SOCKS5 proxy (eg. 127.0.0.1:9050)"`
@@ -291,6 +294,22 @@ func loadConfig() (*config, []string, error) {
 		err := fmt.Errorf(str, "loadConfig")
 		fmt.Fprintln(os.Stderr, err)
 		return nil, nil, err
+	}
+
+	if cfg.DataDir == "" {
+		name := network.Name
+		if network.Name == "testnet3" {
+			name = "testnet"
+		}
+		cfg.DataDir = filepath.Join(defaultDataDir, name)
+	} else {
+		cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
+
+		name := network.Name
+		if network.Name == "testnet3" {
+			name = "testnet"
+		}
+		cfg.DataDir = filepath.Join(cfg.DataDir, name)
 	}
 
 	// Override the RPC certificate if the --wallet flag was specified and
