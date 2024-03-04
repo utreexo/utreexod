@@ -65,6 +65,7 @@ const (
 	defaultMaxOrphanTxSize       = 100000
 	defaultSigCacheMaxSize       = 100000
 	defaultUtxoCacheMaxSizeMiB   = 250
+	defaultCookieFileName        = ".cookie"
 	sampleConfigFilename         = "sample-utreexod.conf"
 	defaultTxIndex               = false
 	defaultTTLIndex              = false
