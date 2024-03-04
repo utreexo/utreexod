@@ -827,12 +827,6 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
-	// The RPC server is disabled if no username or password is provided.
-	if (cfg.RPCUser == "" || cfg.RPCPass == "") &&
-		(cfg.RPCLimitUser == "" || cfg.RPCLimitPass == "") {
-		cfg.DisableRPC = true
-	}
-
 	if cfg.DisableRPC {
 		btcdLog.Infof("RPC service is disabled")
 	}
