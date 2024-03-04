@@ -27,6 +27,7 @@ const (
 )
 
 var (
+	cookieFileName        = ".cookie"
 	defaultDataDirname    = "data"
 	defaultDataDir        = filepath.Join(utreexodHomeDir, defaultDataDirname)
 	utreexodHomeDir       = btcutil.AppDataDir("utreexod", false)
