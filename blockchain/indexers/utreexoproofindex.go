@@ -627,8 +627,8 @@ func dbDeleteUtreexoProofEntry(dbTx database.Tx, hash *chainhash.Hash) error {
 }
 
 // Stores the utreexo state in the database.
-func dbStoreUtreexoState(dbTx database.Tx, hash *chainhash.Hash, p *utreexo.Pollard) error {
-	bytes, err := blockchain.SerializeUtreexoRoots(p.NumLeaves, p.GetRoots())
+func dbStoreUtreexoState(dbTx database.Tx, hash *chainhash.Hash, p utreexo.Utreexo) error {
+	bytes, err := blockchain.SerializeUtreexoRoots(p.GetNumLeaves(), p.GetRoots())
 	if err != nil {
 		return err
 	}
