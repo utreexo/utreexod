@@ -10,6 +10,7 @@ import (
 )
 
 // randAddr generates a *wire.NetAddress backed by a random IPv4/IPv6 address.
+// Some of the returned addresses may not be routable.
 func randAddr(t *testing.T) *wire.NetAddress {
 	t.Helper()
 
@@ -34,6 +35,23 @@ func randAddr(t *testing.T) *wire.NetAddress {
 		IP:       ip,
 		Port:     uint16(rand.Uint32()),
 	}
+}
+
+// routableRandAddr generates a *wire.NetAddress backed by a random IPv4/IPv6 address
+// that is always routable.
+func routableRandAddr(t *testing.T) *wire.NetAddress {
+	t.Helper()
+
+	var addr *wire.NetAddress
+
+	// If the address is not routable, try again.
+	routable := false
+	for !routable {
+		addr = randAddr(t)
+		routable = IsRoutable(addr)
+	}
+
+	return addr
 }
 
 // assertAddr ensures that the two addresses match. The timestamp is not
@@ -97,9 +115,9 @@ func TestAddrManagerSerialization(t *testing.T) {
 
 	expectedAddrs := make(map[string]*wire.NetAddress, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr := randAddr(t)
+		addr := routableRandAddr(t)
 		expectedAddrs[NetAddressKey(addr)] = addr
-		addrMgr.AddAddress(addr, randAddr(t))
+		addrMgr.AddAddress(addr, routableRandAddr(t))
 	}
 
 	// Now that the addresses have been added, we should be able to retrieve
@@ -142,9 +160,9 @@ func TestAddrManagerV1ToV2(t *testing.T) {
 
 	expectedAddrs := make(map[string]*wire.NetAddress, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr := randAddr(t)
+		addr := routableRandAddr(t)
 		expectedAddrs[NetAddressKey(addr)] = addr
-		addrMgr.AddAddress(addr, randAddr(t))
+		addrMgr.AddAddress(addr, routableRandAddr(t))
 	}
 
 	// Then, we'll persist these addresses to disk and restart the address
