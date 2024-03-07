@@ -45,9 +45,9 @@ type NodesBackEnd struct {
 	db *leveldb.DB
 }
 
-// NewNodesBackEnd returns a newly initialized NodesBackEnd which implements
+// InitNodesBackEnd returns a newly initialized NodesBackEnd which implements
 // utreexo.NodesInterface.
-func NewNodesBackEnd(datadir string) (*NodesBackEnd, error) {
+func InitNodesBackEnd(datadir string) (*NodesBackEnd, error) {
 	db, err := leveldb.OpenFile(datadir, nil)
 	if err != nil {
 		return nil, err
@@ -131,6 +131,11 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 	return iter.Error()
 }
 
+// Close closes the underlying database.
+func (m *NodesBackEnd) Close() error {
+	return m.db.Close()
+}
+
 var _ utreexo.CachedLeavesInterface = (*CachedLeavesBackEnd)(nil)
 
 // CachedLeavesBackEnd implements the CachedLeavesInterface interface. It's really just a map.
@@ -138,9 +143,9 @@ type CachedLeavesBackEnd struct {
 	db *leveldb.DB
 }
 
-// NewCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
+// InitCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
 // utreexo.CachedLeavesInterface.
-func NewCachedLeavesBackEnd(datadir string) (*CachedLeavesBackEnd, error) {
+func InitCachedLeavesBackEnd(datadir string) (*CachedLeavesBackEnd, error) {
 	db, err := leveldb.OpenFile(datadir, nil)
 	if err != nil {
 		return nil, err
@@ -203,4 +208,9 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 	}
 	iter.Release()
 	return iter.Error()
+}
+
+// Close closes the underlying database.
+func (m *CachedLeavesBackEnd) Close() error {
+	return m.db.Close()
 }

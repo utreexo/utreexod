@@ -6,10 +6,12 @@ package indexers
 
 import (
 	"bytes"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
@@ -19,6 +21,8 @@ const (
 	// utreexoDirName is the name of the directory in which the utreexo state
 	// is stored.
 	utreexoDirName         = "utreexostate"
+	nodesDBDirName         = "nodes"
+	cachedLeavesDBDirName  = "cachedleaves"
 	defaultUtreexoFileName = "forest.dat"
 
 	// udataSerializeBool defines the argument that should be passed to the
@@ -46,7 +50,9 @@ type UtreexoConfig struct {
 // information.  It contains the entire, non-pruned accumulator.
 type UtreexoState struct {
 	config *UtreexoConfig
-	state  *utreexo.Pollard
+	state  utreexo.Utreexo
+
+	closeDB func() error
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -60,26 +66,8 @@ func utreexoBasePath(cfg *UtreexoConfig) string {
 func InitUtreexoState(cfg *UtreexoConfig) (*UtreexoState, error) {
 	basePath := utreexoBasePath(cfg)
 	log.Infof("Initializing Utreexo state from '%s'", basePath)
-
-	var p *utreexo.Pollard
-	var err error
-	if checkUtreexoExists(cfg, basePath) {
-		p, err = restoreUtreexoState(cfg, basePath)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		p, err = createUtreexoState(cfg, basePath)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	uState := &UtreexoState{config: cfg, state: p}
-
-	log.Info("Utreexo state loaded")
-
-	return uState, nil
+	defer log.Info("Utreexo state loaded")
+	return initUtreexoState(cfg, basePath)
 }
 
 // deleteUtreexoState removes the utreexo state directory and all the contents
@@ -118,7 +106,7 @@ func (idx *UtreexoProofIndex) FetchCurrentUtreexoState() ([]*chainhash.Hash, uin
 		chainhashRoots[i] = &newRoot
 	}
 
-	return chainhashRoots, idx.utreexoState.state.NumLeaves
+	return chainhashRoots, idx.utreexoState.state.GetNumLeaves()
 }
 
 // FetchCurrentUtreexoState returns the current utreexo state.
@@ -134,7 +122,7 @@ func (idx *FlatUtreexoProofIndex) FetchCurrentUtreexoState() ([]*chainhash.Hash,
 		chainhashRoots[i] = &newRoot
 	}
 
-	return chainhashRoots, idx.utreexoState.state.NumLeaves
+	return chainhashRoots, idx.utreexoState.state.GetNumLeaves()
 }
 
 // FetchUtreexoState returns the utreexo state at the desired block.
@@ -170,7 +158,6 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoState(blockHeight int32) ([]*chain
 // FlushUtreexoState saves the utreexo state to disk.
 func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 	basePath := utreexoBasePath(idx.utreexoState.config)
-
 	if _, err := os.Stat(basePath); err != nil {
 		os.MkdirAll(basePath, os.ModePerm)
 	}
@@ -179,12 +166,14 @@ func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 	if err != nil {
 		return err
 	}
-	_, err = idx.utreexoState.state.WriteTo(forestFile)
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], idx.utreexoState.state.GetNumLeaves())
+	_, err = forestFile.Write(buf[:])
 	if err != nil {
 		return err
 	}
 
-	return nil
+	return idx.utreexoState.closeDB()
 }
 
 // FlushUtreexoState saves the utreexo state to disk.
@@ -198,12 +187,14 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState() error {
 	if err != nil {
 		return err
 	}
-	_, err = idx.utreexoState.state.WriteTo(forestFile)
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], idx.utreexoState.state.GetNumLeaves())
+	_, err = forestFile.Write(buf[:])
 	if err != nil {
 		return err
 	}
 
-	return nil
+	return idx.utreexoState.closeDB()
 }
 
 // serializeUndoBlock serializes all the data that's needed for undoing a full utreexo state
@@ -320,27 +311,57 @@ func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, 
 	return numAdds, targets, delHashes, nil
 }
 
-// restoreUtreexoState restores forest fields based off the existing utreexo state
-// on disk.
-func restoreUtreexoState(cfg *UtreexoConfig, basePath string) (*utreexo.Pollard, error) {
-	forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
+// initUtreexoState creates a new utreexo state and returns it.
+func initUtreexoState(cfg *UtreexoConfig, basePath string) (*UtreexoState, error) {
+	p := utreexo.NewMapPollard(true)
 
-	// Where the forestfile exists
-	file, err := os.OpenFile(forestFilePath, os.O_RDWR, 0400)
+	nodesPath := filepath.Join(basePath, nodesDBDirName)
+	nodesDB, err := blockchain.InitNodesBackEnd(nodesPath)
 	if err != nil {
 		return nil, err
 	}
 
-	_, p, err := utreexo.RestorePollardFrom(file)
+	cachedLeavesPath := filepath.Join(basePath, cachedLeavesDBDirName)
+	cachedLeavesDB, err := blockchain.InitCachedLeavesBackEnd(cachedLeavesPath)
 	if err != nil {
 		return nil, err
 	}
 
-	return p, nil
-}
+	if checkUtreexoExists(cfg, basePath) {
+		forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
+		file, err := os.OpenFile(forestFilePath, os.O_RDWR, 0400)
+		if err != nil {
+			return nil, err
+		}
+		var buf [8]byte
+		_, err = file.Read(buf[:])
+		if err != nil {
+			return nil, err
+		}
+		p.NumLeaves = binary.LittleEndian.Uint64(buf[:])
+	}
 
-// createUtreexoState creates a new utreexo state and returns it.
-func createUtreexoState(cfg *UtreexoConfig, basePath string) (*utreexo.Pollard, error) {
-	p := utreexo.NewAccumulator()
-	return &p, nil
+	p.Nodes = nodesDB
+	p.CachedLeaves = cachedLeavesDB
+	closeDB := func() error {
+		err := nodesDB.Close()
+		if err != nil {
+			return err
+		}
+
+		err = cachedLeavesDB.Close()
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	uState := &UtreexoState{
+		config:  cfg,
+		state:   &p,
+		closeDB: closeDB,
+	}
+
+	return uState, err
 }
