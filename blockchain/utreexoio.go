@@ -269,63 +269,185 @@ func newNodesMapSlice(maxTotalMemoryUsage int64) (nodesMapSlice, int64) {
 
 var _ utreexo.NodesInterface = (*NodesBackEnd)(nil)
 
-// NodesBackEnd implements the NodesInterface interface. It's really just the database.
+// NodesBackEnd implements the NodesInterface interface.
 type NodesBackEnd struct {
-	db *leveldb.DB
+	db           *leveldb.DB
+	maxCacheElem int64
+	cache        nodesMapSlice
 }
 
 // InitNodesBackEnd returns a newly initialized NodesBackEnd which implements
 // utreexo.NodesInterface.
-func InitNodesBackEnd(datadir string) (*NodesBackEnd, error) {
+func InitNodesBackEnd(datadir string, maxTotalMemoryUsage int64) (*NodesBackEnd, error) {
 	db, err := leveldb.OpenFile(datadir, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return &NodesBackEnd{db: db}, nil
-}
-
-// Get returns the leaf from the underlying map.
-func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
-	size := serializeSizeVLQ(k)
-	buf := make([]byte, size)
-	putVLQ(buf, k)
-
-	val, err := m.db.Get(buf[:], nil)
-	if err != nil {
-		return utreexo.Leaf{}, false
+	cache, maxCacheElems := newNodesMapSlice(maxTotalMemoryUsage)
+	nb := NodesBackEnd{
+		db:           db,
+		maxCacheElem: maxCacheElems,
+		cache:        cache,
 	}
 
-	// Must be leafLength bytes long.
-	if len(val) != leafLength {
-		return utreexo.Leaf{}, false
-	}
-
-	return deserializeLeaf(*(*[leafLength]byte)(val)), true
+	return &nb, nil
 }
 
-// Put puts the given position and the leaf to the underlying map.
-func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
+// dbPut serializes and puts the key value pair into the database.
+func (m *NodesBackEnd) dbPut(k uint64, v utreexo.Leaf) error {
 	size := serializeSizeVLQ(k)
 	buf := make([]byte, size)
 	putVLQ(buf, k)
 
 	serialized := serializeLeaf(v)
-	m.db.Put(buf, serialized[:], nil)
+	return m.db.Put(buf[:], serialized[:], nil)
+}
+
+// dbGet fetches the value from the database and deserializes it and returns
+// the leaf value and a boolean for whether or not it was successful.
+func (m *NodesBackEnd) dbGet(k uint64) (utreexo.Leaf, bool) {
+	size := serializeSizeVLQ(k)
+	buf := make([]byte, size)
+	putVLQ(buf, k)
+
+	val, err := m.db.Get(buf, nil)
+	if err != nil {
+		return utreexo.Leaf{}, false
+	}
+	// Must be leafLength bytes long.
+	if len(val) != leafLength {
+		return utreexo.Leaf{}, false
+	}
+
+	leaf := deserializeLeaf(*(*[leafLength]byte)(val))
+	return leaf, true
+}
+
+// dbDel removes the key from the database.
+func (m *NodesBackEnd) dbDel(k uint64) error {
+	size := serializeSizeVLQ(k)
+	buf := make([]byte, size)
+	putVLQ(buf, k)
+	return m.db.Delete(buf, nil)
+}
+
+// Get returns the leaf from the underlying map.
+func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
+	if m.maxCacheElem == 0 {
+		return m.dbGet(k)
+	}
+
+	// Look it up on the cache first.
+	cLeaf, found := m.cache.get(k)
+	if found {
+		// The leaf might not have been cleaned up yet.
+		if cLeaf.isRemoved() {
+			return utreexo.Leaf{}, false
+		}
+
+		// If the cache is full, flush the cache then put
+		// the leaf in.
+		if !m.cache.put(k, cLeaf) {
+			m.flush()
+			m.cache.put(k, cLeaf)
+		}
+
+		// If we found it, return here.
+		return cLeaf.leaf, true
+	}
+
+	// Since it's not in the cache, look it up in the database.
+	leaf, found := m.dbGet(k)
+	if !found {
+		// If it's not in the database and the cache, it
+		// doesn't exist.
+		return utreexo.Leaf{}, false
+	}
+
+	// Cache the leaf before returning it.
+	if !m.cache.put(k, cachedLeaf{leaf: leaf}) {
+		m.flush()
+		m.cache.put(k, cachedLeaf{leaf: leaf})
+	}
+	return leaf, true
+}
+
+// Put puts the given position and the leaf to the underlying map.
+func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
+	if m.maxCacheElem == 0 {
+		err := m.dbPut(k, v)
+		if err != nil {
+			log.Warnf("NodesBackEnd dbPut fail. %v", err)
+		}
+
+		return
+	}
+
+	if int64(m.cache.length()) > m.maxCacheElem {
+		m.flush()
+	}
+
+	leaf, found := m.cache.get(k)
+	if found {
+		leaf.flags &^= removed
+		l := cachedLeaf{
+			leaf:  v,
+			flags: leaf.flags | modified,
+		}
+
+		// It shouldn't fail here but handle it anyways.
+		if !m.cache.put(k, l) {
+			m.flush()
+			m.cache.put(k, l)
+		}
+	} else {
+		// If the key isn't found, mark it as fresh.
+		l := cachedLeaf{
+			leaf:  v,
+			flags: fresh,
+		}
+
+		// It shouldn't fail here but handle it anyways.
+		if !m.cache.put(k, l) {
+			m.flush()
+			m.cache.put(k, l)
+		}
+	}
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *NodesBackEnd) Delete(k uint64) {
-	size := serializeSizeVLQ(k)
-	buf := make([]byte, size)
-	putVLQ(buf, k)
+	if m.maxCacheElem == 0 {
+		err := m.dbDel(k)
+		if err != nil {
+			log.Warnf("NodesBackEnd dbDel fail. %v", err)
+		}
 
-	m.db.Delete(buf, nil)
+		return
+	}
+
+	leaf, found := m.cache.get(k)
+	if !found {
+		if int64(m.cache.length()) >= m.maxCacheElem {
+			m.flush()
+		}
+	}
+	l := cachedLeaf{
+		leaf:  leaf.leaf,
+		flags: leaf.flags | removed,
+	}
+	if !m.cache.put(k, l) {
+		m.flush()
+		m.cache.put(k, l)
+	}
 }
 
 // Length returns the amount of items in the underlying database.
 func (m *NodesBackEnd) Length() int {
+	m.flush()
+
 	length := 0
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
@@ -338,6 +460,8 @@ func (m *NodesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
+	m.flush()
+
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
 		// Remember that the contents of the returned slice should not be modified, and
@@ -360,8 +484,35 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 	return iter.Error()
 }
 
-// Close closes the underlying database.
+// flush saves all the cached entries to disk and resets the cache map.
+func (m *NodesBackEnd) flush() {
+	if m.maxCacheElem == 0 {
+		return
+	}
+
+	for _, mm := range m.cache.maps {
+		for k, v := range mm {
+			if v.isRemoved() {
+				err := m.dbDel(k)
+				if err != nil {
+					log.Warnf("NodesBackEnd flush error. %v", err)
+				}
+			} else if v.isFresh() || v.isModified() {
+				err := m.dbPut(k, v.leaf)
+				if err != nil {
+					log.Warnf("NodesBackEnd flush error. %v", err)
+				}
+			}
+		}
+	}
+
+	m.cache.deleteMaps()
+}
+
+// Close flushes the cache and closes the underlying database.
 func (m *NodesBackEnd) Close() error {
+	m.flush()
+
 	return m.db.Close()
 }
 
