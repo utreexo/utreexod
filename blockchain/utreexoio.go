@@ -38,6 +38,42 @@ func deserializeLeaf(serialized [leafLength]byte) utreexo.Leaf {
 	return leaf
 }
 
+// cachedFlag is the status of each of the cached elements in the NodesBackEnd.
+type cachedFlag uint8
+
+const (
+	// fresh means it's never been in the database
+	fresh cachedFlag = 1 << iota
+
+	// modified means it's been in the database and has been modified in the cache.
+	modified
+
+	// removed means that the key it belongs to has been removed but it's still
+	// in the cache.
+	removed
+)
+
+// cachedLeaf has the leaf and a flag for the status in the cache.
+type cachedLeaf struct {
+	leaf  utreexo.Leaf
+	flags cachedFlag
+}
+
+// isFresh returns if the cached leaf has never been in the database.
+func (c *cachedLeaf) isFresh() bool {
+	return c.flags&fresh == fresh
+}
+
+// isModified returns if the cached leaf has been in the database and was modified in the cache.
+func (c *cachedLeaf) isModified() bool {
+	return c.flags&modified == modified
+}
+
+// isRemoved returns if the key for this cached leaf has been removed.
+func (c *cachedLeaf) isRemoved() bool {
+	return c.flags&removed == removed
+}
+
 var _ utreexo.NodesInterface = (*NodesBackEnd)(nil)
 
 // NodesBackEnd implements the NodesInterface interface. It's really just the database.
