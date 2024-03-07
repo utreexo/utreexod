@@ -6,6 +6,7 @@ package blockchain
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/utreexo/utreexo"
@@ -72,6 +73,195 @@ func (c *cachedLeaf) isModified() bool {
 // isRemoved returns if the key for this cached leaf has been removed.
 func (c *cachedLeaf) isRemoved() bool {
 	return c.flags&removed == removed
+}
+
+const (
+	// Calculated with unsafe.Sizeof(cachedLeaf{}).
+	cachedLeafSize = 34
+
+	// Bucket size for the node map.
+	nodesMapBucketSize = 16 + uint64Size*uint64Size + uint64Size*cachedLeafSize
+)
+
+// nodesMapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
+// guarantee that the map will only take up N amount of bytes.  As of v1.20, the
+// go runtime will allocate 2^N + few extra buckets, meaning that for large N, we'll
+// allocate a lot of extra memory if the amount of entries goes over the previously
+// allocated buckets.  A slice of maps allows us to have a better control of how much
+// total memory gets allocated by all the maps.
+type nodesMapSlice struct {
+	// mtx protects against concurrent access for the map slice.
+	mtx *sync.Mutex
+
+	// maps are the underlying maps in the slice of maps.
+	maps []map[uint64]cachedLeaf
+
+	// maxEntries is the maximum amount of elemnts that the map is allocated for.
+	maxEntries []int
+
+	// maxTotalMemoryUsage is the maximum memory usage in bytes that the state
+	// should contain in normal circumstances.
+	maxTotalMemoryUsage uint64
+}
+
+// length returns the length of all the maps in the map slice added together.
+//
+// This function is safe for concurrent access.
+func (ms *nodesMapSlice) length() int {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	var l int
+	for _, m := range ms.maps {
+		l += len(m)
+	}
+
+	return l
+}
+
+// get looks for the outpoint in all the maps in the map slice and returns
+// the entry. nil and false is returned if the outpoint is not found.
+//
+// This function is safe for concurrent access.
+func (ms *nodesMapSlice) get(k uint64) (cachedLeaf, bool) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	var v cachedLeaf
+	var found bool
+
+	for _, m := range ms.maps {
+		v, found = m[k]
+		if found {
+			return v, found
+		}
+	}
+
+	return v, found
+}
+
+// put puts the keys and the values into one of the maps in the map slice.  If the
+// existing maps are all full and it fails to put the entry in the cache, it will
+// return false.
+//
+// This function is safe for concurrent access.
+func (ms *nodesMapSlice) put(k uint64, v cachedLeaf) bool {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	for i := range ms.maxEntries {
+		m := ms.maps[i]
+		_, found := m[k]
+		if found {
+			m[k] = v
+			return true
+		}
+	}
+
+	for i, maxNum := range ms.maxEntries {
+		m := ms.maps[i]
+		if len(m) >= maxNum {
+			// Don't try to insert if the map already at max since
+			// that'll force the map to allocate double the memory it's
+			// currently taking up.
+			continue
+		}
+
+		m[k] = v
+		return true // Return as we were successful in adding the entry.
+	}
+
+	// We only reach this code if we've failed to insert into the map above as
+	// all the current maps were full.
+	return false
+}
+
+// delete attempts to delete the given outpoint in all of the maps. No-op if the
+// key doesn't exist.
+//
+// This function is safe for concurrent access.
+func (ms *nodesMapSlice) delete(k uint64) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	for i := 0; i < len(ms.maps); i++ {
+		delete(ms.maps[i], k)
+	}
+}
+
+// deleteMaps deletes all maps and allocate new ones with the maxEntries defined in
+// ms.maxEntries.
+//
+// This function is safe for concurrent access.
+func (ms *nodesMapSlice) deleteMaps() {
+	for i := range ms.maxEntries {
+		ms.maps[i] = make(map[uint64]cachedLeaf, ms.maxEntries[i])
+	}
+}
+
+// calcNumEntries returns a list of ints that represent how much entries a map
+// should allocate for to stay under the maxMemoryUsage and an int that's a sum
+// of the returned list of ints.
+func calcNumEntries(bucketSize uintptr, maxMemoryUsage int64) ([]int, int) {
+	entries := []int{}
+
+	totalElemCount := 0
+	totalMapSize := int64(0)
+	for maxMemoryUsage > totalMapSize {
+		numMaxElements := calculateMinEntries(int(maxMemoryUsage-totalMapSize), nodesMapBucketSize)
+		if numMaxElements == 0 {
+			break
+		}
+
+		mapSize := int64(calculateRoughMapSize(numMaxElements, nodesMapBucketSize))
+		if maxMemoryUsage <= totalMapSize+mapSize {
+			break
+		}
+		totalMapSize += mapSize
+
+		entries = append(entries, numMaxElements)
+		totalElemCount += numMaxElements
+	}
+
+	return entries, totalElemCount
+}
+
+// createMaps creates a slice of maps and returns the total count that the maps
+// can handle. maxEntries are also set along with the newly created maps.
+func (ms *nodesMapSlice) createMaps(maxMemoryUsage int64) int64 {
+	if maxMemoryUsage <= 0 {
+		return 0
+	}
+
+	// Get the entry count for the maps we'll allocate.
+	var totalElemCount int
+	ms.maxEntries, totalElemCount = calcNumEntries(nodesMapBucketSize, maxMemoryUsage)
+
+	// maxMemoryUsage that's smaller than the minimum map size will return a totalElemCount
+	// that's equal to 0.
+	if totalElemCount <= 0 {
+		return 0
+	}
+
+	// Create the maps.
+	ms.maps = make([]map[uint64]cachedLeaf, len(ms.maxEntries))
+	for i := range ms.maxEntries {
+		ms.maps[i] = make(map[uint64]cachedLeaf, ms.maxEntries[i])
+	}
+
+	return int64(totalElemCount)
+}
+
+// newNodesMapSlice returns a newNodesMapSlice and the total amount of elements
+// that the map slice can accomodate.
+func newNodesMapSlice(maxTotalMemoryUsage int64) (nodesMapSlice, int64) {
+	ms := nodesMapSlice{
+		mtx:                 new(sync.Mutex),
+		maxTotalMemoryUsage: uint64(maxTotalMemoryUsage),
+	}
+
+	totalCacheElem := ms.createMaps(maxTotalMemoryUsage)
+	return ms, totalCacheElem
 }
 
 var _ utreexo.NodesInterface = (*NodesBackEnd)(nil)
