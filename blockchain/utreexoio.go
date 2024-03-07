@@ -81,6 +81,9 @@ const (
 
 	// Bucket size for the node map.
 	nodesMapBucketSize = 16 + uint64Size*uint64Size + uint64Size*cachedLeafSize
+
+	// Bucket size for the cached leaves map.
+	cachedLeavesMapBucketSize = 16 + uint64Size*chainhash.HashSize + uint64Size*uint64Size
 )
 
 // nodesMapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
@@ -360,6 +363,150 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 // Close closes the underlying database.
 func (m *NodesBackEnd) Close() error {
 	return m.db.Close()
+}
+
+// cachedLeavesMapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
+// guarantee that the map will only take up N amount of bytes.  As of v1.20, the
+// go runtime will allocate 2^N + few extra buckets, meaning that for large N, we'll
+// allocate a lot of extra memory if the amount of entries goes over the previously
+// allocated buckets.  A slice of maps allows us to have a better control of how much
+// total memory gets allocated by all the maps.
+type cachedLeavesMapSlice struct {
+	// mtx protects against concurrent access for the map slice.
+	mtx *sync.Mutex
+
+	// maps are the underlying maps in the slice of maps.
+	maps []map[utreexo.Hash]uint64
+
+	// maxEntries is the maximum amount of elemnts that the map is allocated for.
+	maxEntries []int
+
+	// maxTotalMemoryUsage is the maximum memory usage in bytes that the state
+	// should contain in normal circumstances.
+	maxTotalMemoryUsage uint64
+}
+
+// length returns the length of all the maps in the map slice added together.
+//
+// This function is safe for concurrent access.
+func (ms *cachedLeavesMapSlice) length() int {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	var l int
+	for _, m := range ms.maps {
+		l += len(m)
+	}
+
+	return l
+}
+
+// get looks for the outpoint in all the maps in the map slice and returns
+// the entry.  nil and false is returned if the outpoint is not found.
+//
+// This function is safe for concurrent access.
+func (ms *cachedLeavesMapSlice) get(k utreexo.Hash) (uint64, bool) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	var v uint64
+	var found bool
+
+	for _, m := range ms.maps {
+		v, found = m[k]
+		if found {
+			return v, found
+		}
+	}
+
+	return 0, false
+}
+
+// put puts the keys and the values into one of the maps in the map slice.  If the
+// existing maps are all full and it fails to put the entry in the cache, it will
+// return false.
+//
+// This function is safe for concurrent access.
+func (ms *cachedLeavesMapSlice) put(k utreexo.Hash, v uint64) bool {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	for i := range ms.maxEntries {
+		m := ms.maps[i]
+		_, found := m[k]
+		if found {
+			m[k] = v
+			return true
+		}
+	}
+
+	for i, maxNum := range ms.maxEntries {
+		m := ms.maps[i]
+		if len(m) >= maxNum {
+			// Don't try to insert if the map already at max since
+			// that'll force the map to allocate double the memory it's
+			// currently taking up.
+			continue
+		}
+
+		m[k] = v
+		return true // Return as we were successful in adding the entry.
+	}
+
+	// We only reach this code if we've failed to insert into the map above as
+	// all the current maps were full.
+	return false
+}
+
+// delete attempts to delete the given outpoint in all of the maps. No-op if the
+// outpoint doesn't exist.
+//
+// This function is safe for concurrent access.
+func (ms *cachedLeavesMapSlice) delete(k utreexo.Hash) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	for i := 0; i < len(ms.maps); i++ {
+		delete(ms.maps[i], k)
+	}
+}
+
+// createMaps creates a slice of maps and returns the total count that the maps
+// can handle. maxEntries are also set along with the newly created maps.
+func (ms *cachedLeavesMapSlice) createMaps(maxMemoryUsage int64) int64 {
+	if maxMemoryUsage <= 0 {
+		return 0
+	}
+
+	// Get the entry count for the maps we'll allocate.
+	var totalElemCount int
+	ms.maxEntries, totalElemCount = calcNumEntries(nodesMapBucketSize, maxMemoryUsage)
+
+	// maxMemoryUsage that's smaller than the minimum map size will return a totalElemCount
+	// that's equal to 0.
+	if totalElemCount <= 0 {
+		return 0
+	}
+
+	// Create the maps.
+	ms.maps = make([]map[utreexo.Hash]uint64, len(ms.maxEntries))
+	for i := range ms.maxEntries {
+		ms.maps[i] = make(map[utreexo.Hash]uint64, ms.maxEntries[i])
+	}
+
+	return int64(totalElemCount)
+}
+
+// newCachedLeavesMapSlice returns a newCachedLeavesMapSlice and the total amount of elements
+// that the map slice can accomodate.
+func newCachedLeavesMapSlice(maxTotalMemoryUsage int64) (cachedLeavesMapSlice, int64) {
+	ms := cachedLeavesMapSlice{
+		mtx:                 new(sync.Mutex),
+		maxTotalMemoryUsage: uint64(maxTotalMemoryUsage),
+	}
+
+	totalCacheElem := ms.createMaps(maxTotalMemoryUsage)
+	return ms, totalCacheElem
 }
 
 var _ utreexo.CachedLeavesInterface = (*CachedLeavesBackEnd)(nil)
