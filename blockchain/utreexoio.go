@@ -662,50 +662,90 @@ func newCachedLeavesMapSlice(maxTotalMemoryUsage int64) (cachedLeavesMapSlice, i
 
 var _ utreexo.CachedLeavesInterface = (*CachedLeavesBackEnd)(nil)
 
-// CachedLeavesBackEnd implements the CachedLeavesInterface interface. It's really just a map.
+// CachedLeavesBackEnd implements the CachedLeavesInterface interface. The cache assumes
+// that anything in the cache doesn't exist in the db and vise-versa.
 type CachedLeavesBackEnd struct {
-	db *leveldb.DB
+	db           *leveldb.DB
+	maxCacheElem int64
+	cache        cachedLeavesMapSlice
+}
+
+// dbPut serializes and puts the key and the value into the database.
+func (m *CachedLeavesBackEnd) dbPut(k utreexo.Hash, v uint64) error {
+	size := serializeSizeVLQ(v)
+	buf := make([]byte, size)
+	putVLQ(buf, v)
+	return m.db.Put(k[:], buf, nil)
+}
+
+// dbGet fetches and deserializes the value from the database.
+func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (uint64, bool) {
+	val, err := m.db.Get(k[:], nil)
+	if err != nil {
+		return 0, false
+	}
+	pos, _ := deserializeVLQ(val)
+
+	return pos, true
 }
 
 // InitCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
 // utreexo.CachedLeavesInterface.
-func InitCachedLeavesBackEnd(datadir string) (*CachedLeavesBackEnd, error) {
+func InitCachedLeavesBackEnd(datadir string, maxMemoryUsage int64) (*CachedLeavesBackEnd, error) {
 	db, err := leveldb.OpenFile(datadir, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return &CachedLeavesBackEnd{db: db}, nil
+	cache, maxCacheElem := newCachedLeavesMapSlice(maxMemoryUsage)
+	return &CachedLeavesBackEnd{maxCacheElem: maxCacheElem, db: db, cache: cache}, nil
 }
 
-// Get returns the data from the underlying map.
+// Get returns the data from the underlying cache or the database.
 func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (uint64, bool) {
-	val, err := m.db.Get(k[:], nil)
-	if err != nil {
-		return 0, false
+	if m.maxCacheElem == 0 {
+		return m.dbGet(k)
 	}
 
-	pos, _ := deserializeVLQ(val)
-	return pos, true
+	pos, found := m.cache.get(k)
+	if !found {
+		pos, found = m.dbGet(k)
+	}
+
+	return pos, found
 }
 
-// Put puts the given data to the underlying map.
+// Put puts the given data to the underlying cache. If the cache is full, it evicts
+// the earliest entries to make room.
 func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
-	size := serializeSizeVLQ(v)
-	buf := make([]byte, size)
-	putVLQ(buf, v)
+	if m.maxCacheElem == 0 {
+		err := m.dbPut(k, v)
+		if err != nil {
+			log.Warnf("NodesBackEnd dbPut fail. %v", err)
+		}
 
-	m.db.Put(k[:], buf, nil)
+		return
+	}
+
+	length := m.cache.length()
+	if int64(length) >= m.maxCacheElem {
+		m.flush()
+	}
+
+	m.cache.put(k, v)
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
+	m.cache.delete(k)
 	m.db.Delete(k[:], nil)
 }
 
-// Length returns the amount of items in the underlying db.
+// Length returns the amount of items in the underlying db and the cache.
 func (m *CachedLeavesBackEnd) Length() int {
+	m.flush()
+
 	length := 0
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
@@ -718,6 +758,8 @@ func (m *CachedLeavesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error {
+	m.flush()
+
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
 		// Remember that the contents of the returned slice should not be modified, and
@@ -734,7 +776,27 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 	return iter.Error()
 }
 
-// Close closes the underlying database.
+// Flush resets the cache and saves all the key values onto the database.
+func (m *CachedLeavesBackEnd) flush() {
+	for i := range m.cache.maxEntries {
+		mp := m.cache.maps[i]
+		for k, v := range mp {
+			err := m.dbPut(k, v)
+			if err != nil {
+				log.Warnf("CachedLeavesBackEnd dbPut fail. %v", err)
+			}
+		}
+	}
+
+	// Create the maps.
+	m.cache.maps = make([]map[utreexo.Hash]uint64, len(m.cache.maxEntries))
+	for i := range m.cache.maxEntries {
+		m.cache.maps[i] = make(map[utreexo.Hash]uint64, m.cache.maxEntries[i])
+	}
+}
+
+// Close flushes all the cached entries and then closes the underlying database.
 func (m *CachedLeavesBackEnd) Close() error {
+	m.flush()
 	return m.db.Close()
 }
