@@ -3225,7 +3225,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 
 		var err error
 		s.utreexoProofIndex, err = indexers.NewUtreexoProofIndex(
-			db, cfg.Prune != 0, cfg.DataDir, chainParams)
+			db, cfg.Prune != 0, 250*1024*1024, chainParams, cfg.DataDir)
 		if err != nil {
 			return nil, err
 		}
@@ -3241,7 +3241,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 
 		var err error
 		s.flatUtreexoProofIndex, err = indexers.NewFlatUtreexoProofIndex(
-			cfg.DataDir, cfg.Prune != 0, chainParams, interval)
+			cfg.Prune != 0, chainParams, interval, 250*1024*1024, cfg.DataDir)
 		if err != nil {
 			return nil, err
 		}

@@ -75,12 +75,12 @@ func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincf
 
 	proofGenInterval := new(int32)
 	*proofGenInterval = interval
-	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(dbPath, false, params, proofGenInterval)
+	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, proofGenInterval, 50*1024*1024, dbPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	utreexoProofIndex, err := NewUtreexoProofIndex(*db, false, dbPath, params)
+	utreexoProofIndex, err := NewUtreexoProofIndex(*db, false, 50*1024*1024, params, dbPath)
 	if err != nil {
 		return nil, nil, err
 	}
