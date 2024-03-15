@@ -575,7 +575,7 @@ func NewUtreexoProofIndex(db database.DB, pruned bool, dataDir string, chainPara
 		DataDir: dataDir,
 		Name:    db.Type(),
 		Params:  chainParams,
-	})
+	}, 250*1024*1024)
 	if err != nil {
 		return nil, err
 	}

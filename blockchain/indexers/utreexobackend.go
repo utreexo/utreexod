@@ -7,6 +7,7 @@ package indexers
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -63,11 +64,13 @@ func utreexoBasePath(cfg *UtreexoConfig) string {
 
 // InitUtreexoState returns an initialized utreexo state. If there isn't an
 // existing state on disk, it creates one and returns it.
-func InitUtreexoState(cfg *UtreexoConfig) (*UtreexoState, error) {
+// maxMemoryUsage of 0 will keep every element on disk. A negaive maxMemoryUsage will
+// load every element to the memory.
+func InitUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64) (*UtreexoState, error) {
 	basePath := utreexoBasePath(cfg)
 	log.Infof("Initializing Utreexo state from '%s'", basePath)
 	defer log.Info("Utreexo state loaded")
-	return initUtreexoState(cfg, basePath)
+	return initUtreexoState(cfg, maxMemoryUsage, basePath)
 }
 
 // deleteUtreexoState removes the utreexo state directory and all the contents
@@ -311,18 +314,24 @@ func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, 
 	return numAdds, targets, delHashes, nil
 }
 
-// initUtreexoState creates a new utreexo state and returns it.
-func initUtreexoState(cfg *UtreexoConfig, basePath string) (*UtreexoState, error) {
+// initUtreexoState creates a new utreexo state and returns it. maxMemoryUsage of 0 will keep
+// every element on disk and a negative maxMemoryUsage will load all the elemnts to memory.
+func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string) (*UtreexoState, error) {
 	p := utreexo.NewMapPollard(true)
 
+	// 60% of the memory for the nodes map, 40% for the cache leaves map.
+	// TODO Totally arbitrary, it there's something better than change it to that.
+	maxNodesMem := maxMemoryUsage * 6 / 10
+	maxCachedLeavesMem := maxMemoryUsage - maxNodesMem
+
 	nodesPath := filepath.Join(basePath, nodesDBDirName)
-	nodesDB, err := blockchain.InitNodesBackEnd(nodesPath)
+	nodesDB, err := blockchain.InitNodesBackEnd(nodesPath, maxNodesMem)
 	if err != nil {
 		return nil, err
 	}
 
 	cachedLeavesPath := filepath.Join(basePath, cachedLeavesDBDirName)
-	cachedLeavesDB, err := blockchain.InitCachedLeavesBackEnd(cachedLeavesPath)
+	cachedLeavesDB, err := blockchain.InitCachedLeavesBackEnd(cachedLeavesPath, maxCachedLeavesMem)
 	if err != nil {
 		return nil, err
 	}
@@ -341,20 +350,76 @@ func initUtreexoState(cfg *UtreexoConfig, basePath string) (*UtreexoState, error
 		p.NumLeaves = binary.LittleEndian.Uint64(buf[:])
 	}
 
-	p.Nodes = nodesDB
-	p.CachedLeaves = cachedLeavesDB
-	closeDB := func() error {
-		err := nodesDB.Close()
+	var closeDB func() error
+	if maxMemoryUsage >= 0 {
+		p.Nodes = nodesDB
+		p.CachedLeaves = cachedLeavesDB
+		closeDB = func() error {
+			err := nodesDB.Close()
+			if err != nil {
+				return err
+			}
+
+			err = cachedLeavesDB.Close()
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}
+	} else {
+		log.Infof("loading the utreexo state from disk...")
+		err = nodesDB.ForEach(func(k uint64, v utreexo.Leaf) error {
+			p.Nodes.Put(k, v)
+			return nil
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		err = cachedLeavesDB.Close()
+		err = cachedLeavesDB.ForEach(func(k utreexo.Hash, v uint64) error {
+			p.CachedLeaves.Put(k, v)
+			return nil
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		return nil
+		log.Infof("Finished loading the utreexo state from disk.")
+
+		closeDB = func() error {
+			log.Infof("Flushing the utreexo state to disk. May take a while...")
+
+			p.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
+				nodesDB.Put(k, v)
+				return nil
+			})
+
+			p.CachedLeaves.ForEach(func(k utreexo.Hash, v uint64) error {
+				cachedLeavesDB.Put(k, v)
+				return nil
+			})
+
+			// We want to try to close both of the DBs before returning because of an error.
+			errStr := ""
+			err := nodesDB.Close()
+			if err != nil {
+				errStr += fmt.Sprintf("Error while closing nodes db. %v", err.Error())
+			}
+			err = cachedLeavesDB.Close()
+			if err != nil {
+				errStr += fmt.Sprintf("Error while closing cached leaves db. %v", err.Error())
+			}
+
+			// If the err string isn't "", then return the error here.
+			if errStr != "" {
+				return fmt.Errorf(errStr)
+			}
+
+			log.Infof("Finished flushing the utreexo state to disk.")
+
+			return nil
+		}
 	}
 
 	uState := &UtreexoState{

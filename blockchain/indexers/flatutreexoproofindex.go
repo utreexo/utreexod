@@ -1271,7 +1271,7 @@ func NewFlatUtreexoProofIndex(dataDir string, pruned bool, chainParams *chaincfg
 		Name:    flatUtreexoProofIndexType,
 		// Default to ram for now.
 		Params: chainParams,
-	})
+	}, 250*1024*1024)
 	if err != nil {
 		return nil, err
 	}
