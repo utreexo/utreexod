@@ -197,19 +197,20 @@ type config struct {
 	BlockPrioritySize uint32   `long:"blockprioritysize" description:"Size in bytes for high-priority/low-fee transactions when creating a block"`
 
 	// Indexing options.
-	AddrIndex                 bool `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
-	TxIndex                   bool `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
-	TTLIndex                  bool `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
-	UtreexoProofIndex         bool `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
-	FlatUtreexoProofIndex     bool `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
-	CFilters                  bool `long:"cfilters" description:"Enable committed filtering (CF) support"`
-	NoPeerBloomFilters        bool `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
-	DropAddrIndex             bool `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
-	DropCfIndex               bool `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
-	DropTxIndex               bool `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
-	DropTTLIndex              bool `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
-	DropUtreexoProofIndex     bool `long:"droputreexoproofindex" description:"Deletes the utreexo proof index from the database on start up and then exits."`
-	DropFlatUtreexoProofIndex bool `long:"dropflatutreexoproofindex" description:"Deletes the flat utreexo proof index from the database on start up and then exits."`
+	AddrIndex                  bool  `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
+	TxIndex                    bool  `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
+	TTLIndex                   bool  `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
+	UtreexoProofIndex          bool  `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
+	FlatUtreexoProofIndex      bool  `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
+	UtreexoProofIndexMaxMemory int64 `long:"utreexoproofindexmaxmemory" description:"The maxmimum memory in mebibytes (MiB) that the utreexo proof indexes will use up. Passing in 0 will make the entire proof index stay on disk. Passing in a negative value will make the entire proof index stay in memory. Default of 250MiB."`
+	CFilters                   bool  `long:"cfilters" description:"Enable committed filtering (CF) support"`
+	NoPeerBloomFilters         bool  `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
+	DropAddrIndex              bool  `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
+	DropCfIndex                bool  `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
+	DropTxIndex                bool  `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
+	DropTTLIndex               bool  `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
+	DropUtreexoProofIndex      bool  `long:"droputreexoproofindex" description:"Deletes the utreexo proof index from the database on start up and then exits."`
+	DropFlatUtreexoProofIndex  bool  `long:"dropflatutreexoproofindex" description:"Deletes the flat utreexo proof index from the database on start up and then exits."`
 
 	// Wallet options.
 	WatchOnlyWallet                                      bool     `long:"watchonlywallet" description:"Enable the watch only wallet with utreexo proofs. Must have --noutreexo disabled"`
@@ -465,35 +466,36 @@ func newConfigParser(cfg *config, so *serviceOptions, options flags.Options) *fl
 func loadConfig() (*config, []string, error) {
 	// Default config.
 	cfg := config{
-		ConfigFile:           defaultConfigFile,
-		DebugLevel:           defaultLogLevel,
-		MaxPeers:             defaultMaxPeers,
-		BanDuration:          defaultBanDuration,
-		BanThreshold:         defaultBanThreshold,
-		RPCMaxClients:        defaultMaxRPCClients,
-		RPCMaxWebsockets:     defaultMaxRPCWebsockets,
-		RPCMaxConcurrentReqs: defaultMaxRPCConcurrentReqs,
-		DataDir:              defaultDataDir,
-		LogDir:               defaultLogDir,
-		DbType:               defaultDbType,
-		RPCKey:               defaultRPCKeyFile,
-		RPCCert:              defaultRPCCertFile,
-		MinRelayTxFee:        mempool.DefaultMinRelayTxFee.ToBTC(),
-		FreeTxRelayLimit:     defaultFreeTxRelayLimit,
-		TrickleInterval:      defaultTrickleInterval,
-		BlockMinSize:         defaultBlockMinSize,
-		BlockMaxSize:         defaultBlockMaxSize,
-		BlockMinWeight:       defaultBlockMinWeight,
-		BlockMaxWeight:       defaultBlockMaxWeight,
-		BlockPrioritySize:    mempool.DefaultBlockPrioritySize,
-		MaxOrphanTxs:         defaultMaxOrphanTransactions,
-		SigCacheMaxSize:      defaultSigCacheMaxSize,
-		UtxoCacheMaxSizeMiB:  defaultUtxoCacheMaxSizeMiB,
-		Generate:             defaultGenerate,
-		TxIndex:              defaultTxIndex,
-		TTLIndex:             defaultTTLIndex,
-		AddrIndex:            defaultAddrIndex,
-		Prune:                pruneMinSize,
+		ConfigFile:                 defaultConfigFile,
+		DebugLevel:                 defaultLogLevel,
+		MaxPeers:                   defaultMaxPeers,
+		BanDuration:                defaultBanDuration,
+		BanThreshold:               defaultBanThreshold,
+		RPCMaxClients:              defaultMaxRPCClients,
+		RPCMaxWebsockets:           defaultMaxRPCWebsockets,
+		RPCMaxConcurrentReqs:       defaultMaxRPCConcurrentReqs,
+		DataDir:                    defaultDataDir,
+		LogDir:                     defaultLogDir,
+		DbType:                     defaultDbType,
+		RPCKey:                     defaultRPCKeyFile,
+		RPCCert:                    defaultRPCCertFile,
+		MinRelayTxFee:              mempool.DefaultMinRelayTxFee.ToBTC(),
+		FreeTxRelayLimit:           defaultFreeTxRelayLimit,
+		TrickleInterval:            defaultTrickleInterval,
+		BlockMinSize:               defaultBlockMinSize,
+		BlockMaxSize:               defaultBlockMaxSize,
+		BlockMinWeight:             defaultBlockMinWeight,
+		BlockMaxWeight:             defaultBlockMaxWeight,
+		BlockPrioritySize:          mempool.DefaultBlockPrioritySize,
+		MaxOrphanTxs:               defaultMaxOrphanTransactions,
+		SigCacheMaxSize:            defaultSigCacheMaxSize,
+		UtxoCacheMaxSizeMiB:        defaultUtxoCacheMaxSizeMiB,
+		UtreexoProofIndexMaxMemory: defaultUtxoCacheMaxSizeMiB,
+		Generate:                   defaultGenerate,
+		TxIndex:                    defaultTxIndex,
+		TTLIndex:                   defaultTTLIndex,
+		AddrIndex:                  defaultAddrIndex,
+		Prune:                      pruneMinSize,
 	}
 
 	// Service options which are only added on Windows.
