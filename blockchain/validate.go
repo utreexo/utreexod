@@ -1085,7 +1085,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 			return err
 		}
 	} else {
-		err := view.fetchInputUtxos(nil, b.utxoCache, block)
+		err := view.fetchInputUtxos(b.utxoCache, block)
 		if err != nil {
 			return err
 		}

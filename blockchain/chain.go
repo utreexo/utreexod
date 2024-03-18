@@ -986,7 +986,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		if b.utreexoView == nil {
 			// Load all of the utxos referenced by the block that aren't
 			// already in the view.
-			err := view.fetchInputUtxos(b.db, nil, block)
+			err := view.fetchInputUtxos(b.utxoCache, block)
 			if err != nil {
 				return err
 			}
@@ -1064,7 +1064,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		if b.utreexoView == nil {
 			// Load all of the utxos referenced by the block that aren't
 			// already in the view.
-			err := view.fetchInputUtxos(b.db, nil, block)
+			err := view.fetchInputUtxos(b.utxoCache, block)
 			if err != nil {
 				return err
 			}
@@ -1267,7 +1267,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 		} else {
 			// Load all of the utxos referenced by the block that aren't
 			// already in the view.
-			err = view.fetchInputUtxos(b.db, nil, block)
+			err = view.fetchInputUtxos(b.utxoCache, block)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -1345,7 +1345,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			// the utxo cache.
 			// If we are a utreexo node, we fetch them from the block.
 			if b.utreexoView == nil {
-				err = view.fetchInputUtxos(b.db, nil, block)
+				err = view.fetchInputUtxos(b.utxoCache, block)
 				if err != nil {
 					return nil, nil, nil, err
 				}
