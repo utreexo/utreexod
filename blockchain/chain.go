@@ -851,6 +851,17 @@ func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view
 			return err
 		}
 
+		if b.utxoCache != nil {
+			// Flush the cache on every disconnect. Since the code for
+			// reorganization modifies the database directly, the cache
+			// will be left in an inconsistent state if we don't flush it
+			// prior to the dbPutUtxoView that happends below.
+			err = b.utxoCache.flush(dbTx, FlushRequired, state)
+			if err != nil {
+				return err
+			}
+		}
+
 		// Update the utxo set using the state of the utxo view.  This
 		// entails restoring all of the utxos spent and removing the new
 		// ones created by the block.
@@ -944,18 +955,6 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		return nil
 	}
 
-	// Utreexo node doesn't have a utxo cache. Only flush if we're not a utreexo node.
-	if b.utreexoView == nil {
-		// The rest of the reorg depends on all STXOs already being in the database
-		// so we flush before reorg.
-		err := b.db.Update(func(dbTx database.Tx) error {
-			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
-		})
-		if err != nil {
-			return err
-		}
-	}
-
 	// Track the old and new best chains heads.
 	tip := b.bestChain.Tip()
 	oldBest := tip
@@ -986,7 +985,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		if b.utreexoView == nil {
 			// Load all of the utxos referenced by the block that aren't
 			// already in the view.
-			err := view.fetchInputUtxos(b.db, nil, block)
+			err := view.fetchInputUtxos(b.utxoCache, block)
 			if err != nil {
 				return err
 			}
@@ -1064,7 +1063,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		if b.utreexoView == nil {
 			// Load all of the utxos referenced by the block that aren't
 			// already in the view.
-			err := view.fetchInputUtxos(b.db, nil, block)
+			err := view.fetchInputUtxos(b.utxoCache, block)
 			if err != nil {
 				return err
 			}
@@ -1100,17 +1099,6 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		}
 	}
 
-	if b.utreexoView == nil {
-		// We call the flush at the end to update the last flush hash to the new
-		// best tip.
-		err = b.db.Update(func(dbTx database.Tx) error {
-			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
-		})
-		if err != nil {
-			return err
-		}
-	}
-
 	// Log the point where the chain forked and old and new best chain
 	// heads.
 	if forkNode != nil {
@@ -1139,17 +1127,6 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	// Nothing to do if no reorganize nodes were provided.
 	if detachNodes.Len() == 0 && attachNodes.Len() == 0 {
 		return nil, nil, nil, nil
-	}
-
-	if b.utreexoView == nil {
-		// Flush the cache before checking the validity. This is because the reorganization code
-		// depends on the assumption that the cache is flushed.
-		err := b.db.Update(func(dbTx database.Tx) error {
-			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
-		})
-		if err != nil {
-			return nil, nil, nil, err
-		}
 	}
 
 	// verifyReorganizationValidity will modify the best chain and the utreexo state
@@ -1267,7 +1244,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 		} else {
 			// Load all of the utxos referenced by the block that aren't
 			// already in the view.
-			err = view.fetchInputUtxos(b.db, nil, block)
+			err = view.fetchInputUtxos(b.utxoCache, block)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -1345,7 +1322,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			// the utxo cache.
 			// If we are a utreexo node, we fetch them from the block.
 			if b.utreexoView == nil {
-				err = view.fetchInputUtxos(b.db, nil, block)
+				err = view.fetchInputUtxos(b.utxoCache, block)
 				if err != nil {
 					return nil, nil, nil, err
 				}
