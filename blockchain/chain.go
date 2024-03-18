@@ -955,18 +955,6 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		return nil
 	}
 
-	// Utreexo node doesn't have a utxo cache. Only flush if we're not a utreexo node.
-	if b.utreexoView == nil {
-		// The rest of the reorg depends on all STXOs already being in the database
-		// so we flush before reorg.
-		err := b.db.Update(func(dbTx database.Tx) error {
-			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
-		})
-		if err != nil {
-			return err
-		}
-	}
-
 	// Track the old and new best chains heads.
 	tip := b.bestChain.Tip()
 	oldBest := tip
@@ -1111,17 +1099,6 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		}
 	}
 
-	if b.utreexoView == nil {
-		// We call the flush at the end to update the last flush hash to the new
-		// best tip.
-		err = b.db.Update(func(dbTx database.Tx) error {
-			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
-		})
-		if err != nil {
-			return err
-		}
-	}
-
 	// Log the point where the chain forked and old and new best chain
 	// heads.
 	if forkNode != nil {
@@ -1150,17 +1127,6 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	// Nothing to do if no reorganize nodes were provided.
 	if detachNodes.Len() == 0 && attachNodes.Len() == 0 {
 		return nil, nil, nil, nil
-	}
-
-	if b.utreexoView == nil {
-		// Flush the cache before checking the validity. This is because the reorganization code
-		// depends on the assumption that the cache is flushed.
-		err := b.db.Update(func(dbTx database.Tx) error {
-			return b.utxoCache.flush(dbTx, FlushRequired, b.BestSnapshot())
-		})
-		if err != nil {
-			return nil, nil, nil, err
-		}
 	}
 
 	// verifyReorganizationValidity will modify the best chain and the utreexo state
