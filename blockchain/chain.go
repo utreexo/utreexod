@@ -851,6 +851,17 @@ func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view
 			return err
 		}
 
+		if b.utxoCache != nil {
+			// Flush the cache on every disconnect. Since the code for
+			// reorganization modifies the database directly, the cache
+			// will be left in an inconsistent state if we don't flush it
+			// prior to the dbPutUtxoView that happends below.
+			err = b.utxoCache.flush(dbTx, FlushRequired, state)
+			if err != nil {
+				return err
+			}
+		}
+
 		// Update the utxo set using the state of the utxo view.  This
 		// entails restoring all of the utxos spent and removing the new
 		// ones created by the block.
