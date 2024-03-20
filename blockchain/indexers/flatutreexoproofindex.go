@@ -1243,12 +1243,14 @@ func loadFlatFileState(dataDir, name string) (*FlatFileState, error) {
 }
 
 // NewFlatUtreexoProofIndex returns a new instance of an indexer that is used to create a flat utreexo proof index.
+// The passed in maxMemoryUsage should be in bytes and it determines how much memory the proof index will use up.
+// A maxMemoryUsage of 0 will keep all the elements on disk and a negative maxMemoryUsage will keep all the elements in memory.
 //
 // It implements the Indexer interface which plugs into the IndexManager that in
 // turn is used by the blockchain package.  This allows the index to be
 // seamlessly maintained along with the chain.
-func NewFlatUtreexoProofIndex(dataDir string, pruned bool, chainParams *chaincfg.Params,
-	proofGenInterVal *int32) (*FlatUtreexoProofIndex, error) {
+func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
+	proofGenInterVal *int32, maxMemoryUsage int64, dataDir string) (*FlatUtreexoProofIndex, error) {
 
 	// If the proofGenInterVal argument is nil, use the default value.
 	var intervalToUse int32
@@ -1269,9 +1271,8 @@ func NewFlatUtreexoProofIndex(dataDir string, pruned bool, chainParams *chaincfg
 	uState, err := InitUtreexoState(&UtreexoConfig{
 		DataDir: dataDir,
 		Name:    flatUtreexoProofIndexType,
-		// Default to ram for now.
-		Params: chainParams,
-	})
+		Params:  chainParams,
+	}, maxMemoryUsage)
 	if err != nil {
 		return nil, err
 	}
