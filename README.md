@@ -2,85 +2,122 @@ utreexod
 ====
 
 [![Build Status](https://github.com/utreexo/utreexod/workflows/Build%20and%20Test/badge.svg)](https://github.com/utreexo/utreexod/actions)
-[![Coverage Status](https://coveralls.io/repos/github/utreexo/utreexod/badge.svg?branch=master)](https://coveralls.io/github/utreexo/utreexod?branch=main)
 [![ISC License](https://img.shields.io/badge/license-ISC-blue.svg)](http://copyfree.org)
 [![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](https://godoc.org/github.com/utreexo/utreexod)
 
-utreexod is a full node bitcoin implementation written in Go to showcase utreexo accumulators.
+utreexod is a full node bitcoin implementation with support for utreexo accumulators. Utreexo accumulator is
+an append only merkle forest data structure with support for deleting elements from the set. More information at
+[Utreexo library github repository](https://github.com/utreexo/utreexo)
 
-This project is currently under active development and is in a beta state. Using it for anything other
-than development and testing is not recommended.
+The main features over a traditional node are:
 
+- Immediate node bootstrap by having the UTXO state hardcoded into the codebase.
+- Uses a tiny amount of memory.
+- Extremely low disk i/o needed compared to a traditional node. Will not wear out micro sd cards.
+
+The catch is that it uses more bandwidth compared to a normal node. For block downloads it's around 1.7
+times more data. For transactions the absolute worst case is 4 times more but transaction relay supports
+caching so it'll be a lot better.
+
+This project is currently under active development and is in a beta state. Using it on mainnet for anything
+other than non-negligible amounts of Bitcoin is not recommended.
 
 ## Requirements
 
 [Go](http://golang.org) 1.18 or newer.
 
+[Rust](http://rust-lang.org) 1.73.0 or newer (To compile the built in [BDK wallet](https://bitcoindevkit.org) support).
+
 ## Installation
 
 https://github.com/utreexo/utreexod/
 
-#### Linux/BSD/MacOSX/POSIX - Build from Source
+#### Linux/MacOSX - Build from Source
 
-- Install Go according to the installation instructions here:
-  http://golang.org/doc/install
-
-- Ensure Go was installed properly and is a supported version:
+To build with BDK wallet:
 
 ```bash
-$ go version
-$ go env GOROOT GOPATH
+make all
 ```
 
-NOTE: The `GOROOT` and `GOPATH` above must not be the same path.  It is
-recommended that `GOPATH` is set to a directory in your home directory such as
-`~/goprojects` to avoid write permission issues.  It is also recommended to add
-`$GOPATH/bin` to your `PATH` at this point.
-
-- Run the following commands to obtain utreexod, all dependencies, and install it:
+To build without the BDK wallet:
 
 ```bash
-$ cd $GOPATH/src/github.com/utreexo/utreexod
-$ go install -v . ./cmd/...
+go build -o . ./...
 ```
-
-- utreexod (and utilities) will now be installed in ```$GOPATH/bin```.  If you did
-  not already add the bin directory to your system path during Go installation,
-  we recommend you do so now.
 
 ## Getting Started
 
-As there aren't any utreexo bridge nodes up and running for utreexo nodes to
-connect to, you must run your own bridge node.
-
+To run a utreexo node:
 
 ```bash
-$ ./utreexod --flatutreexoproofindex
+# The node will start from the hardcoded UTXO state and skip the initial block download.
+# If the node was built with the bdk wallet, it'll start with the bdk wallet enabled.
+`./utreexod`
+
+# For utreexo archival nodes that will not skip the initial block download.
+`./utreexod --noassumeutreexo --prune=0`
+
+# To disable to bdkwallet. NOTE: the wallet will not be disabled if the node had ever
+# started up with the wallet enabled.
+`./utreexod --nobdkwallet`
 ```
 
-Then you can connect your utreexo node to the bridge node.
+To use the built in bdk wallet:
 
 ```bash
-$ ./utreexod --addpeer=ip_of_the_bridge_node
+# Show the mnemonic word list of the wallet.
+`./utreexoctl getmnemonicwords`
+
+# Get a fresh address from the wallet.
+`./utreexoctl freshaddress`
+
+# Get an address that has not received funds yet from the wallet.
+`./utreexoctl unusedaddress`
+
+# Get an address at the desired index.
+`./utreexoctl peekaddress "bip32-index"`
+Example:
+# Returns the address at index 100.
+`./utreexoctl peekaddress 100`
+
+# Get the current balance of the wallet.
+`./utreexoctl balance`
+
+# List all the relevant transactions for the wallet.
+`./utreexoctl listbdktransactions`
+
+# List all the relevant utxos that the wallet controls.
+`./utreexoctl listbdkutxos`
+
+# Create a transaction from the wallet.
+`./utreexoctl createtransactionfrombdkwallet "feerate_in_sat_per_vbyte" [{"amount":n,"address":"value"},...]`
+Example:
+# feerate of 1 satoshi per vbyte, sending 10,000sats to address tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq
+`./utreexoctl createtransactionfrombdkwallet 1 '[{"amount":10000,"address":"tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq"}]'`
+# feerate of 12 satoshi per vbyte, sending 10,000sats to address tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq and 20,000sats to address tb1puuv30z568uc58c40duwl5ytyu5898fyehlyqtm0al2xk70z8tw0qcxfn6w
+`./utreexoctl createtransactionfrombdkwallet 12 '[{"amount":10000,"address":"tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq"},{"amount":20000,"address":"tb1puuv30z568uc58c40duwl5ytyu5898fyehlyqtm0al2xk70z8tw0qcxfn6w"}]'`
 ```
 
-## Updating
-
-#### Linux/BSD/MacOSX/POSIX - Build from Source
-
-- Run the following commands to update btcd, all dependencies, and install it:
+Bridge nodes are nodes that keep the entire merkle forest and attach proofs to new blocks
+and transactions. Since miners and nodes publish blocks and transactions without proofs, these
+nodes are needed to allow for utreexo nodes without a soft fork. To run a bridge node:
 
 ```bash
-$ cd $GOPATH/src/github.com/utreexo/utreexod
-$ git pull
-$ go install -v . ./cmd/...
+# Either one will work. The only difference these have is that the flatutreexoproofindex
+# stores all the data in .dat files instead of leveldb. It makes it easier to read the
+# proofs for tinkering.
+`./utreexod --flatutreexoproofindex`
+`./utreexod --utreexoproofindex`
+
+# For running bridge nodes that are also archival.
+`./utreexod --flatutreexoproofindex --prune=0`
+`./utreexod --utreexoproofindex --prune=0`
 ```
 
-## IRC
+## Community
 
-- irc.libera.chat
-- channel #utreexo
-- [webchat](https://web.libera.chat/gamja/?channels=utreexo)
+[Discord](https://discord.gg/RVpDZQVN)
 
 ## Issue Tracker
 
