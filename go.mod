@@ -18,7 +18,7 @@ require (
 	github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23
 	github.com/stretchr/testify v1.7.0
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/utreexo/utreexo v0.1.2
+	github.com/utreexo/utreexo v0.1.3
 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
 	golang.org/x/exp v0.0.0-20220414153411-bcd21879b8fd
 )
