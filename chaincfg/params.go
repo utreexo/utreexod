@@ -61,8 +61,8 @@ var (
 	// DefaultSignetDNSSeeds is the list of seed nodes for the default
 	// (public, Taproot enabled) signet network.
 	DefaultSignetDNSSeeds = []DNSSeed{
-		{"seed.dlsouza.lol.", true},      // Davidson Souza, supports filtering, including utreexo (1 << 24)
-		{"seed.calvinalvin.com.", false}, // Calvin Kim, only returns utreexo nodes
+		{"seed.dlsouza.lol.", true},           // Davidson Souza, supports filtering, including utreexo (1 << 24)
+		{"signetseed.calvinkim.info.", false}, // Calvin Kim, supports filtering, including utreexo (1 << 24)
 		{"178.128.221.177", false},
 		{"2a01:7c8:d005:390::5", false},
 		{"v7ajjeirttkbnt32wpy3c6w3emwnfr3fkla7hpxcfokr3ysd3kqtzmqd.onion:38333", false},
@@ -299,6 +299,7 @@ var MainNetParams = Params{
 	Net:         wire.MainNet,
 	DefaultPort: "8333",
 	DNSSeeds: []DNSSeed{
+		{"seed.calvinkim.info.", false}, // Calvin Kim, supports filtering, including utreexo (1 << 24)
 		{"seed.bitcoin.sipa.be", true},
 		{"dnsseed.bluematt.me", true},
 		{"dnsseed.bitcoin.dashjr.org", false},
@@ -590,6 +591,7 @@ var TestNet3Params = Params{
 	Net:         wire.TestNet3,
 	DefaultPort: "18333",
 	DNSSeeds: []DNSSeed{
+		{"testnetseed.calvinkim.info.", false}, // Calvin Kim, supports filtering, including utreexo (1 << 24)
 		{"testnet-seed.bitcoin.jonasschnelli.ch", true},
 		{"testnet-seed.bitcoin.schildbach.de", false},
 		{"seed.tbtc.petertodd.org", true},
