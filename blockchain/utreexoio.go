@@ -709,7 +709,7 @@ func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (uint64, bool) {
 
 	pos, found := m.cache.get(k)
 	if !found {
-		pos, found = m.dbGet(k)
+		return m.dbGet(k)
 	}
 
 	return pos, found
@@ -721,7 +721,7 @@ func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
 	if m.maxCacheElem == 0 {
 		err := m.dbPut(k, v)
 		if err != nil {
-			log.Warnf("NodesBackEnd dbPut fail. %v", err)
+			log.Warnf("CachedLeavesBackEnd dbPut fail. %v", err)
 		}
 
 		return
