@@ -594,7 +594,8 @@ func TestProveUtxos(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
 
-	source := rand.NewSource(time.Now().UnixNano())
+	timenow := time.Now().UnixNano()
+	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
 	chain, indexes, params, _, tearDown := indexersTestChain("TestProveUtxos", 1)
@@ -608,7 +609,7 @@ func TestProveUtxos(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("timenow:%v. %v", timenow, err)
 		}
 		nextBlock = newBlock
 
@@ -627,7 +628,7 @@ func TestProveUtxos(t *testing.T) {
 		if i%10 == 0 {
 			// Commit the two base blocks to DB
 			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
-				t.Fatalf("TestProveUtxos fail. Unexpected error while flushing cache: %v", err)
+				t.Fatalf("timenow %v. TestProveUtxos fail. Unexpected error while flushing cache: %v", timenow, err)
 			}
 		}
 	}
@@ -635,7 +636,7 @@ func TestProveUtxos(t *testing.T) {
 	// Check that the newly added data to both of the indexes are equal.
 	err := compareUtreexoIdx(1, 100, false, chain, indexes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Create a chain that consumes the data from the indexes and test that this
@@ -643,13 +644,13 @@ func TestProveUtxos(t *testing.T) {
 	csnChain, _, csnTearDown, err := csnTestChain("TestProveUtxos-CsnChain")
 	defer csnTearDown()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Sync the csn chain to the tip from block 1.
 	err = syncCsnChain(1, chain.BestSnapshot().Height, chain, csnChain, indexes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Sanity checking.  The chains need to be at the same height for the proofs
@@ -659,7 +660,7 @@ func TestProveUtxos(t *testing.T) {
 	if csnHeight != bridgeHeight {
 		err := fmt.Errorf("TestProveUtxos fail. Height mismatch. csn chain is at %d "+
 			"while bridge chain is at %d", csnHeight, bridgeHeight)
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Repeat verify and prove from the chain 20 times.
@@ -677,8 +678,8 @@ func TestProveUtxos(t *testing.T) {
 		for _, spendable := range spendables {
 			utxo, err := chain.FetchUtxoEntry(spendable.PrevOut)
 			if err != nil {
-				t.Fatalf("TestProveUtxos fail. err: outpoint %s not found.",
-					spendable.PrevOut.String())
+				t.Fatalf("timenow %v. TestProveUtxos fail. err: outpoint %s not found.",
+					timenow, spendable.PrevOut.String())
 			}
 
 			utxos = append(utxos, utxo)
@@ -693,15 +694,15 @@ func TestProveUtxos(t *testing.T) {
 				var err error
 				flatProof, err = idxType.ProveUtxos(utxos, &outpoints)
 				if err != nil {
-					t.Fatalf("TestProveUtxos fail."+
-						"Failed to create proof. err: %v", err)
+					t.Fatalf("timenow %v. TestProveUtxos fail."+
+						"Failed to create proof. err: %v", timenow, err)
 				}
 			case *UtreexoProofIndex:
 				var err error
 				proof, err = idxType.ProveUtxos(utxos, &outpoints)
 				if err != nil {
-					t.Fatalf("TestProveUtxos fail."+
-						"Failed to create proof. err: %v", err)
+					t.Fatalf("timenow %v. TestProveUtxos fail."+
+						"Failed to create proof. err: %v", timenow, err)
 				}
 			}
 		}
@@ -710,19 +711,19 @@ func TestProveUtxos(t *testing.T) {
 		if !reflect.DeepEqual(proof, flatProof) {
 			err := fmt.Errorf("Generated utreexo proof differ for " +
 				"utreexo proof index and flat utreexo proof index")
-			t.Fatal(err)
+			t.Fatalf("timenow:%v. %v", timenow, err)
 		}
 		if !reflect.DeepEqual(proof.HashesProven, flatProof.HashesProven) {
 			err := fmt.Errorf("Hashes proven for differ for " +
 				"utreexo proof index and flat utreexo proof index")
-			t.Fatal(err)
+			t.Fatalf("timenow:%v. %v", timenow, err)
 		}
 
 		// Verify the proof with the compact state node.
 		uView := csnChain.GetUtreexoView()
 		err = uView.VerifyAccProof(proof.HashesProven, proof.AccProof)
 		if err != nil {
-			t.Fatalf("TestProveUtxos fail. Failed to verify proof err: %v", err)
+			t.Fatalf("timenow %v. TestProveUtxos fail. Failed to verify proof err: %v", timenow, err)
 		}
 	}
 }
@@ -731,7 +732,8 @@ func TestUtreexoProofIndex(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
 
-	source := rand.NewSource(time.Now().UnixNano())
+	timenow := time.Now().UnixNano()
+	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
 	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoProofIndex", 1)
@@ -743,7 +745,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	var emptySpendableOuts []*blockchain.SpendableOut
 	b1, spendableOuts1, err := blockchain.AddBlock(chain, tip, emptySpendableOuts)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	var allSpends []*blockchain.SpendableOut
@@ -754,7 +756,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	for b := 0; b < 100; b++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("timenow:%v. %v", timenow, err)
 		}
 		nextBlock = newBlock
 
@@ -774,13 +776,13 @@ func TestUtreexoProofIndex(t *testing.T) {
 		// same indexes.
 		err = testUtreexoProof(newBlock, chain, indexes)
 		if err != nil {
-			t.Fatalf("TestUtreexoProofIndex failed testUtreexoProof. err: %v", err)
+			t.Fatalf("timenow %v. TestUtreexoProofIndex failed testUtreexoProof at height %d. err: %v", timenow, b, err)
 		}
 
 		if b%10 == 0 {
 			// Commit the two base blocks to DB
 			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
-				t.Fatalf("unexpected error while flushing cache: %v", err)
+				t.Fatalf("timenow %v. unexpected error while flushing cache: %v", timenow, err)
 			}
 		}
 	}
@@ -788,7 +790,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	// Check that the added 100 blocks are equal for both indexes.
 	err = compareUtreexoIdx(1, 100, false, chain, indexes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Create a chain that consumes the data from the indexes and test that this
@@ -796,13 +798,13 @@ func TestUtreexoProofIndex(t *testing.T) {
 	csnChain, _, csnTearDown, err := csnTestChain("TestUtreexoProofIndex-CsnChain")
 	defer csnTearDown()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Sync the csn chain to the tip from block 1.
 	err = syncCsnChain(1, 100, chain, csnChain, indexes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// We'll start adding a different chain starting from block 1. Once we reach block 102,
@@ -815,7 +817,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 		var newSpends []*blockchain.SpendableOut
 		altBlocks[i], newSpends, err = blockchain.AddBlock(chain, altNextBlock, altNextSpends)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("timenow:%v. %v", timenow, err)
 		}
 		altNextBlock = altBlocks[i]
 
@@ -835,18 +837,18 @@ func TestUtreexoProofIndex(t *testing.T) {
 	// Check that the newly added data to both of the indexes are equal.
 	err = compareUtreexoIdx(1, 100, false, chain, indexes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Reorg the csn chain as well.
 	err = syncCsnChain(2, chain.BestSnapshot().Height, chain, csnChain, indexes)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Sanity check that the csn chain did reorg.
 	if chain.BestSnapshot().Hash != csnChain.BestSnapshot().Hash {
-		t.Fatalf("expected tip to be %s but got %s for the csn chain",
+		t.Fatalf("timenow %v. expected tip to be %s but got %s for the csn chain", timenow,
 			chain.BestSnapshot().Hash.String(), csnChain.BestSnapshot().Hash.String())
 	}
 }
@@ -855,8 +857,8 @@ func TestMultiBlockProof(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
 
-	// NOTE Use a fixed source to generate the same data.
-	source := rand.NewSource(time.Now().UnixNano())
+	timenow := time.Now().UnixNano()
+	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
 	chain, indexes, params, _, tearDown := indexersTestChain("TestMultiBlockProof", defaultProofGenInterval)
@@ -872,7 +874,7 @@ func TestMultiBlockProof(t *testing.T) {
 	for b := 0; b < 100; b++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("timenow:%v. %v", timenow, err)
 		}
 		nextBlock = newBlock
 
@@ -891,8 +893,8 @@ func TestMultiBlockProof(t *testing.T) {
 		if b%10 == 0 {
 			// Commit the two base blocks to DB
 			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
-				t.Fatalf("unexpected error while flushing cache: %v. Rand source %v",
-					err, source)
+				t.Fatalf("timenow %v. unexpected error while flushing cache: %v. Rand source %v",
+					timenow, err, source)
 			}
 		}
 	}
@@ -903,7 +905,7 @@ func TestMultiBlockProof(t *testing.T) {
 	defer csnTearDown()
 	if err != nil {
 		str := fmt.Errorf("TestMultiBlockProof: csnTestChain err: %v. Rand source: %v", err, source)
-		t.Fatal(str)
+		t.Fatalf("timenow:%v. %v", timenow, str)
 	}
 
 	csnChain.GetUtreexoView().SetProofInterval(defaultProofGenInterval)
@@ -913,18 +915,18 @@ func TestMultiBlockProof(t *testing.T) {
 	err = syncCsnChainMultiBlockProof(
 		1, chain.BestSnapshot().Height-1, defaultProofGenInterval, chain, csnChain, indexes)
 	if err != nil {
-		t.Fatalf("TestMultiBlockProof: syncCsnChainMultiBlockProof err: %v.", err)
+		t.Fatalf("timenow %v. TestMultiBlockProof: syncCsnChainMultiBlockProof err: %v.", timenow, err)
 	}
 
 	bridgeBlock, err := chain.BlockByHeight(csnChain.BestSnapshot().Height)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("timenow:%v. %v", timenow, err)
 	}
 
 	// Sanity check that the csn chain did catch up to the bridge chain.
 	if *bridgeBlock.Hash() != csnChain.BestSnapshot().Hash {
-		t.Fatalf("expected tip to be %s(%d) but got %s(%d) for the csn chain",
-			bridgeBlock.Hash().String(), bridgeBlock.Height(),
+		t.Fatalf("timenow %v. expected tip to be %s(%d) but got %s(%d) for the csn chain",
+			timenow, bridgeBlock.Hash().String(), bridgeBlock.Height(),
 			csnChain.BestSnapshot().Hash.String(), csnChain.BestSnapshot().Height)
 	}
 }
