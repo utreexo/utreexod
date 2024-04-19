@@ -464,6 +464,11 @@ func (sp *serverPeer) OnVersion(_ *peer.Peer, msg *wire.MsgVersion) *wire.MsgRej
 
 	// Reject outbound peers that are not full nodes.
 	wantServices := wire.SFNodeNetwork
+
+	// Also reject outbound peers that aren't utreexo nodes if we're a utreexo csn.
+	if sp.server.chain.IsUtreexoViewActive() {
+		wantServices |= wire.SFNodeUtreexo
+	}
 	if !isInbound && !hasServices(msg.Services, wantServices) {
 		missingServices := wantServices & ^msg.Services
 		srvrLog.Debugf("Rejecting peer %s with services %v due to not "+
@@ -489,6 +494,14 @@ func (sp *serverPeer) OnVersion(_ *peer.Peer, msg *wire.MsgVersion) *wire.MsgRej
 		if segwitActive && !sp.IsWitnessEnabled() {
 			peerLog.Infof("Disconnecting non-segwit peer %v, isn't segwit "+
 				"enabled and we need more segwit enabled peers", sp)
+			sp.Disconnect()
+			return nil
+		}
+
+		// Disconnect peers that aren't utreexo nodes if we're a csn.
+		if sp.server.chain.IsUtreexoViewActive() && !sp.IsUtreexoEnabled() {
+			peerLog.Infof("Disconnecting non-utreexo peer %v, as we're a utreexo "+
+				"node", sp)
 			sp.Disconnect()
 			return nil
 		}
