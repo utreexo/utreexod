@@ -174,7 +174,14 @@ func CalcNumEntries(bucketSize uintptr, maxMemoryUsage int64) ([]int, int) {
 
 		mapSize := int64(CalculateRoughMapSize(numMaxElements, bucketSize))
 		if maxMemoryUsage <= totalMapSize+mapSize {
-			break
+			// If the totalMapSize + new map is greater than the maxMemoryUsage,
+			// try halving the memory being allocated by doing a -1 on the numMaxElements
+			// count. If it's still over, just break.
+			numMaxElements -= 1
+			mapSize = int64(CalculateRoughMapSize(numMaxElements, bucketSize))
+			if maxMemoryUsage <= totalMapSize+mapSize {
+				break
+			}
 		}
 		totalMapSize += mapSize
 
