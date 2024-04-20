@@ -10,6 +10,7 @@ import (
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
@@ -211,12 +212,12 @@ func calcNumEntries(bucketSize uintptr, maxMemoryUsage int64) ([]int, int) {
 	totalElemCount := 0
 	totalMapSize := int64(0)
 	for maxMemoryUsage > totalMapSize {
-		numMaxElements := calculateMinEntries(int(maxMemoryUsage-totalMapSize), nodesMapBucketSize)
+		numMaxElements := sizehelper.CalculateMinEntries(int(maxMemoryUsage-totalMapSize), nodesMapBucketSize)
 		if numMaxElements == 0 {
 			break
 		}
 
-		mapSize := int64(calculateRoughMapSize(numMaxElements, nodesMapBucketSize))
+		mapSize := int64(sizehelper.CalculateRoughMapSize(numMaxElements, nodesMapBucketSize))
 		if maxMemoryUsage <= totalMapSize+mapSize {
 			break
 		}
