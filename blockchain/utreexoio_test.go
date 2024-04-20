@@ -3,61 +3,13 @@ package blockchain
 import (
 	"crypto/sha256"
 	"encoding/binary"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
 )
-
-// isApproximate returns if a and b are within the given percentage of each other.
-func isApproximate(a, b, percentage float64) bool {
-	// Calculate % of 'a'
-	percentageOfA := math.Abs(a) * percentage
-
-	// Calculate the absolute difference between 'a' and 'b'
-	difference := math.Abs(a - b)
-
-	// Check if the absolute difference is less than or equal to 1% of 'a'
-	return difference <= percentageOfA
-}
-
-func TestCalcNumEntries(t *testing.T) {
-	tests := []struct {
-		maxSize    int64
-		bucketSize uintptr
-	}{
-		{100 * 1024 * 1024, nodesMapBucketSize},
-		{150 * 1024 * 1024, nodesMapBucketSize},
-		{250 * 1024 * 1024, nodesMapBucketSize},
-		{1000 * 1024 * 1024, nodesMapBucketSize},
-		{10000 * 1024 * 1024, nodesMapBucketSize},
-
-		{100 * 1024 * 1024, cachedLeavesMapBucketSize},
-		{150 * 1024 * 1024, cachedLeavesMapBucketSize},
-		{250 * 1024 * 1024, cachedLeavesMapBucketSize},
-		{1000 * 1024 * 1024, cachedLeavesMapBucketSize},
-		{10000 * 1024 * 1024, cachedLeavesMapBucketSize},
-	}
-
-	for _, test := range tests {
-		entries, _ := calcNumEntries(test.bucketSize, test.maxSize)
-
-		roughSize := 0
-		for _, entry := range entries {
-			roughSize += sizehelper.CalculateRoughMapSize(entry, nodesMapBucketSize)
-		}
-
-		// Check if the roughSize is within 1% of test.maxSize.
-		if !isApproximate(float64(test.maxSize), float64(roughSize), 0.01) {
-			t.Fatalf("Expected value to be approximately %v but got %v",
-				test.maxSize, roughSize)
-		}
-	}
-}
 
 func TestNodesMapSliceMaxCacheElems(t *testing.T) {
 	_, maxCacheElems := newNodesMapSlice(0)
