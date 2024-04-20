@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
@@ -62,7 +63,7 @@ func (ms *mapSlice) size() int {
 
 	var size int
 	for _, num := range ms.maxEntries {
-		size += calculateRoughMapSize(num, bucketSize)
+		size += sizehelper.CalculateRoughMapSize(num, bucketSize)
 	}
 
 	return size
@@ -151,14 +152,14 @@ func (ms *mapSlice) makeNewMap(totalEntryMemory uint64) map[wire.OutPoint]*UtxoE
 	// Get the size of the leftover memory.
 	memSize := ms.maxTotalMemoryUsage - totalEntryMemory
 	for _, maxNum := range ms.maxEntries {
-		memSize -= uint64(calculateRoughMapSize(maxNum, bucketSize))
+		memSize -= uint64(sizehelper.CalculateRoughMapSize(maxNum, bucketSize))
 	}
 
 	// Get a new map that's sized to house inside the leftover memory.
 	// -1 on the returned value will make the map allocate half as much total
 	// bytes.  This is done to make sure there's still room left for utxo
 	// entries to take up.
-	numMaxElements := calculateMinEntries(int(memSize), bucketSize+avgEntrySize)
+	numMaxElements := sizehelper.CalculateMinEntries(int(memSize), bucketSize+avgEntrySize)
 	numMaxElements -= 1
 	ms.maxEntries = append(ms.maxEntries, numMaxElements)
 	ms.maps = append(ms.maps, make(map[wire.OutPoint]*UtxoEntry, numMaxElements))
@@ -231,7 +232,7 @@ type utxoCache struct {
 func newUtxoCache(db database.DB, maxTotalMemoryUsage uint64) *utxoCache {
 	// While the entry isn't included in the map size, add the average size to the
 	// bucket size so we get some leftover space for entries to take up.
-	numMaxElements := calculateMinEntries(int(maxTotalMemoryUsage), bucketSize+avgEntrySize)
+	numMaxElements := sizehelper.CalculateMinEntries(int(maxTotalMemoryUsage), bucketSize+avgEntrySize)
 	numMaxElements -= 1
 
 	log.Infof("Pre-alloacting for %d MiB: ", maxTotalMemoryUsage/(1024*1024)+1)

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -44,7 +45,7 @@ func TestMapSlice(t *testing.T) {
 	for _, test := range tests {
 		m := make(map[wire.OutPoint]*UtxoEntry)
 
-		maxSize := calculateRoughMapSize(1000, bucketSize)
+		maxSize := sizehelper.CalculateRoughMapSize(1000, bucketSize)
 
 		maxEntriesFirstMap := 500
 		ms1 := make(map[wire.OutPoint]*UtxoEntry, maxEntriesFirstMap)
@@ -130,7 +131,7 @@ func TestMapsliceConcurrency(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		maxSize := calculateRoughMapSize(1000, bucketSize)
+		maxSize := sizehelper.CalculateRoughMapSize(1000, bucketSize)
 
 		maxEntriesFirstMap := 500
 		ms1 := make(map[wire.OutPoint]*UtxoEntry, maxEntriesFirstMap)

@@ -1,42 +1,10 @@
 // Copyright (c) 2023 The btcsuite developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
-package blockchain
+package sizehelper
 
 import (
 	"math"
-)
-
-// These constants are related to bitcoin.
-const (
-	// outpointSize is the size of an outpoint.
-	//
-	// This value is calculated by running the following:
-	//	unsafe.Sizeof(wire.OutPoint{})
-	outpointSize = 36
-
-	// uint64Size is the size of an uint64 allocated in memory.
-	uint64Size = 8
-
-	// bucketSize is the size of the bucket in the cache map.  Exact
-	// calculation is (16 + keysize*8 + valuesize*8) where for the map of:
-	// map[wire.OutPoint]*UtxoEntry would have a keysize=36 and valuesize=8.
-	//
-	// https://github.com/golang/go/issues/34561#issuecomment-536115805
-	bucketSize = 16 + uint64Size*outpointSize + uint64Size*uint64Size
-
-	// This value is calculated by running the following on a 64-bit system:
-	//   unsafe.Sizeof(UtxoEntry{})
-	baseEntrySize = 40
-
-	// pubKeyHashLen is the length of a P2PKH script.
-	pubKeyHashLen = 25
-
-	// avgEntrySize is how much each entry we expect it to be.  Since most
-	// txs are p2pkh, we can assume the entry to be more or less the size
-	// of a p2pkh tx.  We add on 7 to make it 32 since 64 bit systems will
-	// align by 8 bytes.
-	avgEntrySize = baseEntrySize + (pubKeyHashLen + 7)
 )
 
 // The code here is shamelessly taken from the go runtime package.  All the relevant
@@ -95,7 +63,7 @@ var class_to_size = [_NumSizeClasses]uint16{0, 8, 16, 24, 32, 48, 64, 80, 96, 11
 var size_to_class8 = [smallSizeMax/smallSizeDiv + 1]uint8{0, 1, 2, 3, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 19, 19, 20, 20, 20, 20, 21, 21, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23, 24, 24, 24, 24, 25, 25, 25, 25, 26, 26, 26, 26, 27, 27, 27, 27, 27, 27, 27, 27, 28, 28, 28, 28, 28, 28, 28, 28, 29, 29, 29, 29, 29, 29, 29, 29, 30, 30, 30, 30, 30, 30, 30, 30, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32}
 var size_to_class128 = [(_MaxSmallSize-smallSizeMax)/largeSizeDiv + 1]uint8{32, 33, 34, 35, 36, 37, 37, 38, 38, 39, 39, 40, 40, 40, 41, 41, 41, 42, 43, 43, 44, 44, 44, 44, 44, 45, 45, 45, 45, 45, 45, 46, 46, 46, 46, 47, 47, 47, 47, 47, 47, 48, 48, 48, 49, 49, 50, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 53, 53, 54, 54, 54, 54, 55, 55, 55, 55, 55, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 58, 58, 58, 58, 58, 58, 59, 59, 59, 59, 59, 59, 59, 59, 59, 59, 59, 59, 59, 59, 59, 59, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 61, 61, 61, 61, 61, 62, 62, 62, 62, 62, 62, 62, 62, 62, 62, 62, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67}
 
-// calculateRoughMapSize returns a close enough estimate of the
+// CalculateRoughMapSize returns a close enough estimate of the
 // total memory allocated by a map.
 // hint should be the same value as the number you give when
 // making a map with the following syntax: make(map[k]v, hint)
@@ -108,7 +76,7 @@ var size_to_class128 = [(_MaxSmallSize-smallSizeMax)/largeSizeDiv + 1]uint8{32, 
 // I suspect it's because of alignment and how the compiler handles it but
 // when compared with how much the compiler allocates, it's a couple hundred
 // bytes off.
-func calculateRoughMapSize(hint int, bucketSize uintptr) int {
+func CalculateRoughMapSize(hint int, bucketSize uintptr) int {
 	// This code is copied from makemap() in runtime/map.go.
 	//
 	// TODO check once in a while to see if this algorithm gets
@@ -160,11 +128,11 @@ func calculateRoughMapSize(hint int, bucketSize uintptr) int {
 	return int(total)
 }
 
-// calculateMinEntries returns the minimum number of entries that will make the
+// CalculateMinEntries returns the minimum number of entries that will make the
 // map allocate the given total bytes.  -1 on the returned entry count will
 // make the map allocate half as much total bytes (for returned entry count that's
 // greater than 0).
-func calculateMinEntries(totalBytes int, bucketSize int) int {
+func CalculateMinEntries(totalBytes int, bucketSize int) int {
 	// 48 is the number of bytes needed for the map header in a
 	// 64 bit system. Refer to hmap in runtime/map.go in the go
 	// standard library.

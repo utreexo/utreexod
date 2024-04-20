@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
 )
 
 // isApproximate returns if a and b are within the given percentage of each other.
@@ -47,7 +48,7 @@ func TestCalcNumEntries(t *testing.T) {
 
 		roughSize := 0
 		for _, entry := range entries {
-			roughSize += calculateRoughMapSize(entry, nodesMapBucketSize)
+			roughSize += sizehelper.CalculateRoughMapSize(entry, nodesMapBucketSize)
 		}
 
 		// Check if the roughSize is within 1% of test.maxSize.
