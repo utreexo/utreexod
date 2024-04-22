@@ -8,24 +8,6 @@ import (
 	"testing"
 )
 
-const (
-	// outpointSize is the size of an outpoint.
-	//
-	// This value is calculated by running the following:
-	//	unsafe.Sizeof(wire.OutPoint{})
-	outpointSize = 36
-
-	// uint64Size is the size of an uint64 allocated in memory.
-	uint64Size = 8
-
-	// bucketSize is the size of the bucket in the cache map.  Exact
-	// calculation is (16 + keysize*8 + valuesize*8) where for the map of:
-	// map[wire.OutPoint]*UtxoEntry would have a keysize=36 and valuesize=8.
-	//
-	// https://github.com/golang/go/issues/34561#issuecomment-536115805
-	bucketSize = 16 + uint64Size*outpointSize + uint64Size*uint64Size
-)
-
 // calculateEntries returns a number of entries that will make the map allocate
 // the given total bytes.  The returned number is always the maximum number of
 // entries that will allocate inside the given parameters.
@@ -53,9 +35,9 @@ func TestCalculateEntries(t *testing.T) {
 		// So to see if the calculate entries function is working correctly,
 		// we get the rough map size for i entries, then calculate the entries
 		// for that map size.  If the size is the same, the function is correct.
-		roughMapSize := CalculateRoughMapSize(i, bucketSize)
-		entries := calculateEntries(roughMapSize, bucketSize)
-		gotRoughMapSize := CalculateRoughMapSize(entries, bucketSize)
+		roughMapSize := CalculateRoughMapSize(i, UtxoCacheBucketSize)
+		entries := calculateEntries(roughMapSize, UtxoCacheBucketSize)
+		gotRoughMapSize := CalculateRoughMapSize(entries, UtxoCacheBucketSize)
 
 		if roughMapSize != gotRoughMapSize {
 			t.Errorf("For hint of %d, expected %v, got %v\n",
@@ -64,14 +46,14 @@ func TestCalculateEntries(t *testing.T) {
 
 		// Test that the entries returned are the maximum for the given map size.
 		// If we increment the entries by one, we should get a bigger map.
-		gotRoughMapSizeWrong := CalculateRoughMapSize(entries+1, bucketSize)
+		gotRoughMapSizeWrong := CalculateRoughMapSize(entries+1, UtxoCacheBucketSize)
 		if roughMapSize == gotRoughMapSizeWrong {
 			t.Errorf("For hint %d incremented by 1, expected %v, got %v\n",
 				i, gotRoughMapSizeWrong*2, gotRoughMapSizeWrong)
 		}
 
-		minEntries := CalculateMinEntries(roughMapSize, bucketSize)
-		gotMinRoughMapSize := CalculateRoughMapSize(minEntries, bucketSize)
+		minEntries := CalculateMinEntries(roughMapSize, UtxoCacheBucketSize)
+		gotMinRoughMapSize := CalculateRoughMapSize(minEntries, UtxoCacheBucketSize)
 		if roughMapSize != gotMinRoughMapSize {
 			t.Errorf("For hint of %d, expected %v, got %v\n",
 				i, roughMapSize, gotMinRoughMapSize)
@@ -79,7 +61,7 @@ func TestCalculateEntries(t *testing.T) {
 
 		// Can only test if they'll be half the size if the entries aren't 0.
 		if minEntries > 0 {
-			gotMinRoughMapSizeWrong := CalculateRoughMapSize(minEntries-1, bucketSize)
+			gotMinRoughMapSizeWrong := CalculateRoughMapSize(minEntries-1, UtxoCacheBucketSize)
 			if gotMinRoughMapSize == gotMinRoughMapSizeWrong {
 				t.Errorf("For hint %d decremented by 1, expected %v, got %v\n",
 					i, gotRoughMapSizeWrong/2, gotRoughMapSizeWrong)
@@ -122,7 +104,7 @@ func TestCalcNumEntries(t *testing.T) {
 	tests := make([]teststruct, 0, 300_000)
 	tests = append(tests, testGen(nodesMapBucketSize)...)
 	tests = append(tests, testGen(cachedLeavesMapBucketSize)...)
-	tests = append(tests, testGen(bucketSize)...)
+	tests = append(tests, testGen(UtxoCacheBucketSize)...)
 
 	for _, test := range tests {
 		entries, _ := CalcNumEntries(test.bucketSize, test.maxSize)

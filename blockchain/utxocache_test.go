@@ -45,7 +45,7 @@ func TestMapSlice(t *testing.T) {
 	for _, test := range tests {
 		m := make(map[wire.OutPoint]*UtxoEntry)
 
-		maxSize := sizehelper.CalculateRoughMapSize(1000, bucketSize)
+		maxSize := sizehelper.CalculateRoughMapSize(1000, sizehelper.UtxoCacheBucketSize)
 
 		maxEntriesFirstMap := 500
 		ms1 := make(map[wire.OutPoint]*UtxoEntry, maxEntriesFirstMap)
@@ -131,7 +131,7 @@ func TestMapsliceConcurrency(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		maxSize := sizehelper.CalculateRoughMapSize(1000, bucketSize)
+		maxSize := sizehelper.CalculateRoughMapSize(1000, sizehelper.UtxoCacheBucketSize)
 
 		maxEntriesFirstMap := 500
 		ms1 := make(map[wire.OutPoint]*UtxoEntry, maxEntriesFirstMap)
@@ -252,7 +252,7 @@ func TestUtxoCacheEntrySize(t *testing.T) {
 					},
 				}
 			}(),
-			expectedSize: pubKeyHashLen + baseEntrySize,
+			expectedSize: sizehelper.PubKeyHashLen + sizehelper.BaseEntrySize,
 		},
 		{
 			name: "10 entries, 4 spend",
@@ -282,7 +282,7 @@ func TestUtxoCacheEntrySize(t *testing.T) {
 				return blocks
 			}(),
 			// Multipled by 6 since we'll have 6 entries left.
-			expectedSize: (pubKeyHashLen + baseEntrySize) * 6,
+			expectedSize: (sizehelper.PubKeyHashLen + sizehelper.BaseEntrySize) * 6,
 		},
 		{
 			name: "spend everything",

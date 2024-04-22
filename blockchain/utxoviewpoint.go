@@ -7,43 +7,12 @@ package blockchain
 import (
 	"fmt"
 
+	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
-)
-
-// These constants are related to bitcoin.
-const (
-	// outpointSize is the size of an outpoint.
-	//
-	// This value is calculated by running the following:
-	//	unsafe.Sizeof(wire.OutPoint{})
-	outpointSize = 36
-
-	// uint64Size is the size of an uint64 allocated in memory.
-	uint64Size = 8
-
-	// bucketSize is the size of the bucket in the cache map.  Exact
-	// calculation is (16 + keysize*8 + valuesize*8) where for the map of:
-	// map[wire.OutPoint]*UtxoEntry would have a keysize=36 and valuesize=8.
-	//
-	// https://github.com/golang/go/issues/34561#issuecomment-536115805
-	bucketSize = 16 + uint64Size*outpointSize + uint64Size*uint64Size
-
-	// This value is calculated by running the following on a 64-bit system:
-	//   unsafe.Sizeof(UtxoEntry{})
-	baseEntrySize = 40
-
-	// pubKeyHashLen is the length of a P2PKH script.
-	pubKeyHashLen = 25
-
-	// avgEntrySize is how much each entry we expect it to be.  Since most
-	// txs are p2pkh, we can assume the entry to be more or less the size
-	// of a p2pkh tx.  We add on 7 to make it 32 since 64 bit systems will
-	// align by 8 bytes.
-	avgEntrySize = baseEntrySize + (pubKeyHashLen + 7)
 )
 
 // txoFlags is a bitmask defining additional information and state for a
@@ -110,7 +79,7 @@ func (entry *UtxoEntry) memoryUsage() uint64 {
 		return 0
 	}
 
-	return baseEntrySize + uint64(cap(entry.pkScript))
+	return sizehelper.BaseEntrySize + uint64(cap(entry.pkScript))
 }
 
 // IsCoinBase returns whether or not the output was contained in a coinbase

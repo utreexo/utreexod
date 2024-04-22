@@ -81,10 +81,10 @@ const (
 	cachedLeafSize = 34
 
 	// Bucket size for the node map.
-	nodesMapBucketSize = 16 + uint64Size*uint64Size + uint64Size*cachedLeafSize
+	nodesMapBucketSize = 16 + sizehelper.Uint64Size*sizehelper.Uint64Size + sizehelper.Uint64Size*cachedLeafSize
 
 	// Bucket size for the cached leaves map.
-	cachedLeavesMapBucketSize = 16 + uint64Size*chainhash.HashSize + uint64Size*uint64Size
+	cachedLeavesMapBucketSize = 16 + sizehelper.Uint64Size*chainhash.HashSize + sizehelper.Uint64Size*sizehelper.Uint64Size
 )
 
 // nodesMapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
