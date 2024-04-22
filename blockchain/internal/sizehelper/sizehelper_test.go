@@ -87,3 +87,55 @@ func TestCalculateEntries(t *testing.T) {
 		}
 	}
 }
+
+// isApproximate returns if a and b are within the given percentage of each other.
+func isApproximate(a, b, percentage float64) bool {
+	// Calculate % of 'a'
+	percentageOfA := math.Abs(a) * percentage
+
+	// Calculate the absolute difference between 'a' and 'b'
+	difference := math.Abs(a - b)
+
+	// Check if the absolute difference is less than or equal to 1% of 'a'
+	return difference <= percentageOfA
+}
+
+func TestCalcNumEntries(t *testing.T) {
+	const (
+		nodesMapBucketSize        = 352
+		cachedLeavesMapBucketSize = 336
+	)
+	type teststruct struct {
+		maxSize    int64
+		bucketSize uintptr
+	}
+
+	testGen := func(bSize uintptr) []teststruct {
+		ts := make([]teststruct, 0, 100_000)
+		for i := int64(0); i < 100_000; i++ {
+			ms := i * 1024 * 1024
+			ts = append(ts, teststruct{ms, bSize})
+		}
+		return ts
+	}
+
+	tests := make([]teststruct, 0, 300_000)
+	tests = append(tests, testGen(nodesMapBucketSize)...)
+	tests = append(tests, testGen(cachedLeavesMapBucketSize)...)
+	tests = append(tests, testGen(bucketSize)...)
+
+	for _, test := range tests {
+		entries, _ := CalcNumEntries(test.bucketSize, test.maxSize)
+
+		roughSize := 0
+		for _, entry := range entries {
+			roughSize += CalculateRoughMapSize(entry, test.bucketSize)
+		}
+
+		// Check if the roughSize is within 0.1% of test.maxSize.
+		if !isApproximate(float64(test.maxSize), float64(roughSize), 0.001) {
+			t.Fatalf("Expected value to be approximately %v but got %v",
+				test.maxSize, roughSize)
+		}
+	}
+}

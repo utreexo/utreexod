@@ -203,33 +203,6 @@ func (ms *nodesMapSlice) deleteMaps() {
 	}
 }
 
-// calcNumEntries returns a list of ints that represent how much entries a map
-// should allocate for to stay under the maxMemoryUsage and an int that's a sum
-// of the returned list of ints.
-func calcNumEntries(bucketSize uintptr, maxMemoryUsage int64) ([]int, int) {
-	entries := []int{}
-
-	totalElemCount := 0
-	totalMapSize := int64(0)
-	for maxMemoryUsage > totalMapSize {
-		numMaxElements := sizehelper.CalculateMinEntries(int(maxMemoryUsage-totalMapSize), nodesMapBucketSize)
-		if numMaxElements == 0 {
-			break
-		}
-
-		mapSize := int64(sizehelper.CalculateRoughMapSize(numMaxElements, nodesMapBucketSize))
-		if maxMemoryUsage <= totalMapSize+mapSize {
-			break
-		}
-		totalMapSize += mapSize
-
-		entries = append(entries, numMaxElements)
-		totalElemCount += numMaxElements
-	}
-
-	return entries, totalElemCount
-}
-
 // createMaps creates a slice of maps and returns the total count that the maps
 // can handle. maxEntries are also set along with the newly created maps.
 func (ms *nodesMapSlice) createMaps(maxMemoryUsage int64) int64 {
@@ -239,7 +212,7 @@ func (ms *nodesMapSlice) createMaps(maxMemoryUsage int64) int64 {
 
 	// Get the entry count for the maps we'll allocate.
 	var totalElemCount int
-	ms.maxEntries, totalElemCount = calcNumEntries(nodesMapBucketSize, maxMemoryUsage)
+	ms.maxEntries, totalElemCount = sizehelper.CalcNumEntries(nodesMapBucketSize, maxMemoryUsage)
 
 	// maxMemoryUsage that's smaller than the minimum map size will return a totalElemCount
 	// that's equal to 0.
@@ -632,7 +605,7 @@ func (ms *cachedLeavesMapSlice) createMaps(maxMemoryUsage int64) int64 {
 
 	// Get the entry count for the maps we'll allocate.
 	var totalElemCount int
-	ms.maxEntries, totalElemCount = calcNumEntries(nodesMapBucketSize, maxMemoryUsage)
+	ms.maxEntries, totalElemCount = sizehelper.CalcNumEntries(cachedLeavesMapBucketSize, maxMemoryUsage)
 
 	// maxMemoryUsage that's smaller than the minimum map size will return a totalElemCount
 	// that's equal to 0.

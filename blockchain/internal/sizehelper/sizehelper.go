@@ -158,6 +158,40 @@ func CalculateMinEntries(totalBytes int, bucketSize int) int {
 	return (int(loadFactorNum * (bucketShift(B) / loadFactorDen))) + 1
 }
 
+// CalcNumEntries returns a list of ints that represent how much entries a map
+// should allocate for to stay under the maxMemoryUsage and an int that's a sum
+// of the returned list of ints.
+func CalcNumEntries(bucketSize uintptr, maxMemoryUsage int64) ([]int, int) {
+	entries := []int{}
+
+	totalElemCount := 0
+	totalMapSize := int64(0)
+	for maxMemoryUsage > totalMapSize {
+		numMaxElements := CalculateMinEntries(int(maxMemoryUsage-totalMapSize), int(bucketSize))
+		if numMaxElements == 0 {
+			break
+		}
+
+		mapSize := int64(CalculateRoughMapSize(numMaxElements, bucketSize))
+		if maxMemoryUsage <= totalMapSize+mapSize {
+			// If the totalMapSize + new map is greater than the maxMemoryUsage,
+			// try halving the memory being allocated by doing a -1 on the numMaxElements
+			// count. If it's still over, just break.
+			numMaxElements -= 1
+			mapSize = int64(CalculateRoughMapSize(numMaxElements, bucketSize))
+			if maxMemoryUsage <= totalMapSize+mapSize {
+				break
+			}
+		}
+		totalMapSize += mapSize
+
+		entries = append(entries, numMaxElements)
+		totalElemCount += numMaxElements
+	}
+
+	return entries, totalElemCount
+}
+
 // mulUintptr returns a * b and whether the multiplication overflowed.
 // On supported platforms this is an intrinsic lowered by the compiler.
 func mulUintptr(a, b uintptr) (uintptr, bool) {
