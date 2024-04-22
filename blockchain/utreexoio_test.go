@@ -9,137 +9,8 @@ import (
 	"testing"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 )
-
-func TestNodesMapSliceMaxCacheElems(t *testing.T) {
-	_, maxCacheElems := newNodesMapSlice(0)
-	if maxCacheElems != 0 {
-		t.Fatalf("expected %v got %v", 0, maxCacheElems)
-	}
-
-	_, maxCacheElems = newNodesMapSlice(-1)
-	if maxCacheElems != 0 {
-		t.Fatalf("expected %v got %v", 0, maxCacheElems)
-	}
-
-	_, maxCacheElems = newNodesMapSlice(8000)
-	if maxCacheElems <= 0 {
-		t.Fatalf("expected something bigger than 0 but got %v", maxCacheElems)
-	}
-
-	_, maxCacheElems = newCachedLeavesMapSlice(0)
-	if maxCacheElems != 0 {
-		t.Fatalf("expected %v got %v", 0, maxCacheElems)
-	}
-
-	_, maxCacheElems = newCachedLeavesMapSlice(-1)
-	if maxCacheElems != 0 {
-		t.Fatalf("expected %v got %v", 0, maxCacheElems)
-	}
-
-	_, maxCacheElems = newCachedLeavesMapSlice(8000)
-	if maxCacheElems <= 0 {
-		t.Fatalf("expected something bigger than 0 but got %v", maxCacheElems)
-	}
-}
-
-func TestNodesMapSliceDuplicates(t *testing.T) {
-	m, maxElems := newNodesMapSlice(8000)
-	for i := 0; i < 10; i++ {
-		for j := int64(0); j < maxElems; j++ {
-			if !m.put(uint64(j), cachedLeaf{}) {
-				t.Fatalf("unexpected error on m.put")
-			}
-		}
-	}
-
-	if m.length() != int(maxElems) {
-		t.Fatalf("expected length of %v but got %v",
-			maxElems, m.length())
-	}
-
-	// Try inserting x which should be unique. Should fail as the map is full.
-	x := uint64(0)
-	x -= 1
-	if m.put(x, cachedLeaf{}) {
-		t.Fatalf("expected error but successfully called put")
-	}
-
-	// Remove the first element in the first map and then try inserting
-	// a duplicate element.
-	m.delete(0)
-	x = uint64(maxElems) - 1
-	if !m.put(x, cachedLeaf{}) {
-		t.Fatalf("unexpected failure on put")
-	}
-
-	// Make sure the length of the map is 1 less than the max elems.
-	if m.length() != int(maxElems)-1 {
-		t.Fatalf("expected length of %v but got %v",
-			maxElems-1, m.length())
-	}
-
-	// Put 0 back in and then compare the map.
-	if !m.put(0, cachedLeaf{}) {
-		t.Fatalf("didn't expect error but unsuccessfully called put")
-	}
-	if m.length() != int(maxElems) {
-		t.Fatalf("expected length of %v but got %v",
-			maxElems, m.length())
-	}
-}
-
-func uint64ToHash(v uint64) utreexo.Hash {
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], v)
-	return sha256.Sum256(buf[:])
-}
-
-func TestCachedLeaveMapSliceDuplicates(t *testing.T) {
-	m, maxElems := newCachedLeavesMapSlice(8000)
-	for i := 0; i < 10; i++ {
-		for j := int64(0); j < maxElems; j++ {
-			if !m.put(uint64ToHash(uint64(j)), 0) {
-				t.Fatalf("unexpected error on m.put")
-			}
-		}
-	}
-
-	if m.length() != int(maxElems) {
-		t.Fatalf("expected length of %v but got %v",
-			maxElems, m.length())
-	}
-
-	// Try inserting x which should be unique. Should fail as the map is full.
-	x := uint64(0)
-	x -= 1
-	if m.put(uint64ToHash(x), 0) {
-		t.Fatalf("expected error but successfully called put")
-	}
-
-	// Remove the first element in the first map and then try inserting
-	// a duplicate element.
-	m.delete(uint64ToHash(0))
-	x = uint64(maxElems) - 1
-	if !m.put(uint64ToHash(x), 0) {
-		t.Fatalf("unexpected failure on put")
-	}
-
-	// Make sure the length of the map is 1 less than the max elems.
-	if m.length() != int(maxElems)-1 {
-		t.Fatalf("expected length of %v but got %v",
-			maxElems-1, m.length())
-	}
-
-	// Put 0 back in and then compare the map.
-	if !m.put(uint64ToHash(0), 0) {
-		t.Fatalf("didn't expect error but unsuccessfully called put")
-	}
-	if m.length() != int(maxElems) {
-		t.Fatalf("expected length of %v but got %v",
-			maxElems, m.length())
-	}
-}
 
 func TestCachedLeavesBackEnd(t *testing.T) {
 	tests := []struct {
@@ -308,13 +179,13 @@ func TestNodesBackEnd(t *testing.T) {
 		defer os.RemoveAll(test.tmpDir)
 
 		count := uint64(1000)
-		compareMap := make(map[uint64]cachedLeaf)
+		compareMap := make(map[uint64]utreexobackends.CachedLeaf)
 		for i := uint64(0); i < count/2; i++ {
 			var buf [8]byte
 			binary.LittleEndian.PutUint64(buf[:], i)
 			hash := sha256.Sum256(buf[:])
 
-			compareMap[i] = cachedLeaf{leaf: utreexo.Leaf{Hash: hash}}
+			compareMap[i] = utreexobackends.CachedLeaf{Leaf: utreexo.Leaf{Hash: hash}}
 			nodesBackEnd.Put(i, utreexo.Leaf{Hash: hash})
 		}
 
@@ -371,7 +242,7 @@ func TestNodesBackEnd(t *testing.T) {
 			binary.LittleEndian.PutUint64(buf[:], i)
 			hash := sha256.Sum256(buf[:])
 
-			compareMap[i] = cachedLeaf{leaf: utreexo.Leaf{Hash: hash}}
+			compareMap[i] = utreexobackends.CachedLeaf{Leaf: utreexo.Leaf{Hash: hash}}
 		}
 
 		if nodesBackEnd.Length() != len(compareMap) {
@@ -386,9 +257,9 @@ func TestNodesBackEnd(t *testing.T) {
 				t.Fatalf("expected %v but it wasn't found", v)
 			}
 
-			if got.Hash != v.leaf.Hash {
-				if got.Hash != v.leaf.Hash {
-					t.Fatalf("for key %v, expected %v but got %v", k, v.leaf.Hash, got.Hash)
+			if got.Hash != v.Leaf.Hash {
+				if got.Hash != v.Leaf.Hash {
+					t.Fatalf("for key %v, expected %v but got %v", k, v.Leaf.Hash, got.Hash)
 				}
 			}
 		}
