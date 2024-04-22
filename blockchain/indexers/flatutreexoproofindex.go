@@ -768,8 +768,9 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 		return err
 	}
 
-	// Check if we're at a height where proof was generated.
-	if (block.Height() % idx.proofGenInterVal) == 0 {
+	// Check if we're at a height where proof was generated. Only check if we're not
+	// pruned as we don't keep the historical proofs as a pruned node.
+	if (block.Height()%idx.proofGenInterVal) == 0 && !idx.pruned {
 		height := block.Height() / idx.proofGenInterVal
 		err = idx.proofState.DisconnectBlock(height)
 		if err != nil {
@@ -1279,8 +1280,8 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 	idx.utreexoState = uState
 	idx.pruned = pruned
 
+	// Init the utreexo proof state if the node isn't pruned.
 	if !idx.pruned {
-		// Init the utreexo proof state.
 		proofState, err := loadFlatFileState(dataDir, flatUtreexoProofName)
 		if err != nil {
 			return nil, err
