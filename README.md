@@ -117,7 +117,7 @@ nodes are needed to allow for utreexo nodes without a soft fork. To run a bridge
 
 ## Community
 
-[Discord](https://discord.gg/RVpDZQVN)
+[Discord](https://discord.gg/6jRY2hqf3G)
 
 ## Issue Tracker
 
