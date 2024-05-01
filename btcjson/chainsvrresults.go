@@ -149,6 +149,18 @@ type GetBlockVerboseTxResult struct {
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
 
+// GetBestStateResult models the data from the getbeststate command.
+type GetBestStateResult struct {
+	Hash        string `json:"hash"`        // The hash of the block.
+	Height      int32  `json:"height"`      // The height of the block.
+	Bits        uint32 `json:"bits"`        // The difficulty bits of the block.
+	BlockSize   uint64 `json:"blocksize"`   // The size of the block.
+	BlockWeight uint64 `json:"blockweight"` // The weight of the block.
+	NumTxns     uint64 `json:"numtxns"`     // The number of txns in the block.
+	TotalTxns   uint64 `json:"totaltxns"`   // The total number of txns in the chain.
+	MedianTime  int64  `json:"mediantime"`  // Median time as per CalcPastMedianTime.
+}
+
 // GetChainTipsResult models the data from the getchaintips command.
 type GetChainTipsResult struct {
 	Height    int32  `json:"height"`
