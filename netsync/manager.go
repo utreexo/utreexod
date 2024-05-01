@@ -1298,6 +1298,11 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		return
 	}
 
+	// Ignore invs when we're in headers build mode.
+	if sm.headersBuildMode {
+		return
+	}
+
 	// If our chain is current and a peer announces a block we already
 	// know of, then update their current block height.
 	if lastBlock != -1 && sm.current() {
