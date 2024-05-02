@@ -960,7 +960,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 		for i, txIn := range txIns {
 			leafHash := ud.LeafDatas[i].LeafHash()
 			str += fmt.Sprintf("txIn: %s, leafdata: %s, hash %s\n", txIn.PreviousOutPoint.String(),
-				ud.LeafDatas[i].ToString(), hex.EncodeToString(leafHash[:]))
+				ud.LeafDatas[i].String(), hex.EncodeToString(leafHash[:]))
 		}
 		str += fmt.Sprintf("err: %s", err.Error())
 		return fmt.Errorf(str)
