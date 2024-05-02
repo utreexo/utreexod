@@ -35,6 +35,12 @@ func SeedFromDNS(chainParams *chaincfg.Params, reqServices wire.ServiceFlag,
 
 	for _, dnsseed := range chainParams.DNSSeeds {
 		var host string
+
+		// Ignore seeds that don't have filtering the reqServices include utreexo bit.
+		if !dnsseed.HasFiltering && reqServices&wire.SFNodeUtreexo == wire.SFNodeUtreexo {
+			continue
+		}
+
 		if !dnsseed.HasFiltering || reqServices == wire.SFNodeNetwork {
 			host = dnsseed.Host
 		} else {
