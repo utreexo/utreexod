@@ -189,6 +189,19 @@ var helpDescsEnUS = map[string]string{
 	"getbestblockhash--synopsis": "Returns the hash of the of the best (most recent) block in the longest block chain.",
 	"getbestblockhash--result0":  "The hex-encoded block hash",
 
+	// GetBestStateCmd help.
+	"getbeststate--synopsis": "Returns the current best state and the information associated with it in the longest block chain.",
+
+	// GetBestStateResult help.
+	"getbeststateresult-hash":        "The hash of the block",
+	"getbeststateresult-height":      "The height of the block",
+	"getbeststateresult-bits":        "The difficultly bits of the block",
+	"getbeststateresult-blocksize":   "The blocksize of the block",
+	"getbeststateresult-blockweight": "The blockweight of the block",
+	"getbeststateresult-numtxns":     "The number of transactions in the block",
+	"getbeststateresult-totaltxns":   "The total number of transactions in the longest chain",
+	"getbeststateresult-mediantime":  "The median time of the block in unix time",
+
 	// GetBlockCmd help.
 	"getblock--synopsis":   "Returns information about a block given its hash.",
 	"getblock-hash":        "The hash of the block",
@@ -894,6 +907,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getaddednodeinfo":                   {(*[]string)(nil), (*[]btcjson.GetAddedNodeInfoResult)(nil)},
 	"getbestblock":                       {(*btcjson.GetBestBlockResult)(nil)},
 	"getbestblockhash":                   {(*string)(nil)},
+	"getbeststate":                       {(*btcjson.GetBestStateResult)(nil)},
 	"getblock":                           {(*string)(nil), (*btcjson.GetBlockVerboseResult)(nil)},
 	"getblockcount":                      {(*int64)(nil)},
 	"getblockhash":                       {(*string)(nil)},

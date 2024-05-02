@@ -268,6 +268,15 @@ func NewGetBlockCountCmd() *GetBlockCountCmd {
 	return &GetBlockCountCmd{}
 }
 
+// GetBestStateCmd defines the getbeststate JSON-RPC command.
+type GetBestStateCmd struct{}
+
+// NewGetBestState returns a new instance which can be used to issue a
+// getbeststate JSON-RPC command.
+func NewGetBestState() *GetBestStateCmd {
+	return &GetBestStateCmd{}
+}
+
 // FilterTypeName defines the type used in the getblockfilter JSON-RPC command for the
 // filter type field.
 type FilterTypeName string
@@ -1273,6 +1282,7 @@ func init() {
 	MustRegisterCmd("fundrawtransaction", (*FundRawTransactionCmd)(nil), flags)
 	MustRegisterCmd("getaddednodeinfo", (*GetAddedNodeInfoCmd)(nil), flags)
 	MustRegisterCmd("getbestblockhash", (*GetBestBlockHashCmd)(nil), flags)
+	MustRegisterCmd("getbeststate", (*GetBestStateCmd)(nil), flags)
 	MustRegisterCmd("getblock", (*GetBlockCmd)(nil), flags)
 	MustRegisterCmd("getblockchaininfo", (*GetBlockChainInfoCmd)(nil), flags)
 	MustRegisterCmd("getblockcount", (*GetBlockCountCmd)(nil), flags)

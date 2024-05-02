@@ -148,6 +148,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getaddednodeinfo":                   handleGetAddedNodeInfo,
 	"getbestblock":                       handleGetBestBlock,
 	"getbestblockhash":                   handleGetBestBlockHash,
+	"getbeststate":                       handleGetBestState,
 	"getblock":                           handleGetBlock,
 	"getblockchaininfo":                  handleGetBlockChainInfo,
 	"getblockcount":                      handleGetBlockCount,
@@ -285,6 +286,7 @@ var rpcLimited = map[string]struct{}{
 	"estimatefee":                {},
 	"getbestblock":               {},
 	"getbestblockhash":           {},
+	"getbeststate":               {},
 	"getblock":                   {},
 	"getblockcount":              {},
 	"getblockhash":               {},
@@ -1189,6 +1191,23 @@ func handleGetBestBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{}
 func handleGetBestBlockHash(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
 	best := s.cfg.Chain.BestSnapshot()
 	return best.Hash.String(), nil
+}
+
+// handleGetBestState implements the getbeststate command.
+func handleGetBestState(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	best := s.cfg.Chain.BestSnapshot()
+	reply := btcjson.GetBestStateResult{
+		Hash:        best.Hash.String(),
+		Height:      best.Height,
+		Bits:        best.Bits,
+		BlockSize:   best.BlockSize,
+		BlockWeight: best.BlockWeight,
+		NumTxns:     best.NumTxns,
+		TotalTxns:   best.TotalTxns,
+		MedianTime:  best.MedianTime.Unix(),
+	}
+
+	return reply, nil
 }
 
 // getDifficultyRatio returns the proof-of-work difficulty as a multiple of the
