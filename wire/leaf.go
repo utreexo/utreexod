@@ -133,8 +133,8 @@ func (l *LeafData) LeafHash() [32]byte {
 	return *(*[32]byte)(digest.Sum(nil))
 }
 
-// ToString turns a LeafData into a string for logging.
-func (l *LeafData) ToString() (s string) {
+// String turns a LeafData into a string for logging.
+func (l *LeafData) String() (s string) {
 	s += fmt.Sprintf("BlockHash:%s,", hex.EncodeToString(l.BlockHash[:]))
 	s += fmt.Sprintf("OutPoint:%s,", l.OutPoint.String())
 	s += fmt.Sprintf("Amount:%d,", l.Amount)
