@@ -1334,9 +1334,14 @@ func (m *WatchOnlyWalletManager) NotifyNewTransactions(txns []*mempool.TxDesc) {
 		txHash := tx.Tx.Hash()
 		log.Debugf("NotifyNewTransactions: received new tx: %s\n", txHash.String())
 
-		lds := tx.Tx.MsgTx().UData.LeafDatas
+		// Fetch the leaf datas for this tx.
+		lds, err := m.config.TxMemPool.FetchLeafDatas(txHash)
+		if err != nil {
+			log.Warnf("NotifyNewTransactions: failed to fetch leafdatas for tx %s", txHash.String())
+			continue
+		}
 		if lds == nil {
-			log.Warnf("NotifyNewTransactions: received tx %s with no Udata", txHash.String())
+			log.Warnf("NotifyNewTransactions: fetch nil leafdatas for tx %s", txHash.String())
 			continue
 		}
 		if len(lds) != len(tx.Tx.MsgTx().TxIn) {
