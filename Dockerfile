@@ -11,7 +11,7 @@ RUN go install -v . ./cmd/...
 
 FROM ${ARCH:+${ARCH}/}alpine:${VER_ALPINE}
 
-COPY --from=build-container /go/bin /bin
+COPY --from=build-container /go/bin/utreexod /bin
 
 VOLUME ["/root/.utreexod"]
 
