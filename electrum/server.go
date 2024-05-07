@@ -912,6 +912,69 @@ func (s *ElectrumServer) writeErrorResponse(conn net.Conn, rpcError btcjson.RPCE
 	s.writeChan <- []connAndBytes{{conn, bytes}}
 }
 
+func (s *ElectrumServer) handleSingleMsg(msg btcjson.Request, conn net.Conn) {
+	log.Debugf("unmarshalled %v from conn %s\n", msg, conn.RemoteAddr().String())
+	handler, found := rpcHandlers[msg.Method]
+	if !found || handler == nil {
+		log.Warnf("handler not found for method %v. Sending error msg to %v",
+			msg.Method, conn.RemoteAddr().String())
+		pid := &msg.ID
+		s.writeErrorResponse(conn, *btcjson.ErrRPCMethodNotFound, pid)
+		return
+	}
+
+	result, err := handler(s, &msg, conn, nil)
+	if err != nil {
+		log.Warnf("Errored while handling method %s. Sending error message to %v err: %v\n",
+			msg.Method, conn.RemoteAddr().String(), err)
+
+		pid := &msg.ID
+		rpcError := btcjson.RPCError{
+			Code:    1,
+			Message: err.Error(),
+		}
+		s.writeErrorResponse(conn, rpcError, pid)
+		return
+	}
+
+	marshalledResult, err := json.Marshal(result)
+	if err != nil {
+		log.Warnf("Errored while marshaling result for method %s. Sending error message to %v err: %v\n",
+			msg.Method, conn.RemoteAddr().String(), err)
+		rpcError := btcjson.RPCError{
+			Code: btcjson.ErrRPCInternal.Code,
+			Message: fmt.Sprintf("%s: error: %s",
+				btcjson.ErrRPCInternal.Message, err.Error()),
+		}
+		pid := &msg.ID
+		s.writeErrorResponse(conn, rpcError, pid)
+		return
+	}
+	pid := &msg.ID
+	resp := btcjson.Response{
+		Jsonrpc: btcjson.RpcVersion2,
+		Result:  json.RawMessage(marshalledResult),
+		ID:      pid,
+	}
+	bytes, err := json.Marshal(resp)
+	if err != nil {
+		log.Warnf("Errored while marshaling response for method %s. Sending error message to %v err: %v\n",
+			msg.Method, conn.RemoteAddr().String(), err)
+		rpcError := btcjson.RPCError{
+			Code: btcjson.ErrRPCInternal.Code,
+			Message: fmt.Sprintf("%s: error: %s",
+				btcjson.ErrRPCInternal.Message, err.Error()),
+		}
+		pid := &msg.ID
+		s.writeErrorResponse(conn, rpcError, pid)
+		return
+	}
+	bytes = append(bytes, delim)
+
+	log.Debugf("put %v to be written to %v\n", result, conn.RemoteAddr().String())
+	s.writeChan <- []connAndBytes{{conn, bytes}}
+}
+
 func (s *ElectrumServer) handleConnection(conn net.Conn) {
 	// The timer is stopped when a new message is received and reset after it
 	// is processed.
@@ -935,85 +998,34 @@ func (s *ElectrumServer) handleConnection(conn net.Conn) {
 		}
 		idleTimer.Stop()
 
-		msg := btcjson.Request{}
-		err = msg.UnmarshalJSON(line)
+		// Attempt to unmarshal as a batched json request.
+		msgs := []btcjson.Request{}
+		err = json.Unmarshal(line, &msgs)
 		if err != nil {
-			log.Warnf("error while unmarshalling %v. Sending error message to %v. Error: %v",
-				hex.EncodeToString(line), conn.RemoteAddr().String(), err)
-			if e, ok := err.(*json.SyntaxError); ok {
-				log.Warnf("syntax error at byte offset %d", e.Offset)
+			// If that fails, attempt to  unmarshal as a single request.
+			msg := btcjson.Request{}
+			err = msg.UnmarshalJSON(line)
+			if err != nil {
+				log.Warnf("error while unmarshalling %v. Sending error message to %v. Error: %v",
+					hex.EncodeToString(line), conn.RemoteAddr().String(), err)
+				if e, ok := err.(*json.SyntaxError); ok {
+					log.Warnf("syntax error at byte offset %d", e.Offset)
+				}
+
+				pid := &msgs[0].ID
+				s.writeErrorResponse(conn, *btcjson.ErrRPCParse, pid)
+				continue
 			}
 
-			pid := &msg.ID
-			s.writeErrorResponse(conn, *btcjson.ErrRPCParse, pid)
-			continue
+			// If the single request unmarshal was successful, append to the
+			// msgs for processing below.
+			msgs = append(msgs, msg)
 		}
 
-		log.Debugf("unmarshalled %v from conn %s\n", msg, conn.RemoteAddr().String())
-		handler, found := rpcHandlers[msg.Method]
-		if !found || handler == nil {
-			log.Warnf("handler not found for method %v. Sending error msg to %v",
-				msg.Method, conn.RemoteAddr().String())
-			pid := &msg.ID
-			s.writeErrorResponse(conn, *btcjson.ErrRPCMethodNotFound, pid)
+		for _, msg := range msgs {
+			s.handleSingleMsg(msg, conn)
 			idleTimer.Reset(idleTimeout)
-			continue
 		}
-
-		result, err := handler(s, &msg, conn, nil)
-		if err != nil {
-			log.Warnf("Errored while handling method %s. Sending error message to %v err: %v\n",
-				msg.Method, conn.RemoteAddr().String(), err)
-
-			pid := &msg.ID
-			rpcError := btcjson.RPCError{
-				Code:    1,
-				Message: err.Error(),
-			}
-			s.writeErrorResponse(conn, rpcError, pid)
-			idleTimer.Reset(idleTimeout)
-			continue
-		}
-
-		marshalledResult, err := json.Marshal(result)
-		if err != nil {
-			log.Warnf("Errored while marshaling result for method %s. Sending error message to %v err: %v\n",
-				msg.Method, conn.RemoteAddr().String(), err)
-			rpcError := btcjson.RPCError{
-				Code: btcjson.ErrRPCInternal.Code,
-				Message: fmt.Sprintf("%s: error: %s",
-					btcjson.ErrRPCInternal.Message, err.Error()),
-			}
-			pid := &msg.ID
-			s.writeErrorResponse(conn, rpcError, pid)
-			continue
-		}
-		pid := &msg.ID
-		resp := btcjson.Response{
-			Jsonrpc: btcjson.RpcVersion2,
-			Result:  json.RawMessage(marshalledResult),
-			ID:      pid,
-		}
-		bytes, err := json.Marshal(resp)
-		if err != nil {
-			log.Warnf("Errored while marshaling response for method %s. Sending error message to %v err: %v\n",
-				msg.Method, conn.RemoteAddr().String(), err)
-			rpcError := btcjson.RPCError{
-				Code: btcjson.ErrRPCInternal.Code,
-				Message: fmt.Sprintf("%s: error: %s",
-					btcjson.ErrRPCInternal.Message, err.Error()),
-			}
-			pid := &msg.ID
-			s.writeErrorResponse(conn, rpcError, pid)
-			idleTimer.Reset(idleTimeout)
-			continue
-		}
-		bytes = append(bytes, delim)
-
-		log.Debugf("put %v to be written to %v\n", result, conn.RemoteAddr().String())
-		s.writeChan <- []connAndBytes{{conn, bytes}}
-
-		idleTimer.Reset(idleTimeout)
 	}
 
 	idleTimer.Stop()
