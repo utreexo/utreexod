@@ -998,22 +998,34 @@ func (s *ElectrumServer) handleConnection(conn net.Conn) {
 		}
 		idleTimer.Stop()
 
-		msg := btcjson.Request{}
-		err = msg.UnmarshalJSON(line)
+		// Attempt to unmarshal as a batched json request.
+		msgs := []btcjson.Request{}
+		err = json.Unmarshal(line, &msgs)
 		if err != nil {
-			log.Warnf("error while unmarshalling %v. Sending error message to %v. Error: %v",
-				hex.EncodeToString(line), conn.RemoteAddr().String(), err)
-			if e, ok := err.(*json.SyntaxError); ok {
-				log.Warnf("syntax error at byte offset %d", e.Offset)
+			// If that fails, attempt to  unmarshal as a single request.
+			msg := btcjson.Request{}
+			err = msg.UnmarshalJSON(line)
+			if err != nil {
+				log.Warnf("error while unmarshalling %v. Sending error message to %v. Error: %v",
+					hex.EncodeToString(line), conn.RemoteAddr().String(), err)
+				if e, ok := err.(*json.SyntaxError); ok {
+					log.Warnf("syntax error at byte offset %d", e.Offset)
+				}
+
+				pid := &msgs[0].ID
+				s.writeErrorResponse(conn, *btcjson.ErrRPCParse, pid)
+				continue
 			}
 
-			pid := &msg.ID
-			s.writeErrorResponse(conn, *btcjson.ErrRPCParse, pid)
-			continue
+			// If the single request unmarshal was successful, append to the
+			// msgs for processing below.
+			msgs = append(msgs, msg)
 		}
 
-		s.handleSingleMsg(msg, conn)
-		idleTimer.Reset(idleTimeout)
+		for _, msg := range msgs {
+			s.handleSingleMsg(msg, conn)
+			idleTimer.Reset(idleTimeout)
+		}
 	}
 
 	idleTimer.Stop()
