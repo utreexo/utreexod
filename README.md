@@ -20,7 +20,7 @@ times more data. For transactions the absolute worst case is 4 times more but tr
 caching so it'll be a lot better.
 
 This project is currently under active development and is in a beta state. Using it on mainnet for anything
-other than non-negligible amounts of Bitcoin is not recommended.
+other than negligible amounts of bitcoin is not recommended.
 
 ## Requirements
 
