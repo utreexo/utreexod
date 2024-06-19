@@ -2722,7 +2722,7 @@ func (s *server) GetProofSizeforTx(msgTx *wire.MsgTx) (int, int, error) {
 		return 0, 0, err
 	}
 
-	return ud.SerializeAccSizeCompact(), ud.SerializeUxtoDataSizeCompact(true), nil
+	return ud.SerializeAccSizeCompact(), ud.SerializeUxtoDataSizeCompact(), nil
 }
 
 // UpdateProofBytesRead updates the bytes for utreexo proofs that would have
@@ -2739,7 +2739,7 @@ func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
 
 	} else if s.chain.IsUtreexoViewActive() {
 		if msgTx.UData != nil {
-			s.addProofBytesReceived(uint64(msgTx.UData.SerializeSizeCompact(true)))
+			s.addProofBytesReceived(uint64(msgTx.UData.SerializeSizeCompact()))
 			s.addAccBytesReceived(uint64(msgTx.UData.SerializeAccSizeCompact()))
 		}
 	}
@@ -2761,7 +2761,7 @@ func (s *server) UpdateProofBytesWritten(msgTx *wire.MsgTx) error {
 
 	} else if s.chain.IsUtreexoViewActive() {
 		if msgTx.UData != nil {
-			s.addProofBytesSent(uint64(msgTx.UData.SerializeSizeCompact(true)))
+			s.addProofBytesSent(uint64(msgTx.UData.SerializeSizeCompact()))
 			s.addAccBytesSent(uint64(msgTx.UData.SerializeAccSizeCompact()))
 		}
 	}

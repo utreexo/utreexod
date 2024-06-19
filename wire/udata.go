@@ -186,16 +186,13 @@ func (ud *UData) SerializeAccSizeCompact() int {
 
 // SerializeUxtoDataSizeCompact returns the number of bytes it would take to serialize
 // the utxo data and the remember idx data with the compact serialization format.
-func (ud *UData) SerializeUxtoDataSizeCompact(isForTx bool) int {
+func (ud *UData) SerializeUxtoDataSizeCompact() int {
 	var size int
 
-	// Explicitly serialize the count for utreexo only if they're for
-	// blocks.
-	if !isForTx {
-		size += VarIntSerializeSize(uint64(len(ud.LeafDatas)))
-	}
+	// Explicitly serialize the count for the leaf datas.
+	size += VarIntSerializeSize(uint64(len(ud.LeafDatas)))
 	for _, l := range ud.LeafDatas {
-		size += l.SerializeSizeCompact(isForTx)
+		size += l.SerializeSizeCompact()
 	}
 
 	return size
@@ -203,12 +200,12 @@ func (ud *UData) SerializeUxtoDataSizeCompact(isForTx bool) int {
 
 // SerializeSizeCompact returns the number of bytes it would take to serialize the
 // UData using the compact UData serialization format.
-func (ud *UData) SerializeSizeCompact(isForTx bool) int {
+func (ud *UData) SerializeSizeCompact() int {
 	// Accumulator proof size.
 	size := BatchProofSerializeSize(&ud.AccProof)
 
 	// Leaf data size
-	size += ud.SerializeUxtoDataSizeCompact(isForTx)
+	size += ud.SerializeUxtoDataSizeCompact()
 
 	// Remember indexes size.
 	return size + ud.SerializeRememberIdxSize()
@@ -218,7 +215,7 @@ func (ud *UData) SerializeSizeCompact(isForTx bool) int {
 // serialization format.  It follows the normal UData serialization format with
 // the exception that compact leaf data serialization is used.  Everything else
 // remains the same.
-func (ud *UData) SerializeCompact(w io.Writer, isForTx bool) error {
+func (ud *UData) SerializeCompact(w io.Writer) error {
 	err := SerializeRemembers(w, ud.RememberIdx)
 	if err != nil {
 		return err
@@ -230,18 +227,14 @@ func (ud *UData) SerializeCompact(w io.Writer, isForTx bool) error {
 		return returnErr
 	}
 
-	// Since transactions are given explicit leaf data count through
-	// the txIn count, we do not serialize the leaf data count.
-	if !isForTx {
-		err = WriteVarInt(w, 0, uint64(len(ud.LeafDatas)))
-		if err != nil {
-			return err
-		}
+	err = WriteVarInt(w, 0, uint64(len(ud.LeafDatas)))
+	if err != nil {
+		return err
 	}
 
 	// Write all the leafDatas.
 	for _, ld := range ud.LeafDatas {
-		err = ld.SerializeCompact(w, isForTx)
+		err = ld.SerializeCompact(w)
 		if err != nil {
 			return err
 		}
@@ -256,7 +249,7 @@ func (ud *UData) SerializeCompact(w io.Writer, isForTx bool) error {
 // NOTE if deserializing for a transaction, a non zero txInCount MUST be passed
 // in as a correct txCount is critical for deserializing correctly.  When
 // deserializing a block, txInCount does not matter.
-func (ud *UData) DeserializeCompact(r io.Reader, isForTx bool, txInCount int) error {
+func (ud *UData) DeserializeCompact(r io.Reader) error {
 	remembers, err := DeserializeRemembers(r)
 	if err != nil {
 		return err
@@ -270,21 +263,15 @@ func (ud *UData) DeserializeCompact(r io.Reader, isForTx bool, txInCount int) er
 	}
 	ud.AccProof = *proof
 
-	// NOTE there may be more leafDatas vs targets for txs as unconfirmed
-	// txs will be included as leaf datas but not as targets.  For blocks,
-	// the leaf data count need to be explicitly read.
-	if isForTx {
-		ud.LeafDatas = make([]LeafData, txInCount)
-	} else {
-		// Grab the count for the udatas
-		udCount, err := ReadVarInt(r, 0)
-		if err != nil {
-			return err
-		}
-		ud.LeafDatas = make([]LeafData, udCount)
+	// Grab the count for the udatas
+	udCount, err := ReadVarInt(r, 0)
+	if err != nil {
+		return err
 	}
+	ud.LeafDatas = make([]LeafData, udCount)
+
 	for i := range ud.LeafDatas {
-		err = ud.LeafDatas[i].DeserializeCompact(r, isForTx)
+		err = ud.LeafDatas[i].DeserializeCompact(r)
 		if err != nil {
 			str := fmt.Sprintf("rememberCount %d, targetCount:%d, LeafDatas[%d], err:%s\n",
 				len(remembers), len(ud.AccProof.Targets), i, err.Error())
@@ -304,7 +291,7 @@ func (ud *UData) SerializeSizeCompactNoAccProof() int {
 		size += VarIntSerializeSize(target)
 	}
 
-	return size + ud.SerializeUxtoDataSizeCompact(false)
+	return size + ud.SerializeUxtoDataSizeCompact()
 }
 
 // SerializeCompactNoAccProof will serialize the utreexo data with the compact
@@ -330,7 +317,7 @@ func (ud *UData) SerializeCompactNoAccProof(w io.Writer) error {
 		return err
 	}
 	for _, ld := range ud.LeafDatas {
-		err := ld.SerializeCompact(w, false)
+		err := ld.SerializeCompact(w)
 		if err != nil {
 			return err
 		}
@@ -368,7 +355,7 @@ func (ud *UData) DeserializeCompactNoAccProof(r io.Reader) error {
 	}
 	ud.LeafDatas = make([]LeafData, udCount)
 	for i := range ud.LeafDatas {
-		err := ud.LeafDatas[i].DeserializeCompact(r, false)
+		err := ud.LeafDatas[i].DeserializeCompact(r)
 		if err != nil {
 			str := fmt.Sprintf("targetCount:%d, LeafDatas[%d], err:%s\n",
 				len(ud.AccProof.Targets), i, err.Error())

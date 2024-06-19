@@ -5,7 +5,6 @@
 package wire
 
 import (
-	"bytes"
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
@@ -325,21 +324,6 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 // pkscript length    VLQ        variable
 // pkscript           []byte     variable
 //
-// The serialized format for a transaction is:
-// [<unconfirmed marker><header code><amount><pkscript len><pkscript>]
-//
-// All other fields with the exception of 'unconfirmed marker' is the same as
-// the serialization for a block.  The unconfirmed marker is represented in
-// the struct as height = -1.
-//
-// Field               Type       Size
-// unconfirmed marker  byte       1
-// header code         int32      4
-// amount              int64      8
-// pkType              byte       1
-// pkscript length     VLQ        variable
-// pkscript            []byte     variable
-//
 // -----------------------------------------------------------------------------
 
 // PkType is a list of different pkScript types that can be reconstructed.
@@ -443,43 +427,24 @@ func PkScriptDeserializeCompact(r io.Reader) (PkType, []byte, error) {
 
 // SerializeSizeCompact returns the number of bytes it would take to serialize the
 // LeafData in the compact serialization format.
-func (l *LeafData) SerializeSizeCompact(isForTx bool) int {
-	if isForTx {
-		if l.IsUnconfirmed() {
-			// If the leaf data corresponds to an unconfirmed tx, we only
-			// send a byte.
-			return 1
-		} else {
-			// header code 4 bytes + amount 8 bytes + unconfirmed marker + pkscript.
-			return 13 + PkScriptSerializeSizeCompact(
-				l.ReconstructablePkType, l.PkScript)
-		}
+func (l *LeafData) SerializeSizeCompact() int {
+	// If the leaf data corresponds to an unconfirmed tx, we don't
+	// serialize it.
+	if l.IsUnconfirmed() {
+		return 0
 	}
+
 	// header code 4 bytes + amount 8 bytes + pkscript.
 	return 12 + PkScriptSerializeSizeCompact(
 		l.ReconstructablePkType, l.PkScript)
 }
 
 // SerializeCompact encodes the LeafData to w using the compact leaf data serialization format.
-func (l *LeafData) SerializeCompact(w io.Writer, isForTx bool) error {
-	if isForTx {
-		// If the tx is unconfirmed, write the unconfirmed marker and
-		// return immediately.
-		if l.IsUnconfirmed() {
-			_, err := w.Write([]byte{0x1})
-			if err != nil {
-				return err
-			}
-
-			// Return if unconfirmed.
-			return nil
-		}
-
-		// Write 0 to mark that this transaction is confirmed.
-		_, err := w.Write([]byte{0x0})
-		if err != nil {
-			return err
-		}
+func (l *LeafData) SerializeCompact(w io.Writer) error {
+	// If the tx is unconfirmed, write the unconfirmed marker and
+	// return immediately.
+	if l.IsUnconfirmed() {
+		return nil
 	}
 
 	bs := newSerializer()
@@ -508,25 +473,7 @@ func (l *LeafData) SerializeCompact(w io.Writer, isForTx bool) error {
 }
 
 // DeserializeCompact encodes the LeafData to w using the compact leaf serialization format.
-func (l *LeafData) DeserializeCompact(r io.Reader, isForTx bool) error {
-	if isForTx {
-		// Read unconfirmed marker.
-		unconfirmed := make([]byte, 1)
-		_, err := io.ReadFull(r, unconfirmed)
-		if err != nil {
-			return err
-		}
-
-		// 1 means that the LeafData corresponds to an uncomfirmed tx.
-		// Set IsUnconfirmed as true and return.
-		if bytes.Equal(unconfirmed, []byte{0x1}) {
-			l.SetUnconfirmed()
-
-			// Return immediately here if the tx is unconfirmed.
-			return nil
-		}
-	}
-
+func (l *LeafData) DeserializeCompact(r io.Reader) error {
 	bs := newSerializer()
 	defer bs.free()
 
