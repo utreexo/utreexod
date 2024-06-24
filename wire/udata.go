@@ -419,14 +419,8 @@ func DeserializeRemembers(r io.Reader) ([]uint32, error) {
 // leaf data is compact as you can't generate the correct hash.
 func HashesFromLeafDatas(leafDatas []LeafData) ([]utreexo.Hash, error) {
 	// make slice of hashes from leafdata
-	var unconfirmedCount int
 	delHashes := make([]utreexo.Hash, 0, len(leafDatas))
 	for _, ld := range leafDatas {
-		if ld.IsUnconfirmed() {
-			unconfirmedCount++
-			continue
-		}
-
 		// We can't calculate the correct hash if the leaf data is in
 		// the compact state.
 		if ld.IsCompact() {
