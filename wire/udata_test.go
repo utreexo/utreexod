@@ -25,7 +25,6 @@ type testData struct {
 
 	size             int
 	sizeCompact      int
-	sizeCompactTx    int
 	sizeCompactNoAcc int
 }
 
@@ -63,7 +62,6 @@ var mainNetBlock104773 = testData{
 	rememberIdx:      []uint32{2, 3},
 	size:             220,
 	sizeCompact:      86,
-	sizeCompactTx:    87,
 	sizeCompactNoAcc: 82,
 }
 
@@ -119,7 +117,6 @@ var testNetBlock383 = testData{
 	rememberIdx:      []uint32{1, 2, 3},
 	size:             465,
 	sizeCompact:      197,
-	sizeCompactTx:    200,
 	sizeCompactNoAcc: 192,
 }
 
@@ -219,7 +216,6 @@ func TestUDataSerializeSize(t *testing.T) {
 		ud               UData
 		size             int
 		sizeCompact      int
-		sizeCompactTx    int
 		sizeCompactNoAcc int
 	}
 
@@ -259,7 +255,6 @@ func TestUDataSerializeSize(t *testing.T) {
 			ud:               *ud,
 			size:             testData.size,
 			sizeCompact:      testData.sizeCompact,
-			sizeCompactTx:    testData.sizeCompactTx,
 			sizeCompactNoAcc: testData.sizeCompactNoAcc,
 		})
 	}
@@ -286,10 +281,10 @@ func TestUDataSerializeSize(t *testing.T) {
 			continue
 		}
 
-		gotSize = test.ud.SerializeSizeCompact(false)
+		gotSize = test.ud.SerializeSizeCompact()
 		if gotSize != test.sizeCompact {
 			var buf bytes.Buffer
-			err := test.ud.SerializeCompact(&buf, false)
+			err := test.ud.SerializeCompact(&buf)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -303,7 +298,7 @@ func TestUDataSerializeSize(t *testing.T) {
 
 		// Sanity check.  Actually serialize the data and compare against our hardcoded number.
 		buf.Reset()
-		err = test.ud.SerializeCompact(&buf, false)
+		err = test.ud.SerializeCompact(&buf)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -314,25 +309,11 @@ func TestUDataSerializeSize(t *testing.T) {
 			continue
 		}
 
-		gotSize = test.ud.SerializeSizeCompact(true)
-		if gotSize != test.sizeCompactTx {
-			t.Errorf("%s: UData serialize size compact (true) fail. "+
-				"expect %d, got %d", test.name,
-				test.sizeCompactTx, gotSize)
-			continue
-		}
-
 		// Sanity check.  Actually serialize the data and compare against our hardcoded number.
 		buf.Reset()
-		err = test.ud.SerializeCompact(&buf, true)
+		err = test.ud.SerializeCompact(&buf)
 		if err != nil {
 			t.Fatal(err)
-		}
-		if len(buf.Bytes()) != test.sizeCompactTx {
-			t.Errorf("%s: UData serialize size compact(true) fail. "+
-				"serialized %d, hardcoded %d", test.name,
-				len(buf.Bytes()), test.sizeCompactTx)
-			continue
 		}
 
 		gotSize = test.ud.SerializeSizeCompactNoAccProof()
@@ -358,12 +339,12 @@ func TestUDataSerializeSize(t *testing.T) {
 
 		// Test that SerializeUxtoDataSizeCompact and SerializeUxtoDataSizeCompact
 		// sums up to the entire thing.
-		totals := test.ud.SerializeUxtoDataSizeCompact(true) + test.ud.SerializeAccSizeCompact()
+		totals := test.ud.SerializeUxtoDataSizeCompact() + test.ud.SerializeAccSizeCompact()
 		totals += test.ud.SerializeRememberIdxSize()
 
-		if totals != test.ud.SerializeSizeCompact(true) {
+		if totals != test.ud.SerializeSizeCompact() {
 			t.Errorf("%s: expected %d for but got %d as the sum of utxodata, accumulator data, and the remember idxs",
-				test.name, test.ud.SerializeSizeCompact(true), totals)
+				test.name, test.ud.SerializeSizeCompact(), totals)
 		}
 	}
 }
@@ -443,12 +424,10 @@ func TestUDataSerializeCompact(t *testing.T) {
 	t.Parallel()
 
 	type test struct {
-		name      string
-		isForTx   bool
-		leafCount int
-		ud        UData
-		before    []byte
-		after     []byte
+		name   string
+		ud     UData
+		before []byte
+		after  []byte
 	}
 
 	testDatas := getTestDatas()
@@ -481,46 +460,32 @@ func TestUDataSerializeCompact(t *testing.T) {
 
 		// Append to the tests.
 		tests = append(tests, test{
-			name:    testData.name,
-			isForTx: false,
-			ud:      *ud,
-		})
-		tests = append(tests, test{
-			name:      testData.name + " + isForTx",
-			isForTx:   true,
-			leafCount: len(ud.LeafDatas),
-			ud:        *ud,
+			name: testData.name,
+			ud:   *ud,
 		})
 	}
 
 	for _, test := range tests {
 		// Serialize
 		writer := &bytes.Buffer{}
-		test.ud.SerializeCompact(writer, test.isForTx)
+		test.ud.SerializeCompact(writer)
 		test.before = writer.Bytes()
 
 		// Deserialize
 		checkUData := new(UData)
-		if test.isForTx {
-			err := checkUData.DeserializeCompact(writer, test.isForTx, test.leafCount)
-			if err != nil {
-				t.Fatal(err)
-			}
-		} else {
-			err := checkUData.DeserializeCompact(writer, test.isForTx, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
+		err := checkUData.DeserializeCompact(writer)
+		if err != nil {
+			t.Fatal(err)
 		}
 
-		err := checkUDEqual(&test.ud, checkUData, true, test.name)
+		err = checkUDEqual(&test.ud, checkUData, true, test.name)
 		if err != nil {
 			t.Error(err)
 		}
 
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
-		checkUData.SerializeCompact(afterWriter, test.isForTx)
+		checkUData.SerializeCompact(afterWriter)
 		test.after = afterWriter.Bytes()
 
 		// Check if before and after match.

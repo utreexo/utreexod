@@ -177,7 +177,7 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 		}
 		r := bytes.NewReader(proofBytes)
 		ud := new(wire.UData)
-		err = ud.DeserializeCompact(r, udataSerializeBool, 0)
+		err = ud.DeserializeCompact(r)
 		if err != nil {
 			return err
 		}
@@ -827,7 +827,7 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32, excludeAccProo
 			return nil, err
 		}
 	} else {
-		err = ud.DeserializeCompact(r, udataSerializeBool, 0)
+		err = ud.DeserializeCompact(r)
 		if err != nil {
 			return nil, err
 		}
@@ -923,7 +923,7 @@ func (idx *FlatUtreexoProofIndex) FetchMultiUtreexoProof(height int32) (
 	// Deserialize the utreexo data that will provide the proof for the upcoming
 	// blocks in the interval.
 	multiUd := new(wire.UData)
-	err = multiUd.DeserializeCompact(r, udataSerializeBool, 0)
+	err = multiUd.DeserializeCompact(r)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -967,7 +967,7 @@ func (idx *FlatUtreexoProofIndex) FetchRemembers(height int32) ([]uint32, error)
 // storeProof serializes and stores the utreexo data in the proof state.
 func (idx *FlatUtreexoProofIndex) storeProof(height int32, excludeAccProof bool, ud *wire.UData) error {
 	if excludeAccProof {
-		bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeUxtoDataSizeCompact(udataSerializeBool)))
+		bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeUxtoDataSizeCompact()))
 		err := ud.SerializeCompactNoAccProof(bytesBuf)
 		if err != nil {
 			return err
@@ -978,8 +978,8 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, excludeAccProof bool,
 			return fmt.Errorf("store proof err. %v", err)
 		}
 	} else {
-		bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSizeCompact(udataSerializeBool)))
-		err := ud.SerializeCompact(bytesBuf, udataSerializeBool)
+		bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSizeCompact()))
+		err := ud.SerializeCompact(bytesBuf)
 		if err != nil {
 			return err
 		}
@@ -1000,7 +1000,7 @@ func (idx *FlatUtreexoProofIndex) storeMultiBlockProof(height int32, ud, multiUd
 	dels []utreexo.Hash) error {
 
 	size := ud.SerializeSizeCompactNoAccProof()
-	size += multiUd.SerializeSizeCompact(udataSerializeBool)
+	size += multiUd.SerializeSizeCompact()
 	size += (len(dels) * chainhash.HashSize) + 4 // 4 for uint32 size
 
 	bytesBuf := bytes.NewBuffer(make([]byte, 0, size))
@@ -1010,7 +1010,7 @@ func (idx *FlatUtreexoProofIndex) storeMultiBlockProof(height int32, ud, multiUd
 	}
 
 	multiUd.LeafDatas = []wire.LeafData{}
-	err = multiUd.SerializeCompact(bytesBuf, udataSerializeBool)
+	err = multiUd.SerializeCompact(bytesBuf)
 	if err != nil {
 		return err
 	}
