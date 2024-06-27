@@ -872,8 +872,10 @@ func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, pos
 
 	targets := make([]uint64, len(delHashes))
 	for i, delHash := range delHashes {
-		pos, _ := idx.utreexoState.state.GetLeafPosition(delHash)
-		targets[i] = pos
+		pos, found := idx.utreexoState.state.GetLeafPosition(delHash)
+		if found {
+			targets[i] = pos
+		}
 	}
 
 	ud.AccProof = utreexo.Proof{
