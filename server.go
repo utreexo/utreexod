@@ -867,6 +867,7 @@ func (sp *serverPeer) OnGetCFilters(_ *peer.Peer, msg *wire.MsgGetCFilters) {
 	// filters that we actually currently maintain.
 	switch msg.FilterType {
 	case wire.GCSFilterRegular:
+	case wire.UtreexoCFilter:
 		break
 
 	default:
@@ -923,6 +924,7 @@ func (sp *serverPeer) OnGetCFHeaders(_ *peer.Peer, msg *wire.MsgGetCFHeaders) {
 	// headers for filters that we actually currently maintain.
 	switch msg.FilterType {
 	case wire.GCSFilterRegular:
+	case wire.UtreexoCFilter:
 		break
 
 	default:
