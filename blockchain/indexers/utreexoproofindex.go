@@ -355,12 +355,11 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 	blockHash := block.Hash()
 	var serializedUtreexo []byte
-	isCSN := true
 	var leaves uint64
 	var roots []*chainhash.Hash
 
 	// For compact state nodes
-	if isCSN {
+	if idx.chain.IsUtreexoViewActive() {
 		viewPoint, err := idx.chain.FetchUtreexoViewpoint(blockHash)
 		if err != nil {
 			return err
