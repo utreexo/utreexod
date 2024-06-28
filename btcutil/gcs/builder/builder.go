@@ -369,3 +369,19 @@ func MakeHeaderForFilter(filter *gcs.Filter, prevHeader chainhash.Hash) (chainha
 	// above.
 	return chainhash.DoubleHashH(filterTip), nil
 }
+
+// MakeHeaderForUtreexoCFilter makes a filter chain header for a utreexoc filter, given the
+// filter data and the previous filter chain header.
+func MakeHeaderForUtreexoCFilter(filterData []byte, prevHeader chainhash.Hash) (chainhash.Hash, error) {
+	filterTip := make([]byte, 2*chainhash.HashSize)
+	filterHash := chainhash.DoubleHashH(filterData)
+
+	// In the buffer we created above we'll compute hash || prevHash as an
+	// intermediate value.
+	copy(filterTip, filterHash[:])
+	copy(filterTip[chainhash.HashSize:], prevHeader[:])
+
+	// The final filter hash is the double-sha256 of the hash computed
+	// above.
+	return chainhash.DoubleHashH(filterTip), nil
+}

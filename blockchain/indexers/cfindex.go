@@ -33,19 +33,22 @@ var (
 	// cfIndexKeys is an array of db bucket names used to house indexes of
 	// block hashes to cfilters.
 	cfIndexKeys = [][]byte{
-		[]byte("cf0byhashidx"),
+		[]byte("cf0byhashidx"), // bucket for basic filter indexes
+		[]byte("cf1byhashidx"), // bucket for UtreexoCFilter
 	}
 
 	// cfHeaderKeys is an array of db bucket names used to house indexes of
 	// block hashes to cf headers.
 	cfHeaderKeys = [][]byte{
 		[]byte("cf0headerbyhashidx"),
+		[]byte("cf1headerbyhashidx"),
 	}
 
 	// cfHashKeys is an array of db bucket names used to house indexes of
 	// block hashes to cf hashes.
 	cfHashKeys = [][]byte{
 		[]byte("cf0hashbyhashidx"),
+		[]byte("cf1hashbyhashidx"),
 	}
 
 	maxFilterType = uint8(len(cfHeaderKeys) - 1)

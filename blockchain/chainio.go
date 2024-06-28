@@ -1080,6 +1080,32 @@ func SerializeUtreexoRoots(numLeaves uint64, roots []utreexo.Hash) ([]byte, erro
 	return w.Bytes(), nil
 }
 
+// SerializeUtreexoRootsHash serializes the numLeaves and the roots into a byte slice.
+// it takes in a slice of chainhash.Hash instead of utreexo.Hash. chainhash.Hash is the hashed
+// value of the utreexo.Hash.
+func SerializeUtreexoRootsHash(numLeaves uint64, roots []*chainhash.Hash) ([]byte, error) {
+	// 8 byte NumLeaves + (32 byte roots * len(roots))
+	w := bytes.NewBuffer(make([]byte, 0, 8+(len(roots)*chainhash.HashSize)))
+
+	// Write the NumLeaves first.
+	var buf [8]byte
+	byteOrder.PutUint64(buf[:], numLeaves)
+	_, err := w.Write(buf[:])
+	if err != nil {
+		return nil, err
+	}
+
+	// Then write the roots.
+	for _, root := range roots {
+		_, err = w.Write(root[:])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return w.Bytes(), nil
+}
+
 // DeserializeUtreexoRoots deserializes the provided byte slice into numLeaves and roots.
 func DeserializeUtreexoRoots(serializedUView []byte) (uint64, []utreexo.Hash, error) {
 	totalLen := len(serializedUView)

@@ -6,12 +6,14 @@ package indexers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
+	"github.com/utreexo/utreexod/btcutil/gcs/builder"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
@@ -236,6 +238,58 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 	return nil
 }
 
+// storeFilter stores a given filter, and performs the steps needed to
+// generate the filter's header.
+func storeUtreexoCFilter(dbTx database.Tx, block *btcutil.Block, filterData []byte,
+	filterType wire.FilterType) error {
+	if uint8(filterType) > maxFilterType {
+		return errors.New("unsupported filter type")
+	}
+
+	// Figure out which buckets to use.
+	fkey := cfIndexKeys[filterType]
+	hkey := cfHeaderKeys[filterType]
+	hashkey := cfHashKeys[filterType]
+
+	// Start by storing the filter.
+	h := block.Hash()
+	err := dbStoreFilterIdxEntry(dbTx, fkey, h, filterData)
+	if err != nil {
+		return err
+	}
+
+	// Next store the filter hash.
+	filterHash := chainhash.DoubleHashH(filterData)
+	err = dbStoreFilterIdxEntry(dbTx, hashkey, h, filterHash[:])
+	if err != nil {
+		return err
+	}
+
+	// Then fetch the previous block's filter header.
+	var prevHeader *chainhash.Hash
+	ph := &block.MsgBlock().Header.PrevBlock
+	if ph.IsEqual(&zeroHash) {
+		prevHeader = &zeroHash
+	} else {
+		pfh, err := dbFetchFilterIdxEntry(dbTx, hkey, ph)
+		if err != nil {
+			return err
+		}
+
+		// Construct the new block's filter header, and store it.
+		prevHeader, err = chainhash.NewHash(pfh)
+		if err != nil {
+			return err
+		}
+	}
+
+	fh, err := builder.MakeHeaderForUtreexoCFilter(filterData, *prevHeader)
+	if err != nil {
+		return err
+	}
+	return dbStoreFilterIdxEntry(dbTx, hkey, h, fh[:])
+}
+
 // ConnectBlock is invoked by the index manager when a new block has been
 // connected to the main chain.
 //
@@ -299,8 +353,36 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	if err != nil {
 		return err
 	}
+	blockHash := block.Hash()
+	var serializedUtreexo []byte
+	isCSN := true
+	var leaves uint64
+	var roots []*chainhash.Hash
 
-	return nil
+	// For compact state nodes
+	if isCSN {
+		viewPoint, err := idx.chain.FetchUtreexoViewpoint(blockHash)
+		if err != nil {
+			return err
+		}
+		roots = viewPoint.GetRoots()
+		leaves = viewPoint.NumLeaves()
+	} else { // for bridge nodes
+		uroots, uleaves, err := idx.FetchUtreexoState(dbTx, blockHash)
+		if err != nil {
+			return err
+		}
+		roots = uroots
+		leaves = uleaves
+	}
+
+	// serialize the hashes of the utreexo roots hash
+	serializedUtreexo, err = blockchain.SerializeUtreexoRootsHash(leaves, roots)
+	if err != nil {
+		return err
+	}
+
+	return storeUtreexoCFilter(dbTx, block, serializedUtreexo, wire.UtreexoCFilter)
 }
 
 // getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from
