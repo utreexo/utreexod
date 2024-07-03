@@ -122,7 +122,7 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 		// If the cache is full, flush the cache then Put
 		// the leaf in.
 		if !m.cache.Put(k, cLeaf) {
-			m.flush()
+			m.Flush()
 			m.cache.Put(k, cLeaf)
 		}
 
@@ -140,7 +140,7 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 
 	// Cache the leaf before returning it.
 	if !m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf}) {
-		m.flush()
+		m.Flush()
 		m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf})
 	}
 	return leaf, true
@@ -158,7 +158,7 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 	}
 
 	if int64(m.cache.Length()) > m.maxCacheElem {
-		m.flush()
+		m.Flush()
 	}
 
 	leaf, found := m.cache.Get(k)
@@ -171,7 +171,7 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 
 		// It shouldn't fail here but handle it anyways.
 		if !m.cache.Put(k, l) {
-			m.flush()
+			m.Flush()
 			m.cache.Put(k, l)
 		}
 	} else {
@@ -183,7 +183,7 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 
 		// It shouldn't fail here but handle it anyways.
 		if !m.cache.Put(k, l) {
-			m.flush()
+			m.Flush()
 			m.cache.Put(k, l)
 		}
 	}
@@ -204,7 +204,7 @@ func (m *NodesBackEnd) Delete(k uint64) {
 	leaf, found := m.cache.Get(k)
 	if !found {
 		if int64(m.cache.Length()) >= m.maxCacheElem {
-			m.flush()
+			m.Flush()
 		}
 	}
 	l := utreexobackends.CachedLeaf{
@@ -212,14 +212,14 @@ func (m *NodesBackEnd) Delete(k uint64) {
 		Flags: leaf.Flags | utreexobackends.Removed,
 	}
 	if !m.cache.Put(k, l) {
-		m.flush()
+		m.Flush()
 		m.cache.Put(k, l)
 	}
 }
 
 // Length returns the amount of items in the underlying database.
 func (m *NodesBackEnd) Length() int {
-	m.flush()
+	m.Flush()
 
 	length := 0
 	iter := m.db.NewIterator(nil, nil)
@@ -233,7 +233,7 @@ func (m *NodesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
-	m.flush()
+	m.Flush()
 
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
@@ -258,7 +258,7 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 }
 
 // flush saves all the cached entries to disk and resets the cache map.
-func (m *NodesBackEnd) flush() {
+func (m *NodesBackEnd) Flush() {
 	if m.maxCacheElem == 0 {
 		return
 	}
@@ -282,7 +282,7 @@ func (m *NodesBackEnd) flush() {
 
 // Close flushes the cache and closes the underlying database.
 func (m *NodesBackEnd) Close() error {
-	m.flush()
+	m.Flush()
 
 	return m.db.Close()
 }
@@ -355,7 +355,7 @@ func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
 
 	length := m.cache.Length()
 	if int64(length) >= m.maxCacheElem {
-		m.flush()
+		m.Flush()
 	}
 
 	m.cache.Put(k, v)
@@ -370,7 +370,7 @@ func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
 
 // Length returns the amount of items in the underlying db and the cache.
 func (m *CachedLeavesBackEnd) Length() int {
-	m.flush()
+	m.Flush()
 
 	length := 0
 	iter := m.db.NewIterator(nil, nil)
@@ -384,7 +384,7 @@ func (m *CachedLeavesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error {
-	m.flush()
+	m.Flush()
 
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
@@ -403,7 +403,7 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 }
 
 // Flush resets the cache and saves all the key values onto the database.
-func (m *CachedLeavesBackEnd) flush() {
+func (m *CachedLeavesBackEnd) Flush() {
 	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
 		err := m.dbPut(k, v)
 		if err != nil {
@@ -416,6 +416,6 @@ func (m *CachedLeavesBackEnd) flush() {
 
 // Close flushes all the cached entries and then closes the underlying database.
 func (m *CachedLeavesBackEnd) Close() error {
-	m.flush()
+	m.Flush()
 	return m.db.Close()
 }
