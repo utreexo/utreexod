@@ -53,12 +53,7 @@ type NodesBackEnd struct {
 
 // InitNodesBackEnd returns a newly initialized NodesBackEnd which implements
 // utreexo.NodesInterface.
-func InitNodesBackEnd(datadir string, maxTotalMemoryUsage int64) (*NodesBackEnd, error) {
-	db, err := leveldb.OpenFile(datadir, nil)
-	if err != nil {
-		return nil, err
-	}
-
+func InitNodesBackEnd(db *leveldb.DB, maxTotalMemoryUsage int64) (*NodesBackEnd, error) {
 	cache, maxCacheElems := utreexobackends.NewNodesMapSlice(maxTotalMemoryUsage)
 	nb := NodesBackEnd{
 		db:           db,
@@ -237,6 +232,11 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
+		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// Skip it since it's not relevant here.
+		if len(iter.Key()) == 32 {
+			continue
+		}
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
 		k, _ := deserializeVLQ(iter.Key())
@@ -280,13 +280,6 @@ func (m *NodesBackEnd) Flush() {
 	m.cache.ClearMaps()
 }
 
-// Close flushes the cache and closes the underlying database.
-func (m *NodesBackEnd) Close() error {
-	m.Flush()
-
-	return m.db.Close()
-}
-
 var _ utreexo.CachedLeavesInterface = (*CachedLeavesBackEnd)(nil)
 
 // CachedLeavesBackEnd implements the CachedLeavesInterface interface. The cache assumes
@@ -317,12 +310,7 @@ func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (uint64, bool) {
 
 // InitCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
 // utreexo.CachedLeavesInterface.
-func InitCachedLeavesBackEnd(datadir string, maxMemoryUsage int64) (*CachedLeavesBackEnd, error) {
-	db, err := leveldb.OpenFile(datadir, nil)
-	if err != nil {
-		return nil, err
-	}
-
+func InitCachedLeavesBackEnd(db *leveldb.DB, maxMemoryUsage int64) (*CachedLeavesBackEnd, error) {
 	cache, maxCacheElem := utreexobackends.NewCachedLeavesMapSlice(maxMemoryUsage)
 	return &CachedLeavesBackEnd{maxCacheElem: maxCacheElem, db: db, cache: cache}, nil
 }
@@ -388,6 +376,11 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
+		// If the itered key isn't chainhash.HashSize, it means that the entry is for nodesbackend.
+		// Skip it since it's not relevant here.
+		if len(iter.Key()) != chainhash.HashSize {
+			continue
+		}
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
 		k := iter.Key()
@@ -412,10 +405,4 @@ func (m *CachedLeavesBackEnd) Flush() {
 	})
 
 	m.cache.ClearMaps()
-}
-
-// Close flushes all the cached entries and then closes the underlying database.
-func (m *CachedLeavesBackEnd) Close() error {
-	m.Flush()
-	return m.db.Close()
 }

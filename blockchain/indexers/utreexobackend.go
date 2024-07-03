@@ -7,10 +7,10 @@ package indexers
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -22,8 +22,6 @@ const (
 	// utreexoDirName is the name of the directory in which the utreexo state
 	// is stored.
 	utreexoDirName         = "utreexostate"
-	nodesDBDirName         = "nodes"
-	cachedLeavesDBDirName  = "cachedleaves"
 	defaultUtreexoFileName = "forest.dat"
 )
 
@@ -320,14 +318,17 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 	maxNodesMem := maxMemoryUsage * 6 / 10
 	maxCachedLeavesMem := maxMemoryUsage - maxNodesMem
 
-	nodesPath := filepath.Join(basePath, nodesDBDirName)
-	nodesDB, err := blockchain.InitNodesBackEnd(nodesPath, maxNodesMem)
+	db, err := leveldb.OpenFile(basePath, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	cachedLeavesPath := filepath.Join(basePath, cachedLeavesDBDirName)
-	cachedLeavesDB, err := blockchain.InitCachedLeavesBackEnd(cachedLeavesPath, maxCachedLeavesMem)
+	nodesDB, err := blockchain.InitNodesBackEnd(db, maxNodesMem)
+	if err != nil {
+		return nil, err
+	}
+
+	cachedLeavesDB, err := blockchain.InitCachedLeavesBackEnd(db, maxCachedLeavesMem)
 	if err != nil {
 		return nil, err
 	}
@@ -351,17 +352,10 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 		p.Nodes = nodesDB
 		p.CachedLeaves = cachedLeavesDB
 		closeDB = func() error {
-			err := nodesDB.Close()
-			if err != nil {
-				return err
-			}
+			nodesDB.Flush()
+			cachedLeavesDB.Flush()
 
-			err = cachedLeavesDB.Close()
-			if err != nil {
-				return err
-			}
-
-			return nil
+			return db.Close()
 		}
 	} else {
 		log.Infof("loading the utreexo state from disk...")
@@ -396,25 +390,9 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 				return nil
 			})
 
-			// We want to try to close both of the DBs before returning because of an error.
-			errStr := ""
-			err := nodesDB.Close()
-			if err != nil {
-				errStr += fmt.Sprintf("Error while closing nodes db. %v", err.Error())
-			}
-			err = cachedLeavesDB.Close()
-			if err != nil {
-				errStr += fmt.Sprintf("Error while closing cached leaves db. %v", err.Error())
-			}
-
-			// If the err string isn't "", then return the error here.
-			if errStr != "" {
-				return fmt.Errorf(errStr)
-			}
-
 			log.Infof("Finished flushing the utreexo state to disk.")
 
-			return nil
+			return db.Close()
 		}
 	}
 

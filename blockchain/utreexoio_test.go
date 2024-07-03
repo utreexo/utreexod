@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 )
@@ -38,7 +39,11 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		cachedLeavesBackEnd, err := InitCachedLeavesBackEnd(test.tmpDir, test.maxMemUsage)
+		db, err := leveldb.OpenFile(test.tmpDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cachedLeavesBackEnd, err := InitCachedLeavesBackEnd(db, test.maxMemUsage)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -56,11 +61,17 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 		}
 
 		// Close and reopen the backend.
-		err = cachedLeavesBackEnd.Close()
+		cachedLeavesBackEnd.Flush()
+		err = db.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
-		cachedLeavesBackEnd, err = InitCachedLeavesBackEnd(test.tmpDir, test.maxMemUsage)
+
+		db, err = leveldb.OpenFile(test.tmpDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cachedLeavesBackEnd, err = InitCachedLeavesBackEnd(db, test.maxMemUsage)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -172,7 +183,11 @@ func TestNodesBackEnd(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		nodesBackEnd, err := InitNodesBackEnd(test.tmpDir, test.maxMemUsage)
+		db, err := leveldb.OpenFile(test.tmpDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodesBackEnd, err := InitNodesBackEnd(db, test.maxMemUsage)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -190,11 +205,17 @@ func TestNodesBackEnd(t *testing.T) {
 		}
 
 		// Close and reopen the backend.
-		err = nodesBackEnd.Close()
+		nodesBackEnd.Flush()
+		err = db.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
-		nodesBackEnd, err = InitNodesBackEnd(test.tmpDir, test.maxMemUsage)
+
+		db, err = leveldb.OpenFile(test.tmpDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodesBackEnd, err = InitNodesBackEnd(db, test.maxMemUsage)
 		if err != nil {
 			t.Fatal(err)
 		}
