@@ -6,6 +6,7 @@ package blockchain
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/utreexo/utreexo"
@@ -325,6 +326,11 @@ func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (uint64, bool) {
 	if !found {
 		return m.dbGet(k)
 	}
+	// Even if the entry was found, if the position value is math.MaxUint64,
+	// then it was already deleted.
+	if pos == math.MaxUint64 {
+		return 0, false
+	}
 
 	return pos, found
 }
@@ -352,8 +358,30 @@ func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
-	m.cache.Delete(k)
-	m.db.Delete(k[:], nil)
+	// Delete directly from the database if we don't cache anything.
+	if m.maxCacheElem == 0 {
+		err := m.db.Delete(k[:], nil)
+		if err != nil {
+			log.Warnf("CachedLeavesBackEnd delete fail. %v", err)
+		}
+
+		return
+	}
+
+	_, found := m.cache.Get(k)
+	if !found {
+		// Check if we need to flush as we'll be adding an entry to
+		// the cache.
+		if int64(m.cache.Length()) >= m.maxCacheElem {
+			m.Flush()
+		}
+	}
+
+	// Try inserting, if it fails, it means we need to flush.
+	if !m.cache.Put(k, math.MaxUint64) {
+		m.Flush()
+		m.cache.Put(k, math.MaxUint64)
+	}
 }
 
 // Length returns the amount of items in the underlying db and the cache.
@@ -397,10 +425,21 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 
 // Flush resets the cache and saves all the key values onto the database.
 func (m *CachedLeavesBackEnd) Flush() {
+	if m.maxCacheElem == 0 {
+		return
+	}
+
 	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
-		err := m.dbPut(k, v)
-		if err != nil {
-			log.Warnf("CachedLeavesBackEnd dbPut fail. %v", err)
+		if v == math.MaxUint64 {
+			err := m.db.Delete(k[:], nil)
+			if err != nil {
+				log.Warnf("CachedLeavesBackEnd delete fail. %v", err)
+			}
+		} else {
+			err := m.dbPut(k, v)
+			if err != nil {
+				log.Warnf("CachedLeavesBackEnd dbPut fail. %v", err)
+			}
 		}
 	})
 
