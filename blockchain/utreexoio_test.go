@@ -20,19 +20,7 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 	}{
 		{
 			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestCachedLeavesBackEnd0")
-			}(),
-			maxMemUsage: -1,
-		},
-		{
-			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestCachedLeavesBackEnd1")
-			}(),
-			maxMemUsage: 0,
-		},
-		{
-			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestCachedLeavesBackEnd2")
+				return filepath.Join(os.TempDir(), "TestCachedLeavesBackEnd")
 			}(),
 			maxMemUsage: 1 * 1024 * 1024,
 		},
@@ -164,19 +152,7 @@ func TestNodesBackEnd(t *testing.T) {
 	}{
 		{
 			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestNodesBackEnd0")
-			}(),
-			maxMemUsage: -1,
-		},
-		{
-			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestNodesBackEnd1")
-			}(),
-			maxMemUsage: 0,
-		},
-		{
-			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestNodesBackEnd2")
+				return filepath.Join(os.TempDir(), "TestNodesBackEnd")
 			}(),
 			maxMemUsage: 1 * 1024 * 1024,
 		},

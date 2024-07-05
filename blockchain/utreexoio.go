@@ -65,15 +65,6 @@ func InitNodesBackEnd(db *leveldb.DB, maxTotalMemoryUsage int64) (*NodesBackEnd,
 	return &nb, nil
 }
 
-// dbPut serializes and puts the key value pair into the database.
-func (m *NodesBackEnd) dbPut(k uint64, v utreexo.Leaf) error {
-	var buf [vlqBufSize]byte
-	size := putVLQ(buf[:], k)
-
-	serialized := serializeLeaf(v)
-	return m.db.Put(buf[:size], serialized[:], nil)
-}
-
 // dbGet fetches the value from the database and deserializes it and returns
 // the leaf value and a boolean for whether or not it was successful.
 func (m *NodesBackEnd) dbGet(k uint64) (utreexo.Leaf, bool) {
@@ -94,19 +85,8 @@ func (m *NodesBackEnd) dbGet(k uint64) (utreexo.Leaf, bool) {
 	return leaf, true
 }
 
-// dbDel removes the key from the database.
-func (m *NodesBackEnd) dbDel(k uint64) error {
-	var buf [vlqBufSize]byte
-	size := putVLQ(buf[:], k)
-	return m.db.Delete(buf[:size], nil)
-}
-
 // Get returns the leaf from the underlying map.
 func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
-	if m.maxCacheElem == 0 {
-		return m.dbGet(k)
-	}
-
 	// Look it up on the cache first.
 	cLeaf, found := m.cache.Get(k)
 	if found {
@@ -154,15 +134,6 @@ func NodesBackendPut(tx *leveldb.Transaction, k uint64, v utreexo.Leaf) error {
 
 // Put puts the given position and the leaf to the underlying map.
 func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
-	if m.maxCacheElem == 0 {
-		err := m.dbPut(k, v)
-		if err != nil {
-			log.Warnf("NodesBackEnd dbPut fail. %v", err)
-		}
-
-		return
-	}
-
 	if int64(m.cache.Length()) > m.maxCacheElem {
 		m.Flush()
 	}
@@ -206,15 +177,6 @@ func NodesBackendDelete(tx *leveldb.Transaction, k uint64) error {
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *NodesBackEnd) Delete(k uint64) {
-	if m.maxCacheElem == 0 {
-		err := m.dbDel(k)
-		if err != nil {
-			log.Warnf("NodesBackEnd dbDel fail. %v", err)
-		}
-
-		return
-	}
-
 	leaf, found := m.cache.Get(k)
 	if !found {
 		if int64(m.cache.Length()) >= m.maxCacheElem {
@@ -278,10 +240,6 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 
 // flush saves all the cached entries to disk and resets the cache map.
 func (m *NodesBackEnd) Flush() {
-	if m.maxCacheElem == 0 {
-		return
-	}
-
 	ldbTx, err := m.db.OpenTransaction()
 	if err != nil {
 		log.Warnf("NodesBackEnd flush error. %v", err)
@@ -323,13 +281,6 @@ type CachedLeavesBackEnd struct {
 	cache        utreexobackends.CachedLeavesMapSlice
 }
 
-// dbPut serializes and puts the key and the value into the database.
-func (m *CachedLeavesBackEnd) dbPut(k utreexo.Hash, v uint64) error {
-	var buf [vlqBufSize]byte
-	size := putVLQ(buf[:], v)
-	return m.db.Put(k[:], buf[:size], nil)
-}
-
 // dbGet fetches and deserializes the value from the database.
 func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (uint64, bool) {
 	val, err := m.db.Get(k[:], nil)
@@ -350,10 +301,6 @@ func InitCachedLeavesBackEnd(db *leveldb.DB, maxMemoryUsage int64) (*CachedLeave
 
 // Get returns the data from the underlying cache or the database.
 func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (uint64, bool) {
-	if m.maxCacheElem == 0 {
-		return m.dbGet(k)
-	}
-
 	pos, found := m.cache.Get(k)
 	if !found {
 		return m.dbGet(k)
@@ -378,15 +325,6 @@ func CachedLeavesBackendPut(tx *leveldb.Transaction, k utreexo.Hash, v uint64) e
 // Put puts the given data to the underlying cache. If the cache is full, it evicts
 // the earliest entries to make room.
 func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
-	if m.maxCacheElem == 0 {
-		err := m.dbPut(k, v)
-		if err != nil {
-			log.Warnf("CachedLeavesBackEnd dbPut fail. %v", err)
-		}
-
-		return
-	}
-
 	length := m.cache.Length()
 	if int64(length) >= m.maxCacheElem {
 		m.Flush()
@@ -398,16 +336,6 @@ func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
-	// Delete directly from the database if we don't cache anything.
-	if m.maxCacheElem == 0 {
-		err := m.db.Delete(k[:], nil)
-		if err != nil {
-			log.Warnf("CachedLeavesBackEnd delete fail. %v", err)
-		}
-
-		return
-	}
-
 	_, found := m.cache.Get(k)
 	if !found {
 		// Check if we need to flush as we'll be adding an entry to
@@ -465,10 +393,6 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 
 // Flush resets the cache and saves all the key values onto the database.
 func (m *CachedLeavesBackEnd) Flush() {
-	if m.maxCacheElem == 0 {
-		return
-	}
-
 	ldbTx, err := m.db.OpenTransaction()
 	if err != nil {
 		log.Warnf("CachedLeavesBackEnd flush error. %v", err)
