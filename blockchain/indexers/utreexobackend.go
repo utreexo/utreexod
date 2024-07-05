@@ -316,9 +316,7 @@ func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, 
 func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string) (*UtreexoState, error) {
 	p := utreexo.NewMapPollard(true)
 
-	// 60% of the memory for the nodes map, 40% for the cache leaves map.
-	// TODO Totally arbitrary, it there's something better than change it to that.
-	maxNodesMem := maxMemoryUsage * 6 / 10
+	maxNodesMem := maxMemoryUsage * 7 / 10
 	maxCachedLeavesMem := maxMemoryUsage - maxNodesMem
 
 	db, err := leveldb.OpenFile(basePath, nil)
