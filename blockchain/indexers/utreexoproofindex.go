@@ -238,34 +238,18 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 	return nil
 }
 
-// storeFilter stores a given filter, and performs the steps needed to
-// generate the filter's header.
-func storeUtreexoCFilter(dbTx database.Tx, block *btcutil.Block, filterData []byte,
+// storeUtreexoCFilter stores a given utreexocfilter header
+func storeUtreexoCFilterHeader(dbTx database.Tx, block *btcutil.Block, filterData []byte,
 	filterType wire.FilterType) error {
 	if uint8(filterType) > maxFilterType {
 		return errors.New("unsupported filter type")
 	}
 
-	// Figure out which buckets to use.
-	fkey := cfIndexKeys[filterType]
+	// Figure out which header bucket to use.
 	hkey := cfHeaderKeys[filterType]
-	hashkey := cfHashKeys[filterType]
-
-	// Start by storing the filter.
 	h := block.Hash()
-	err := dbStoreFilterIdxEntry(dbTx, fkey, h, filterData)
-	if err != nil {
-		return err
-	}
 
-	// Next store the filter hash.
-	filterHash := chainhash.DoubleHashH(filterData)
-	err = dbStoreFilterIdxEntry(dbTx, hashkey, h, filterHash[:])
-	if err != nil {
-		return err
-	}
-
-	// Then fetch the previous block's filter header.
+	// fetch the previous block's filter header.
 	var prevHeader *chainhash.Hash
 	ph := &block.MsgBlock().Header.PrevBlock
 	if ph.IsEqual(&zeroHash) {
@@ -381,7 +365,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
-	return storeUtreexoCFilter(dbTx, block, serializedUtreexo, wire.UtreexoCFilter)
+	return storeUtreexoCFilterHeader(dbTx, block, serializedUtreexo, wire.UtreexoCFilter)
 }
 
 // getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from

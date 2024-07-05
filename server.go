@@ -863,53 +863,85 @@ func (sp *serverPeer) OnGetCFilters(_ *peer.Peer, msg *wire.MsgGetCFilters) {
 		return
 	}
 
+	var hashes []chainhash.Hash
+	var hashPtrs []*chainhash.Hash
+	// if the filter type is supported, we initialize variables to avoid duplicate code
+	if msg.FilterType == wire.GCSFilterRegular || msg.FilterType == wire.UtreexoCFilter {
+		var err error
+		// get the block hashes included in the getcfilters message
+		hashes, err = sp.server.chain.HeightToHashRange(
+			int32(msg.StartHeight), &msg.StopHash, wire.MaxGetCFiltersReqRange,
+		)
+		if err != nil {
+			peerLog.Debugf("Invalid getcfilters request: %v", err)
+			return
+		}
+
+		// Create []*chainhash.Hash from []chainhash.Hash to pass to
+		// FiltersByBlockHashes.
+		hashPtrs = make([]*chainhash.Hash, len(hashes))
+		for i := range hashes {
+			hashPtrs[i] = &hashes[i]
+		}
+	}
+
 	// We'll also ensure that the remote party is requesting a set of
 	// filters that we actually currently maintain.
 	switch msg.FilterType {
 	case wire.GCSFilterRegular:
+		filters, err := sp.server.cfIndex.FiltersByBlockHashes(
+			hashPtrs, msg.FilterType,
+		)
+		if err != nil {
+			peerLog.Errorf("Error retrieving cfilters: %v", err)
+			return
+		}
+
+		for i, filterBytes := range filters {
+			if len(filterBytes) == 0 {
+				peerLog.Warnf("Could not obtain cfilter for %v",
+					hashes[i])
+				return
+			}
+
+			filterMsg := wire.NewMsgCFilter(
+				msg.FilterType, &hashes[i], filterBytes,
+			)
+			sp.QueueMessage(filterMsg, nil)
+		}
+
 	case wire.UtreexoCFilter:
-		break
+		for i, blockHash := range hashPtrs {
+			var serializedUtreexo []byte
+
+			leaves, roots, err := sp.getUtreexoRoots(blockHash)
+			if err != nil {
+				return
+			}
+
+			// serialize the hashes of the utreexo roots hash
+			serializedUtreexo, err = blockchain.SerializeUtreexoRootsHash(leaves, roots)
+			if err != nil {
+				peerLog.Errorf("error serializing utreexoc filter: %v", err)
+				return
+			}
+
+			if len(serializedUtreexo) == 0 {
+				peerLog.Warnf("Could not obtain utreexocfilter for %v",
+					hashes[i])
+				return
+			}
+
+			filterMsg := wire.NewMsgCFilter(
+				msg.FilterType, &hashes[i], serializedUtreexo,
+			)
+			sp.QueueMessage(filterMsg, nil)
+		}
 
 	default:
 		peerLog.Debug("Filter request for unknown filter: %v",
 			msg.FilterType)
 		return
-	}
-
-	hashes, err := sp.server.chain.HeightToHashRange(
-		int32(msg.StartHeight), &msg.StopHash, wire.MaxGetCFiltersReqRange,
-	)
-	if err != nil {
-		peerLog.Debugf("Invalid getcfilters request: %v", err)
-		return
-	}
-
-	// Create []*chainhash.Hash from []chainhash.Hash to pass to
-	// FiltersByBlockHashes.
-	hashPtrs := make([]*chainhash.Hash, len(hashes))
-	for i := range hashes {
-		hashPtrs[i] = &hashes[i]
-	}
-
-	filters, err := sp.server.cfIndex.FiltersByBlockHashes(
-		hashPtrs, msg.FilterType,
-	)
-	if err != nil {
-		peerLog.Errorf("Error retrieving cfilters: %v", err)
-		return
-	}
-
-	for i, filterBytes := range filters {
-		if len(filterBytes) == 0 {
-			peerLog.Warnf("Could not obtain cfilter for %v",
-				hashes[i])
-			return
-		}
-
-		filterMsg := wire.NewMsgCFilter(
-			msg.FilterType, &hashes[i], filterBytes,
-		)
-		sp.QueueMessage(filterMsg, nil)
 	}
 }
 
@@ -920,115 +952,254 @@ func (sp *serverPeer) OnGetCFHeaders(_ *peer.Peer, msg *wire.MsgGetCFHeaders) {
 		return
 	}
 
+	var startHeight int32
+	var maxResults int
+	var hashList []chainhash.Hash
+	var hashPtrs []*chainhash.Hash
+	// if the filter type is supported, we initialize variables to avoid duplicate code
+	if msg.FilterType == wire.GCSFilterRegular || msg.FilterType == wire.UtreexoCFilter {
+
+		startHeight = int32(msg.StartHeight)
+		maxResults = wire.MaxCFHeadersPerMsg
+
+		// If StartHeight is positive, fetch the predecessor block hash so we
+		// can populate the PrevFilterHeader field.
+		if msg.StartHeight > 0 {
+			startHeight--
+			maxResults++
+		}
+
+		// Fetch the hashes from the block index.
+		var err error
+		hashList, err = sp.server.chain.HeightToHashRange(
+			startHeight, &msg.StopHash, maxResults,
+		)
+		if err != nil {
+			peerLog.Debugf("Invalid getcfheaders request: %v", err)
+		}
+
+		// This is possible if StartHeight is one greater that the height of
+		// StopHash, and we pull a valid range of hashes including the previous
+		// filter header.
+		if len(hashList) == 0 || (msg.StartHeight > 0 && len(hashList) == 1) {
+			peerLog.Debug("No results for getcfheaders request")
+			return
+		}
+
+		// Create []*chainhash.Hash from []chainhash.Hash to pass to
+		// FilterHeadersByBlockHashes.
+		hashPtrs = make([]*chainhash.Hash, len(hashList))
+		for i := range hashList {
+			hashPtrs[i] = &hashList[i]
+		}
+	}
+
 	// We'll also ensure that the remote party is requesting a set of
 	// headers for filters that we actually currently maintain.
 	switch msg.FilterType {
 	case wire.GCSFilterRegular:
+
+		// Fetch the raw filter hash bytes from the database for all blocks.
+		filterHashes, err := sp.server.cfIndex.FilterHashesByBlockHashes(
+			hashPtrs, msg.FilterType,
+		)
+		if err != nil {
+			peerLog.Errorf("Error retrieving cfilter hashes: %v", err)
+			return
+		}
+
+		// Generate cfheaders message and send it.
+		headersMsg := wire.NewMsgCFHeaders()
+
+		// Populate the PrevFilterHeader field.
+		if msg.StartHeight > 0 {
+			prevBlockHash := &hashList[0]
+
+			// Fetch the raw committed filter header bytes from the
+			// database.
+			headerBytes, err := sp.server.cfIndex.FilterHeaderByBlockHash(
+				prevBlockHash, msg.FilterType)
+			if err != nil {
+				peerLog.Errorf("Error retrieving CF header: %v", err)
+				return
+			}
+			if len(headerBytes) == 0 {
+				peerLog.Warnf("Could not obtain CF header for %v", prevBlockHash)
+				return
+			}
+
+			// Deserialize the hash into PrevFilterHeader.
+			err = headersMsg.PrevFilterHeader.SetBytes(headerBytes)
+			if err != nil {
+				peerLog.Warnf("Committed filter header deserialize "+
+					"failed: %v", err)
+				return
+			}
+
+			hashList = hashList[1:]
+			filterHashes = filterHashes[1:]
+		}
+
+		// Populate HeaderHashes.
+		for i, hashBytes := range filterHashes {
+			if len(hashBytes) == 0 {
+				peerLog.Warnf("Could not obtain CF hash for %v", hashList[i])
+				return
+			}
+
+			// Deserialize the hash.
+			filterHash, err := chainhash.NewHash(hashBytes)
+			if err != nil {
+				peerLog.Warnf("Committed filter hash deserialize "+
+					"failed: %v", err)
+				return
+			}
+
+			headersMsg.AddCFHash(filterHash)
+		}
+
+		headersMsg.FilterType = msg.FilterType
+		headersMsg.StopHash = msg.StopHash
+
+		sp.QueueMessage(headersMsg, nil)
+
+		// handle custom utreexocfilter message
 	case wire.UtreexoCFilter:
-		break
+
+		// Generate cfheaders message and send it.
+		headersMsg := wire.NewMsgCFHeaders()
+
+		// Populate the PrevFilterHeader field.
+		if msg.StartHeight > 0 {
+			prevBlockHash := &hashList[0]
+
+			// Fetch the raw committed filter header bytes from the
+			// database.
+			headerBytes, err := sp.server.cfIndex.FilterHeaderByBlockHash(
+				prevBlockHash, msg.FilterType)
+			if err != nil {
+				peerLog.Errorf("Error retrieving CF header: %v", err)
+				return
+			}
+			if len(headerBytes) == 0 {
+				peerLog.Warnf("Could not obtain CF header for %v", prevBlockHash)
+				return
+			}
+
+			// Deserialize the hash into PrevFilterHeader.
+			err = headersMsg.PrevFilterHeader.SetBytes(headerBytes)
+			if err != nil {
+				peerLog.Warnf("Committed filter header deserialize "+
+					"failed: %v", err)
+				return
+			}
+		}
+
+		// fetch filter hashes and add to cf hashes field
+		for i, blockHash := range hashPtrs {
+			var serializedUtreexo []byte
+			// skip the first index as this index was added so as to enable us
+			// to get the previous filter's header
+			if i == 0 {
+				continue
+			}
+
+			leaves, roots, err := sp.getUtreexoRoots(blockHash)
+			if err != nil {
+				return
+			}
+
+			// serialize the hashes of the utreexo roots hash
+			serializedUtreexo, err = blockchain.SerializeUtreexoRootsHash(leaves, roots)
+			if err != nil {
+				peerLog.Errorf("error serializing utreexoc filter: %v", err)
+				return
+			}
+
+			if len(serializedUtreexo) == 0 {
+				peerLog.Warnf("Could not obtain utreexocfilter for %v",
+					hashList[i])
+				return
+			}
+			hashBytes := chainhash.DoubleHashB(serializedUtreexo)
+
+			if len(hashBytes) == 0 {
+				peerLog.Warnf("Could not obtain CF hash for %v", hashList[i])
+				return
+			}
+
+			// Deserialize the hash.
+			filterHash, err := chainhash.NewHash(hashBytes)
+			if err != nil {
+				peerLog.Warnf("Committed filter hash deserialize "+
+					"failed: %v", err)
+				return
+			}
+
+			headersMsg.AddCFHash(filterHash)
+		}
+		headersMsg.FilterType = msg.FilterType
+		headersMsg.StopHash = msg.StopHash
+
+		sp.QueueMessage(headersMsg, nil)
 
 	default:
 		peerLog.Debug("Filter request for unknown headers for "+
 			"filter: %v", msg.FilterType)
 		return
 	}
+}
 
-	startHeight := int32(msg.StartHeight)
-	maxResults := wire.MaxCFHeadersPerMsg
+func (sp *serverPeer) getUtreexoRoots(blockHash *chainhash.Hash) (uint64, []*chainhash.Hash, error) {
 
-	// If StartHeight is positive, fetch the predecessor block hash so we
-	// can populate the PrevFilterHeader field.
-	if msg.StartHeight > 0 {
-		startHeight--
-		maxResults++
-	}
+	var leaves uint64
+	var roots []*chainhash.Hash
 
-	// Fetch the hashes from the block index.
-	hashList, err := sp.server.chain.HeightToHashRange(
-		startHeight, &msg.StopHash, maxResults,
-	)
-	if err != nil {
-		peerLog.Debugf("Invalid getcfheaders request: %v", err)
-	}
-
-	// This is possible if StartHeight is one greater that the height of
-	// StopHash, and we pull a valid range of hashes including the previous
-	// filter header.
-	if len(hashList) == 0 || (msg.StartHeight > 0 && len(hashList) == 1) {
-		peerLog.Debug("No results for getcfheaders request")
-		return
-	}
-
-	// Create []*chainhash.Hash from []chainhash.Hash to pass to
-	// FilterHeadersByBlockHashes.
-	hashPtrs := make([]*chainhash.Hash, len(hashList))
-	for i := range hashList {
-		hashPtrs[i] = &hashList[i]
-	}
-
-	// Fetch the raw filter hash bytes from the database for all blocks.
-	filterHashes, err := sp.server.cfIndex.FilterHashesByBlockHashes(
-		hashPtrs, msg.FilterType,
-	)
-	if err != nil {
-		peerLog.Errorf("Error retrieving cfilter hashes: %v", err)
-		return
-	}
-
-	// Generate cfheaders message and send it.
-	headersMsg := wire.NewMsgCFHeaders()
-
-	// Populate the PrevFilterHeader field.
-	if msg.StartHeight > 0 {
-		prevBlockHash := &hashList[0]
-
-		// Fetch the raw committed filter header bytes from the
-		// database.
-		headerBytes, err := sp.server.cfIndex.FilterHeaderByBlockHash(
-			prevBlockHash, msg.FilterType)
+	// For compact state nodes
+	if !cfg.NoUtreexo {
+		viewPoint, err := sp.server.chain.FetchUtreexoViewpoint(blockHash)
 		if err != nil {
-			peerLog.Errorf("Error retrieving CF header: %v", err)
-			return
+			peerLog.Errorf("could not obtain utreexo view: %v", err)
+			return 0, nil, err
 		}
-		if len(headerBytes) == 0 {
-			peerLog.Warnf("Could not obtain CF header for %v", prevBlockHash)
-			return
-		}
-
-		// Deserialize the hash into PrevFilterHeader.
-		err = headersMsg.PrevFilterHeader.SetBytes(headerBytes)
-		if err != nil {
-			peerLog.Warnf("Committed filter header deserialize "+
-				"failed: %v", err)
-			return
-		}
-
-		hashList = hashList[1:]
-		filterHashes = filterHashes[1:]
+		roots = viewPoint.GetRoots()
+		leaves = viewPoint.NumLeaves()
 	}
+	// for bridge nodes
+	if sp.server.utreexoProofIndex != nil {
+		var uleaves uint64
+		var uroots []*chainhash.Hash
+		var err error
+		err = sp.server.db.View(func(dbTx database.Tx) error {
+			uroots, uleaves, err = sp.server.utreexoProofIndex.FetchUtreexoState(dbTx, blockHash)
+			if err != nil {
+				return err
+			}
 
-	// Populate HeaderHashes.
-	for i, hashBytes := range filterHashes {
-		if len(hashBytes) == 0 {
-			peerLog.Warnf("Could not obtain CF hash for %v", hashList[i])
-			return
-		}
-
-		// Deserialize the hash.
-		filterHash, err := chainhash.NewHash(hashBytes)
+			return nil
+		})
 		if err != nil {
-			peerLog.Warnf("Committed filter hash deserialize "+
-				"failed: %v", err)
-			return
+			peerLog.Errorf("error fetching utreexo view for blockhash %s: error: %v", blockHash, err)
+			return 0, nil, err
 		}
-
-		headersMsg.AddCFHash(filterHash)
+		roots = uroots
+		leaves = uleaves
+	} else if sp.server.flatUtreexoProofIndex != nil {
+		height, err := sp.server.chain.BlockHeightByHash(blockHash)
+		if err != nil {
+			peerLog.Errorf("couldn't fetch the block height for blockhash %s from "+
+				"the blockindex. Error: %v", blockHash, err)
+			return 0, nil, err
+		}
+		uroots, uleaves, err := sp.server.flatUtreexoProofIndex.FetchUtreexoState(height)
+		if err != nil {
+			peerLog.Errorf("error fetching utreexo view for blockhash: %s: error: %v", err)
+			return 0, nil, err
+		}
+		roots = uroots
+		leaves = uleaves
 	}
-
-	headersMsg.FilterType = msg.FilterType
-	headersMsg.StopHash = msg.StopHash
-
-	sp.QueueMessage(headersMsg, nil)
+	return leaves, roots, nil
 }
 
 // OnGetCFCheckpt is invoked when a peer receives a getcfcheckpt bitcoin message.
