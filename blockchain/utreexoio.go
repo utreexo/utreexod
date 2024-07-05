@@ -282,19 +282,33 @@ func (m *NodesBackEnd) Flush() {
 		return
 	}
 
+	ldbTx, err := m.db.OpenTransaction()
+	if err != nil {
+		log.Warnf("NodesBackEnd flush error. %v", err)
+		return
+	}
 	m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) {
 		if v.IsRemoved() {
-			err := m.dbDel(k)
+			err := NodesBackendDelete(ldbTx, k)
 			if err != nil {
+				ldbTx.Discard()
 				log.Warnf("NodesBackEnd flush error. %v", err)
+				return
 			}
 		} else if v.IsFresh() || v.IsModified() {
-			err := m.dbPut(k, v.Leaf)
+			err := NodesBackendPut(ldbTx, k, v.Leaf)
 			if err != nil {
+				ldbTx.Discard()
 				log.Warnf("NodesBackEnd flush error. %v", err)
+				return
 			}
 		}
 	})
+
+	err = ldbTx.Commit()
+	if err != nil {
+		log.Warnf("NodesBackEnd flush error. Failed to commit leveldb tx. %v", err)
+	}
 
 	m.cache.ClearMaps()
 }
@@ -455,19 +469,33 @@ func (m *CachedLeavesBackEnd) Flush() {
 		return
 	}
 
+	ldbTx, err := m.db.OpenTransaction()
+	if err != nil {
+		log.Warnf("CachedLeavesBackEnd flush error. %v", err)
+		return
+	}
 	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
 		if v == math.MaxUint64 {
-			err := m.db.Delete(k[:], nil)
+			err = ldbTx.Delete(k[:], nil)
 			if err != nil {
+				ldbTx.Discard()
 				log.Warnf("CachedLeavesBackEnd delete fail. %v", err)
+				return
 			}
 		} else {
-			err := m.dbPut(k, v)
+			err = CachedLeavesBackendPut(ldbTx, k, v)
 			if err != nil {
-				log.Warnf("CachedLeavesBackEnd dbPut fail. %v", err)
+				ldbTx.Discard()
+				log.Warnf("CachedLeavesBackEnd put fail. %v", err)
+				return
 			}
 		}
 	})
+
+	err = ldbTx.Commit()
+	if err != nil {
+		log.Warnf("CachedLeavesBackEnd flush error. Failed to commit leveldb tx. %v", err)
+	}
 
 	m.cache.ClearMaps()
 }

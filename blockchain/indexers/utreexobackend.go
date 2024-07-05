@@ -384,16 +384,35 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 
 		flush = func() {
 			log.Infof("Flushing the utreexo state to disk. May take a while...")
+			ldbTx, err := db.OpenTransaction()
+			if err != nil {
+				log.Warnf("flush error, failed to open leveldb tx. %v", err)
+				return
+			}
 
-			p.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
-				nodesDB.Put(k, v)
-				return nil
+			err = p.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
+				return blockchain.NodesBackendPut(ldbTx, k, v)
 			})
+			if err != nil {
+				ldbTx.Discard()
+				log.Warnf("flush error. %v", err)
+				return
+			}
 
-			p.CachedLeaves.ForEach(func(k utreexo.Hash, v uint64) error {
-				cachedLeavesDB.Put(k, v)
-				return nil
+			err = p.CachedLeaves.ForEach(func(k utreexo.Hash, v uint64) error {
+				return blockchain.CachedLeavesBackendPut(ldbTx, k, v)
 			})
+			if err != nil {
+				ldbTx.Discard()
+				log.Warnf("flush error. %v", err)
+				return
+			}
+
+			err = ldbTx.Commit()
+			if err != nil {
+				log.Warnf("flush error, failed to commit leveldb tx. %v", err)
+				return
+			}
 
 			log.Infof("Finished flushing the utreexo state to disk.")
 		}
