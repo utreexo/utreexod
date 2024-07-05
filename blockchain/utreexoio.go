@@ -142,6 +142,16 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 	return leaf, true
 }
 
+// NodesBackendPut puts a key-value pair in the given leveldb tx.
+func NodesBackendPut(tx *leveldb.Transaction, k uint64, v utreexo.Leaf) error {
+	size := serializeSizeVLQ(k)
+	buf := make([]byte, size)
+	putVLQ(buf, k)
+
+	serialized := serializeLeaf(v)
+	return tx.Put(buf[:], serialized[:], nil)
+}
+
 // Put puts the given position and the leaf to the underlying map.
 func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 	if m.maxCacheElem == 0 {
@@ -183,6 +193,14 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 			m.cache.Put(k, l)
 		}
 	}
+}
+
+// NodesBackendDelete deletes the corresponding key-value pair from the given leveldb tx.
+func NodesBackendDelete(tx *leveldb.Transaction, k uint64) error {
+	size := serializeSizeVLQ(k)
+	buf := make([]byte, size)
+	putVLQ(buf, k)
+	return tx.Delete(buf, nil)
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
@@ -333,6 +351,14 @@ func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (uint64, bool) {
 	}
 
 	return pos, found
+}
+
+// CachedLeavesBackendPut puts a key-value pair in the given leveldb tx.
+func CachedLeavesBackendPut(tx *leveldb.Transaction, k utreexo.Hash, v uint64) error {
+	size := serializeSizeVLQ(v)
+	buf := make([]byte, size)
+	putVLQ(buf, v)
+	return tx.Put(k[:], buf, nil)
 }
 
 // Put puts the given data to the underlying cache. If the cache is full, it evicts
