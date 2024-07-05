@@ -47,6 +47,7 @@ type UtreexoState struct {
 	config *UtreexoConfig
 	state  utreexo.Utreexo
 
+	flush   func()
 	closeDB func() error
 }
 
@@ -170,6 +171,7 @@ func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 		return err
 	}
 
+	idx.utreexoState.flush()
 	return idx.utreexoState.closeDB()
 }
 
@@ -191,6 +193,7 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState() error {
 		return err
 	}
 
+	idx.utreexoState.flush()
 	return idx.utreexoState.closeDB()
 }
 
@@ -348,13 +351,15 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 	}
 
 	var closeDB func() error
+	var flush func()
 	if maxMemoryUsage >= 0 {
 		p.Nodes = nodesDB
 		p.CachedLeaves = cachedLeavesDB
-		closeDB = func() error {
+		flush = func() {
 			nodesDB.Flush()
 			cachedLeavesDB.Flush()
-
+		}
+		closeDB = func() error {
 			return db.Close()
 		}
 	} else {
@@ -377,7 +382,7 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 
 		log.Infof("Finished loading the utreexo state from disk.")
 
-		closeDB = func() error {
+		flush = func() {
 			log.Infof("Flushing the utreexo state to disk. May take a while...")
 
 			p.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
@@ -391,7 +396,8 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 			})
 
 			log.Infof("Finished flushing the utreexo state to disk.")
-
+		}
+		closeDB = func() error {
 			return db.Close()
 		}
 	}
@@ -399,6 +405,7 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 	uState := &UtreexoState{
 		config:  cfg,
 		state:   &p,
+		flush:   flush,
 		closeDB: closeDB,
 	}
 
