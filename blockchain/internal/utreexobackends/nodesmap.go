@@ -64,6 +64,9 @@ type NodesMapSlice struct {
 	// maps are the underlying maps in the slice of maps.
 	maps []map[uint64]CachedLeaf
 
+	// overflow puts the overflowed entries.
+	overflow map[uint64]CachedLeaf
+
 	// maxEntries is the maximum amount of elemnts that the map is allocated for.
 	maxEntries []int
 
@@ -83,6 +86,8 @@ func (ms *NodesMapSlice) Length() int {
 	for _, m := range ms.maps {
 		l += len(m)
 	}
+
+	l += len(ms.overflow)
 
 	return l
 }
@@ -105,7 +110,14 @@ func (ms *NodesMapSlice) Get(k uint64) (CachedLeaf, bool) {
 		}
 	}
 
-	return v, found
+	if len(ms.overflow) > 0 {
+		v, found = ms.overflow[k]
+		if found {
+			return v, found
+		}
+	}
+
+	return v, false
 }
 
 // put puts the keys and the values into one of the maps in the map slice.  If the
@@ -126,6 +138,14 @@ func (ms *NodesMapSlice) Put(k uint64, v CachedLeaf) bool {
 		}
 	}
 
+	if len(ms.overflow) > 0 {
+		_, found := ms.overflow[k]
+		if found {
+			ms.overflow[k] = v
+			return true
+		}
+	}
+
 	for i, maxNum := range ms.maxEntries {
 		m := ms.maps[i]
 		if len(m) >= maxNum {
@@ -138,6 +158,8 @@ func (ms *NodesMapSlice) Put(k uint64, v CachedLeaf) bool {
 		m[k] = v
 		return true // Return as we were successful in adding the entry.
 	}
+
+	ms.overflow[k] = v
 
 	// We only reach this code if we've failed to insert into the map above as
 	// all the current maps were full.
@@ -155,6 +177,8 @@ func (ms *NodesMapSlice) delete(k uint64) {
 	for i := 0; i < len(ms.maps); i++ {
 		delete(ms.maps[i], k)
 	}
+
+	delete(ms.overflow, k)
 }
 
 // DeleteMaps deletes all maps and allocate new ones with the maxEntries defined in
@@ -168,6 +192,8 @@ func (ms *NodesMapSlice) DeleteMaps() {
 	for i := range ms.maxEntries {
 		ms.maps[i] = make(map[uint64]CachedLeaf, ms.maxEntries[i])
 	}
+
+	ms.overflow = make(map[uint64]CachedLeaf)
 }
 
 // ClearMaps clears all maps
@@ -193,6 +219,12 @@ func (ms *NodesMapSlice) ForEach(fn func(uint64, CachedLeaf)) {
 
 	for _, m := range ms.maps {
 		for k, v := range m {
+			fn(k, v)
+		}
+	}
+
+	if len(ms.overflow) > 0 {
+		for k, v := range ms.overflow {
 			fn(k, v)
 		}
 	}
@@ -223,6 +255,8 @@ func (ms *NodesMapSlice) createMaps(maxMemoryUsage int64) int64 {
 	for i := range ms.maxEntries {
 		ms.maps[i] = make(map[uint64]CachedLeaf, ms.maxEntries[i])
 	}
+
+	ms.overflow = make(map[uint64]CachedLeaf)
 
 	return int64(totalElemCount)
 }
