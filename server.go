@@ -2574,7 +2574,7 @@ out:
 
 	// If utreexoProofIndex option is on, flush it after closing down syncManager.
 	if s.utreexoProofIndex != nil {
-		err := s.utreexoProofIndex.FlushUtreexoState()
+		err := s.utreexoProofIndex.CloseUtreexoState()
 		if err != nil {
 			btcdLog.Errorf("Error while flushing utreexo state: %v", err)
 		}
@@ -2582,7 +2582,7 @@ out:
 
 	// If flatUtreexoProofIndex option is on, flush it after closing down syncManager.
 	if s.flatUtreexoProofIndex != nil {
-		err := s.flatUtreexoProofIndex.FlushUtreexoState()
+		err := s.flatUtreexoProofIndex.CloseUtreexoState()
 		if err != nil {
 			btcdLog.Errorf("Error while flushing utreexo state: %v", err)
 		}

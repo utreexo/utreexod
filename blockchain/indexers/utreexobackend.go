@@ -172,6 +172,12 @@ func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 	}
 
 	idx.utreexoState.flush()
+	return nil
+}
+
+// CloseUtreexoState flushes and closes the utreexo database state.
+func (idx *UtreexoProofIndex) CloseUtreexoState() error {
+	idx.FlushUtreexoState()
 	return idx.utreexoState.closeDB()
 }
 
@@ -194,6 +200,12 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState() error {
 	}
 
 	idx.utreexoState.flush()
+	return nil
+}
+
+// CloseUtreexoState flushes and closes the utreexo database state.
+func (idx *FlatUtreexoProofIndex) CloseUtreexoState() error {
+	idx.FlushUtreexoState()
 	return idx.utreexoState.closeDB()
 }
 

@@ -472,12 +472,12 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			for _, indexer := range m.enabledIndexes {
 				switch idxType := indexer.(type) {
 				case *UtreexoProofIndex:
-					err := idxType.FlushUtreexoState()
+					err := idxType.CloseUtreexoState()
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state: %v", err)
 					}
 				case *FlatUtreexoProofIndex:
-					err := idxType.FlushUtreexoState()
+					err := idxType.CloseUtreexoState()
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
 					}
@@ -523,12 +523,12 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			for _, indexer := range m.enabledIndexes {
 				switch idxType := indexer.(type) {
 				case *UtreexoProofIndex:
-					err := idxType.FlushUtreexoState()
+					err := idxType.CloseUtreexoState()
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state: %v", err)
 					}
 				case *FlatUtreexoProofIndex:
-					err := idxType.FlushUtreexoState()
+					err := idxType.CloseUtreexoState()
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
 					}
