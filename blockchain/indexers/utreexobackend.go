@@ -366,8 +366,20 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 		p.Nodes = nodesDB
 		p.CachedLeaves = cachedLeavesDB
 		flush = func() {
-			nodesDB.Flush()
-			cachedLeavesDB.Flush()
+			log.Infof("Flushing the utreexo state to disk...")
+			ldbTx, err := db.OpenTransaction()
+			if err != nil {
+				log.Warnf("error while opening transaction. %v", err)
+			}
+
+			nodesDB.Flush(ldbTx)
+			cachedLeavesDB.Flush(ldbTx)
+
+			err = ldbTx.Commit()
+			if err != nil {
+				log.Warnf("error while committing transaction. %v", err)
+			}
+			log.Infof("Finished flushing the utreexo state to disk.")
 		}
 		closeDB = func() error {
 			return db.Close()

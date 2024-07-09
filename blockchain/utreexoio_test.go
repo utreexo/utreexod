@@ -48,8 +48,16 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 			cachedLeavesBackEnd.Put(hash, i)
 		}
 
+		ldbTx, err := db.OpenTransaction()
+		if err != nil {
+			t.Fatal(err)
+		}
 		// Close and reopen the backend.
-		cachedLeavesBackEnd.Flush()
+		cachedLeavesBackEnd.Flush(ldbTx)
+		err = ldbTx.Commit()
+		if err != nil {
+			t.Fatal(err)
+		}
 		err = db.Close()
 		if err != nil {
 			t.Fatal(err)
@@ -180,8 +188,16 @@ func TestNodesBackEnd(t *testing.T) {
 			nodesBackEnd.Put(i, utreexo.Leaf{Hash: hash})
 		}
 
+		ldbTx, err := db.OpenTransaction()
+		if err != nil {
+			t.Fatal(err)
+		}
 		// Close and reopen the backend.
-		nodesBackEnd.Flush()
+		nodesBackEnd.Flush(ldbTx)
+		err = ldbTx.Commit()
+		if err != nil {
+			t.Fatal(err)
+		}
 		err = db.Close()
 		if err != nil {
 			t.Fatal(err)
