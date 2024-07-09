@@ -224,6 +224,11 @@ func (ms *CachedLeavesMapSlice) createMaps(maxMemoryUsage int64) int64 {
 	return int64(totalElemCount)
 }
 
+// Overflowed returns true if the map slice overflowed.
+func (ms *CachedLeavesMapSlice) Overflowed() bool {
+	return len(ms.overflow) > 0
+}
+
 // NewCachedLeavesMapSlice returns a new CachedLeavesMapSlice and the total amount of elements
 // that the map slice can accomodate.
 func NewCachedLeavesMapSlice(maxTotalMemoryUsage int64) (CachedLeavesMapSlice, int64) {

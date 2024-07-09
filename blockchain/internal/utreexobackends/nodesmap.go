@@ -261,6 +261,11 @@ func (ms *NodesMapSlice) createMaps(maxMemoryUsage int64) int64 {
 	return int64(totalElemCount)
 }
 
+// Overflowed returns true if the map slice overflowed.
+func (ms *NodesMapSlice) Overflowed() bool {
+	return len(ms.overflow) > 0
+}
+
 // NewNodesMapSlice returns a new NodesMapSlice and the total amount of elements
 // that the map slice can accomodate.
 func NewNodesMapSlice(maxTotalMemoryUsage int64) (NodesMapSlice, int64) {
