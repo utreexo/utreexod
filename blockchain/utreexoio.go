@@ -95,12 +95,7 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 			return utreexo.Leaf{}, false
 		}
 
-		// If the cache is full, flush the cache then Put
-		// the leaf in.
-		if !m.cache.Put(k, cLeaf) {
-			m.Flush()
-			m.cache.Put(k, cLeaf)
-		}
+		m.cache.Put(k, cLeaf)
 
 		// If we found it, return here.
 		return cLeaf.Leaf, true
@@ -115,10 +110,8 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 	}
 
 	// Cache the leaf before returning it.
-	if !m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf}) {
-		m.Flush()
-		m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf})
-	}
+	m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf})
+
 	return leaf, true
 }
 
@@ -134,10 +127,6 @@ func NodesBackendPut(tx *leveldb.Transaction, k uint64, v utreexo.Leaf) error {
 
 // Put puts the given position and the leaf to the underlying map.
 func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
-	if int64(m.cache.Length()) > m.maxCacheElem {
-		m.Flush()
-	}
-
 	leaf, found := m.cache.Get(k)
 	if found {
 		leaf.Flags &^= utreexobackends.Removed
@@ -146,11 +135,7 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 			Flags: leaf.Flags | utreexobackends.Modified,
 		}
 
-		// It shouldn't fail here but handle it anyways.
-		if !m.cache.Put(k, l) {
-			m.Flush()
-			m.cache.Put(k, l)
-		}
+		m.cache.Put(k, l)
 	} else {
 		// If the key isn't found, mark it as fresh.
 		l := utreexobackends.CachedLeaf{
@@ -158,11 +143,7 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 			Flags: utreexobackends.Fresh,
 		}
 
-		// It shouldn't fail here but handle it anyways.
-		if !m.cache.Put(k, l) {
-			m.Flush()
-			m.cache.Put(k, l)
-		}
+		m.cache.Put(k, l)
 	}
 }
 
@@ -177,20 +158,13 @@ func NodesBackendDelete(tx *leveldb.Transaction, k uint64) error {
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *NodesBackEnd) Delete(k uint64) {
-	leaf, found := m.cache.Get(k)
-	if !found {
-		if int64(m.cache.Length()) >= m.maxCacheElem {
-			m.Flush()
-		}
-	}
+	leaf, _ := m.cache.Get(k)
 	l := utreexobackends.CachedLeaf{
 		Leaf:  leaf.Leaf,
 		Flags: leaf.Flags | utreexobackends.Removed,
 	}
-	if !m.cache.Put(k, l) {
-		m.Flush()
-		m.cache.Put(k, l)
-	}
+
+	m.cache.Put(k, l)
 }
 
 // Length returns the amount of items in the underlying database.
@@ -325,31 +299,13 @@ func CachedLeavesBackendPut(tx *leveldb.Transaction, k utreexo.Hash, v uint64) e
 // Put puts the given data to the underlying cache. If the cache is full, it evicts
 // the earliest entries to make room.
 func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
-	length := m.cache.Length()
-	if int64(length) >= m.maxCacheElem {
-		m.Flush()
-	}
-
 	m.cache.Put(k, v)
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
-	_, found := m.cache.Get(k)
-	if !found {
-		// Check if we need to flush as we'll be adding an entry to
-		// the cache.
-		if int64(m.cache.Length()) >= m.maxCacheElem {
-			m.Flush()
-		}
-	}
-
-	// Try inserting, if it fails, it means we need to flush.
-	if !m.cache.Put(k, math.MaxUint64) {
-		m.Flush()
-		m.cache.Put(k, math.MaxUint64)
-	}
+	m.cache.Put(k, math.MaxUint64)
 }
 
 // Length returns the amount of items in the underlying db and the cache.
