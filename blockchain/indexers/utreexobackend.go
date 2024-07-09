@@ -154,6 +154,13 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoState(blockHeight int32) ([]*chain
 	return chainhashRoots, stump.NumLeaves, nil
 }
 
+// FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
+func (idx *UtreexoProofIndex) FlushUtreexoStateIfNeeded() {
+	if idx.utreexoState.isFlushNeeded() {
+		idx.FlushUtreexoState()
+	}
+}
+
 // FlushUtreexoState saves the utreexo state to disk.
 func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 	basePath := utreexoBasePath(idx.utreexoState.config)
@@ -180,6 +187,13 @@ func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 func (idx *UtreexoProofIndex) CloseUtreexoState() error {
 	idx.FlushUtreexoState()
 	return idx.utreexoState.closeDB()
+}
+
+// FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
+func (idx *FlatUtreexoProofIndex) FlushUtreexoStateIfNeeded() {
+	if idx.utreexoState.isFlushNeeded() {
+		idx.FlushUtreexoState()
+	}
 }
 
 // FlushUtreexoState saves the utreexo state to disk.
