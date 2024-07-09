@@ -240,6 +240,11 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 	return iter.Error()
 }
 
+// IsFlushNeeded returns true if the backend needs to be flushed.
+func (m *NodesBackEnd) IsFlushNeeded() bool {
+	return m.cache.Overflowed()
+}
+
 // flush saves all the cached entries to disk and resets the cache map.
 func (m *NodesBackEnd) Flush(ldbTx *leveldb.Transaction) {
 	m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) {
@@ -396,6 +401,11 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 	}
 	iter.Release()
 	return iter.Error()
+}
+
+// IsFlushNeeded returns true if the backend needs to be flushed.
+func (m *CachedLeavesBackEnd) IsFlushNeeded() bool {
+	return m.cache.Overflowed()
 }
 
 // Flush resets the cache and saves all the key values onto the database.

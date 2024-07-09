@@ -47,8 +47,9 @@ type UtreexoState struct {
 	config *UtreexoConfig
 	state  utreexo.Utreexo
 
-	flush   func()
-	closeDB func() error
+	isFlushNeeded func() bool
+	flush         func()
+	closeDB       func() error
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -362,6 +363,7 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 
 	var closeDB func() error
 	var flush func()
+	var isFlushNeeded func() bool
 	if maxMemoryUsage >= 0 {
 		p.Nodes = nodesDB
 		p.CachedLeaves = cachedLeavesDB
@@ -380,6 +382,11 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 				log.Warnf("error while committing transaction. %v", err)
 			}
 			log.Infof("Finished flushing the utreexo state to disk.")
+		}
+		isFlushNeeded = func() bool {
+			nodesNeedsFlush := nodesDB.IsFlushNeeded()
+			leavesNeedsFlush := cachedLeavesDB.IsFlushNeeded()
+			return nodesNeedsFlush && leavesNeedsFlush
 		}
 		closeDB = func() error {
 			return db.Close()
@@ -444,10 +451,11 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 	}
 
 	uState := &UtreexoState{
-		config:  cfg,
-		state:   &p,
-		flush:   flush,
-		closeDB: closeDB,
+		config:        cfg,
+		state:         &p,
+		isFlushNeeded: isFlushNeeded,
+		flush:         flush,
+		closeDB:       closeDB,
 	}
 
 	return uState, err
