@@ -169,11 +169,28 @@ func (m *NodesBackEnd) Delete(k uint64) {
 
 // Length returns the amount of items in the underlying database.
 func (m *NodesBackEnd) Length() int {
-	m.Flush()
-
 	length := 0
+	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) {
+		// Only count the entry if it's not removed and it's not already
+		// in the database.
+		if !cl.IsRemoved() && cl.IsFresh() {
+			length++
+		}
+	})
+
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
+		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// Skip it since it's not relevant here.
+		if len(iter.Key()) == 32 {
+			continue
+		}
+		k, _ := deserializeVLQ(iter.Key())
+		val, found := m.cache.Get(k)
+		if found && val.IsRemoved() {
+			// Skip if the key-value pair has already been removed in the cache.
+			continue
+		}
 		length++
 	}
 	iter.Release()
@@ -183,7 +200,13 @@ func (m *NodesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
-	m.Flush()
+	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) {
+		// Only operate on the entry if it's not removed and it's not already
+		// in the database.
+		if !cl.IsRemoved() && cl.IsFresh() {
+			fn(u, cl.Leaf)
+		}
+	})
 
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
@@ -195,6 +218,11 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
 		k, _ := deserializeVLQ(iter.Key())
+		val, found := m.cache.Get(k)
+		if found && val.IsRemoved() {
+			// Skip if the key-value pair has already been removed in the cache.
+			continue
+		}
 
 		value := iter.Value()
 		if len(value) != leafLength {
@@ -310,11 +338,31 @@ func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
 
 // Length returns the amount of items in the underlying db and the cache.
 func (m *CachedLeavesBackEnd) Length() int {
-	m.Flush()
-
 	length := 0
+	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
+		// Only operate on the entry if it's not removed and it's not already
+		// in the database.
+		if v != math.MaxUint64 {
+			_, found := m.dbGet(k)
+			if !found {
+				length++
+			}
+		}
+	})
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
+		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// Skip it since it's not relevant here.
+		if len(iter.Key()) != chainhash.HashSize {
+			continue
+		}
+		k := iter.Key()
+		val, found := m.cache.Get(*(*[chainhash.HashSize]byte)(k))
+		if found && val == math.MaxUint64 {
+			// Skip if the key-value pair has already been removed in the cache.
+			continue
+		}
+
 		length++
 	}
 	iter.Release()
@@ -324,8 +372,16 @@ func (m *CachedLeavesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error {
-	m.Flush()
-
+	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
+		// Only operate on the entry if it's not removed and it's not already
+		// in the database.
+		if v != math.MaxUint64 {
+			_, found := m.dbGet(k)
+			if !found {
+				fn(k, v)
+			}
+		}
+	})
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
 		// If the itered key isn't chainhash.HashSize, it means that the entry is for nodesbackend.
@@ -336,6 +392,11 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
 		k := iter.Key()
+		val, found := m.cache.Get(*(*[chainhash.HashSize]byte)(k))
+		if found && val == math.MaxUint64 {
+			// Skip if the key-value pair has already been removed in the cache.
+			continue
+		}
 		v, _ := deserializeVLQ(iter.Value())
 
 		err := fn(*(*[chainhash.HashSize]byte)(k), v)
