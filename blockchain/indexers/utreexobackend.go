@@ -388,6 +388,16 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 				log.Warnf("error while opening transaction. %v", err)
 			}
 
+			nodesUsed, nodesCapacity := nodesDB.UsageStats()
+			log.Debugf("Utreexo index nodesDB cache usage: %d/%d (%v%%)\n",
+				nodesUsed, nodesCapacity,
+				float64(nodesUsed)/float64(nodesCapacity))
+
+			cachedLeavesUsed, cachedLeavesCapacity := cachedLeavesDB.UsageStats()
+			log.Debugf("Utreexo index cachedLeavesDB cache usage: %d/%d (%v%%)\n",
+				cachedLeavesUsed, cachedLeavesCapacity,
+				float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
+
 			nodesDB.Flush(ldbTx)
 			cachedLeavesDB.Flush(ldbTx)
 
