@@ -186,7 +186,10 @@ func (idx *UtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error 
 
 // CloseUtreexoState flushes and closes the utreexo database state.
 func (idx *UtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) error {
-	idx.FlushUtreexoState(bestHash)
+	err := idx.FlushUtreexoState(bestHash)
+	if err != nil {
+		log.Warnf("error whiling flushing the utreexo state. %v", err)
+	}
 	return idx.utreexoState.closeDB()
 }
 
@@ -222,7 +225,10 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) er
 
 // CloseUtreexoState flushes and closes the utreexo database state.
 func (idx *FlatUtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) error {
-	idx.FlushUtreexoState(bestHash)
+	err := idx.FlushUtreexoState(bestHash)
+	if err != nil {
+		log.Warnf("error whiling flushing the utreexo state. %v", err)
+	}
 	return idx.utreexoState.closeDB()
 }
 
