@@ -213,21 +213,29 @@ func (ms *NodesMapSlice) ClearMaps() {
 // ForEach loops through all the elements in the nodes map slice and calls fn with the key-value pairs.
 //
 // This function is safe for concurrent access.
-func (ms *NodesMapSlice) ForEach(fn func(uint64, CachedLeaf)) {
+func (ms *NodesMapSlice) ForEach(fn func(uint64, CachedLeaf) error) error {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
 	for _, m := range ms.maps {
 		for k, v := range m {
-			fn(k, v)
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	if len(ms.overflow) > 0 {
 		for k, v := range ms.overflow {
-			fn(k, v)
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
 		}
 	}
+
+	return nil
 }
 
 // createMaps creates a slice of maps and returns the total count that the maps

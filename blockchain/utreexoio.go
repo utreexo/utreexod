@@ -170,12 +170,14 @@ func (m *NodesBackEnd) Delete(k uint64) {
 // Length returns the amount of items in the underlying database.
 func (m *NodesBackEnd) Length() int {
 	length := 0
-	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) {
+	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) error {
 		// Only count the entry if it's not removed and it's not already
 		// in the database.
 		if !cl.IsRemoved() && cl.IsFresh() {
 			length++
 		}
+
+		return nil
 	})
 
 	iter := m.db.NewIterator(nil, nil)
@@ -200,12 +202,14 @@ func (m *NodesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
-	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) {
+	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) error {
 		// Only operate on the entry if it's not removed and it's not already
 		// in the database.
 		if !cl.IsRemoved() && cl.IsFresh() {
 			fn(u, cl.Leaf)
 		}
+
+		return nil
 	})
 
 	iter := m.db.NewIterator(nil, nil)
@@ -251,26 +255,28 @@ func (m *NodesBackEnd) UsageStats() (int64, int64) {
 }
 
 // flush saves all the cached entries to disk and resets the cache map.
-func (m *NodesBackEnd) Flush(ldbTx *leveldb.Transaction) {
-	m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) {
+func (m *NodesBackEnd) Flush(ldbTx *leveldb.Transaction) error {
+	err := m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) error {
 		if v.IsRemoved() {
 			err := NodesBackendDelete(ldbTx, k)
 			if err != nil {
-				ldbTx.Discard()
-				log.Warnf("NodesBackEnd flush error. %v", err)
-				return
+				return err
 			}
 		} else if v.IsFresh() || v.IsModified() {
 			err := NodesBackendPut(ldbTx, k, v.Leaf)
 			if err != nil {
-				ldbTx.Discard()
-				log.Warnf("NodesBackEnd flush error. %v", err)
-				return
+				return err
 			}
 		}
+
+		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("NodesBackEnd flush error. %v", err)
+	}
 
 	m.cache.ClearMaps()
+	return nil
 }
 
 var _ utreexo.CachedLeavesInterface = (*CachedLeavesBackEnd)(nil)
@@ -339,7 +345,7 @@ func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
 // Length returns the amount of items in the underlying db and the cache.
 func (m *CachedLeavesBackEnd) Length() int {
 	length := 0
-	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
+	m.cache.ForEach(func(k utreexo.Hash, v uint64) error {
 		// Only operate on the entry if it's not removed and it's not already
 		// in the database.
 		if v != math.MaxUint64 {
@@ -348,6 +354,7 @@ func (m *CachedLeavesBackEnd) Length() int {
 				length++
 			}
 		}
+		return nil
 	})
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
@@ -372,7 +379,7 @@ func (m *CachedLeavesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error {
-	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
+	m.cache.ForEach(func(k utreexo.Hash, v uint64) error {
 		// Only operate on the entry if it's not removed and it's not already
 		// in the database.
 		if v != math.MaxUint64 {
@@ -381,6 +388,7 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 				fn(k, v)
 			}
 		}
+		return nil
 	})
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
@@ -419,24 +427,26 @@ func (m *CachedLeavesBackEnd) UsageStats() (int64, int64) {
 }
 
 // Flush resets the cache and saves all the key values onto the database.
-func (m *CachedLeavesBackEnd) Flush(ldbTx *leveldb.Transaction) {
-	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
+func (m *CachedLeavesBackEnd) Flush(ldbTx *leveldb.Transaction) error {
+	err := m.cache.ForEach(func(k utreexo.Hash, v uint64) error {
 		if v == math.MaxUint64 {
 			err := ldbTx.Delete(k[:], nil)
 			if err != nil {
-				ldbTx.Discard()
-				log.Warnf("CachedLeavesBackEnd delete fail. %v", err)
-				return
+				return err
 			}
 		} else {
 			err := CachedLeavesBackendPut(ldbTx, k, v)
 			if err != nil {
-				ldbTx.Discard()
-				log.Warnf("CachedLeavesBackEnd put fail. %v", err)
-				return
+				return err
 			}
 		}
+
+		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("CachedLeavesBackEnd flush error. %v", err)
+	}
 
 	m.cache.ClearMaps()
+	return nil
 }
