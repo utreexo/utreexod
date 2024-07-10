@@ -317,7 +317,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	if err != nil {
 		return err
 	}
-	idx.FlushUtreexoStateIfNeeded()
+	idx.FlushUtreexoStateIfNeeded(block.Hash())
 
 	// Don't store proofs if the node is pruned.
 	if idx.pruned {

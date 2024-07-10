@@ -155,14 +155,14 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoState(blockHeight int32) ([]*chain
 }
 
 // FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
-func (idx *UtreexoProofIndex) FlushUtreexoStateIfNeeded() {
+func (idx *UtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash) {
 	if idx.utreexoState.isFlushNeeded() {
-		idx.FlushUtreexoState()
+		idx.FlushUtreexoState(bestHash)
 	}
 }
 
 // FlushUtreexoState saves the utreexo state to disk.
-func (idx *UtreexoProofIndex) FlushUtreexoState() error {
+func (idx *UtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error {
 	basePath := utreexoBasePath(idx.utreexoState.config)
 	if _, err := os.Stat(basePath); err != nil {
 		os.MkdirAll(basePath, os.ModePerm)
@@ -184,20 +184,20 @@ func (idx *UtreexoProofIndex) FlushUtreexoState() error {
 }
 
 // CloseUtreexoState flushes and closes the utreexo database state.
-func (idx *UtreexoProofIndex) CloseUtreexoState() error {
-	idx.FlushUtreexoState()
+func (idx *UtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) error {
+	idx.FlushUtreexoState(bestHash)
 	return idx.utreexoState.closeDB()
 }
 
 // FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
-func (idx *FlatUtreexoProofIndex) FlushUtreexoStateIfNeeded() {
+func (idx *FlatUtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash) {
 	if idx.utreexoState.isFlushNeeded() {
-		idx.FlushUtreexoState()
+		idx.FlushUtreexoState(bestHash)
 	}
 }
 
 // FlushUtreexoState saves the utreexo state to disk.
-func (idx *FlatUtreexoProofIndex) FlushUtreexoState() error {
+func (idx *FlatUtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error {
 	basePath := utreexoBasePath(idx.utreexoState.config)
 	if _, err := os.Stat(basePath); err != nil {
 		os.MkdirAll(basePath, os.ModePerm)
@@ -219,8 +219,8 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState() error {
 }
 
 // CloseUtreexoState flushes and closes the utreexo database state.
-func (idx *FlatUtreexoProofIndex) CloseUtreexoState() error {
-	idx.FlushUtreexoState()
+func (idx *FlatUtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) error {
+	idx.FlushUtreexoState(bestHash)
 	return idx.utreexoState.closeDB()
 }
 
