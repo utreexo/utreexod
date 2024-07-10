@@ -473,6 +473,11 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 
 			log.Infof("Finished flushing the utreexo state to disk.")
 		}
+
+		// Flush is never needed since we're keeping everything in memory.
+		isFlushNeeded = func() bool {
+			return false
+		}
 	}
 
 	uState := &UtreexoState{
