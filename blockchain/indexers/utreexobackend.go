@@ -49,7 +49,7 @@ type UtreexoState struct {
 	utreexoStateDB *leveldb.DB
 
 	isFlushNeeded func() bool
-	flush         func()
+	flush         func(ldbTx *leveldb.Transaction) error
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -180,7 +180,23 @@ func (idx *UtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error 
 		return err
 	}
 
-	idx.utreexoState.flush()
+	ldbTx, err := idx.utreexoState.utreexoStateDB.OpenTransaction()
+	if err != nil {
+		return err
+	}
+
+	err = idx.utreexoState.flush(ldbTx)
+	if err != nil {
+		ldbTx.Discard()
+		return err
+	}
+
+	err = ldbTx.Commit()
+	if err != nil {
+		ldbTx.Discard()
+		return err
+	}
+
 	return nil
 }
 
@@ -219,7 +235,23 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) er
 		return err
 	}
 
-	idx.utreexoState.flush()
+	ldbTx, err := idx.utreexoState.utreexoStateDB.OpenTransaction()
+	if err != nil {
+		return err
+	}
+
+	err = idx.utreexoState.flush(ldbTx)
+	if err != nil {
+		ldbTx.Discard()
+		return err
+	}
+
+	err = ldbTx.Commit()
+	if err != nil {
+		ldbTx.Discard()
+		return err
+	}
+
 	return nil
 }
 
@@ -383,17 +415,13 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 		p.NumLeaves = binary.LittleEndian.Uint64(buf[:])
 	}
 
-	var flush func()
+	var flush func(ldbTx *leveldb.Transaction) error
 	var isFlushNeeded func() bool
 	if maxMemoryUsage >= 0 {
 		p.Nodes = nodesDB
 		p.CachedLeaves = cachedLeavesDB
-		flush = func() {
+		flush = func(ldbTx *leveldb.Transaction) error {
 			log.Infof("Flushing the utreexo state to disk...")
-			ldbTx, err := db.OpenTransaction()
-			if err != nil {
-				log.Warnf("error while opening transaction. %v", err)
-			}
 
 			nodesUsed, nodesCapacity := nodesDB.UsageStats()
 			log.Debugf("Utreexo index nodesDB cache usage: %d/%d (%v%%)\n",
@@ -405,14 +433,18 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 				cachedLeavesUsed, cachedLeavesCapacity,
 				float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
 
-			nodesDB.Flush(ldbTx)
-			cachedLeavesDB.Flush(ldbTx)
-
-			err = ldbTx.Commit()
+			err = nodesDB.Flush(ldbTx)
 			if err != nil {
-				log.Warnf("error while committing transaction. %v", err)
+				return err
 			}
+			err = cachedLeavesDB.Flush(ldbTx)
+			if err != nil {
+				return err
+			}
+
 			log.Infof("Finished flushing the utreexo state to disk.")
+
+			return nil
 		}
 		isFlushNeeded = func() bool {
 			nodesNeedsFlush := nodesDB.IsFlushNeeded()
@@ -439,39 +471,25 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 
 		log.Infof("Finished loading the utreexo state from disk.")
 
-		flush = func() {
+		flush = func(ldbTx *leveldb.Transaction) error {
 			log.Infof("Flushing the utreexo state to disk. May take a while...")
-			ldbTx, err := db.OpenTransaction()
-			if err != nil {
-				log.Warnf("flush error, failed to open leveldb tx. %v", err)
-				return
-			}
 
 			err = p.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
 				return blockchain.NodesBackendPut(ldbTx, k, v)
 			})
 			if err != nil {
-				ldbTx.Discard()
-				log.Warnf("flush error. %v", err)
-				return
+				return err
 			}
 
 			err = p.CachedLeaves.ForEach(func(k utreexo.Hash, v uint64) error {
 				return blockchain.CachedLeavesBackendPut(ldbTx, k, v)
 			})
 			if err != nil {
-				ldbTx.Discard()
-				log.Warnf("flush error. %v", err)
-				return
-			}
-
-			err = ldbTx.Commit()
-			if err != nil {
-				log.Warnf("flush error, failed to commit leveldb tx. %v", err)
-				return
+				return err
 			}
 
 			log.Infof("Finished flushing the utreexo state to disk.")
+			return nil
 		}
 
 		// Flush is never needed since we're keeping everything in memory.
