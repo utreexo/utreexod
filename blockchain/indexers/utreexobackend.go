@@ -155,10 +155,11 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoState(blockHeight int32) ([]*chain
 }
 
 // FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
-func (idx *UtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash) {
+func (idx *UtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash) error {
 	if idx.utreexoState.isFlushNeeded() {
-		idx.FlushUtreexoState(bestHash)
+		return idx.FlushUtreexoState(bestHash)
 	}
+	return nil
 }
 
 // FlushUtreexoState saves the utreexo state to disk.
@@ -190,10 +191,11 @@ func (idx *UtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) error 
 }
 
 // FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
-func (idx *FlatUtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash) {
+func (idx *FlatUtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash) error {
 	if idx.utreexoState.isFlushNeeded() {
-		idx.FlushUtreexoState(bestHash)
+		return idx.FlushUtreexoState(bestHash)
 	}
+	return nil
 }
 
 // FlushUtreexoState saves the utreexo state to disk.

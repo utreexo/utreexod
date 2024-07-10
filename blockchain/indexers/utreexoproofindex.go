@@ -299,7 +299,10 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	if err != nil {
 		return err
 	}
-	idx.FlushUtreexoStateIfNeeded(block.Hash())
+	err = idx.FlushUtreexoStateIfNeeded(block.Hash())
+	if err != nil {
+		log.Warnf("error while flushing the utreexo state. %v", err)
+	}
 
 	return nil
 }
