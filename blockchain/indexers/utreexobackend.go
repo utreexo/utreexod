@@ -44,12 +44,12 @@ type UtreexoConfig struct {
 // UtreexoState is a wrapper around the raw accumulator with configuration
 // information.  It contains the entire, non-pruned accumulator.
 type UtreexoState struct {
-	config *UtreexoConfig
-	state  utreexo.Utreexo
+	config         *UtreexoConfig
+	state          utreexo.Utreexo
+	utreexoStateDB *leveldb.DB
 
 	isFlushNeeded func() bool
 	flush         func()
-	closeDB       func() error
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -190,7 +190,7 @@ func (idx *UtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) error 
 	if err != nil {
 		log.Warnf("error whiling flushing the utreexo state. %v", err)
 	}
-	return idx.utreexoState.closeDB()
+	return idx.utreexoState.utreexoStateDB.Close()
 }
 
 // FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
@@ -229,7 +229,7 @@ func (idx *FlatUtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) er
 	if err != nil {
 		log.Warnf("error whiling flushing the utreexo state. %v", err)
 	}
-	return idx.utreexoState.closeDB()
+	return idx.utreexoState.utreexoStateDB.Close()
 }
 
 // serializeUndoBlock serializes all the data that's needed for undoing a full utreexo state
@@ -383,7 +383,6 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 		p.NumLeaves = binary.LittleEndian.Uint64(buf[:])
 	}
 
-	var closeDB func() error
 	var flush func()
 	var isFlushNeeded func() bool
 	if maxMemoryUsage >= 0 {
@@ -419,9 +418,6 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 			nodesNeedsFlush := nodesDB.IsFlushNeeded()
 			leavesNeedsFlush := cachedLeavesDB.IsFlushNeeded()
 			return nodesNeedsFlush && leavesNeedsFlush
-		}
-		closeDB = func() error {
-			return db.Close()
 		}
 	} else {
 		log.Infof("loading the utreexo state from disk...")
@@ -477,17 +473,14 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 
 			log.Infof("Finished flushing the utreexo state to disk.")
 		}
-		closeDB = func() error {
-			return db.Close()
-		}
 	}
 
 	uState := &UtreexoState{
-		config:        cfg,
-		state:         &p,
-		isFlushNeeded: isFlushNeeded,
-		flush:         flush,
-		closeDB:       closeDB,
+		config:         cfg,
+		state:          &p,
+		utreexoStateDB: db,
+		isFlushNeeded:  isFlushNeeded,
+		flush:          flush,
 	}
 
 	return uState, err
