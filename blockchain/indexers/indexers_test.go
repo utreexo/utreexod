@@ -203,7 +203,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 					return err
 				}
 
-				if !idxType.pruned {
+				if !idxType.config.Pruned {
 					utreexoUD, err = idxType.FetchUtreexoProof(block.Hash())
 					if err != nil {
 						return err
@@ -222,7 +222,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 
 			case *FlatUtreexoProofIndex:
 				var err error
-				if !idxType.pruned {
+				if !idxType.config.Pruned {
 					flatUD, err = idxType.FetchUtreexoProof(b, false)
 					if err != nil {
 						return err
@@ -1033,7 +1033,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			idxType.pruned = true
+			idxType.config.Pruned = true
 
 		case *UtreexoProofIndex:
 			for height := int32(1); height <= maxHeight; height++ {
@@ -1047,7 +1047,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			idxType.pruned = true
+			idxType.config.Pruned = true
 		}
 	}
 

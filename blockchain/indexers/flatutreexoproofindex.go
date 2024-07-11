@@ -87,11 +87,9 @@ type FlatUtreexoProofIndex struct {
 	rememberIdxState FlatFileState
 	proofStatsState  FlatFileState
 	rootsState       FlatFileState
-	chainParams      *chaincfg.Params
-	dataDir          string
 
-	// True if the node is pruned.
-	pruned bool
+	// All the configurable metadata.
+	config *UtreexoConfig
 
 	// The blockchain instance the index corresponds to.
 	chain *blockchain.BlockChain
@@ -124,18 +122,18 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 	//
 	// If the node is pruned, then we need to check if it started off as
 	// a pruned node or if the user switch to being a pruned node.
-	if !idx.pruned {
+	if !idx.config.Pruned {
 		return nil
 	}
 
-	proofPath := flatFilePath(idx.dataDir, flatUtreexoProofName)
+	proofPath := flatFilePath(idx.config.DataDir, flatUtreexoProofName)
 	_, err := os.Stat(proofPath)
 	if err != nil {
 		// If the error isn't nil, that means the proofpath
 		// doesn't exist.
 		return nil
 	}
-	proofState, err := loadFlatFileState(idx.dataDir, flatUtreexoProofName)
+	proofState, err := loadFlatFileState(idx.config.DataDir, flatUtreexoProofName)
 	if err != nil {
 		return err
 	}
@@ -212,7 +210,7 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 	}
 
 	// Delete proof stat file since it's not relevant to a pruned bridge node.
-	proofStatPath := flatFilePath(idx.dataDir, flatUtreexoProofStatsName)
+	proofStatPath := flatFilePath(idx.config.DataDir, flatUtreexoProofStatsName)
 	err = deleteFlatFile(proofStatPath)
 	if err != nil {
 		return err
@@ -287,7 +285,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	// undo block in order to undo a block on reorgs. If we have all the
 	// proofs block by block, that data can be used for reorgs but these
 	// two modes will not have the proofs available.
-	if idx.pruned || idx.proofGenInterVal != 1 {
+	if idx.config.Pruned || idx.proofGenInterVal != 1 {
 		err = idx.storeUndoBlock(block.Height(),
 			uint64(len(adds)), ud.AccProof.Targets, delHashes)
 		if err != nil {
@@ -323,7 +321,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	// Don't store proofs if the node is pruned.
-	if idx.pruned {
+	if idx.config.Pruned {
 		return nil
 	}
 
@@ -719,7 +717,7 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (uint64, []u
 		delHashes []utreexo.Hash
 	)
 
-	if !idx.pruned || idx.proofGenInterVal != 1 {
+	if !idx.config.Pruned || idx.proofGenInterVal != 1 {
 		ud, err := idx.FetchUtreexoProof(block.Height(), false)
 		if err != nil {
 			return 0, nil, nil, err
@@ -774,7 +772,7 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 
 	// Check if we're at a height where proof was generated. Only check if we're not
 	// pruned as we don't keep the historical proofs as a pruned node.
-	if (block.Height()%idx.proofGenInterVal) == 0 && !idx.pruned {
+	if (block.Height()%idx.proofGenInterVal) == 0 && !idx.config.Pruned {
 		height := block.Height() / idx.proofGenInterVal
 		err = idx.proofState.DisconnectBlock(height)
 		if err != nil {
@@ -811,7 +809,7 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32, excludeAccProo
 		return nil, fmt.Errorf("No Utreexo Proof for height %d", height)
 	}
 
-	if idx.pruned {
+	if idx.config.Pruned {
 		return nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
 	}
 
@@ -900,7 +898,7 @@ func (idx *FlatUtreexoProofIndex) FetchMultiUtreexoProof(height int32) (
 		return nil, nil, nil, fmt.Errorf("No Utreexo Proof for height %d", height)
 	}
 
-	if idx.pruned {
+	if idx.config.Pruned {
 		return nil, nil, nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
 	}
 
@@ -1269,25 +1267,25 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 
 	idx := &FlatUtreexoProofIndex{
 		proofGenInterVal: intervalToUse,
-		chainParams:      chainParams,
 		mtx:              new(sync.RWMutex),
-		dataDir:          dataDir,
+		config: &UtreexoConfig{
+			MaxMemoryUsage: maxMemoryUsage,
+			Params:         chainParams,
+			Pruned:         pruned,
+			DataDir:        dataDir,
+			Name:           flatUtreexoProofIndexType,
+		},
 	}
 
 	// Init Utreexo State.
-	uState, err := InitUtreexoState(&UtreexoConfig{
-		DataDir: dataDir,
-		Name:    flatUtreexoProofIndexType,
-		Params:  chainParams,
-	}, maxMemoryUsage)
+	uState, err := InitUtreexoState(idx.config)
 	if err != nil {
 		return nil, err
 	}
 	idx.utreexoState = uState
-	idx.pruned = pruned
 
 	// Init the utreexo proof state if the node isn't pruned.
-	if !idx.pruned {
+	if !idx.config.Pruned {
 		proofState, err := loadFlatFileState(dataDir, flatUtreexoProofName)
 		if err != nil {
 			return nil, err

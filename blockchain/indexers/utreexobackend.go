@@ -33,6 +33,16 @@ var (
 
 // UtreexoConfig is a descriptor which specifies the Utreexo state instance configuration.
 type UtreexoConfig struct {
+	// MaxMemoryUsage is the desired memory usage for the utreexo state cache.
+	MaxMemoryUsage int64
+
+	// Params are the Bitcoin network parameters. This is used to separately store
+	// different accumulators.
+	Params *chaincfg.Params
+
+	// If the node is a pruned node or not.
+	Pruned bool
+
 	// DataDir is the base path of where all the data for this node will be stored.
 	// Utreexo has custom storage method and that data will be stored under this
 	// directory.
@@ -41,10 +51,6 @@ type UtreexoConfig struct {
 	// Name is what the type of utreexo proof indexer this utreexo state is related
 	// to.
 	Name string
-
-	// Params are the Bitcoin network parameters. This is used to separately store
-	// different accumulators.
-	Params *chaincfg.Params
 }
 
 // UtreexoState is a wrapper around the raw accumulator with configuration
@@ -62,17 +68,6 @@ type UtreexoState struct {
 // saved to with the with UtreexoConfig information.
 func utreexoBasePath(cfg *UtreexoConfig) string {
 	return filepath.Join(cfg.DataDir, utreexoDirName+"_"+cfg.Name)
-}
-
-// InitUtreexoState returns an initialized utreexo state. If there isn't an
-// existing state on disk, it creates one and returns it.
-// maxMemoryUsage of 0 will keep every element on disk. A negaive maxMemoryUsage will
-// load every element to the memory.
-func InitUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64) (*UtreexoState, error) {
-	basePath := utreexoBasePath(cfg)
-	log.Infof("Initializing Utreexo state from '%s'", basePath)
-	defer log.Info("Utreexo state loaded")
-	return initUtreexoState(cfg, maxMemoryUsage, basePath)
 }
 
 // deleteUtreexoState removes the utreexo state directory and all the contents
@@ -404,15 +399,20 @@ func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, 
 	return numAdds, targets, delHashes, nil
 }
 
-// initUtreexoState creates a new utreexo state and returns it. maxMemoryUsage of 0 will keep
-// every element on disk and a negative maxMemoryUsage will load all the elemnts to memory.
-func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string) (*UtreexoState, error) {
+// InitUtreexoState returns an initialized utreexo state. If there isn't an
+// existing state on disk, it creates one and returns it.
+// maxMemoryUsage of 0 will keep every element on disk. A negaive maxMemoryUsage will
+// load every element to the memory.
+func InitUtreexoState(cfg *UtreexoConfig) (*UtreexoState, error) {
+	log.Infof("Initializing Utreexo state from '%s'", utreexoBasePath(cfg))
+	defer log.Info("Utreexo state loaded")
+
 	p := utreexo.NewMapPollard(true)
 
-	maxNodesMem := maxMemoryUsage * 7 / 10
-	maxCachedLeavesMem := maxMemoryUsage - maxNodesMem
+	maxNodesMem := cfg.MaxMemoryUsage * 7 / 10
+	maxCachedLeavesMem := cfg.MaxMemoryUsage - maxNodesMem
 
-	db, err := leveldb.OpenFile(basePath, nil)
+	db, err := leveldb.OpenFile(utreexoBasePath(cfg), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -435,7 +435,7 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 
 	var flush func(ldbTx *leveldb.Transaction) error
 	var isFlushNeeded func() bool
-	if maxMemoryUsage >= 0 {
+	if cfg.MaxMemoryUsage >= 0 {
 		p.Nodes = nodesDB
 		p.CachedLeaves = cachedLeavesDB
 		flush = func(ldbTx *leveldb.Transaction) error {
