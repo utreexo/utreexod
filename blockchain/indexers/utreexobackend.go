@@ -25,6 +25,12 @@ const (
 	defaultUtreexoFileName = "forest.dat"
 )
 
+var (
+	// utreexoStateConsistencyKeyName is name of the db key used to store the consistency
+	// state for the utreexo accumulator state.
+	utreexoStateConsistencyKeyName = []byte("utreexostateconsistency")
+)
+
 // UtreexoConfig is a descriptor which specifies the Utreexo state instance configuration.
 type UtreexoConfig struct {
 	// DataDir is the base path of where all the data for this node will be stored.
@@ -90,6 +96,36 @@ func checkUtreexoExists(cfg *UtreexoConfig, basePath string) bool {
 		return false
 	}
 	return true
+}
+
+// dbWriteUtreexoStateConsistency writes the consistency state to the database using the given transaction.
+func dbWriteUtreexoStateConsistency(ldbTx *leveldb.Transaction, bestHash *chainhash.Hash, numLeaves uint64) error {
+	// Create the byte slice to be written.
+	var buf [8 + chainhash.HashSize]byte
+	binary.LittleEndian.PutUint64(buf[:8], numLeaves)
+	copy(buf[8:], bestHash[:])
+
+	return ldbTx.Put(utreexoStateConsistencyKeyName, buf[:], nil)
+}
+
+// dbFetchUtreexoStateConsistency returns the stored besthash and the numleaves in the database.
+func dbFetchUtreexoStateConsistency(db *leveldb.DB) (*chainhash.Hash, uint64, error) {
+	buf, err := db.Get(utreexoStateConsistencyKeyName, nil)
+	if err != nil && err != leveldb.ErrNotFound {
+		return nil, 0, err
+	}
+	// Set error to nil as the error may have been ErrNotFound.
+	err = nil
+	if buf == nil {
+		return nil, 0, nil
+	}
+
+	bestHash, err := chainhash.NewHash(buf[8:])
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return bestHash, binary.LittleEndian.Uint64(buf[:8]), nil
 }
 
 // FetchCurrentUtreexoState returns the current utreexo state.
@@ -164,23 +200,18 @@ func (idx *UtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash
 
 // FlushUtreexoState saves the utreexo state to disk.
 func (idx *UtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error {
-	basePath := utreexoBasePath(idx.utreexoState.config)
-	if _, err := os.Stat(basePath); err != nil {
-		os.MkdirAll(basePath, os.ModePerm)
-	}
-	forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
-	forestFile, err := os.OpenFile(forestFilePath, os.O_RDWR|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], idx.utreexoState.state.GetNumLeaves())
-	_, err = forestFile.Write(buf[:])
+	idx.mtx.Lock()
+	defer idx.mtx.Unlock()
+
+	log.Infof("Flushing the utreexo state to disk...")
+
+	ldbTx, err := idx.utreexoState.utreexoStateDB.OpenTransaction()
 	if err != nil {
 		return err
 	}
 
-	ldbTx, err := idx.utreexoState.utreexoStateDB.OpenTransaction()
+	// Write the best block hash and the numleaves for the utreexo state.
+	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, idx.utreexoState.state.GetNumLeaves())
 	if err != nil {
 		return err
 	}
@@ -196,6 +227,8 @@ func (idx *UtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error 
 		ldbTx.Discard()
 		return err
 	}
+
+	log.Infof("Finished flushing the utreexo state to disk.")
 
 	return nil
 }
@@ -219,23 +252,16 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.
 
 // FlushUtreexoState saves the utreexo state to disk.
 func (idx *FlatUtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error {
-	basePath := utreexoBasePath(idx.utreexoState.config)
-	if _, err := os.Stat(basePath); err != nil {
-		os.MkdirAll(basePath, os.ModePerm)
-	}
-	forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
-	forestFile, err := os.OpenFile(forestFilePath, os.O_RDWR|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], idx.utreexoState.state.GetNumLeaves())
-	_, err = forestFile.Write(buf[:])
+	idx.mtx.Lock()
+	defer idx.mtx.Unlock()
+
+	ldbTx, err := idx.utreexoState.utreexoStateDB.OpenTransaction()
 	if err != nil {
 		return err
 	}
 
-	ldbTx, err := idx.utreexoState.utreexoStateDB.OpenTransaction()
+	// Write the best block hash and the numleaves for the utreexo state.
+	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, idx.utreexoState.state.GetNumLeaves())
 	if err != nil {
 		return err
 	}
@@ -401,19 +427,11 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 		return nil, err
 	}
 
-	if checkUtreexoExists(cfg, basePath) {
-		forestFilePath := filepath.Join(basePath, defaultUtreexoFileName)
-		file, err := os.OpenFile(forestFilePath, os.O_RDWR, 0400)
-		if err != nil {
-			return nil, err
-		}
-		var buf [8]byte
-		_, err = file.Read(buf[:])
-		if err != nil {
-			return nil, err
-		}
-		p.NumLeaves = binary.LittleEndian.Uint64(buf[:])
+	_, numLeaves, err := dbFetchUtreexoStateConsistency(db)
+	if err != nil {
+		return nil, err
 	}
+	p.NumLeaves = numLeaves
 
 	var flush func(ldbTx *leveldb.Transaction) error
 	var isFlushNeeded func() bool
@@ -421,8 +439,6 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 		p.Nodes = nodesDB
 		p.CachedLeaves = cachedLeavesDB
 		flush = func(ldbTx *leveldb.Transaction) error {
-			log.Infof("Flushing the utreexo state to disk...")
-
 			nodesUsed, nodesCapacity := nodesDB.UsageStats()
 			log.Debugf("Utreexo index nodesDB cache usage: %d/%d (%v%%)\n",
 				nodesUsed, nodesCapacity,
@@ -441,8 +457,6 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 			if err != nil {
 				return err
 			}
-
-			log.Infof("Finished flushing the utreexo state to disk.")
 
 			return nil
 		}
@@ -472,8 +486,6 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 		log.Infof("Finished loading the utreexo state from disk.")
 
 		flush = func(ldbTx *leveldb.Transaction) error {
-			log.Infof("Flushing the utreexo state to disk. May take a while...")
-
 			err = p.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
 				return blockchain.NodesBackendPut(ldbTx, k, v)
 			})
@@ -488,7 +500,6 @@ func initUtreexoState(cfg *UtreexoConfig, maxMemoryUsage int64, basePath string)
 				return err
 			}
 
-			log.Infof("Finished flushing the utreexo state to disk.")
 			return nil
 		}
 
