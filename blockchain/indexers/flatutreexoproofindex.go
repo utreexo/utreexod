@@ -118,6 +118,13 @@ func (idx *FlatUtreexoProofIndex) NeedsInputs() bool {
 func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 	idx.chain = chain
 
+	// Init Utreexo State.
+	uState, err := InitUtreexoState(idx.config)
+	if err != nil {
+		return err
+	}
+	idx.utreexoState = uState
+
 	// Nothing to do if the node is not pruned.
 	//
 	// If the node is pruned, then we need to check if it started off as
@@ -127,7 +134,7 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 	}
 
 	proofPath := flatFilePath(idx.config.DataDir, flatUtreexoProofName)
-	_, err := os.Stat(proofPath)
+	_, err = os.Stat(proofPath)
 	if err != nil {
 		// If the error isn't nil, that means the proofpath
 		// doesn't exist.
@@ -1276,13 +1283,6 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 			Name:           flatUtreexoProofIndexType,
 		},
 	}
-
-	// Init Utreexo State.
-	uState, err := InitUtreexoState(idx.config)
-	if err != nil {
-		return nil, err
-	}
-	idx.utreexoState = uState
 
 	// Init the utreexo proof state if the node isn't pruned.
 	if !idx.config.Pruned {

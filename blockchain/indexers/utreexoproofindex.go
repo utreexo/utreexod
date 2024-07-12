@@ -79,6 +79,13 @@ func (idx *UtreexoProofIndex) NeedsInputs() bool {
 func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 	idx.chain = chain
 
+	// Init Utreexo State.
+	uState, err := InitUtreexoState(idx.config)
+	if err != nil {
+		return err
+	}
+	idx.utreexoState = uState
+
 	// Nothing else to do if the node is an archive node.
 	if !idx.config.Pruned {
 		return nil
@@ -86,7 +93,7 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 
 	// Check if the utreexo undo bucket exists.
 	var exists bool
-	err := idx.db.View(func(dbTx database.Tx) error {
+	err = idx.db.View(func(dbTx database.Tx) error {
 		parentBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey)
 		bucket := parentBucket.Bucket(utreexoUndoKey)
 		exists = bucket != nil
@@ -584,12 +591,6 @@ func NewUtreexoProofIndex(db database.DB, pruned bool, maxMemoryUsage int64,
 			Name:           db.Type(),
 		},
 	}
-
-	uState, err := InitUtreexoState(idx.config)
-	if err != nil {
-		return nil, err
-	}
-	idx.utreexoState = uState
 
 	return idx, nil
 }

@@ -132,14 +132,6 @@ func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.Blo
 		panic(fmt.Errorf("failed to create chain instance: %v", err))
 	}
 
-	// Init the indexes.
-	err = indexManager.Init(chain, nil)
-	if err != nil {
-		tearDown()
-		os.RemoveAll(testDbRoot)
-		panic(fmt.Errorf("failed to init indexs: %v", err))
-	}
-
 	return chain, indexes, &params, indexManager, tearDown
 }
 
@@ -1051,6 +1043,23 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 		}
 	}
 
+	// Close the databases so that they can be initialized again
+	// to generate the undo data.
+	bestHash := chain.BestSnapshot().Hash
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			err = idxType.CloseUtreexoState(&bestHash)
+			if err != nil {
+				t.Fatal(err)
+			}
+		case *UtreexoProofIndex:
+			err = idxType.CloseUtreexoState(&bestHash)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	// Here we generate the undo data and delete the proof files.
 	err = indexManager.Init(chain, nil)
 	if err != nil {
