@@ -311,7 +311,18 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 
 	// Initialize each of the enabled indexes.
 	for _, indexer := range m.enabledIndexes {
-		if err := indexer.Init(chain); err != nil {
+		// Fetch the current tip for the index.
+		var height int32
+		var hash *chainhash.Hash
+		err := m.db.View(func(dbTx database.Tx) error {
+			idxKey := indexer.Key()
+			hash, height, err = dbFetchIndexerTip(dbTx, idxKey)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if err := indexer.Init(chain, hash, height); err != nil {
 			return err
 		}
 	}

@@ -115,7 +115,9 @@ func (idx *FlatUtreexoProofIndex) NeedsInputs() bool {
 
 // Init initializes the flat utreexo proof index. This is part of the Indexer
 // interface.
-func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
+func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
+	tipHash *chainhash.Hash, tipHeight int32) error {
+
 	idx.chain = chain
 
 	// Init Utreexo State.

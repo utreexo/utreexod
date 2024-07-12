@@ -76,7 +76,9 @@ func (idx *UtreexoProofIndex) NeedsInputs() bool {
 
 // Init initializes the utreexo proof index. This is part of the Indexer
 // interface.
-func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
+func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
+	tipHash *chainhash.Hash, tipHeight int32) error {
+
 	idx.chain = chain
 
 	// Init Utreexo State.

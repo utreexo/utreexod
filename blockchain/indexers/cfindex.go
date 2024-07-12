@@ -96,7 +96,7 @@ func (idx *CfIndex) NeedsInputs() bool {
 
 // Init initializes the hash-based cf index. This is part of the Indexer
 // interface.
-func (idx *CfIndex) Init(_ *blockchain.BlockChain) error {
+func (idx *CfIndex) Init(_ *blockchain.BlockChain, _ *chainhash.Hash, _ int32) error {
 	return nil // Nothing to do.
 }
 

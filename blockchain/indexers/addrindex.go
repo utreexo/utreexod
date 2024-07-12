@@ -645,7 +645,7 @@ func (idx *AddrIndex) NeedsInputs() bool {
 // initialize for this index.
 //
 // This is part of the Indexer interface.
-func (idx *AddrIndex) Init(_ *blockchain.BlockChain) error {
+func (idx *AddrIndex) Init(_ *blockchain.BlockChain, _ *chainhash.Hash, _ int32) error {
 	// Nothing to do.
 	return nil
 }

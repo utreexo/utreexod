@@ -49,7 +49,7 @@ type Indexer interface {
 	// Init is invoked when the index manager is first initializing the
 	// index.  This differs from the Create method in that it is called on
 	// every load, including the case the index was just created.
-	Init(*blockchain.BlockChain) error
+	Init(*blockchain.BlockChain, *chainhash.Hash, int32) error
 
 	// ConnectBlock is invoked when a new block has been connected to the
 	// main chain. The set of output spent within a block is also passed in
