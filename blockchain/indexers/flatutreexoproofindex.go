@@ -779,6 +779,13 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 		return err
 	}
 
+	// Always flush the utreexo state on flushes to never leave the utreexoState
+	// at an unrecoverable state.
+	err = idx.FlushUtreexoState(&block.MsgBlock().Header.PrevBlock)
+	if err != nil {
+		return err
+	}
+
 	// Check if we're at a height where proof was generated. Only check if we're not
 	// pruned as we don't keep the historical proofs as a pruned node.
 	if (block.Height()%idx.proofGenInterVal) == 0 && !idx.config.Pruned {

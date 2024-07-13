@@ -375,6 +375,13 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		return err
 	}
 
+	// Always flush the utreexo state on flushes to never leave the utreexoState
+	// at an unrecoverable state.
+	err = idx.FlushUtreexoState(&block.MsgBlock().Header.PrevBlock)
+	if err != nil {
+		return err
+	}
+
 	err = dbDeleteUtreexoState(dbTx, block.Hash())
 	if err != nil {
 		return err
