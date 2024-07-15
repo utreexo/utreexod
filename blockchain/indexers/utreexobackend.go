@@ -7,6 +7,7 @@ package indexers
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/wire"
 )
 
 const (
@@ -399,11 +401,94 @@ func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, 
 	return numAdds, targets, delHashes, nil
 }
 
+// initConsistentUtreexoState makes the utreexo state consistent with the given tipHash.
+func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
+	savedHash, tipHash *chainhash.Hash, tipHeight int32) error {
+
+	// This is a new accumulator state that we're working with.
+	var empty chainhash.Hash
+	if tipHeight == -1 && tipHash.IsEqual(&empty) {
+		return nil
+	}
+
+	// We're all caught up if both of the hashes are equal.
+	if savedHash != nil && savedHash.IsEqual(tipHash) {
+		return nil
+	}
+
+	currentHeight := int32(-1)
+	if savedHash != nil {
+		// Even though this should always be true, make sure the fetched hash is in
+		// the best chain.
+		if !chain.MainChainHasBlock(savedHash) {
+			return fmt.Errorf("last utreexo consistency status contains "+
+				"hash that is not in best chain: %v", savedHash)
+		}
+
+		var err error
+		currentHeight, err = chain.BlockHeightByHash(savedHash)
+		if err != nil {
+			return err
+		}
+
+		if currentHeight > tipHeight {
+			return fmt.Errorf("Saved besthash has a heigher height "+
+				"of %v than tip height of %v. The utreexo state is NOT "+
+				"recoverable and should be dropped and reindexed",
+				currentHeight, tipHeight)
+		}
+	} else {
+		// Mark it as an empty hash for logging below.
+		savedHash = new(chainhash.Hash)
+	}
+
+	log.Infof("Reconstructing the Utreexo state after an unclean shutdown. The Utreexo state is "+
+		"consistent at block %s (%d) but the index tip is at block %s (%d),  This may "+
+		"take a long time...", savedHash.String(), currentHeight, tipHash.String(), tipHeight)
+
+	for h := currentHeight + 1; h <= tipHeight; h++ {
+		block, err := chain.BlockByHeight(h)
+		if err != nil {
+			return err
+		}
+
+		stxos, err := chain.FetchSpendJournal(block)
+		if err != nil {
+			return err
+		}
+
+		_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
+		dels, _, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip, -1)
+		if err != nil {
+			return err
+		}
+		adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+
+		ud, err := wire.GenerateUData(dels, us.state)
+		if err != nil {
+			return err
+		}
+		delHashes := make([]utreexo.Hash, len(ud.LeafDatas))
+		for i := range delHashes {
+			delHashes[i] = ud.LeafDatas[i].LeafHash()
+		}
+
+		err = us.state.Modify(adds, delHashes, ud.AccProof)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // InitUtreexoState returns an initialized utreexo state. If there isn't an
 // existing state on disk, it creates one and returns it.
 // maxMemoryUsage of 0 will keep every element on disk. A negaive maxMemoryUsage will
 // load every element to the memory.
-func InitUtreexoState(cfg *UtreexoConfig) (*UtreexoState, error) {
+func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
+	tipHash *chainhash.Hash, tipHeight int32) (*UtreexoState, error) {
+
 	log.Infof("Initializing Utreexo state from '%s'", utreexoBasePath(cfg))
 	defer log.Info("Utreexo state loaded")
 
@@ -427,7 +512,7 @@ func InitUtreexoState(cfg *UtreexoConfig) (*UtreexoState, error) {
 		return nil, err
 	}
 
-	_, numLeaves, err := dbFetchUtreexoStateConsistency(db)
+	savedHash, numLeaves, err := dbFetchUtreexoStateConsistency(db)
 	if err != nil {
 		return nil, err
 	}
@@ -515,6 +600,12 @@ func InitUtreexoState(cfg *UtreexoConfig) (*UtreexoState, error) {
 		utreexoStateDB: db,
 		isFlushNeeded:  isFlushNeeded,
 		flush:          flush,
+	}
+
+	// Make sure that the utreexo state is consistent before returning it.
+	err = uState.initConsistentUtreexoState(chain, savedHash, tipHash, tipHeight)
+	if err != nil {
+		return nil, err
 	}
 
 	return uState, err
