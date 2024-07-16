@@ -1045,16 +1045,15 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 
 	// Close the databases so that they can be initialized again
 	// to generate the undo data.
-	bestHash := chain.BestSnapshot().Hash
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
-			err = idxType.CloseUtreexoState(&bestHash)
+			err := idxType.CloseUtreexoState()
 			if err != nil {
 				t.Fatal(err)
 			}
 		case *UtreexoProofIndex:
-			err = idxType.CloseUtreexoState(&bestHash)
+			err := idxType.CloseUtreexoState()
 			if err != nil {
 				t.Fatal(err)
 			}

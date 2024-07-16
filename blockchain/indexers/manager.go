@@ -483,14 +483,22 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			for _, indexer := range m.enabledIndexes {
 				switch idxType := indexer.(type) {
 				case *UtreexoProofIndex:
-					err := idxType.CloseUtreexoState(block.Hash())
+					err := idxType.flushUtreexoState(block.Hash())
+					if err != nil {
+						log.Errorf("Error while flushing utreexo state: %v", err)
+					}
+					err = idxType.utreexoState.utreexoStateDB.Close()
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state: %v", err)
 					}
 				case *FlatUtreexoProofIndex:
-					err := idxType.CloseUtreexoState(block.Hash())
+					err := idxType.flushUtreexoState(block.Hash())
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
+					}
+					err = idxType.utreexoState.utreexoStateDB.Close()
+					if err != nil {
+						log.Errorf("Error while closing the utreexo state for flat utreexo proof index: %v", err)
 					}
 				}
 			}
@@ -534,14 +542,22 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			for _, indexer := range m.enabledIndexes {
 				switch idxType := indexer.(type) {
 				case *UtreexoProofIndex:
-					err := idxType.CloseUtreexoState(block.Hash())
+					err := idxType.flushUtreexoState(block.Hash())
 					if err != nil {
-						log.Errorf("Error while flushing utreexo state: %v", err)
+						log.Errorf("Error while flushing utreexo state for utreexo proof index: %v", err)
+					}
+					err = idxType.utreexoState.utreexoStateDB.Close()
+					if err != nil {
+						log.Errorf("Error while closing the utreexo state for utreexo proof index: %v", err)
 					}
 				case *FlatUtreexoProofIndex:
-					err := idxType.CloseUtreexoState(block.Hash())
+					err := idxType.flushUtreexoState(block.Hash())
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
+					}
+					err = idxType.utreexoState.utreexoStateDB.Close()
+					if err != nil {
+						log.Errorf("Error while closing the utreexo state for flat utreexo proof index: %v", err)
 					}
 				}
 			}
