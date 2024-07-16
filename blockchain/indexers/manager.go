@@ -479,32 +479,6 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			return err
 		}
 
-		if interruptRequested(interrupt) {
-			for _, indexer := range m.enabledIndexes {
-				switch idxType := indexer.(type) {
-				case *UtreexoProofIndex:
-					err := idxType.flushUtreexoState(block.Hash())
-					if err != nil {
-						log.Errorf("Error while flushing utreexo state: %v", err)
-					}
-					err = idxType.utreexoState.utreexoStateDB.Close()
-					if err != nil {
-						log.Errorf("Error while flushing utreexo state: %v", err)
-					}
-				case *FlatUtreexoProofIndex:
-					err := idxType.flushUtreexoState(block.Hash())
-					if err != nil {
-						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
-					}
-					err = idxType.utreexoState.utreexoStateDB.Close()
-					if err != nil {
-						log.Errorf("Error while closing the utreexo state for flat utreexo proof index: %v", err)
-					}
-				}
-			}
-			return errInterruptRequested
-		}
-
 		// Connect the block for all indexes that need it.
 		var spentTxos []blockchain.SpentTxOut
 		for i, indexer := range m.enabledIndexes {
