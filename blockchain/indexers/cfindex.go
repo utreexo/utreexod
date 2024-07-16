@@ -286,6 +286,13 @@ func (idx *CfIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) erro
 	return nil
 }
 
+// For CfIndex, flush is a no-op.
+//
+// This is part of the Indexer interface.
+func (idx *CfIndex) Flush(_ *chainhash.Hash, _ blockchain.FlushMode, _ bool) error {
+	return nil
+}
+
 // entryByBlockHash fetches a filter index entry of a particular type
 // (eg. filter, filter header, etc) for a filter type and block hash.
 func (idx *CfIndex) entryByBlockHash(filterTypeKeys [][]byte,

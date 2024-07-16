@@ -101,6 +101,13 @@ func (idx *TTLIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) err
 	return nil
 }
 
+// For TTLIndex, flush is a no-op.
+//
+// This is part of the Indexer interface.
+func (idx *TTLIndex) Flush(_ *chainhash.Hash, _ blockchain.FlushMode, _ bool) error {
+	return nil
+}
+
 // GetTTL returns a pointer to the ttl value of a transaction outpout.
 // Returns nil for a UTXO.
 //

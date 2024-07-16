@@ -760,6 +760,14 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 		return err
 	}
 
+	// Flush the indexes if they need to be flushed.
+	if b.indexManager != nil {
+		err := b.indexManager.Flush(&state.Hash, FlushIfNeeded, true)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Prune fully spent entries and mark all entries in the view unmodified
 	// now that the modifications have been committed to the database.
 	if view != nil {
@@ -2328,6 +2336,9 @@ type IndexManager interface {
 	// PruneBlock is invoked when an older block is deleted after it's been
 	// processed. This lowers the storage requirement for a node.
 	PruneBlocks(database.Tx, int32, func(int32) (*chainhash.Hash, error)) error
+
+	// Flush flushes the relevant indexes if they need to be flushed.
+	Flush(*chainhash.Hash, FlushMode, bool) error
 }
 
 // Config is a descriptor which specifies the blockchain instance configuration.

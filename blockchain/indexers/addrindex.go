@@ -820,6 +820,13 @@ func (idx *AddrIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) er
 	return nil
 }
 
+// For AddrIndex, flush is a no-op.
+//
+// This is part of the Indexer interface.
+func (idx *AddrIndex) Flush(_ *chainhash.Hash, _ blockchain.FlushMode, _ bool) error {
+	return nil
+}
+
 // TxRegionsForAddress returns a slice of block regions which identify each
 // transaction that involves the passed address according to the specified
 // number to skip, number requested, and whether or not the results should be

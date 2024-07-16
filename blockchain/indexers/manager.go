@@ -563,6 +563,12 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			}
 			return errInterruptRequested
 		}
+
+		// Flush indexes if needed.
+		err = m.Flush(block.Hash(), blockchain.FlushIfNeeded, true)
+		if err != nil {
+			return err
+		}
 	}
 
 	log.Infof("Indexes caught up to height %d", bestHeight)
@@ -686,6 +692,18 @@ func (m *Manager) PruneBlocks(dbTx database.Tx, lastKeptHeight int32,
 			return err
 		}
 		err = dbPutIndexerEarliest(dbTx, idxKey, blockHash, height)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Flush flushes the enabled indexes. For the indexers that do not need to be flushed, it's a no-op.
+func (m *Manager) Flush(bestHash *chainhash.Hash, mode blockchain.FlushMode, onConnect bool) error {
+	for _, index := range m.enabledIndexes {
+		err := index.Flush(bestHash, mode, onConnect)
 		if err != nil {
 			return err
 		}

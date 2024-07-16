@@ -441,6 +441,13 @@ func (idx *TxIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) erro
 	return nil
 }
 
+// NOTE: For TxIndex, flush is a no-op.
+//
+// This is part of the Indexer interface.
+func (idx *TxIndex) Flush(_ *chainhash.Hash, _ blockchain.FlushMode, _ bool) error {
+	return nil
+}
+
 // TxBlockRegion returns the block region for the provided transaction hash
 // from the transaction index.  The block region can in turn be used to load the
 // raw transaction bytes.  When there is no entry for the provided hash, nil
