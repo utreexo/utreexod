@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
@@ -64,6 +65,9 @@ type UtreexoProofIndex struct {
 	// utreexoState represents the Bitcoin UTXO set as a utreexo accumulator.
 	// It keeps all the elements of the forest in order to generate proofs.
 	utreexoState *UtreexoState
+
+	// The time of when the utreexo state was last flushed.
+	lastFlushTime time.Time
 }
 
 // NeedsInputs signals that the index requires the referenced inputs in order
@@ -305,10 +309,6 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	if err != nil {
 		return err
 	}
-	err = idx.FlushUtreexoStateIfNeeded(block.Hash())
-	if err != nil {
-		log.Warnf("error while flushing the utreexo state. %v", err)
-	}
 
 	return nil
 }
@@ -377,7 +377,7 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 
 	// Always flush the utreexo state on flushes to never leave the utreexoState
 	// at an unrecoverable state.
-	err = idx.FlushUtreexoState(&block.MsgBlock().Header.PrevBlock)
+	err = idx.flushUtreexoState(&block.MsgBlock().Header.PrevBlock)
 	if err != nil {
 		return err
 	}

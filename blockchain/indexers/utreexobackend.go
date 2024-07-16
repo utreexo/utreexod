@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/utreexo/utreexo"
@@ -219,16 +220,53 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoState(blockHeight int32) ([]*chain
 	return chainhashRoots, stump.NumLeaves, nil
 }
 
-// FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
-func (idx *UtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash) error {
-	if idx.utreexoState.isFlushNeeded() {
-		return idx.FlushUtreexoState(bestHash)
+// Flush flushes the utreexo state. The different modes pass in as an argument determine if the utreexo state
+// will be flushed or not.
+//
+// The onConnect bool is if the Flush is called on a block connect or a disconnect.
+// It's important as it determines if we flush the main node db before attempting to flush the utreexo state.
+// For the utreexo state to be recoverable, it has to be behind whatever tip the main database is at.
+// On block connects, we always want to flush first but on disconnects, we want to flush first before the
+// data necessary undo data is removed.
+func (idx *UtreexoProofIndex) Flush(bestHash *chainhash.Hash, mode blockchain.FlushMode, onConnect bool) error {
+	switch mode {
+	case blockchain.FlushPeriodic:
+		// If the time since the last flush less then the interval, just return.
+		if time.Since(idx.lastFlushTime) < blockchain.UtxoFlushPeriodicInterval {
+			return nil
+		}
+	case blockchain.FlushIfNeeded:
+		if !idx.utreexoState.isFlushNeeded() {
+			return nil
+		}
+	case blockchain.FlushRequired:
+		// Purposely left empty.
+	}
+
+	if onConnect {
+		// Flush the main database first. This is because the block and other data may still
+		// be in the database cache. If we flush the utreexo state before, there's no way to
+		// undo the utreexo state to the last block where the main database flushed. Flushing
+		// this before we flush the utreexo state ensures that we leave the database state at
+		// a recoverable state.
+		//
+		// This is different from on disconnect as you want the utreexo state to be flushed
+		// first as the utreexo state can always catch up to the main db tip but can't undo
+		// without the main database data.
+		err := idx.config.FlushMainDB()
+		if err != nil {
+			return err
+		}
+	}
+	err := idx.flushUtreexoState(bestHash)
+	if err != nil {
+		return err
 	}
 	return nil
 }
 
 // FlushUtreexoState saves the utreexo state to disk.
-func (idx *UtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error {
+func (idx *UtreexoProofIndex) flushUtreexoState(bestHash *chainhash.Hash) error {
 	idx.mtx.Lock()
 	defer idx.mtx.Unlock()
 
@@ -238,23 +276,60 @@ func (idx *UtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error 
 
 // CloseUtreexoState flushes and closes the utreexo database state.
 func (idx *UtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) error {
-	err := idx.FlushUtreexoState(bestHash)
+	err := idx.flushUtreexoState(bestHash)
 	if err != nil {
 		log.Warnf("error whiling flushing the utreexo state. %v", err)
 	}
 	return idx.utreexoState.utreexoStateDB.Close()
 }
 
-// FlushUtreexoStateIfNeeded flushes the utreexo state only if the cache is full.
-func (idx *FlatUtreexoProofIndex) FlushUtreexoStateIfNeeded(bestHash *chainhash.Hash) error {
-	if idx.utreexoState.isFlushNeeded() {
-		return idx.FlushUtreexoState(bestHash)
+// Flush flushes the utreexo state. The different modes pass in as an argument determine if the utreexo state
+// will be flushed or not.
+//
+// The onConnect bool is if the Flush is called on a block connect or a disconnect.
+// It's important as it determines if we flush the main node db before attempting to flush the utreexo state.
+// For the utreexo state to be recoverable, it has to be behind whatever tip the main database is at.
+// On block connects, we always want to flush first but on disconnects, we want to flush first before the
+// data necessary undo data is removed.
+func (idx *FlatUtreexoProofIndex) Flush(bestHash *chainhash.Hash, mode blockchain.FlushMode, onConnect bool) error {
+	switch mode {
+	case blockchain.FlushPeriodic:
+		// If the time since the last flush less then the interval, just return.
+		if time.Since(idx.lastFlushTime) < blockchain.UtxoFlushPeriodicInterval {
+			return nil
+		}
+	case blockchain.FlushIfNeeded:
+		if !idx.utreexoState.isFlushNeeded() {
+			return nil
+		}
+	case blockchain.FlushRequired:
+		// Purposely left empty.
+	}
+
+	if onConnect {
+		// Flush the main database first. This is because the block and other data may still
+		// be in the database cache. If we flush the utreexo state before, there's no way to
+		// undo the utreexo state to the last block where the main database flushed. Flushing
+		// this before we flush the utreexo state ensures that we leave the database state at
+		// a recoverable state.
+		//
+		// This is different from on disconnect as you want the utreexo state to be flushed
+		// first as the utreexo state can always catch up to the main db tip but can't undo
+		// without the main database data.
+		err := idx.config.FlushMainDB()
+		if err != nil {
+			return err
+		}
+	}
+	err := idx.flushUtreexoState(bestHash)
+	if err != nil {
+		return err
 	}
 	return nil
 }
 
 // FlushUtreexoState saves the utreexo state to disk.
-func (idx *FlatUtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error {
+func (idx *FlatUtreexoProofIndex) flushUtreexoState(bestHash *chainhash.Hash) error {
 	idx.mtx.Lock()
 	defer idx.mtx.Unlock()
 
@@ -264,7 +339,7 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) er
 
 // CloseUtreexoState flushes and closes the utreexo database state.
 func (idx *FlatUtreexoProofIndex) CloseUtreexoState(bestHash *chainhash.Hash) error {
-	err := idx.FlushUtreexoState(bestHash)
+	err := idx.flushUtreexoState(bestHash)
 	if err != nil {
 		log.Warnf("error whiling flushing the utreexo state. %v", err)
 	}

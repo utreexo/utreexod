@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
@@ -103,6 +104,9 @@ type FlatUtreexoProofIndex struct {
 
 	// pStats are the proof size statistics that are kept for research purposes.
 	pStats proofStats
+
+	// The time of when the utreexo state was last flushed.
+	lastFlushTime time.Time
 }
 
 // NeedsInputs signals that the index requires the referenced inputs in order
@@ -323,10 +327,6 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
-	}
-	err = idx.FlushUtreexoStateIfNeeded(block.Hash())
-	if err != nil {
-		log.Warnf("error while flushing the utreexo state. %v", err)
 	}
 
 	// Don't store proofs if the node is pruned.
@@ -781,7 +781,7 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 
 	// Always flush the utreexo state on flushes to never leave the utreexoState
 	// at an unrecoverable state.
-	err = idx.FlushUtreexoState(&block.MsgBlock().Header.PrevBlock)
+	err = idx.flushUtreexoState(&block.MsgBlock().Header.PrevBlock)
 	if err != nil {
 		return err
 	}
