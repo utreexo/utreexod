@@ -24,8 +24,11 @@ import (
 const (
 	// utreexoDirName is the name of the directory in which the utreexo state
 	// is stored.
-	utreexoDirName         = "utreexostate"
-	defaultUtreexoFileName = "forest.dat"
+	utreexoDirName = "utreexostate"
+
+	// oldDefaultUtreexoFileName is the file name of the utreexo state that the num leaves
+	// used to be stored in.
+	oldDefaultUtreexoFileName = "forest.dat"
 )
 
 var (
@@ -120,7 +123,7 @@ func deleteUtreexoState(path string) error {
 // checkUtreexoExists checks that the data for this utreexo state type specified
 // in the config is present and should be resumed off of.
 func checkUtreexoExists(cfg *UtreexoConfig, basePath string) bool {
-	path := filepath.Join(basePath, defaultUtreexoFileName)
+	path := filepath.Join(basePath, oldDefaultUtreexoFileName)
 	_, err := os.Stat(path)
 	if err != nil && os.IsNotExist(err) {
 		return false
@@ -462,6 +465,102 @@ func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, 
 	return numAdds, targets, delHashes, nil
 }
 
+// upgradeUtreexoState upgrades the utreexo state to be atomic.
+func upgradeUtreexoState(cfg *UtreexoConfig, p *utreexo.MapPollard,
+	db *leveldb.DB, bestHash *chainhash.Hash) error {
+
+	// Check if the current database is an older database that needs to be upgraded.
+	if !checkUtreexoExists(cfg, utreexoBasePath(cfg)) {
+		return nil
+	}
+
+	log.Infof("Upgrading the utreexo state database. Do NOT shut down this process. " +
+		"This may take a while...")
+
+	// Write the nodes to the new database.
+	nodesPath := filepath.Join(utreexoBasePath(cfg), "nodes")
+	nodesDB, err := leveldb.OpenFile(nodesPath, nil)
+	if err != nil {
+		return err
+	}
+
+	ldbTx, err := db.OpenTransaction()
+	if err != nil {
+		return err
+	}
+
+	iter := nodesDB.NewIterator(nil, nil)
+	for iter.Next() {
+		err = ldbTx.Put(iter.Key(), iter.Value(), nil)
+		if err != nil {
+			ldbTx.Discard()
+			return err
+		}
+	}
+	nodesDB.Close()
+
+	// Write the cached leaves to the new database.
+	cachedLeavesPath := filepath.Join(utreexoBasePath(cfg), "cachedleaves")
+	cachedLeavesDB, err := leveldb.OpenFile(cachedLeavesPath, nil)
+	if err != nil {
+		return err
+	}
+
+	iter = cachedLeavesDB.NewIterator(nil, nil)
+	for iter.Next() {
+		err = ldbTx.Put(iter.Key(), iter.Value(), nil)
+		if err != nil {
+			ldbTx.Discard()
+			return err
+		}
+	}
+	cachedLeavesDB.Close()
+
+	// Open the file and read the numLeaves.
+	forestFilePath := filepath.Join(utreexoBasePath(cfg), oldDefaultUtreexoFileName)
+	file, err := os.OpenFile(forestFilePath, os.O_RDWR, 0400)
+	if err != nil {
+		return err
+	}
+	var buf [8]byte
+	_, err = file.Read(buf[:])
+	if err != nil {
+		return err
+	}
+
+	// Save the consistency state
+	p.NumLeaves = binary.LittleEndian.Uint64(buf[:8])
+	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, p.NumLeaves)
+	if err != nil {
+		ldbTx.Discard()
+		return err
+	}
+
+	// Commit all the writes to the database.
+	err = ldbTx.Commit()
+	if err != nil {
+		ldbTx.Discard()
+		return err
+	}
+
+	// Remove the unnecessary file after the upgrade.
+	err = os.Remove(forestFilePath)
+	if err != nil {
+		return err
+	}
+	err = os.RemoveAll(cachedLeavesPath)
+	if err != nil {
+		return err
+	}
+	err = os.RemoveAll(nodesPath)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Finished upgrading the utreexo state database.")
+	return nil
+}
+
 // initConsistentUtreexoState makes the utreexo state consistent with the given tipHash.
 func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 	savedHash, tipHash *chainhash.Hash, tipHeight int32) error {
@@ -577,6 +676,13 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 	}
 
 	cachedLeavesDB, err := blockchain.InitCachedLeavesBackEnd(db, maxCachedLeavesMem)
+	if err != nil {
+		return nil, err
+	}
+
+	// The utreexo state may be an older version where the numLeaves were stored in a flat
+	// file. Upgrade the utreexo state if it needs to be.
+	err = upgradeUtreexoState(cfg, &p, db, tipHash)
 	if err != nil {
 		return nil, err
 	}
