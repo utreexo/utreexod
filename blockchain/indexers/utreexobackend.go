@@ -65,8 +65,37 @@ type UtreexoState struct {
 	state          utreexo.Utreexo
 	utreexoStateDB *leveldb.DB
 
-	isFlushNeeded func() bool
-	flush         func(ldbTx *leveldb.Transaction) error
+	isFlushNeeded       func() bool
+	flushLeavesAndNodes func(ldbTx *leveldb.Transaction) error
+}
+
+// flush flushes the utreexo state and all the data necessary for the utreexo state to be recoverable
+// on sudden crashes.
+func (us *UtreexoState) flush(bestHash *chainhash.Hash) error {
+	ldbTx, err := us.utreexoStateDB.OpenTransaction()
+	if err != nil {
+		return err
+	}
+
+	// Write the best block hash and the numleaves for the utreexo state.
+	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, us.state.GetNumLeaves())
+	if err != nil {
+		return err
+	}
+
+	err = us.flushLeavesAndNodes(ldbTx)
+	if err != nil {
+		ldbTx.Discard()
+		return err
+	}
+
+	err = ldbTx.Commit()
+	if err != nil {
+		ldbTx.Discard()
+		return err
+	}
+
+	return nil
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -204,33 +233,7 @@ func (idx *UtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) error 
 	defer idx.mtx.Unlock()
 
 	log.Infof("Flushing the utreexo state to disk...")
-
-	ldbTx, err := idx.utreexoState.utreexoStateDB.OpenTransaction()
-	if err != nil {
-		return err
-	}
-
-	// Write the best block hash and the numleaves for the utreexo state.
-	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, idx.utreexoState.state.GetNumLeaves())
-	if err != nil {
-		return err
-	}
-
-	err = idx.utreexoState.flush(ldbTx)
-	if err != nil {
-		ldbTx.Discard()
-		return err
-	}
-
-	err = ldbTx.Commit()
-	if err != nil {
-		ldbTx.Discard()
-		return err
-	}
-
-	log.Infof("Finished flushing the utreexo state to disk.")
-
-	return nil
+	return idx.utreexoState.flush(bestHash)
 }
 
 // CloseUtreexoState flushes and closes the utreexo database state.
@@ -255,30 +258,8 @@ func (idx *FlatUtreexoProofIndex) FlushUtreexoState(bestHash *chainhash.Hash) er
 	idx.mtx.Lock()
 	defer idx.mtx.Unlock()
 
-	ldbTx, err := idx.utreexoState.utreexoStateDB.OpenTransaction()
-	if err != nil {
-		return err
-	}
-
-	// Write the best block hash and the numleaves for the utreexo state.
-	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, idx.utreexoState.state.GetNumLeaves())
-	if err != nil {
-		return err
-	}
-
-	err = idx.utreexoState.flush(ldbTx)
-	if err != nil {
-		ldbTx.Discard()
-		return err
-	}
-
-	err = ldbTx.Commit()
-	if err != nil {
-		ldbTx.Discard()
-		return err
-	}
-
-	return nil
+	log.Infof("Flushing the utreexo state to disk...")
+	return idx.utreexoState.flush(bestHash)
 }
 
 // CloseUtreexoState flushes and closes the utreexo database state.
@@ -480,6 +461,14 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 		if err != nil {
 			return err
 		}
+
+		if us.isFlushNeeded() {
+			log.Infof("Flushing the utreexo state to disk...")
+			err = us.flush(block.Hash())
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -598,11 +587,11 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 	}
 
 	uState := &UtreexoState{
-		config:         cfg,
-		state:          &p,
-		utreexoStateDB: db,
-		isFlushNeeded:  isFlushNeeded,
-		flush:          flush,
+		config:              cfg,
+		state:               &p,
+		utreexoStateDB:      db,
+		isFlushNeeded:       isFlushNeeded,
+		flushLeavesAndNodes: flush,
 	}
 
 	// Make sure that the utreexo state is consistent before returning it.
