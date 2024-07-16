@@ -53,6 +53,9 @@ type UtreexoConfig struct {
 	// Name is what the type of utreexo proof indexer this utreexo state is related
 	// to.
 	Name string
+
+	// FlushMainDB flushes the main database where all the data is stored.
+	FlushMainDB func() error
 }
 
 // UtreexoState is a wrapper around the raw accumulator with configuration

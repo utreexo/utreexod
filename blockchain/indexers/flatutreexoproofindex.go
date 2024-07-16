@@ -1271,7 +1271,7 @@ func loadFlatFileState(dataDir, name string) (*FlatFileState, error) {
 // turn is used by the blockchain package.  This allows the index to be
 // seamlessly maintained along with the chain.
 func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
-	proofGenInterVal *int32, maxMemoryUsage int64, dataDir string) (*FlatUtreexoProofIndex, error) {
+	proofGenInterVal *int32, maxMemoryUsage int64, dataDir string, flush func() error) (*FlatUtreexoProofIndex, error) {
 
 	// If the proofGenInterVal argument is nil, use the default value.
 	var intervalToUse int32
@@ -1290,6 +1290,7 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 			Pruned:         pruned,
 			DataDir:        dataDir,
 			Name:           flatUtreexoProofIndexType,
+			FlushMainDB:    flush,
 		},
 	}
 

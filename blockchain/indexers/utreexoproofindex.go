@@ -587,7 +587,7 @@ func (idx *UtreexoProofIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.
 // turn is used by the blockchain package.  This allows the index to be
 // seamlessly maintained along with the chain.
 func NewUtreexoProofIndex(db database.DB, pruned bool, maxMemoryUsage int64,
-	chainParams *chaincfg.Params, dataDir string) (*UtreexoProofIndex, error) {
+	chainParams *chaincfg.Params, dataDir string, flush func() error) (*UtreexoProofIndex, error) {
 
 	idx := &UtreexoProofIndex{
 		db:  db,
@@ -598,6 +598,7 @@ func NewUtreexoProofIndex(db database.DB, pruned bool, maxMemoryUsage int64,
 			Pruned:         pruned,
 			DataDir:        dataDir,
 			Name:           db.Type(),
+			FlushMainDB:    flush,
 		},
 	}
 

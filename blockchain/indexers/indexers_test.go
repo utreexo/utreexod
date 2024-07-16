@@ -70,17 +70,17 @@ func createDB(dbName string) (database.DB, string, error) {
 	return db, dbPath, nil
 }
 
-func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincfg.Params) (
+func initIndexes(interval int32, dbPath string, db database.DB, params *chaincfg.Params) (
 	*Manager, []Indexer, error) {
 
 	proofGenInterval := new(int32)
 	*proofGenInterval = interval
-	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, proofGenInterval, 50*1024*1024, dbPath)
+	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, proofGenInterval, 50*1024*1024, dbPath, db.Flush)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	utreexoProofIndex, err := NewUtreexoProofIndex(*db, false, 50*1024*1024, params, dbPath)
+	utreexoProofIndex, err := NewUtreexoProofIndex(db, false, 50*1024*1024, params, dbPath, db.Flush)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,7 +89,7 @@ func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincf
 		utreexoProofIndex,
 		flatUtreexoProofIndex,
 	}
-	indexManager := NewManager(*db, indexes)
+	indexManager := NewManager(db, indexes)
 	return indexManager, indexes, nil
 }
 
@@ -109,7 +109,7 @@ func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.Blo
 	}
 
 	// Create the indexes to be used in the chain.
-	indexManager, indexes, err := initIndexes(proofGenInterval, dbPath, &db, &params)
+	indexManager, indexes, err := initIndexes(proofGenInterval, dbPath, db, &params)
 	if err != nil {
 		tearDown()
 		os.RemoveAll(testDbRoot)
