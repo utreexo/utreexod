@@ -354,24 +354,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		}
 	}
 
-	blockHash := block.Hash()
-	height, err := idx.chain.BlockHeightByHash(blockHash)
-	if err != nil {
-		return err
-	}
-
-	roots, leaves, err := idx.FetchUtreexoState(height)
-	if err != nil {
-		return err
-	}
-
-	// serialize the hashes of the utreexo roots hash
-	serializedUtreexo, err := blockchain.SerializeUtreexoRootsHash(leaves, roots)
-	if err != nil {
-		return err
-	}
-
-	return storeUtreexoCFilterHeader(dbTx, block, serializedUtreexo, wire.UtreexoCFilter)
+	return nil
 }
 
 // calcProofOverhead calculates the overhead of the current utreexo accumulator proof

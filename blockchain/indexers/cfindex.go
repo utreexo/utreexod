@@ -40,7 +40,6 @@ var (
 	// block hashes to cf headers.
 	cfHeaderKeys = [][]byte{
 		[]byte("cf0headerbyhashidx"),
-		[]byte("cf1headerbyhashidx"),
 	}
 
 	// cfHashKeys is an array of db bucket names used to house indexes of

@@ -6,14 +6,12 @@ package indexers
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/btcutil/gcs/builder"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
@@ -238,42 +236,6 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 	return nil
 }
 
-// storeUtreexoCFilter stores a given utreexocfilter header
-func storeUtreexoCFilterHeader(dbTx database.Tx, block *btcutil.Block, filterData []byte,
-	filterType wire.FilterType) error {
-	if uint8(filterType) > maxFilterType {
-		return errors.New("unsupported filter type")
-	}
-
-	// Figure out which header bucket to use.
-	hkey := cfHeaderKeys[filterType]
-	h := block.Hash()
-
-	// fetch the previous block's filter header.
-	var prevHeader *chainhash.Hash
-	ph := &block.MsgBlock().Header.PrevBlock
-	if ph.IsEqual(&zeroHash) {
-		prevHeader = &zeroHash
-	} else {
-		pfh, err := dbFetchFilterIdxEntry(dbTx, hkey, ph)
-		if err != nil {
-			return err
-		}
-
-		// Construct the new block's filter header, and store it.
-		prevHeader, err = chainhash.NewHash(pfh)
-		if err != nil {
-			return err
-		}
-	}
-
-	fh, err := builder.MakeHeaderForUtreexoCFilter(filterData, *prevHeader)
-	if err != nil {
-		return err
-	}
-	return dbStoreFilterIdxEntry(dbTx, hkey, h, fh[:])
-}
-
 // ConnectBlock is invoked by the index manager when a new block has been
 // connected to the main chain.
 //
@@ -337,35 +299,8 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	if err != nil {
 		return err
 	}
-	blockHash := block.Hash()
-	var serializedUtreexo []byte
-	var leaves uint64
-	var roots []*chainhash.Hash
 
-	// For compact state nodes
-	if idx.chain.IsUtreexoViewActive() {
-		viewPoint, err := idx.chain.FetchUtreexoViewpoint(blockHash)
-		if err != nil {
-			return err
-		}
-		roots = viewPoint.GetRoots()
-		leaves = viewPoint.NumLeaves()
-	} else { // for bridge nodes
-		uroots, uleaves, err := idx.FetchUtreexoState(dbTx, blockHash)
-		if err != nil {
-			return err
-		}
-		roots = uroots
-		leaves = uleaves
-	}
-
-	// serialize the hashes of the utreexo roots hash
-	serializedUtreexo, err = blockchain.SerializeUtreexoRootsHash(leaves, roots)
-	if err != nil {
-		return err
-	}
-
-	return storeUtreexoCFilterHeader(dbTx, block, serializedUtreexo, wire.UtreexoCFilter)
+	return nil
 }
 
 // getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from

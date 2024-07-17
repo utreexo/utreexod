@@ -252,6 +252,7 @@ type server struct {
 	txIndex               *indexers.TxIndex
 	addrIndex             *indexers.AddrIndex
 	cfIndex               *indexers.CfIndex
+	utreexoCfIndex        *indexers.UtreexoCFIndex
 	ttlIndex              *indexers.TTLIndex
 	utreexoProofIndex     *indexers.UtreexoProofIndex
 	flatUtreexoProofIndex *indexers.FlatUtreexoProofIndex
@@ -1150,6 +1151,8 @@ func (sp *serverPeer) OnGetCFHeaders(_ *peer.Peer, msg *wire.MsgGetCFHeaders) {
 	}
 }
 
+// getUtreexoRoots fetches utreexo roots from the appropriate locations, i.e fetches
+// roots for CSN from a different location from utreexoviewpoint and flatfile
 func (sp *serverPeer) getUtreexoRoots(blockHash *chainhash.Hash) (uint64, []*chainhash.Hash, error) {
 
 	var leaves uint64
@@ -3400,6 +3403,12 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		indxLog.Info("Committed filter index is enabled")
 		s.cfIndex = indexers.NewCfIndex(db, chainParams)
 		indexes = append(indexes, s.cfIndex)
+	}
+	if cfg.UtreexoCFilters {
+		indxLog.Info("Utreexo C filter index enabled")
+		s.utreexoCfIndex = indexers.NewUtreexoCfIndex(db, chainParams,
+			s.utreexoProofIndex, s.flatUtreexoProofIndex)
+		indexes = append(indexes, s.utreexoCfIndex)
 	}
 	if cfg.TTLIndex {
 		indxLog.Info("TTL index is enabled")
