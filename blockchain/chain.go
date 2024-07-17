@@ -2341,6 +2341,24 @@ type IndexManager interface {
 	Flush(*chainhash.Hash, FlushMode, bool) error
 }
 
+// FlushUtxoCache flushes the indexes if a flush is needed with the given flush mode.
+// If the flush is on a block connect and not a reorg, the onConnect bool should be true.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) FlushIndexes(mode FlushMode, onConnect bool) error {
+	b.chainLock.Lock()
+	defer b.chainLock.Unlock()
+
+	if b.indexManager != nil {
+		err := b.indexManager.Flush(&b.BestSnapshot().Hash, mode, onConnect)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Config is a descriptor which specifies the blockchain instance configuration.
 type Config struct {
 	// DB defines the database which houses the blocks and will be used to

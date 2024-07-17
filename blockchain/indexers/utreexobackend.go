@@ -265,6 +265,9 @@ func (idx *UtreexoProofIndex) Flush(bestHash *chainhash.Hash, mode blockchain.Fl
 	if err != nil {
 		return err
 	}
+
+	// Set the last flush time as now as the flush was successful.
+	idx.lastFlushTime = time.Now()
 	return nil
 }
 
@@ -329,6 +332,9 @@ func (idx *FlatUtreexoProofIndex) Flush(bestHash *chainhash.Hash, mode blockchai
 	if err != nil {
 		return err
 	}
+
+	// Set the last flush time as now as the flush was successful.
+	idx.lastFlushTime = time.Now()
 	return nil
 }
 

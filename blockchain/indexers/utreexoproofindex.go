@@ -91,6 +91,7 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		return err
 	}
 	idx.utreexoState = uState
+	idx.lastFlushTime = time.Now()
 
 	// Nothing else to do if the node is an archive node.
 	if !idx.config.Pruned {

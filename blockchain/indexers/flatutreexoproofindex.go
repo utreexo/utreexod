@@ -130,6 +130,7 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		return err
 	}
 	idx.utreexoState = uState
+	idx.lastFlushTime = time.Now()
 
 	// Nothing to do if the node is not pruned.
 	//
