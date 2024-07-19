@@ -726,10 +726,18 @@ func (b *BlockChain) flushNeededAfterPrune(earliestHeight int32) (bool, error) {
 	if earliestHeight < 0 {
 		return false, nil
 	}
-	lastFlushHeight, err := b.BlockHeightByHash(&b.utxoCache.lastFlushHash)
-	if err != nil {
-		return false, err
+	node := b.index.LookupNode(&b.utxoCache.lastFlushHash)
+	if node == nil {
+		// If we couldn't find the node where we last flushed at, have the utxo cache
+		// flush to be safe and that will set the last flush hash again.
+		//
+		// This realistically should never happen as nodes are never deleted from
+		// the block index.  This happening likely means that there's a hardware
+		// error which is something we can't recover from.  The best that we can
+		// do here is to just force a flush and hope that the newly set
+		// lastFlushHash doesn't error.
+		return true, nil
 	}
-
+	lastFlushHeight := node.height
 	return earliestHeight > lastFlushHeight, nil
 }
