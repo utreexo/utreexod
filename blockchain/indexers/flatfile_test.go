@@ -649,3 +649,200 @@ func TestMultipleFetchData(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestRecover(t *testing.T) {
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	tests := []struct {
+		name               string
+		datas              [][]byte
+		truncateLen        int64
+		truncateOffsetFile bool
+	}{
+		{
+			name: "first",
+			datas: func() [][]byte {
+				datas := make([][]byte, 0, 100)
+				for i := int32(1); i <= 100; i++ {
+					data, err := createRandByteSlice(rnd)
+					if err != nil {
+						t.Fatal(err)
+					}
+					datas = append(datas, data)
+				}
+
+				return datas
+			}(),
+			truncateLen:        1,
+			truncateOffsetFile: true,
+		},
+		{
+			name: "second",
+			datas: func() [][]byte {
+				datas := make([][]byte, 0, 100)
+				for i := int32(1); i <= 100; i++ {
+					data, err := createRandByteSlice(rnd)
+					if err != nil {
+						t.Fatal(err)
+					}
+					datas = append(datas, data)
+				}
+
+				return datas
+			}(),
+			truncateLen:        7,
+			truncateOffsetFile: true,
+		},
+		{
+			name: "third",
+			datas: func() [][]byte {
+				datas := make([][]byte, 0, 100)
+				for i := int32(1); i <= 100; i++ {
+					data, err := createRandByteSlice(rnd)
+					if err != nil {
+						t.Fatal(err)
+					}
+					datas = append(datas, data)
+				}
+
+				return datas
+			}(),
+			truncateLen:        5,
+			truncateOffsetFile: true,
+		},
+		{
+			name: "fourth",
+			datas: func() [][]byte {
+				datas := make([][]byte, 0, 100)
+				for i := int32(1); i <= 100; i++ {
+					data, err := createRandByteSlice(rnd)
+					if err != nil {
+						t.Fatal(err)
+					}
+					datas = append(datas, data)
+				}
+
+				return datas
+			}(),
+			truncateLen:        1,
+			truncateOffsetFile: false,
+		},
+		{
+			name: "fifth",
+			datas: func() [][]byte {
+				datas := make([][]byte, 0, 100)
+				for i := int32(1); i <= 100; i++ {
+					data, err := createRandByteSlice(rnd)
+					if err != nil {
+						t.Fatal(err)
+					}
+					datas = append(datas, data)
+				}
+
+				return datas
+			}(),
+			truncateLen:        15,
+			truncateOffsetFile: false,
+		},
+		{
+			name: "sixth",
+			datas: func() [][]byte {
+				datas := make([][]byte, 0, 100)
+				for i := int32(1); i <= 100; i++ {
+					data, err := createRandByteSlice(rnd)
+					if err != nil {
+						t.Fatal(err)
+					}
+					datas = append(datas, data)
+				}
+
+				return datas
+			}(),
+			truncateLen:        155,
+			truncateOffsetFile: false,
+		},
+	}
+
+	for _, test := range tests {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "dir_"+test.name)
+		defer deleteFlatFile(dir)
+
+		// Create and store data in the flat file state to test it.
+		ff := NewFlatFileState()
+		err := ff.Init(dir, test.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, data := range test.datas {
+			err = ff.StoreData(int32(i)+1, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Sanity checking.
+		for i, data := range test.datas {
+			fetched, err := ff.FetchData(int32(i) + 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !bytes.Equal(fetched, data) {
+				t.Fatalf("test %v. for height %v, expected %v, got %v",
+					test.name,
+					i,
+					hex.EncodeToString(test.datas[i-1]),
+					hex.EncodeToString(fetched))
+			}
+		}
+
+		// Corrupt the flat file state.
+		if test.truncateOffsetFile {
+			offsetFileSize, err := ff.offsetFile.Seek(0, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = ff.offsetFile.Truncate(offsetFileSize - test.truncateLen)
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			dataFileSize, err := ff.dataFile.Seek(0, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = ff.dataFile.Truncate(dataFileSize - test.truncateLen)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Test if we can fetch the last stored data.
+			_, err = ff.FetchData(ff.currentHeight)
+			if err == nil {
+				t.Fatalf("test %v. expected error", test.name)
+			}
+		}
+
+		// Calling init here calls the recovery functions.
+		err = ff.Init(dir, test.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Check that the data til the currentHeight is correct.
+		for i := int32(1); i <= ff.currentHeight; i++ {
+			fetched, err := ff.FetchData(i)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(fetched, test.datas[i-1]) {
+				t.Fatalf("test %v. for height %v, expected %v, got %v",
+					test.name,
+					i,
+					hex.EncodeToString(test.datas[i-1]),
+					hex.EncodeToString(fetched))
+			}
+		}
+	}
+}

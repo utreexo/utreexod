@@ -59,6 +59,72 @@ type FlatFileState struct {
 	offsets []int64
 }
 
+// recoverOffsetFile recovers the offset file to the latest readable offset.
+func (ff *FlatFileState) recoverOffsetFile(fileSize int64) error {
+	offsetFileSize := (fileSize / 8) * 8
+	return ff.offsetFile.Truncate(offsetFileSize)
+}
+
+// recover recovers the flat file state to a readable state by rolling back to the latest
+// reable stored data.
+func (ff *FlatFileState) recover() error {
+	log.Infof("Recovering flatfile as it's not consistent")
+	buf := make([]byte, 8)
+	for ; ff.currentHeight > 0; ff.currentHeight-- {
+		// Read from the dataFile.  This read will grab the magic bytes and the
+		// size bytes.
+		offset := ff.offsets[ff.currentHeight]
+
+		_, err := ff.dataFile.ReadAt(buf, offset)
+		if err == nil && bytes.Equal(buf[:4], magicBytes[:]) {
+			// Size of the actual data we want to fetch.
+			size := binary.BigEndian.Uint32(buf[4:])
+
+			// Read the data.
+			dataBuf := make([]byte, size)
+			read, err := ff.dataFile.ReadAt(dataBuf, offset+8)
+			if err == nil && uint32(read) == size {
+				_, err := ff.FetchData(ff.currentHeight)
+				if err == nil {
+					// If we're able to read the data bytes, then return here.
+					return nil
+				}
+			}
+		}
+
+		// Truncating when the offset is bigger will append 0s.
+		// Only truncate when the offset is less than the data file size.
+		dataFileSize, err := ff.dataFile.Seek(0, 2)
+		if err != nil {
+			return err
+		}
+		if offset < dataFileSize {
+			err = ff.dataFile.Truncate(offset)
+			if err != nil {
+				return err
+			}
+		}
+
+		offsetFileSize, err := ff.offsetFile.Seek(0, 2)
+		if err != nil {
+			return err
+		}
+		// Each offset is 8 bytes.
+		err = ff.offsetFile.Truncate(offsetFileSize - 8)
+		if err != nil {
+			return err
+		}
+
+		// Set the currentOffset as the last offset.
+		ff.currentOffset = ff.offsets[len(ff.offsets)-1]
+
+		// Pop the offset in memory.
+		ff.offsets = ff.offsets[:len(ff.offsets)-1]
+	}
+
+	return nil
+}
+
 // Init initializes the FlatFileState.  If resuming, it loads the offsets onto memory.
 // If starting new, it creates an offsetFile and a dataFile along with the directories
 // those belong in.
@@ -90,8 +156,12 @@ func (ff *FlatFileState) Init(path, dataName string) error {
 
 	// Offsets are always 8 bytes each.
 	if offsetFileSize%8 != 0 {
-		return fmt.Errorf("FlatFileState.Init(): Corrupt FlatFileState. " +
-			"offsetFile not mulitple of 8 bytes")
+		log.Infof("Recovering flatfile offsets as it's not consistent")
+		// recover the offsetfile if it's not in 8 byte increments.
+		err = ff.recoverOffsetFile(offsetFileSize)
+		if err != nil {
+			return err
+		}
 	}
 
 	// If the file size is bigger than 0, we're resuming and will read all
@@ -131,11 +201,18 @@ func (ff *FlatFileState) Init(path, dataName string) error {
 			return err
 		}
 
-		// Oo the same with the in-ram slice.
+		// Do the same with the in-ram slice.
 		ff.offsets = make([]int64, 1)
 	}
 
-	return nil
+	// Test if we can fetch the last stored data.
+	_, err = ff.FetchData(ff.currentHeight)
+	if err == nil {
+		return nil
+	}
+
+	// If we can't fetch the last stored data, recover to the last readable data.
+	return ff.recover()
 }
 
 // StoreData stores the given byte slice as a new entry in the dataFile.
