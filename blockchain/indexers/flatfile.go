@@ -29,7 +29,7 @@ const (
 
 var (
 	// magicBytes are the bytes prepended to any entry in the dataFiles.
-	magicBytes = []byte{0xaa, 0xff, 0xaa, 0xff}
+	magicBytes = [4]byte{0xaa, 0xff, 0xaa, 0xff}
 )
 
 // FlatFileState is the shared state for storing flatfiles.  It is specifically designed
@@ -179,7 +179,7 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 	buf = buf[:len(data)+8]
 
 	// Add the magic bytes, size, and the data to the buffer to be written.
-	copy(buf[:4], magicBytes)
+	copy(buf[:4], magicBytes[:])
 	binary.BigEndian.PutUint32(buf[4:8], uint32(len(data)))
 	copy(buf[8:], data)
 
@@ -225,7 +225,7 @@ func (ff *FlatFileState) FetchData(height int32) ([]byte, error) {
 	}
 
 	// Sanity check.  If wrong magic was read, then error out.
-	if !bytes.Equal(buf[:4], magicBytes) {
+	if !bytes.Equal(buf[:4], magicBytes[:]) {
 		return nil, fmt.Errorf("Read wrong magic bytes. Expect %x but got %x",
 			magicBytes, buf[:4])
 	}
@@ -266,7 +266,7 @@ func (ff *FlatFileState) DisconnectBlock(height int32) error {
 		return err
 	}
 
-	if !bytes.Equal(buf[:4], magicBytes) {
+	if !bytes.Equal(buf[:4], magicBytes[:]) {
 		return fmt.Errorf("read wrong magic of %x", buf[:4])
 	}
 

@@ -327,7 +327,7 @@ func getAfterSizes(ff *FlatFileState, height int32) (int64, int64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	if !bytes.Equal(buf[:4], magicBytes) {
+	if !bytes.Equal(buf[:4], magicBytes[:]) {
 		return 0, 0, fmt.Errorf("read wrong magic of %x", buf[:4])
 	}
 	dataSize := binary.BigEndian.Uint32(buf[4:])
