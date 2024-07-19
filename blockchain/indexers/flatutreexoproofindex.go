@@ -117,6 +117,75 @@ func (idx *FlatUtreexoProofIndex) NeedsInputs() bool {
 	return true
 }
 
+// consistentFlatFileState rolls back all the flat file states to the tip height.
+// The data is written to the flat files directly but the index tips are cached and
+// then written to disk. This may lead to states where the index tip is lower than the
+// data stored in the flat files. Rolling back the flat file state to the index tip
+// keep ths entire indexer consistent.
+func (idx *FlatUtreexoProofIndex) consistentFlatFileState(tipHeight int32) error {
+	if !idx.config.Pruned {
+		if idx.proofState.BestHeight() != 0 &&
+			tipHeight < idx.proofState.BestHeight() {
+			bestHeight := idx.proofState.BestHeight()
+			for tipHeight != bestHeight && bestHeight > 0 {
+				err := idx.proofState.DisconnectBlock(bestHeight)
+				if err != nil {
+					return err
+				}
+				bestHeight--
+			}
+		}
+	}
+
+	if idx.undoState.BestHeight() != 0 &&
+		tipHeight < idx.undoState.BestHeight() {
+		bestHeight := idx.undoState.BestHeight()
+		for tipHeight != bestHeight && bestHeight > 0 {
+			err := idx.undoState.DisconnectBlock(bestHeight)
+			if err != nil {
+				return err
+			}
+			bestHeight--
+		}
+	}
+
+	if idx.rememberIdxState.BestHeight() != 0 &&
+		tipHeight < idx.rememberIdxState.BestHeight() {
+		bestHeight := idx.rememberIdxState.BestHeight()
+		for tipHeight != bestHeight && bestHeight > 0 {
+			err := idx.rememberIdxState.DisconnectBlock(bestHeight)
+			if err != nil {
+				return err
+			}
+			bestHeight--
+		}
+	}
+	if idx.proofStatsState.BestHeight() != 0 &&
+		tipHeight < idx.proofStatsState.BestHeight() {
+		bestHeight := idx.proofStatsState.BestHeight()
+		for tipHeight != bestHeight && bestHeight > 0 {
+			err := idx.proofStatsState.DisconnectBlock(bestHeight)
+			if err != nil {
+				return err
+			}
+			bestHeight--
+		}
+	}
+	if idx.rootsState.BestHeight() != 0 &&
+		tipHeight < idx.rootsState.BestHeight() {
+		bestHeight := idx.rootsState.BestHeight()
+		for tipHeight != bestHeight && bestHeight > 0 {
+			err := idx.rootsState.DisconnectBlock(bestHeight)
+			if err != nil {
+				return err
+			}
+			bestHeight--
+		}
+	}
+
+	return nil
+}
+
 // Init initializes the flat utreexo proof index. This is part of the Indexer
 // interface.
 func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
@@ -131,6 +200,11 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	}
 	idx.utreexoState = uState
 	idx.lastFlushTime = time.Now()
+
+	err = idx.consistentFlatFileState(tipHeight)
+	if err != nil {
+		return err
+	}
 
 	// Nothing to do if the node is not pruned.
 	//

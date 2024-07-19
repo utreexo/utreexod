@@ -382,6 +382,11 @@ func (ff *FlatFileState) DisconnectBlock(height int32) error {
 	return nil
 }
 
+// BestHeight returns the current latest height of the flat file state.
+func (ff *FlatFileState) BestHeight() int32 {
+	return ff.currentHeight
+}
+
 // deleteFileFile removes the flat file state directory and all the contents
 // in it.
 func deleteFlatFile(path string) error {
