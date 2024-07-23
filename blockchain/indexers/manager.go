@@ -652,7 +652,7 @@ func (m *Manager) PruneBlocks(dbTx database.Tx, lastKeptHeight int32,
 			}
 
 			// Notify the indexer with the connected block so it can prune it.
-			err = index.PruneBlock(dbTx, blockHash)
+			err = index.PruneBlock(dbTx, blockHash, lastKeptHeight)
 			if err != nil {
 				return err
 			}

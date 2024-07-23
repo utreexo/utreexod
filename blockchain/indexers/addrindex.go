@@ -816,7 +816,7 @@ func (idx *AddrIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 // supported with pruning.
 //
 // This is part of the Indexer interface.
-func (idx *AddrIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+func (idx *AddrIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, _ int32) error {
 	return nil
 }
 

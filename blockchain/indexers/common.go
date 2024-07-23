@@ -65,7 +65,7 @@ type Indexer interface {
 
 	// PruneBlock is invoked when an older block is deleted after it's been
 	// processed.
-	PruneBlock(database.Tx, *chainhash.Hash) error
+	PruneBlock(dbTx database.Tx, deletedBlock *chainhash.Hash, lastKeptHeight int32) error
 
 	// Flush flushes the index.
 	Flush(*chainhash.Hash, blockchain.FlushMode, bool) error

@@ -261,7 +261,7 @@ func (idx *CfIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 // reindexing as a pruned node.
 //
 // This is part of the Indexer interface.
-func (idx *CfIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+func (idx *CfIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash, _ int32) error {
 	for _, key := range cfIndexKeys {
 		err := dbDeleteFilterIdxEntry(dbTx, key, blockHash)
 		if err != nil {

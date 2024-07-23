@@ -888,8 +888,29 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 // processed.
 //
 // This is part of the Indexer interface.
-func (idx *FlatUtreexoProofIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
-	return nil
+func (idx *FlatUtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastKeptHeight int32) error {
+	hash, _, err := dbFetchUtreexoStateConsistency(idx.utreexoState.utreexoStateDB)
+	if err != nil {
+		return err
+	}
+
+	// It's ok to call block by hash here as the utreexo state consistency hash is always
+	// included in the best chain.
+	lastFlushHeight, err := idx.chain.BlockHeightByHash(hash)
+	if err != nil {
+		return err
+	}
+
+	// If the last flushed utreexo state is the last or greater than the kept block,
+	// we can sync up to the tip so a flush is not required.
+	if lastKeptHeight <= lastFlushHeight {
+		return nil
+	}
+
+	// It's ok to fetch the best snapshot here as the block called on pruneblock has not
+	// been yet connected yet on the utreexo state. So this is indeed the correct hash.
+	bestHash := idx.chain.BestSnapshot().Hash
+	return idx.Flush(&bestHash, blockchain.FlushRequired, true)
 }
 
 // FetchUtreexoProof returns the Utreexo proof data for the given block height.
