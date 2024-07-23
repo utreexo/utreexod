@@ -170,6 +170,20 @@ func (ms *NodesMapSlice) DeleteMaps() {
 	}
 }
 
+// ClearMaps clears all maps
+//
+// This function is safe for concurrent access.
+func (ms *NodesMapSlice) ClearMaps() {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	for i := range ms.maps {
+		for key := range ms.maps[i] {
+			delete(ms.maps[i], key)
+		}
+	}
+}
+
 // ForEach loops through all the elements in the nodes map slice and calls fn with the key-value pairs.
 //
 // This function is safe for concurrent access.
