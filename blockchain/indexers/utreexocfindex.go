@@ -175,7 +175,7 @@ func (idx *UtreexoCFIndex) fetchUtreexoRoots(dbTx database.Tx,
 	var roots []*chainhash.Hash
 
 	// For compact state nodes
-	if idx.chain.IsUtreexoViewActive() && idx.chain.IsAssumeUtreexo() {
+	if idx.chain.IsUtreexoViewActive() {
 		viewPoint, err := idx.chain.FetchUtreexoViewpoint(blockHash)
 		if err != nil {
 			return nil, 0, err
