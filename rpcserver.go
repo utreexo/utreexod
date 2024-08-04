@@ -2396,14 +2396,7 @@ func handleGetCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) 
 
 	var filterBytes []byte
 	if c.FilterType == wire.UtreexoCFilter {
-		err = s.cfg.DB.View(func(dbTx database.Tx) error {
-			var err error
-			filterBytes, err = s.cfg.UtreexoCfIndex.FilterByBlockHash(dbTx, hash, c.FilterType)
-			return err
-		})
-		if err != nil {
-			return nil, rpcNoTxInfoError(hash)
-		}
+		filterBytes, err = s.cfg.UtreexoCfIndex.FilterByBlockHash(hash, c.FilterType)
 	} else {
 		filterBytes, err = s.cfg.CfIndex.FilterByBlockHash(hash, c.FilterType)
 	}
@@ -2423,10 +2416,10 @@ func handleGetCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) 
 
 // handleGetCFilterHeader implements the getcfilterheader command.
 func handleGetCFilterHeader(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
-	if s.cfg.CfIndex == nil {
+	if s.cfg.CfIndex == nil && s.cfg.UtreexoCfIndex != nil {
 		return nil, &btcjson.RPCError{
 			Code:    btcjson.ErrRPCNoCFIndex,
-			Message: "The CF index must be enabled for this command",
+			Message: "One of CF index or Utreexo CF index must be enabled for this command",
 		}
 	}
 
@@ -2436,7 +2429,13 @@ func handleGetCFilterHeader(s *rpcServer, cmd interface{}, closeChan <-chan stru
 		return nil, rpcDecodeHexError(c.Hash)
 	}
 
-	headerBytes, err := s.cfg.CfIndex.FilterHeaderByBlockHash(hash, c.FilterType)
+	var headerBytes []byte
+	if c.FilterType == wire.GCSFilterRegular {
+		headerBytes, err = s.cfg.CfIndex.FilterHeaderByBlockHash(hash, c.FilterType)
+	} else if c.FilterType == wire.UtreexoCFilter {
+		headerBytes, err = s.cfg.UtreexoCfIndex.FilterHeaderByBlockHash(hash, c.FilterType)
+
+	}
 	if len(headerBytes) > 0 {
 		rpcsLog.Debugf("Found header of committed filter for %v", hash)
 	} else {
