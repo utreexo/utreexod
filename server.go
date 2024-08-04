@@ -1076,7 +1076,7 @@ func (sp *serverPeer) OnGetCFHeaders(_ *peer.Peer, msg *wire.MsgGetCFHeaders) {
 
 			// Fetch the raw committed filter header bytes from the
 			// database.
-			headerBytes, err := sp.server.cfIndex.FilterHeaderByBlockHash(
+			headerBytes, err := sp.server.utreexoCfIndex.FilterHeaderByBlockHash(
 				prevBlockHash, msg.FilterType)
 			if err != nil {
 				peerLog.Errorf("Error retrieving CF header: %v", err)
