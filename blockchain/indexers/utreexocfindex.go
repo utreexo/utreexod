@@ -244,26 +244,48 @@ func (idx *UtreexoCFIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Has
 
 // entryByBlockHash fetches a filter index entry of a particular type
 // (eg. filter, filter header, etc) for a filter type and block hash.
-func (idx *UtreexoCFIndex) entryByBlockHash(dbTx database.Tx,
+func (idx *UtreexoCFIndex) entryByBlockHash(filterTypeKeys [][]byte,
 	filterType wire.FilterType, h *chainhash.Hash) ([]byte, error) {
 
 	if uint8(filterType) != uint8(wire.UtreexoCFilter) {
 		return nil, errors.New("unsupported filter type")
 	}
 
-	roots, leaves, err := idx.fetchUtreexoRoots(dbTx, h)
+	// if the filtertype keys is empty, then we are fetching the filter data itself
+	// if not, we are fetching the filter header
+	if len(filterTypeKeys) == 0 {
+		var serializedUtreexo []byte
+		err := idx.db.View(func(dbTx database.Tx) error {
+			var err error
+			roots, leaves, err := idx.fetchUtreexoRoots(dbTx, h)
 
-	if err != nil {
-		return nil, err
+			if err != nil {
+				return err
+			}
+			// serialize the hashes of the utreexo roots hash
+			serializedUtreexo, err = blockchain.SerializeUtreexoRootsHash(leaves, roots)
+			return err
+		})
+
+		// serialize the hashes of the utreexo roots hash
+		// serializedUtreexo, err := blockchain.SerializeUtreexoRootsHash(leaves, roots)
+		if err != nil {
+			return nil, err
+		}
+
+		return serializedUtreexo, err
+	} else {
+		// using filtertypekeys[0] as there is only one entry in the filterTypeKeys (utreexoCfHeaderKeys)
+		key := filterTypeKeys[0]
+
+		var entry []byte
+		err := idx.db.View(func(dbTx database.Tx) error {
+			var err error
+			entry, err = dbFetchUtreexoCFilterIdxEntry(dbTx, key, h)
+			return err
+		})
+		return entry, err
 	}
-
-	// serialize the hashes of the utreexo roots hash
-	serializedUtreexo, err := blockchain.SerializeUtreexoRootsHash(leaves, roots)
-	if err != nil {
-		return nil, err
-	}
-
-	return serializedUtreexo, err
 }
 
 // entriesByBlockHashes batch fetches a filter index entry of a particular type
@@ -296,9 +318,19 @@ func (idx *UtreexoCFIndex) entriesByBlockHashes(filterTypeKeys [][]byte,
 
 // FilterByBlockHash returns the serialized contents of a block's utreexo
 // cfilter.
-func (idx *UtreexoCFIndex) FilterByBlockHash(dbTx database.Tx, h *chainhash.Hash,
+func (idx *UtreexoCFIndex) FilterByBlockHash(h *chainhash.Hash,
 	filterType wire.FilterType) ([]byte, error) {
-	return idx.entryByBlockHash(dbTx, filterType, h)
+	// we create an ampty variable of type [][]byte to pass to the entryByBlockHash
+	// in order to fetch the filter data itself
+	utreexoCfIndexKeys := [][]byte{}
+	return idx.entryByBlockHash(utreexoCfIndexKeys, filterType, h)
+}
+
+// FilterHeaderByBlockHash returns the serialized contents of a block's utreexo
+// committed filter header.
+func (idx *UtreexoCFIndex) FilterHeaderByBlockHash(h *chainhash.Hash,
+	filterType wire.FilterType) ([]byte, error) {
+	return idx.entryByBlockHash(utreexoCfHeaderKeys, filterType, h)
 }
 
 // FilterHeadersByBlockHashes returns the serialized contents of a block's
