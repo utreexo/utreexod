@@ -1216,6 +1216,7 @@ func (sp *serverPeer) OnGetCFCheckpt(_ *peer.Peer, msg *wire.MsgGetCFCheckpt) {
 	// checkpoints for filters that we actually currently maintain.
 	switch msg.FilterType {
 	case wire.GCSFilterRegular:
+	case wire.UtreexoCFilter:
 		break
 
 	default:
@@ -1311,11 +1312,21 @@ func (sp *serverPeer) OnGetCFCheckpt(_ *peer.Peer, msg *wire.MsgGetCFCheckpt) {
 	for i := forkIdx; i < len(blockHashes); i++ {
 		blockHashPtrs = append(blockHashPtrs, &blockHashes[i])
 	}
-	filterHeaders, err := sp.server.cfIndex.FilterHeadersByBlockHashes(
-		blockHashPtrs, msg.FilterType,
-	)
-	if err != nil {
-		peerLog.Errorf("Error retrieving cfilter headers: %v", err)
+	var filterHeaders [][]byte
+	var filterHeaderErr error
+
+	if msg.FilterType == wire.GCSFilterRegular {
+		filterHeaders, filterHeaderErr = sp.server.cfIndex.FilterHeadersByBlockHashes(
+			blockHashPtrs, msg.FilterType,
+		)
+	} else if msg.FilterType == wire.UtreexoCFilter {
+		filterHeaders, filterHeaderErr = sp.server.utreexoCfIndex.FilterHeadersByBlockHashes(
+			blockHashPtrs, msg.FilterType,
+		)
+	}
+
+	if filterHeaderErr != nil {
+		peerLog.Errorf("Error retrieving cfilter headers: %v", filterHeaderErr)
 		return
 	}
 
