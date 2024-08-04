@@ -34,6 +34,9 @@ var (
 
 // dbFetchFilterIdxEntry retrieves a data blob from the filter index database.
 // An entry's absence is not considered an error.
+// Right now, the value of 'key' will always be the key to the utreexocfheader key
+// as we don't need to fetch filters or filter hashes from the main bucket, as those
+// are not stored
 func dbFetchUtreexoCFilterIdxEntry(dbTx database.Tx, key []byte, h *chainhash.Hash) ([]byte, error) {
 	idx := dbTx.Metadata().Bucket(utreexoCFIndexParentBucketKey).Bucket(key)
 	return idx.Get(h[:]), nil
@@ -263,11 +266,46 @@ func (idx *UtreexoCFIndex) entryByBlockHash(dbTx database.Tx,
 	return serializedUtreexo, err
 }
 
+// entriesByBlockHashes batch fetches a filter index entry of a particular type
+// (eg. filter, filter header, etc) for a filter type and slice of block hashes.
+func (idx *UtreexoCFIndex) entriesByBlockHashes(filterTypeKeys [][]byte,
+	filterType wire.FilterType, blockHashes []*chainhash.Hash) ([][]byte, error) {
+
+	if uint8(filterType) != uint8(wire.UtreexoCFilter) {
+		return nil, errors.New("unsupported filter type")
+	}
+
+	// we use filterTypeKeys[0] as the key for the utreexo cfilter since for now,
+	// there is only one type of utreexo cfilter and the filterTypeKeys always
+	// returns the filterheaderkeys, which has just the one value
+	key := filterTypeKeys[0]
+
+	entries := make([][]byte, 0, len(blockHashes))
+	err := idx.db.View(func(dbTx database.Tx) error {
+		for _, blockHash := range blockHashes {
+			entry, err := dbFetchUtreexoCFilterIdxEntry(dbTx, key, blockHash)
+			if err != nil {
+				return err
+			}
+			entries = append(entries, entry)
+		}
+		return nil
+	})
+	return entries, err
+}
+
 // FilterByBlockHash returns the serialized contents of a block's utreexo
 // cfilter.
 func (idx *UtreexoCFIndex) FilterByBlockHash(dbTx database.Tx, h *chainhash.Hash,
 	filterType wire.FilterType) ([]byte, error) {
 	return idx.entryByBlockHash(dbTx, filterType, h)
+}
+
+// FilterHeadersByBlockHashes returns the serialized contents of a block's
+// utreexo commited filter header for a set of blocks by hash.
+func (idx *UtreexoCFIndex) FilterHeadersByBlockHashes(blockHashes []*chainhash.Hash,
+	filterType wire.FilterType) ([][]byte, error) {
+	return idx.entriesByBlockHashes(utreexoCfHeaderKeys, filterType, blockHashes)
 }
 
 // NewCfIndex returns a new instance of an indexer that is used to create a
