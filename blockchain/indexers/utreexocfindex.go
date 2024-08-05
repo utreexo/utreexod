@@ -340,9 +340,9 @@ func (idx *UtreexoCFIndex) FilterHeadersByBlockHashes(blockHashes []*chainhash.H
 	return idx.entriesByBlockHashes(utreexoCfHeaderKeys, filterType, blockHashes)
 }
 
-// NewCfIndex returns a new instance of an indexer that is used to create a
+// NewUtreexoCfIndex returns a new instance of an indexer that is used to create a
 // mapping of the hashes of all blocks in the blockchain to their respective
-// committed filters.
+// utreexo committed filters.
 //
 // It implements the Indexer interface which plugs into the IndexManager that
 // in turn is used by the blockchain package. This allows the index to be
@@ -353,12 +353,12 @@ func NewUtreexoCfIndex(db database.DB, chainParams *chaincfg.Params, utreexoProo
 		flatUtreexoProofIndex: flatUtreexoProofIndex}
 }
 
-// DropCfIndex drops the CF index from the provided database if exists.
+// DropUtreexoCfIndex drops the utreexo CF index from the provided database if exists.
 func DropUtreexoCfIndex(db database.DB, interrupt <-chan struct{}) error {
 	return dropIndex(db, utreexoCFIndexParentBucketKey, utreexoCFIndexName, interrupt)
 }
 
-// CfIndexInitialized returns true if the cfindex has been created previously.
+// UtreexoCfIndexInitialized returns true if the utreexocfindex has been created previously.
 func UtreexoCfIndexInitialized(db database.DB) bool {
 	var exists bool
 	db.View(func(dbTx database.Tx) error {
