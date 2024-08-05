@@ -12,9 +12,9 @@ import (
 	"github.com/utreexo/utreexod/wire"
 )
 
-// utreexoProofIndexName is the human-readable name for the index.
+// utreexoCFIndexName is the human-readable name for the index.
 const (
-	utreexoCFIndexName = "utreexo custom cfilter index"
+	utreexoCFIndexName = "utreexo custom commited filter index"
 )
 
 // utreexocfilter is a custom commited filter which serves utreexo roots
