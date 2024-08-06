@@ -3415,12 +3415,6 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		s.cfIndex = indexers.NewCfIndex(db, chainParams)
 		indexes = append(indexes, s.cfIndex)
 	}
-	if cfg.UtreexoCFilters {
-		indxLog.Info("Utreexo C filter index enabled")
-		s.utreexoCfIndex = indexers.NewUtreexoCfIndex(db, chainParams,
-			s.utreexoProofIndex, s.flatUtreexoProofIndex)
-		indexes = append(indexes, s.utreexoCfIndex)
-	}
 	if cfg.TTLIndex {
 		indxLog.Info("TTL index is enabled")
 		s.ttlIndex = indexers.NewTTLIndex(db, chainParams)
@@ -3454,6 +3448,12 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			return nil, err
 		}
 		indexes = append(indexes, s.flatUtreexoProofIndex)
+	}
+	if cfg.UtreexoCFilters {
+		indxLog.Info("Utreexo C filter index enabled")
+		s.utreexoCfIndex = indexers.NewUtreexoCfIndex(db, chainParams,
+			s.utreexoProofIndex, s.flatUtreexoProofIndex)
+		indexes = append(indexes, s.utreexoCfIndex)
 	}
 
 	// Create an index manager if any of the optional indexes are enabled.
@@ -3801,6 +3801,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			TxIndex:               s.txIndex,
 			AddrIndex:             s.addrIndex,
 			CfIndex:               s.cfIndex,
+			UtreexoCfIndex:        s.utreexoCfIndex,
 			TTLIndex:              s.ttlIndex,
 			UtreexoProofIndex:     s.utreexoProofIndex,
 			FlatUtreexoProofIndex: s.flatUtreexoProofIndex,
