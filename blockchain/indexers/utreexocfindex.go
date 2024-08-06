@@ -75,7 +75,8 @@ func (idx *UtreexoCFIndex) NeedsInputs() bool {
 
 // Init initializes the utreexo cf index. This is part of the Indexer
 // interface.
-func (idx *UtreexoCFIndex) Init(_ *blockchain.BlockChain) error {
+func (idx *UtreexoCFIndex) Init(chain *blockchain.BlockChain) error {
+	idx.chain = chain
 	return nil // Nothing to do.
 }
 
