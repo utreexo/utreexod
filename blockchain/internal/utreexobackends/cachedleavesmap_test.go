@@ -62,7 +62,7 @@ func TestCachedLeaveMapSliceDuplicates(t *testing.T) {
 	}
 
 	// Make sure the length of the map is 1 less than the max elems.
-	if m.Length() != int(maxElems)-1 {
+	if m.Length()-len(m.overflow) != int(maxElems)-1 {
 		t.Fatalf("expected length of %v but got %v",
 			maxElems-1, m.Length())
 	}
@@ -71,8 +71,13 @@ func TestCachedLeaveMapSliceDuplicates(t *testing.T) {
 	if !m.Put(uint64ToHash(0), 0) {
 		t.Fatalf("didn't expect error but unsuccessfully called put")
 	}
-	if m.Length() != int(maxElems) {
+	if m.Length()-len(m.overflow) != int(maxElems) {
 		t.Fatalf("expected length of %v but got %v",
 			maxElems, m.Length())
+	}
+
+	if len(m.overflow) != 1 {
+		t.Fatalf("expected length of %v but got %v",
+			1, len(m.overflow))
 	}
 }

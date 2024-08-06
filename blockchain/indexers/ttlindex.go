@@ -41,7 +41,7 @@ func (idx *TTLIndex) NeedsInputs() bool {
 
 // Init initializes the time to live index. This is part of the Indexer
 // interface.
-func (idx *TTLIndex) Init(_ *blockchain.BlockChain) error {
+func (idx *TTLIndex) Init(_ *blockchain.BlockChain, _ *chainhash.Hash, _ int32) error {
 	return nil // Nothing to do.
 }
 
@@ -97,7 +97,14 @@ func (idx *TTLIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 // supported with pruning.
 //
 // This is part of the Indexer interface.
-func (idx *TTLIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+func (idx *TTLIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, _ int32) error {
+	return nil
+}
+
+// For TTLIndex, flush is a no-op.
+//
+// This is part of the Indexer interface.
+func (idx *TTLIndex) Flush(_ *chainhash.Hash, _ blockchain.FlushMode, _ bool) error {
 	return nil
 }
 

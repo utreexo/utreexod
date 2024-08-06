@@ -70,17 +70,17 @@ func createDB(dbName string) (database.DB, string, error) {
 	return db, dbPath, nil
 }
 
-func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincfg.Params) (
+func initIndexes(interval int32, dbPath string, db database.DB, params *chaincfg.Params) (
 	*Manager, []Indexer, error) {
 
 	proofGenInterval := new(int32)
 	*proofGenInterval = interval
-	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, proofGenInterval, 50*1024*1024, dbPath)
+	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, proofGenInterval, 50*1024*1024, dbPath, db.Flush)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	utreexoProofIndex, err := NewUtreexoProofIndex(*db, false, 50*1024*1024, params, dbPath)
+	utreexoProofIndex, err := NewUtreexoProofIndex(db, false, 50*1024*1024, params, dbPath, db.Flush)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,7 +89,7 @@ func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincf
 		utreexoProofIndex,
 		flatUtreexoProofIndex,
 	}
-	indexManager := NewManager(*db, indexes)
+	indexManager := NewManager(db, indexes)
 	return indexManager, indexes, nil
 }
 
@@ -109,7 +109,7 @@ func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.Blo
 	}
 
 	// Create the indexes to be used in the chain.
-	indexManager, indexes, err := initIndexes(proofGenInterval, dbPath, &db, &params)
+	indexManager, indexes, err := initIndexes(proofGenInterval, dbPath, db, &params)
 	if err != nil {
 		tearDown()
 		os.RemoveAll(testDbRoot)
@@ -130,14 +130,6 @@ func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.Blo
 		tearDown()
 		os.RemoveAll(testDbRoot)
 		panic(fmt.Errorf("failed to create chain instance: %v", err))
-	}
-
-	// Init the indexes.
-	err = indexManager.Init(chain, nil)
-	if err != nil {
-		tearDown()
-		os.RemoveAll(testDbRoot)
-		panic(fmt.Errorf("failed to init indexs: %v", err))
 	}
 
 	return chain, indexes, &params, indexManager, tearDown
@@ -203,7 +195,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 					return err
 				}
 
-				if !idxType.pruned {
+				if !idxType.config.Pruned {
 					utreexoUD, err = idxType.FetchUtreexoProof(block.Hash())
 					if err != nil {
 						return err
@@ -222,7 +214,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 
 			case *FlatUtreexoProofIndex:
 				var err error
-				if !idxType.pruned {
+				if !idxType.config.Pruned {
 					flatUD, err = idxType.FetchUtreexoProof(b, false)
 					if err != nil {
 						return err
@@ -1033,7 +1025,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			idxType.pruned = true
+			idxType.config.Pruned = true
 
 		case *UtreexoProofIndex:
 			for height := int32(1); height <= maxHeight; height++ {
@@ -1047,10 +1039,26 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			idxType.pruned = true
+			idxType.config.Pruned = true
 		}
 	}
 
+	// Close the databases so that they can be initialized again
+	// to generate the undo data.
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			err := idxType.CloseUtreexoState()
+			if err != nil {
+				t.Fatal(err)
+			}
+		case *UtreexoProofIndex:
+			err := idxType.CloseUtreexoState()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	// Here we generate the undo data and delete the proof files.
 	err = indexManager.Init(chain, nil)
 	if err != nil {

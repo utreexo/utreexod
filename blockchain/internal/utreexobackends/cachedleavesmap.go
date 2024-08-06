@@ -26,6 +26,9 @@ type CachedLeavesMapSlice struct {
 	// maps are the underlying maps in the slice of maps.
 	maps []map[utreexo.Hash]uint64
 
+	// overflow puts the overflowed entries.
+	overflow map[utreexo.Hash]uint64
+
 	// maxEntries is the maximum amount of elemnts that the map is allocated for.
 	maxEntries []int
 
@@ -46,6 +49,8 @@ func (ms *CachedLeavesMapSlice) Length() int {
 		l += len(m)
 	}
 
+	l += len(ms.overflow)
+
 	return l
 }
 
@@ -62,6 +67,13 @@ func (ms *CachedLeavesMapSlice) Get(k utreexo.Hash) (uint64, bool) {
 
 	for _, m := range ms.maps {
 		v, found = m[k]
+		if found {
+			return v, found
+		}
+	}
+
+	if len(ms.overflow) > 0 {
+		v, found = ms.overflow[k]
 		if found {
 			return v, found
 		}
@@ -88,6 +100,14 @@ func (ms *CachedLeavesMapSlice) Put(k utreexo.Hash, v uint64) bool {
 		}
 	}
 
+	if len(ms.overflow) > 0 {
+		_, found := ms.overflow[k]
+		if found {
+			ms.overflow[k] = v
+			return true
+		}
+	}
+
 	for i, maxNum := range ms.maxEntries {
 		m := ms.maps[i]
 		if len(m) >= maxNum {
@@ -100,6 +120,8 @@ func (ms *CachedLeavesMapSlice) Put(k utreexo.Hash, v uint64) bool {
 		m[k] = v
 		return true // Return as we were successful in adding the entry.
 	}
+
+	ms.overflow[k] = v
 
 	// We only reach this code if we've failed to insert into the map above as
 	// all the current maps were full.
@@ -117,6 +139,8 @@ func (ms *CachedLeavesMapSlice) Delete(k utreexo.Hash) {
 	for i := 0; i < len(ms.maps); i++ {
 		delete(ms.maps[i], k)
 	}
+
+	delete(ms.overflow, k)
 }
 
 // DeleteMaps deletes all maps and allocate new ones with the maxEntries defined in
@@ -131,6 +155,8 @@ func (ms *CachedLeavesMapSlice) DeleteMaps() {
 	for i := range ms.maxEntries {
 		ms.maps[i] = make(map[utreexo.Hash]uint64, ms.maxEntries[i])
 	}
+
+	ms.overflow = make(map[utreexo.Hash]uint64)
 }
 
 // ClearMaps clears all maps
@@ -150,15 +176,29 @@ func (ms *CachedLeavesMapSlice) ClearMaps() {
 // ForEach loops through all the elements in the cachedleaves map slice and calls fn with the key-value pairs.
 //
 // This function is safe for concurrent access.
-func (ms *CachedLeavesMapSlice) ForEach(fn func(utreexo.Hash, uint64)) {
+func (ms *CachedLeavesMapSlice) ForEach(fn func(utreexo.Hash, uint64) error) error {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
 	for _, m := range ms.maps {
 		for k, v := range m {
-			fn(k, v)
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
 		}
 	}
+
+	if len(ms.overflow) > 0 {
+		for k, v := range ms.overflow {
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // createMaps creates a slice of maps and returns the total count that the maps
@@ -187,7 +227,14 @@ func (ms *CachedLeavesMapSlice) createMaps(maxMemoryUsage int64) int64 {
 		ms.maps[i] = make(map[utreexo.Hash]uint64, ms.maxEntries[i])
 	}
 
+	ms.overflow = make(map[utreexo.Hash]uint64)
+
 	return int64(totalElemCount)
+}
+
+// Overflowed returns true if the map slice overflowed.
+func (ms *CachedLeavesMapSlice) Overflowed() bool {
+	return len(ms.overflow) > 0
 }
 
 // NewCachedLeavesMapSlice returns a new CachedLeavesMapSlice and the total amount of elements

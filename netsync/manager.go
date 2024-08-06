@@ -837,14 +837,19 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// flush the blockchain cache because we don't expect new blocks immediately.
 	// After that, there is nothing more to do.
 	if !sm.headersFirstMode {
+		// Flush relevant indexes.
+		if err := sm.chain.FlushIndexes(blockchain.FlushPeriodic, true); err != nil {
+			log.Errorf("Error while flushing the blockchain cache: %v", err)
+		}
 		// Only flush if utreexoView is not active since a utreexo node does
 		// not have a utxo cache.
 		if !sm.chain.IsUtreexoViewActive() {
 			if err := sm.chain.FlushUtxoCache(blockchain.FlushPeriodic); err != nil {
 				log.Errorf("Error while flushing the blockchain cache: %v", err)
 			}
-			return
 		}
+
+		return
 	}
 
 	// This is headers-first mode, so if the block is not a checkpoint

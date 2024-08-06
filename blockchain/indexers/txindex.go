@@ -294,7 +294,7 @@ var _ Indexer = (*TxIndex)(nil)
 // disconnecting blocks.
 //
 // This is part of the Indexer interface.
-func (idx *TxIndex) Init(_ *blockchain.BlockChain) error {
+func (idx *TxIndex) Init(_ *blockchain.BlockChain, _ *chainhash.Hash, _ int32) error {
 	// Find the latest known block id field for the internal block id
 	// index and initialize it.  This is done because it's a lot more
 	// efficient to do a single search at initialize time than it is to
@@ -437,7 +437,14 @@ func (idx *TxIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 // supported with pruning.
 //
 // This is part of the Indexer interface.
-func (idx *TxIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+func (idx *TxIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, _ int32) error {
+	return nil
+}
+
+// NOTE: For TxIndex, flush is a no-op.
+//
+// This is part of the Indexer interface.
+func (idx *TxIndex) Flush(_ *chainhash.Hash, _ blockchain.FlushMode, _ bool) error {
 	return nil
 }
 
