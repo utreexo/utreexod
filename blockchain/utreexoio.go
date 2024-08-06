@@ -16,6 +16,9 @@ import (
 // leafLength is the length of a seriailzed leaf.
 const leafLength = chainhash.HashSize + 1
 
+// buffer size for VLQ serialization.  Double the size needed to serialize 2^64
+const vlqBufSize = 22
+
 // serializeLeaf serializes the leaf to [leafLength]byte.
 func serializeLeaf(leaf utreexo.Leaf) [leafLength]byte {
 	var buf [leafLength]byte
@@ -68,12 +71,11 @@ func InitNodesBackEnd(datadir string, maxTotalMemoryUsage int64) (*NodesBackEnd,
 
 // dbPut serializes and puts the key value pair into the database.
 func (m *NodesBackEnd) dbPut(k uint64, v utreexo.Leaf) error {
-	size := serializeSizeVLQ(k)
-	buf := make([]byte, size)
-	putVLQ(buf, k)
+	var buf [vlqBufSize]byte
+	size := putVLQ(buf[:], k)
 
 	serialized := serializeLeaf(v)
-	return m.db.Put(buf[:], serialized[:], nil)
+	return m.db.Put(buf[:size], serialized[:], nil)
 }
 
 // dbGet fetches the value from the database and deserializes it and returns
@@ -98,10 +100,9 @@ func (m *NodesBackEnd) dbGet(k uint64) (utreexo.Leaf, bool) {
 
 // dbDel removes the key from the database.
 func (m *NodesBackEnd) dbDel(k uint64) error {
-	size := serializeSizeVLQ(k)
-	buf := make([]byte, size)
-	putVLQ(buf, k)
-	return m.db.Delete(buf, nil)
+	var buf [vlqBufSize]byte
+	size := putVLQ(buf[:], k)
+	return m.db.Delete(buf[:size], nil)
 }
 
 // Get returns the leaf from the underlying map.
@@ -276,7 +277,7 @@ func (m *NodesBackEnd) flush() {
 		}
 	})
 
-	m.cache.DeleteMaps()
+	m.cache.ClearMaps()
 }
 
 // Close flushes the cache and closes the underlying database.
@@ -298,10 +299,9 @@ type CachedLeavesBackEnd struct {
 
 // dbPut serializes and puts the key and the value into the database.
 func (m *CachedLeavesBackEnd) dbPut(k utreexo.Hash, v uint64) error {
-	size := serializeSizeVLQ(v)
-	buf := make([]byte, size)
-	putVLQ(buf, v)
-	return m.db.Put(k[:], buf, nil)
+	var buf [vlqBufSize]byte
+	size := putVLQ(buf[:], v)
+	return m.db.Put(k[:], buf[:size], nil)
 }
 
 // dbGet fetches and deserializes the value from the database.
@@ -411,7 +411,7 @@ func (m *CachedLeavesBackEnd) flush() {
 		}
 	})
 
-	m.cache.DeleteMaps()
+	m.cache.ClearMaps()
 }
 
 // Close flushes all the cached entries and then closes the underlying database.
