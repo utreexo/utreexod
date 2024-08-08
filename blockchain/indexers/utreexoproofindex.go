@@ -648,6 +648,9 @@ func dbStoreUtreexoState(dbTx database.Tx, hash *chainhash.Hash, p utreexo.Utree
 func dbFetchUtreexoState(dbTx database.Tx, hash *chainhash.Hash) (utreexo.Stump, error) {
 	stateBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoStateKey)
 	serialized := stateBucket.Get(hash[:])
+	if serialized == nil {
+		return utreexo.Stump{}, nil
+	}
 
 	numLeaves, roots, err := blockchain.DeserializeUtreexoRoots(serialized)
 	if err != nil {
