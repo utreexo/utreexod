@@ -158,6 +158,8 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getchaintips":                       handleGetChainTips,
 	"getcfilter":                         handleGetCFilter,
 	"getcfilterheader":                   handleGetCFilterHeader,
+	"getutreexocfilter":                  handleGetUtreexoCFilter,
+	"getutreexocfilterheader":            handleGetUtreexoCFilterHeader,
 	"getconnectioncount":                 handleGetConnectionCount,
 	"getcurrentnet":                      handleGetCurrentNet,
 	"getdifficulty":                      handleGetDifficulty,
@@ -294,6 +296,8 @@ var rpcLimited = map[string]struct{}{
 	"getchaintips":               {},
 	"getcfilter":                 {},
 	"getcfilterheader":           {},
+	"getutreexocfilter":          {},
+	"getutreexocfilterheader":    {},
 	"getcurrentnet":              {},
 	"getdifficulty":              {},
 	"getheaders":                 {},
@@ -2381,7 +2385,7 @@ func handleGetChainTips(s *rpcServer, cmd interface{}, closeChan <-chan struct{}
 
 // handleGetCFilter implements the getcfilter command.
 func handleGetCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
-	if s.cfg.CfIndex == nil || s.cfg.UtreexoCfIndex != nil {
+	if s.cfg.CfIndex == nil {
 		return nil, &btcjson.RPCError{
 			Code:    btcjson.ErrRPCNoCFIndex,
 			Message: "The CF index must be enabled for this command",
@@ -2394,12 +2398,7 @@ func handleGetCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) 
 		return nil, rpcDecodeHexError(c.Hash)
 	}
 
-	var filterBytes []byte
-	if c.FilterType == wire.UtreexoCFilter {
-		filterBytes, err = s.cfg.UtreexoCfIndex.FilterByBlockHash(hash, c.FilterType)
-	} else {
-		filterBytes, err = s.cfg.CfIndex.FilterByBlockHash(hash, c.FilterType)
-	}
+	filterBytes, err := s.cfg.CfIndex.FilterByBlockHash(hash, c.FilterType)
 
 	if err != nil {
 		rpcsLog.Debugf("Could not find committed filter for %v: %v",
@@ -2416,10 +2415,10 @@ func handleGetCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) 
 
 // handleGetCFilterHeader implements the getcfilterheader command.
 func handleGetCFilterHeader(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
-	if s.cfg.CfIndex == nil && s.cfg.UtreexoCfIndex != nil {
+	if s.cfg.CfIndex == nil {
 		return nil, &btcjson.RPCError{
 			Code:    btcjson.ErrRPCNoCFIndex,
-			Message: "One of CF index or Utreexo CF index must be enabled for this command",
+			Message: "The CF index must be enabled for this command",
 		}
 	}
 
@@ -2429,17 +2428,74 @@ func handleGetCFilterHeader(s *rpcServer, cmd interface{}, closeChan <-chan stru
 		return nil, rpcDecodeHexError(c.Hash)
 	}
 
-	var headerBytes []byte
-	if c.FilterType == wire.GCSFilterRegular {
-		headerBytes, err = s.cfg.CfIndex.FilterHeaderByBlockHash(hash, c.FilterType)
-	} else if c.FilterType == wire.UtreexoCFilter {
-		headerBytes, err = s.cfg.UtreexoCfIndex.FilterHeaderByBlockHash(hash, c.FilterType)
+	headerBytes, err := s.cfg.CfIndex.FilterHeaderByBlockHash(hash, c.FilterType)
 
-	}
 	if len(headerBytes) > 0 {
 		rpcsLog.Debugf("Found header of committed filter for %v", hash)
 	} else {
 		rpcsLog.Debugf("Could not find header of committed filter for %v: %v",
+			hash, err)
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCBlockNotFound,
+			Message: "Block not found",
+		}
+	}
+
+	hash.SetBytes(headerBytes)
+	return hash.String(), nil
+}
+
+// handleGetCFilter implements the getcfilter command.
+func handleGetUtreexoCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	if s.cfg.UtreexoCfIndex == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCNoCFIndex,
+			Message: "The utreexo CF index must be enabled for this command",
+		}
+	}
+
+	c := cmd.(*btcjson.GetCFilterCmd)
+	hash, err := chainhash.NewHashFromStr(c.Hash)
+	if err != nil {
+		return nil, rpcDecodeHexError(c.Hash)
+	}
+
+	filterBytes, err := s.cfg.UtreexoCfIndex.FilterByBlockHash(hash, c.FilterType)
+
+	if err != nil {
+		rpcsLog.Debugf("Could not find utreexo committed filter for %v: %v",
+			hash, err)
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCBlockNotFound,
+			Message: "Block not found",
+		}
+	}
+
+	rpcsLog.Debugf("Found utreexo committed filter for %v", hash)
+	return hex.EncodeToString(filterBytes), nil
+}
+
+// handleGetCFilterHeader implements the getcfilterheader command.
+func handleGetUtreexoCFilterHeader(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	if s.cfg.UtreexoCfIndex == nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCNoCFIndex,
+			Message: "Utreexo CF index must be enabled for this command",
+		}
+	}
+
+	c := cmd.(*btcjson.GetCFilterHeaderCmd)
+	hash, err := chainhash.NewHashFromStr(c.Hash)
+	if err != nil {
+		return nil, rpcDecodeHexError(c.Hash)
+	}
+
+	headerBytes, err := s.cfg.UtreexoCfIndex.FilterHeaderByBlockHash(hash, c.FilterType)
+
+	if len(headerBytes) > 0 {
+		rpcsLog.Debugf("Found header of utreexo committed filter for %v", hash)
+	} else {
+		rpcsLog.Debugf("Could not find header of utreexo committed filter for %v: %v",
 			hash, err)
 		return nil, &btcjson.RPCError{
 			Code:    btcjson.ErrRPCBlockNotFound,
