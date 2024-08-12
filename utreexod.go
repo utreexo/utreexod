@@ -97,7 +97,7 @@ func pruneChecks(db database.DB) error {
 	// If we've previously been pruned and the utreexocfindex isn't present, it means that the
 	// user wants to enable the utreexocfindex after the node has already synced up while being pruned.
 	if beenPruned && !indexers.UtreexoCfIndexInitialized(db) && cfg.UtreexoCFilters {
-		return fmt.Errorf("utreeco cfilters cannot be enabled as the node has been "+
+		return fmt.Errorf("utreexo cfilters cannot be enabled as the node has been "+
 			"previously pruned. You must delete the files in the datadir: \"%s\" "+
 			"and sync from the beginning to enable the desired index. You may "+
 			"start the node up without the --utreexocfilters flag", cfg.DataDir)
@@ -319,6 +319,7 @@ func btcdMain(serverChan chan<- *server) error {
 			btcdLog.Errorf("%v", err)
 			return err
 		}
+		return nil
 	}
 	if cfg.DropTTLIndex {
 		if err := indexers.DropTTLIndex(db, interrupt); err != nil {
