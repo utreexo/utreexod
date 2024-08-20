@@ -62,6 +62,8 @@ type UtreexoCFIndex struct {
 	db          database.DB
 	chainParams *chaincfg.Params
 
+	noUtreexo bool
+
 	chain *blockchain.BlockChain
 
 	utreexoProofIndex *UtreexoProofIndex
@@ -179,16 +181,18 @@ func (idx *UtreexoCFIndex) fetchUtreexoRoots(dbTx database.Tx,
 	var roots []*chainhash.Hash
 
 	// For compact state nodes
-	if idx.chain.IsUtreexoViewActive() {
+	if !idx.noUtreexo {
 		viewPoint, err := idx.chain.FetchUtreexoViewpoint(blockHash)
 		if err != nil {
 			return nil, 0, err
 		}
 		roots = viewPoint.GetRoots()
 		leaves = viewPoint.NumLeaves()
+		return roots, leaves, nil
 	}
 	// for bridge nodes
 	if idx.utreexoProofIndex != nil {
+		// log.Infof("Is utreexoProofIndex JABURAT %v", blockHash)
 		roots, leaves, err := idx.utreexoProofIndex.FetchUtreexoState(dbTx, blockHash)
 		if err != nil {
 			return nil, 0, err
@@ -206,7 +210,10 @@ func (idx *UtreexoCFIndex) fetchUtreexoRoots(dbTx database.Tx,
 		return roots, leaves, nil
 	}
 
-	return roots, leaves, nil
+	leaves = 0
+	roots = nil
+
+	return roots, leaves, errors.New("unsupported filter type")
 }
 
 // DisconnectBlock is invoked by the index manager when a block has been
@@ -349,9 +356,9 @@ func (idx *UtreexoCFIndex) FilterHeadersByBlockHashes(blockHashes []*chainhash.H
 // in turn is used by the blockchain package. This allows the index to be
 // seamlessly maintained along with the chain.
 func NewUtreexoCfIndex(db database.DB, chainParams *chaincfg.Params, utreexoProofIndex *UtreexoProofIndex,
-	flatUtreexoProofIndex *FlatUtreexoProofIndex) *UtreexoCFIndex {
+	flatUtreexoProofIndex *FlatUtreexoProofIndex, noUtreexo bool) *UtreexoCFIndex {
 	return &UtreexoCFIndex{db: db, chainParams: chainParams, utreexoProofIndex: utreexoProofIndex,
-		flatUtreexoProofIndex: flatUtreexoProofIndex}
+		flatUtreexoProofIndex: flatUtreexoProofIndex, noUtreexo: noUtreexo}
 }
 
 // DropUtreexoCfIndex drops the utreexo CF index from the provided database if exists.
