@@ -3339,6 +3339,10 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		services |= wire.SFNodeUtreexo
 	}
 
+	if cfg.UtreexoCFilters {
+		services |= wire.SFNodeUtreexoCF
+	}
+
 	amgr := addrmgr.New(cfg.DataDir, btcdLookup)
 
 	var listeners []net.Listener
@@ -3452,7 +3456,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if cfg.UtreexoCFilters {
 		indxLog.Info("Utreexo C filter index enabled")
 		s.utreexoCfIndex = indexers.NewUtreexoCfIndex(db, chainParams,
-			s.utreexoProofIndex, s.flatUtreexoProofIndex)
+			s.utreexoProofIndex, s.flatUtreexoProofIndex, cfg.NoUtreexo)
 		indexes = append(indexes, s.utreexoCfIndex)
 	}
 
