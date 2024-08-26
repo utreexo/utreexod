@@ -155,6 +155,9 @@ func NodesBackendDelete(tx *leveldb.Transaction, k uint64) error {
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *NodesBackEnd) Delete(k uint64) {
+	// Don't delete as the same key may get called to be removed multiple times.
+	// Cache it as removed so that we don't call expensive flushes on keys that
+	// are not in the database.
 	leaf, _ := m.cache.Get(k)
 	l := utreexobackends.CachedLeaf{
 		Leaf:  leaf.Leaf,
@@ -254,15 +257,24 @@ func (m *NodesBackEnd) UsageStats() (int64, int64) {
 // flush saves all the cached entries to disk and resets the cache map.
 func (m *NodesBackEnd) Flush(ldbTx *leveldb.Transaction) error {
 	err := m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) error {
-		if v.IsRemoved() {
-			err := NodesBackendDelete(ldbTx, k)
-			if err != nil {
-				return err
+		if v.IsFresh() {
+			if !v.IsRemoved() {
+				err := NodesBackendPut(ldbTx, k, v.Leaf)
+				if err != nil {
+					return err
+				}
 			}
-		} else if v.IsFresh() || v.IsModified() {
-			err := NodesBackendPut(ldbTx, k, v.Leaf)
-			if err != nil {
-				return err
+		} else {
+			if v.IsRemoved() {
+				err := NodesBackendDelete(ldbTx, k)
+				if err != nil {
+					return err
+				}
+			} else if v.IsModified() {
+				err := NodesBackendPut(ldbTx, k, v.Leaf)
+				if err != nil {
+					return err
+				}
 			}
 		}
 
