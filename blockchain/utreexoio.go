@@ -94,8 +94,6 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 			return utreexo.Leaf{}, false
 		}
 
-		m.cache.Put(k, cLeaf)
-
 		// If we found it, return here.
 		return cLeaf.Leaf, true
 	}
