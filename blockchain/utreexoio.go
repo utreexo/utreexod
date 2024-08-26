@@ -6,7 +6,6 @@ package blockchain
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/utreexo/utreexo"
@@ -315,11 +314,11 @@ func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (uint64, bool) {
 	}
 	// Even if the entry was found, if the position value is math.MaxUint64,
 	// then it was already deleted.
-	if pos == math.MaxUint64 {
+	if pos.IsRemoved() {
 		return 0, false
 	}
 
-	return pos, found
+	return pos.Position, found
 }
 
 // CachedLeavesBackendPut puts a key-value pair in the given leveldb tx.
@@ -333,26 +332,36 @@ func CachedLeavesBackendPut(tx *leveldb.Transaction, k utreexo.Hash, v uint64) e
 // Put puts the given data to the underlying cache. If the cache is full, it evicts
 // the earliest entries to make room.
 func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
-	m.cache.Put(k, v)
+	m.cache.Put(k, utreexobackends.CachedPosition{
+		Position: v,
+		Flags:    utreexobackends.Fresh,
+	})
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
-	m.cache.Put(k, math.MaxUint64)
+	pos, found := m.cache.Get(k)
+	if found && pos.IsFresh() {
+		m.cache.Delete(k)
+		return
+	}
+	p := utreexobackends.CachedPosition{
+		Position: pos.Position,
+		Flags:    pos.Flags | utreexobackends.Removed,
+	}
+
+	m.cache.Put(k, p)
 }
 
 // Length returns the amount of items in the underlying db and the cache.
 func (m *CachedLeavesBackEnd) Length() int {
 	length := 0
-	m.cache.ForEach(func(k utreexo.Hash, v uint64) error {
+	m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
 		// Only operate on the entry if it's not removed and it's not already
 		// in the database.
-		if v != math.MaxUint64 {
-			_, found := m.dbGet(k)
-			if !found {
-				length++
-			}
+		if !v.IsRemoved() && v.IsFresh() {
+			length++
 		}
 		return nil
 	})
@@ -365,7 +374,7 @@ func (m *CachedLeavesBackEnd) Length() int {
 		}
 		k := iter.Key()
 		val, found := m.cache.Get(*(*[chainhash.HashSize]byte)(k))
-		if found && val == math.MaxUint64 {
+		if found && val.IsRemoved() {
 			// Skip if the key-value pair has already been removed in the cache.
 			continue
 		}
@@ -379,14 +388,11 @@ func (m *CachedLeavesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error {
-	m.cache.ForEach(func(k utreexo.Hash, v uint64) error {
+	m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
 		// Only operate on the entry if it's not removed and it's not already
 		// in the database.
-		if v != math.MaxUint64 {
-			_, found := m.dbGet(k)
-			if !found {
-				fn(k, v)
-			}
+		if !v.IsRemoved() && v.IsFresh() {
+			fn(k, v.Position)
 		}
 		return nil
 	})
@@ -401,7 +407,7 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 		// only valid until the next call to Next.
 		k := iter.Key()
 		val, found := m.cache.Get(*(*[chainhash.HashSize]byte)(k))
-		if found && val == math.MaxUint64 {
+		if found && val.IsRemoved() {
 			// Skip if the key-value pair has already been removed in the cache.
 			continue
 		}
@@ -428,14 +434,14 @@ func (m *CachedLeavesBackEnd) UsageStats() (int64, int64) {
 
 // Flush resets the cache and saves all the key values onto the database.
 func (m *CachedLeavesBackEnd) Flush(ldbTx *leveldb.Transaction) error {
-	err := m.cache.ForEach(func(k utreexo.Hash, v uint64) error {
-		if v == math.MaxUint64 {
+	err := m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
+		if v.IsRemoved() {
 			err := ldbTx.Delete(k[:], nil)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := CachedLeavesBackendPut(ldbTx, k, v)
+			err := CachedLeavesBackendPut(ldbTx, k, v.Position)
 			if err != nil {
 				return err
 			}
