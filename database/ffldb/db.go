@@ -2288,6 +2288,22 @@ func (db *db) Update(fn func(database.Tx) error) error {
 	return tx.Commit()
 }
 
+// Flush flushes the internal cache of the database to the disk.
+//
+// This function is part of the database.DB interface implementation.
+func (db *db) Flush() error {
+	// Since all transactions have a read lock on this mutex, this will
+	// cause Flush to wait for all readers to complete.
+	db.closeLock.Lock()
+	defer db.closeLock.Unlock()
+
+	if db.closed {
+		return makeDbErr(database.ErrDbNotOpen, errDbNotOpenStr, nil)
+	}
+
+	return db.cache.flush()
+}
+
 // Close cleanly shuts down the database and syncs all data.  It will block
 // until all database transactions have been finalized (rolled back or
 // committed).

@@ -180,11 +180,11 @@ func (ms *mapSlice) deleteMaps() {
 }
 
 const (
-	// utxoFlushPeriodicInterval is the interval at which a flush is performed
+	// UtxoFlushPeriodicInterval is the interval at which a flush is performed
 	// when the flush mode FlushPeriodic is used.  This is used when the initial
 	// block download is complete and it's useful to flush periodically in case
 	// of unforseen shutdowns.
-	utxoFlushPeriodicInterval = time.Minute * 5
+	UtxoFlushPeriodicInterval = time.Minute * 5
 )
 
 // FlushMode is used to indicate the different urgency types for a flush.
@@ -563,7 +563,7 @@ func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState
 	case FlushPeriodic:
 		// If the time since the last flush is over the periodic interval,
 		// force a flush.  Otherwise just flush when the cache is full.
-		if time.Since(s.lastFlushTime) > utxoFlushPeriodicInterval {
+		if time.Since(s.lastFlushTime) > UtxoFlushPeriodicInterval {
 			threshold = 0
 		} else {
 			threshold = s.maxTotalMemoryUsage

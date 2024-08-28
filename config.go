@@ -490,7 +490,7 @@ func loadConfig() (*config, []string, error) {
 		MaxOrphanTxs:               defaultMaxOrphanTransactions,
 		SigCacheMaxSize:            defaultSigCacheMaxSize,
 		UtxoCacheMaxSizeMiB:        defaultUtxoCacheMaxSizeMiB,
-		UtreexoProofIndexMaxMemory: defaultUtxoCacheMaxSizeMiB,
+		UtreexoProofIndexMaxMemory: defaultUtxoCacheMaxSizeMiB * 2,
 		Generate:                   defaultGenerate,
 		TxIndex:                    defaultTxIndex,
 		TTLIndex:                   defaultTTLIndex,

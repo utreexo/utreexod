@@ -645,7 +645,7 @@ func (idx *AddrIndex) NeedsInputs() bool {
 // initialize for this index.
 //
 // This is part of the Indexer interface.
-func (idx *AddrIndex) Init(_ *blockchain.BlockChain) error {
+func (idx *AddrIndex) Init(_ *blockchain.BlockChain, _ *chainhash.Hash, _ int32) error {
 	// Nothing to do.
 	return nil
 }
@@ -816,7 +816,14 @@ func (idx *AddrIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 // supported with pruning.
 //
 // This is part of the Indexer interface.
-func (idx *AddrIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+func (idx *AddrIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, _ int32) error {
+	return nil
+}
+
+// For AddrIndex, flush is a no-op.
+//
+// This is part of the Indexer interface.
+func (idx *AddrIndex) Flush(_ *chainhash.Hash, _ blockchain.FlushMode, _ bool) error {
 	return nil
 }
 

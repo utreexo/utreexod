@@ -2574,7 +2574,7 @@ out:
 
 	// If utreexoProofIndex option is on, flush it after closing down syncManager.
 	if s.utreexoProofIndex != nil {
-		err := s.utreexoProofIndex.FlushUtreexoState()
+		err := s.utreexoProofIndex.CloseUtreexoState()
 		if err != nil {
 			btcdLog.Errorf("Error while flushing utreexo state: %v", err)
 		}
@@ -2582,7 +2582,7 @@ out:
 
 	// If flatUtreexoProofIndex option is on, flush it after closing down syncManager.
 	if s.flatUtreexoProofIndex != nil {
-		err := s.flatUtreexoProofIndex.FlushUtreexoState()
+		err := s.flatUtreexoProofIndex.CloseUtreexoState()
 		if err != nil {
 			btcdLog.Errorf("Error while flushing utreexo state: %v", err)
 		}
@@ -3239,7 +3239,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		var err error
 		s.utreexoProofIndex, err = indexers.NewUtreexoProofIndex(
 			db, cfg.Prune != 0, cfg.UtreexoProofIndexMaxMemory*1024*1024,
-			chainParams, cfg.DataDir)
+			chainParams, cfg.DataDir, db.Flush)
 		if err != nil {
 			return nil, err
 		}
@@ -3256,7 +3256,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		var err error
 		s.flatUtreexoProofIndex, err = indexers.NewFlatUtreexoProofIndex(
 			cfg.Prune != 0, chainParams, interval,
-			cfg.UtreexoProofIndexMaxMemory*1024*1024, cfg.DataDir)
+			cfg.UtreexoProofIndexMaxMemory*1024*1024, cfg.DataDir, db.Flush)
 		if err != nil {
 			return nil, err
 		}

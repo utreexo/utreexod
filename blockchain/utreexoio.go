@@ -53,12 +53,7 @@ type NodesBackEnd struct {
 
 // InitNodesBackEnd returns a newly initialized NodesBackEnd which implements
 // utreexo.NodesInterface.
-func InitNodesBackEnd(datadir string, maxTotalMemoryUsage int64) (*NodesBackEnd, error) {
-	db, err := leveldb.OpenFile(datadir, nil)
-	if err != nil {
-		return nil, err
-	}
-
+func InitNodesBackEnd(db *leveldb.DB, maxTotalMemoryUsage int64) (*NodesBackEnd, error) {
 	cache, maxCacheElems := utreexobackends.NewNodesMapSlice(maxTotalMemoryUsage)
 	nb := NodesBackEnd{
 		db:           db,
@@ -67,15 +62,6 @@ func InitNodesBackEnd(datadir string, maxTotalMemoryUsage int64) (*NodesBackEnd,
 	}
 
 	return &nb, nil
-}
-
-// dbPut serializes and puts the key value pair into the database.
-func (m *NodesBackEnd) dbPut(k uint64, v utreexo.Leaf) error {
-	var buf [vlqBufSize]byte
-	size := putVLQ(buf[:], k)
-
-	serialized := serializeLeaf(v)
-	return m.db.Put(buf[:size], serialized[:], nil)
 }
 
 // dbGet fetches the value from the database and deserializes it and returns
@@ -98,32 +84,14 @@ func (m *NodesBackEnd) dbGet(k uint64) (utreexo.Leaf, bool) {
 	return leaf, true
 }
 
-// dbDel removes the key from the database.
-func (m *NodesBackEnd) dbDel(k uint64) error {
-	var buf [vlqBufSize]byte
-	size := putVLQ(buf[:], k)
-	return m.db.Delete(buf[:size], nil)
-}
-
 // Get returns the leaf from the underlying map.
 func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
-	if m.maxCacheElem == 0 {
-		return m.dbGet(k)
-	}
-
 	// Look it up on the cache first.
 	cLeaf, found := m.cache.Get(k)
 	if found {
 		// The leaf might not have been cleaned up yet.
 		if cLeaf.IsRemoved() {
 			return utreexo.Leaf{}, false
-		}
-
-		// If the cache is full, flush the cache then Put
-		// the leaf in.
-		if !m.cache.Put(k, cLeaf) {
-			m.flush()
-			m.cache.Put(k, cLeaf)
 		}
 
 		// If we found it, return here.
@@ -139,28 +107,23 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 	}
 
 	// Cache the leaf before returning it.
-	if !m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf}) {
-		m.flush()
-		m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf})
-	}
+	m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf})
+
 	return leaf, true
+}
+
+// NodesBackendPut puts a key-value pair in the given leveldb tx.
+func NodesBackendPut(tx *leveldb.Transaction, k uint64, v utreexo.Leaf) error {
+	size := serializeSizeVLQ(k)
+	buf := make([]byte, size)
+	putVLQ(buf, k)
+
+	serialized := serializeLeaf(v)
+	return tx.Put(buf[:], serialized[:], nil)
 }
 
 // Put puts the given position and the leaf to the underlying map.
 func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
-	if m.maxCacheElem == 0 {
-		err := m.dbPut(k, v)
-		if err != nil {
-			log.Warnf("NodesBackEnd dbPut fail. %v", err)
-		}
-
-		return
-	}
-
-	if int64(m.cache.Length()) > m.maxCacheElem {
-		m.flush()
-	}
-
 	leaf, found := m.cache.Get(k)
 	if found {
 		leaf.Flags &^= utreexobackends.Removed
@@ -169,11 +132,7 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 			Flags: leaf.Flags | utreexobackends.Modified,
 		}
 
-		// It shouldn't fail here but handle it anyways.
-		if !m.cache.Put(k, l) {
-			m.flush()
-			m.cache.Put(k, l)
-		}
+		m.cache.Put(k, l)
 	} else {
 		// If the key isn't found, mark it as fresh.
 		l := utreexobackends.CachedLeaf{
@@ -181,49 +140,59 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 			Flags: utreexobackends.Fresh,
 		}
 
-		// It shouldn't fail here but handle it anyways.
-		if !m.cache.Put(k, l) {
-			m.flush()
-			m.cache.Put(k, l)
-		}
+		m.cache.Put(k, l)
 	}
+}
+
+// NodesBackendDelete deletes the corresponding key-value pair from the given leveldb tx.
+func NodesBackendDelete(tx *leveldb.Transaction, k uint64) error {
+	size := serializeSizeVLQ(k)
+	buf := make([]byte, size)
+	putVLQ(buf, k)
+	return tx.Delete(buf, nil)
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *NodesBackEnd) Delete(k uint64) {
-	if m.maxCacheElem == 0 {
-		err := m.dbDel(k)
-		if err != nil {
-			log.Warnf("NodesBackEnd dbDel fail. %v", err)
-		}
-
-		return
-	}
-
-	leaf, found := m.cache.Get(k)
-	if !found {
-		if int64(m.cache.Length()) >= m.maxCacheElem {
-			m.flush()
-		}
-	}
+	// Don't delete as the same key may get called to be removed multiple times.
+	// Cache it as removed so that we don't call expensive flushes on keys that
+	// are not in the database.
+	leaf, _ := m.cache.Get(k)
 	l := utreexobackends.CachedLeaf{
 		Leaf:  leaf.Leaf,
 		Flags: leaf.Flags | utreexobackends.Removed,
 	}
-	if !m.cache.Put(k, l) {
-		m.flush()
-		m.cache.Put(k, l)
-	}
+
+	m.cache.Put(k, l)
 }
 
 // Length returns the amount of items in the underlying database.
 func (m *NodesBackEnd) Length() int {
-	m.flush()
-
 	length := 0
+	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) error {
+		// Only count the entry if it's not removed and it's not already
+		// in the database.
+		if !cl.IsRemoved() && cl.IsFresh() {
+			length++
+		}
+
+		return nil
+	})
+
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
+		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// Skip it since it's not relevant here.
+		if len(iter.Key()) == 32 {
+			continue
+		}
+		k, _ := deserializeVLQ(iter.Key())
+		val, found := m.cache.Get(k)
+		if found && val.IsRemoved() {
+			// Skip if the key-value pair has already been removed in the cache.
+			continue
+		}
 		length++
 	}
 	iter.Release()
@@ -233,13 +202,31 @@ func (m *NodesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
-	m.flush()
+	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) error {
+		// Only operate on the entry if it's not removed and it's not already
+		// in the database.
+		if !cl.IsRemoved() && cl.IsFresh() {
+			fn(u, cl.Leaf)
+		}
+
+		return nil
+	})
 
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
+		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// Skip it since it's not relevant here.
+		if len(iter.Key()) == 32 {
+			continue
+		}
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
 		k, _ := deserializeVLQ(iter.Key())
+		val, found := m.cache.Get(k)
+		if found && val.IsRemoved() {
+			// Skip if the key-value pair has already been removed in the cache.
+			continue
+		}
 
 		value := iter.Value()
 		if len(value) != leafLength {
@@ -257,34 +244,48 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 	return iter.Error()
 }
 
-// flush saves all the cached entries to disk and resets the cache map.
-func (m *NodesBackEnd) flush() {
-	if m.maxCacheElem == 0 {
-		return
-	}
-
-	m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) {
-		if v.IsRemoved() {
-			err := m.dbDel(k)
-			if err != nil {
-				log.Warnf("NodesBackEnd flush error. %v", err)
-			}
-		} else if v.IsFresh() || v.IsModified() {
-			err := m.dbPut(k, v.Leaf)
-			if err != nil {
-				log.Warnf("NodesBackEnd flush error. %v", err)
-			}
-		}
-	})
-
-	m.cache.ClearMaps()
+// IsFlushNeeded returns true if the backend needs to be flushed.
+func (m *NodesBackEnd) IsFlushNeeded() bool {
+	return m.cache.Overflowed()
 }
 
-// Close flushes the cache and closes the underlying database.
-func (m *NodesBackEnd) Close() error {
-	m.flush()
+// UsageStats returns the currently cached elements and the total amount the cache can hold.
+func (m *NodesBackEnd) UsageStats() (int64, int64) {
+	return int64(m.cache.Length()), m.maxCacheElem
+}
 
-	return m.db.Close()
+// flush saves all the cached entries to disk and resets the cache map.
+func (m *NodesBackEnd) Flush(ldbTx *leveldb.Transaction) error {
+	err := m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) error {
+		if v.IsFresh() {
+			if !v.IsRemoved() {
+				err := NodesBackendPut(ldbTx, k, v.Leaf)
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			if v.IsRemoved() {
+				err := NodesBackendDelete(ldbTx, k)
+				if err != nil {
+					return err
+				}
+			} else if v.IsModified() {
+				err := NodesBackendPut(ldbTx, k, v.Leaf)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("NodesBackEnd flush error. %v", err)
+	}
+
+	m.cache.ClearMaps()
+	return nil
 }
 
 var _ utreexo.CachedLeavesInterface = (*CachedLeavesBackEnd)(nil)
@@ -295,13 +296,6 @@ type CachedLeavesBackEnd struct {
 	db           *leveldb.DB
 	maxCacheElem int64
 	cache        utreexobackends.CachedLeavesMapSlice
-}
-
-// dbPut serializes and puts the key and the value into the database.
-func (m *CachedLeavesBackEnd) dbPut(k utreexo.Hash, v uint64) error {
-	var buf [vlqBufSize]byte
-	size := putVLQ(buf[:], v)
-	return m.db.Put(k[:], buf[:size], nil)
 }
 
 // dbGet fetches and deserializes the value from the database.
@@ -317,64 +311,84 @@ func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (uint64, bool) {
 
 // InitCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
 // utreexo.CachedLeavesInterface.
-func InitCachedLeavesBackEnd(datadir string, maxMemoryUsage int64) (*CachedLeavesBackEnd, error) {
-	db, err := leveldb.OpenFile(datadir, nil)
-	if err != nil {
-		return nil, err
-	}
-
+func InitCachedLeavesBackEnd(db *leveldb.DB, maxMemoryUsage int64) (*CachedLeavesBackEnd, error) {
 	cache, maxCacheElem := utreexobackends.NewCachedLeavesMapSlice(maxMemoryUsage)
 	return &CachedLeavesBackEnd{maxCacheElem: maxCacheElem, db: db, cache: cache}, nil
 }
 
 // Get returns the data from the underlying cache or the database.
 func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (uint64, bool) {
-	if m.maxCacheElem == 0 {
-		return m.dbGet(k)
-	}
-
 	pos, found := m.cache.Get(k)
 	if !found {
 		return m.dbGet(k)
 	}
+	// Even if the entry was found, if the position value is math.MaxUint64,
+	// then it was already deleted.
+	if pos.IsRemoved() {
+		return 0, false
+	}
 
-	return pos, found
+	return pos.Position, found
+}
+
+// CachedLeavesBackendPut puts a key-value pair in the given leveldb tx.
+func CachedLeavesBackendPut(tx *leveldb.Transaction, k utreexo.Hash, v uint64) error {
+	size := serializeSizeVLQ(v)
+	buf := make([]byte, size)
+	putVLQ(buf, v)
+	return tx.Put(k[:], buf, nil)
 }
 
 // Put puts the given data to the underlying cache. If the cache is full, it evicts
 // the earliest entries to make room.
 func (m *CachedLeavesBackEnd) Put(k utreexo.Hash, v uint64) {
-	if m.maxCacheElem == 0 {
-		err := m.dbPut(k, v)
-		if err != nil {
-			log.Warnf("CachedLeavesBackEnd dbPut fail. %v", err)
-		}
-
-		return
-	}
-
-	length := m.cache.Length()
-	if int64(length) >= m.maxCacheElem {
-		m.flush()
-	}
-
-	m.cache.Put(k, v)
+	m.cache.Put(k, utreexobackends.CachedPosition{
+		Position: v,
+		Flags:    utreexobackends.Fresh,
+	})
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
 func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
-	m.cache.Delete(k)
-	m.db.Delete(k[:], nil)
+	pos, found := m.cache.Get(k)
+	if found && pos.IsFresh() {
+		m.cache.Delete(k)
+		return
+	}
+	p := utreexobackends.CachedPosition{
+		Position: pos.Position,
+		Flags:    pos.Flags | utreexobackends.Removed,
+	}
+
+	m.cache.Put(k, p)
 }
 
 // Length returns the amount of items in the underlying db and the cache.
 func (m *CachedLeavesBackEnd) Length() int {
-	m.flush()
-
 	length := 0
+	m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
+		// Only operate on the entry if it's not removed and it's not already
+		// in the database.
+		if !v.IsRemoved() && v.IsFresh() {
+			length++
+		}
+		return nil
+	})
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
+		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// Skip it since it's not relevant here.
+		if len(iter.Key()) != chainhash.HashSize {
+			continue
+		}
+		k := iter.Key()
+		val, found := m.cache.Get(*(*[chainhash.HashSize]byte)(k))
+		if found && val.IsRemoved() {
+			// Skip if the key-value pair has already been removed in the cache.
+			continue
+		}
+
 		length++
 	}
 	iter.Release()
@@ -384,13 +398,29 @@ func (m *CachedLeavesBackEnd) Length() int {
 
 // ForEach calls the given function for each of the elements in the underlying map.
 func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error {
-	m.flush()
-
+	m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
+		// Only operate on the entry if it's not removed and it's not already
+		// in the database.
+		if !v.IsRemoved() && v.IsFresh() {
+			fn(k, v.Position)
+		}
+		return nil
+	})
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
+		// If the itered key isn't chainhash.HashSize, it means that the entry is for nodesbackend.
+		// Skip it since it's not relevant here.
+		if len(iter.Key()) != chainhash.HashSize {
+			continue
+		}
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
 		k := iter.Key()
+		val, found := m.cache.Get(*(*[chainhash.HashSize]byte)(k))
+		if found && val.IsRemoved() {
+			// Skip if the key-value pair has already been removed in the cache.
+			continue
+		}
 		v, _ := deserializeVLQ(iter.Value())
 
 		err := fn(*(*[chainhash.HashSize]byte)(k), v)
@@ -402,20 +432,37 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 	return iter.Error()
 }
 
-// Flush resets the cache and saves all the key values onto the database.
-func (m *CachedLeavesBackEnd) flush() {
-	m.cache.ForEach(func(k utreexo.Hash, v uint64) {
-		err := m.dbPut(k, v)
-		if err != nil {
-			log.Warnf("CachedLeavesBackEnd dbPut fail. %v", err)
-		}
-	})
-
-	m.cache.ClearMaps()
+// IsFlushNeeded returns true if the backend needs to be flushed.
+func (m *CachedLeavesBackEnd) IsFlushNeeded() bool {
+	return m.cache.Overflowed()
 }
 
-// Close flushes all the cached entries and then closes the underlying database.
-func (m *CachedLeavesBackEnd) Close() error {
-	m.flush()
-	return m.db.Close()
+// UsageStats returns the currently cached elements and the total amount the cache can hold.
+func (m *CachedLeavesBackEnd) UsageStats() (int64, int64) {
+	return int64(m.cache.Length()), m.maxCacheElem
+}
+
+// Flush resets the cache and saves all the key values onto the database.
+func (m *CachedLeavesBackEnd) Flush(ldbTx *leveldb.Transaction) error {
+	err := m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
+		if v.IsRemoved() {
+			err := ldbTx.Delete(k[:], nil)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := CachedLeavesBackendPut(ldbTx, k, v.Position)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("CachedLeavesBackEnd flush error. %v", err)
+	}
+
+	m.cache.ClearMaps()
+	return nil
 }
