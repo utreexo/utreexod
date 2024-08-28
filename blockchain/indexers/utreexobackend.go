@@ -729,7 +729,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 		isFlushNeeded = func() bool {
 			nodesNeedsFlush := nodesDB.IsFlushNeeded()
 			leavesNeedsFlush := cachedLeavesDB.IsFlushNeeded()
-			return nodesNeedsFlush && leavesNeedsFlush
+			return nodesNeedsFlush || leavesNeedsFlush
 		}
 	} else {
 		log.Infof("loading the utreexo state from disk...")

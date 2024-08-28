@@ -192,6 +192,10 @@ func (ms *CachedLeavesMapSlice) ClearMaps() {
 			delete(ms.maps[i], key)
 		}
 	}
+
+	for key := range ms.overflow {
+		delete(ms.overflow, key)
+	}
 }
 
 // ForEach loops through all the elements in the cachedleaves map slice and calls fn with the key-value pairs.
