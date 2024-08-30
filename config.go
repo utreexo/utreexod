@@ -1208,6 +1208,14 @@ func loadConfig() (*config, []string, error) {
 		cfg.NoAssumeUtreexo = true
 	}
 
+	if cfg.NoUtreexo && cfg.UtreexoCFilters && (!cfg.UtreexoProofIndex && !cfg.FlatUtreexoProofIndex) {
+		err := fmt.Errorf("%s: the --utreexocfilters can not be called with --noutreexo option when "+
+			"neither of utreexoproofindex or flatutreexoproofindex options are enabled", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
 	// Specifying --noonion means the onion address dial function results in
 	// an error.
 	if cfg.NoOnion {
