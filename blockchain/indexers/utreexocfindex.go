@@ -163,7 +163,7 @@ func (idx *UtreexoCFIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
 	blockHash := block.Hash()
-	roots, leaves, err := idx.fetchUtreexoRoots(blockHash, block)
+	roots, leaves, err := idx.fetchUtreexoRoots(dbTx, blockHash, block)
 
 	if err != nil {
 		return err
@@ -179,7 +179,7 @@ func (idx *UtreexoCFIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block,
 }
 
 // fetches the utreexo roots for a given block hash
-func (idx *UtreexoCFIndex) fetchUtreexoRoots(blockHash *chainhash.Hash,
+func (idx *UtreexoCFIndex) fetchUtreexoRoots(dbTx database.Tx, blockHash *chainhash.Hash,
 	block *btcutil.Block) ([]*chainhash.Hash, uint64, error) {
 
 	// For compact state nodes
@@ -192,11 +192,35 @@ func (idx *UtreexoCFIndex) fetchUtreexoRoots(blockHash *chainhash.Hash,
 		leaves := viewPoint.NumLeaves()
 		return roots, leaves, nil
 	} else if idx.utreexoProofIndex != nil {
-		roots, numLeaves := idx.utreexoProofIndex.FetchCurrentUtreexoState()
+		var roots []*chainhash.Hash
+		var numLeaves uint64
+		var err error
+		if block.Height() < idx.chain.BestSnapshot().Height {
+			log.Infof("block height is less than best snapshot")
+			roots, numLeaves, err = idx.utreexoProofIndex.FetchUtreexoState(dbTx, block.Hash())
+		} else {
+			roots, numLeaves = idx.utreexoProofIndex.FetchCurrentUtreexoState()
+		}
+		if err != nil {
+			log.Errorf("Error fetching utreexo state at block %s: %v", block.Hash(), err)
+			return nil, 0, err
+		}
 		return roots, numLeaves, nil
 
 	} else if idx.flatUtreexoProofIndex != nil {
-		roots, numLeaves := idx.flatUtreexoProofIndex.FetchCurrentUtreexoState()
+		var roots []*chainhash.Hash
+		var numLeaves uint64
+		var err error
+		if block.Height() < idx.chain.BestSnapshot().Height {
+			log.Infof("block height is less than best snapshot")
+			roots, numLeaves, err = idx.flatUtreexoProofIndex.FetchUtreexoState(block.Height())
+		} else {
+			roots, numLeaves = idx.flatUtreexoProofIndex.FetchCurrentUtreexoState()
+		}
+		if err != nil {
+			log.Errorf("Error fetching utreexo state at block %s: %v", block.Hash(), err)
+			return nil, 0, err
+		}
 		return roots, numLeaves, nil
 	}
 
@@ -256,7 +280,7 @@ func (idx *UtreexoCFIndex) entryByBlockHash(filterTypeKeys [][]byte,
 			if errheight != nil {
 				return errheight
 			}
-			roots, leaves, err := idx.fetchUtreexoRoots(h, block)
+			roots, leaves, err := idx.fetchUtreexoRoots(dbTx, h, block)
 
 			if err != nil {
 				return err
