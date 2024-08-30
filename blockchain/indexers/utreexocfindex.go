@@ -116,7 +116,7 @@ func (idx *UtreexoCFIndex) Create(dbTx database.Tx) error {
 }
 
 // storeUtreexoCFilter stores a given utreexocfilter header
-func storeUtreexoCFHeader(dbTx database.Tx, block *btcutil.Block, filterData []byte,
+func (idx *UtreexoCFIndex) storeUtreexoCFHeader(dbTx database.Tx, block *btcutil.Block, filterData []byte,
 	filterType wire.FilterType) error {
 	if filterType != wire.UtreexoCFilter {
 		return errors.New("invalid filter type")
@@ -132,7 +132,12 @@ func storeUtreexoCFHeader(dbTx database.Tx, block *btcutil.Block, filterData []b
 	if ph.IsEqual(&zeroHash) {
 		prevHeader = &zeroHash
 	} else {
-		pfh, err := dbFetchUtreexoCFilterIdxEntry(dbTx, hkey, ph)
+		var pfh []byte
+		err := idx.db.View(func(dbTx database.Tx) error {
+			var err error
+			pfh, err = dbFetchUtreexoCFilterIdxEntry(dbTx, hkey, ph)
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -158,7 +163,7 @@ func (idx *UtreexoCFIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
 	blockHash := block.Hash()
-	roots, leaves, err := idx.fetchUtreexoRoots(dbTx, blockHash)
+	roots, leaves, err := idx.fetchUtreexoRoots(blockHash, block)
 
 	if err != nil {
 		return err
@@ -170,15 +175,12 @@ func (idx *UtreexoCFIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block,
 		return err
 	}
 
-	return storeUtreexoCFHeader(dbTx, block, serializedUtreexo, wire.UtreexoCFilter)
+	return idx.storeUtreexoCFHeader(dbTx, block, serializedUtreexo, wire.UtreexoCFilter)
 }
 
 // fetches the utreexo roots for a given block hash
-func (idx *UtreexoCFIndex) fetchUtreexoRoots(dbTx database.Tx,
-	blockHash *chainhash.Hash) ([]*chainhash.Hash, uint64, error) {
-
-	var leaves uint64
-	var roots []*chainhash.Hash
+func (idx *UtreexoCFIndex) fetchUtreexoRoots(blockHash *chainhash.Hash,
+	block *btcutil.Block) ([]*chainhash.Hash, uint64, error) {
 
 	// For compact state nodes
 	if !idx.noUtreexo {
@@ -186,34 +188,19 @@ func (idx *UtreexoCFIndex) fetchUtreexoRoots(dbTx database.Tx,
 		if err != nil {
 			return nil, 0, err
 		}
-		roots = viewPoint.GetRoots()
-		leaves = viewPoint.NumLeaves()
+		roots := viewPoint.GetRoots()
+		leaves := viewPoint.NumLeaves()
 		return roots, leaves, nil
-	}
-	// for bridge nodes
-	if idx.utreexoProofIndex != nil {
-		// log.Infof("Is utreexoProofIndex JABURAT %v", blockHash)
-		roots, leaves, err := idx.utreexoProofIndex.FetchUtreexoState(dbTx, blockHash)
-		if err != nil {
-			return nil, 0, err
-		}
-		return roots, leaves, nil
+	} else if idx.utreexoProofIndex != nil {
+		roots, numLeaves := idx.utreexoProofIndex.FetchCurrentUtreexoState()
+		return roots, numLeaves, nil
+
 	} else if idx.flatUtreexoProofIndex != nil {
-		height, err := idx.chain.BlockHeightByHash(blockHash)
-		if err != nil {
-			return nil, 0, err
-		}
-		roots, leaves, err := idx.flatUtreexoProofIndex.FetchUtreexoState(height)
-		if err != nil {
-			return nil, 0, err
-		}
-		return roots, leaves, nil
+		roots, numLeaves := idx.flatUtreexoProofIndex.FetchCurrentUtreexoState()
+		return roots, numLeaves, nil
 	}
 
-	leaves = 0
-	roots = nil
-
-	return roots, leaves, errors.New("unsupported filter type")
+	return nil, 0, errors.New("unsupported filter type")
 }
 
 // DisconnectBlock is invoked by the index manager when a block has been
@@ -265,7 +252,11 @@ func (idx *UtreexoCFIndex) entryByBlockHash(filterTypeKeys [][]byte,
 		var serializedUtreexo []byte
 		err := idx.db.View(func(dbTx database.Tx) error {
 			var err error
-			roots, leaves, err := idx.fetchUtreexoRoots(dbTx, h)
+			block, errheight := idx.chain.BlockByHash(h)
+			if errheight != nil {
+				return errheight
+			}
+			roots, leaves, err := idx.fetchUtreexoRoots(h, block)
 
 			if err != nil {
 				return err
