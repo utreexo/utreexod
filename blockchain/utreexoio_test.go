@@ -52,6 +52,10 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		err = ldbTx.Put([]byte("utreexostateconsistency"), make([]byte, 40), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		// Close and reopen the backend.
 		cachedLeavesBackEnd.Flush(ldbTx)
 		err = ldbTx.Commit()
@@ -189,6 +193,11 @@ func TestNodesBackEnd(t *testing.T) {
 		}
 
 		ldbTx, err := db.OpenTransaction()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = ldbTx.Put([]byte("utreexostateconsistency"), make([]byte, 40), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
