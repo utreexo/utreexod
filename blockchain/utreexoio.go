@@ -182,11 +182,13 @@ func (m *NodesBackEnd) Length() int {
 
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
-		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// The relevant key-value pairs for nodesbackend are leafLength.
 		// Skip it since it's not relevant here.
-		if len(iter.Key()) == 32 {
+		value := iter.Value()
+		if len(value) != leafLength {
 			continue
 		}
+
 		k, _ := deserializeVLQ(iter.Key())
 		val, found := m.cache.Get(k)
 		if found && val.IsRemoved() {
@@ -214,11 +216,13 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
-		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// The relevant key-value pairs for nodesbackend are leafLength.
 		// Skip it since it's not relevant here.
-		if len(iter.Key()) == 32 {
+		value := iter.Value()
+		if len(value) != leafLength {
 			continue
 		}
+
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
 		k, _ := deserializeVLQ(iter.Key())
@@ -228,13 +232,7 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 			continue
 		}
 
-		value := iter.Value()
-		if len(value) != leafLength {
-			return fmt.Errorf("expected value of length %v but got %v",
-				leafLength, len(value))
-		}
 		v := deserializeLeaf(*(*[leafLength]byte)(value))
-
 		err := fn(k, v)
 		if err != nil {
 			return err
@@ -377,7 +375,7 @@ func (m *CachedLeavesBackEnd) Length() int {
 	})
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
-		// If the itered key is chainhash.HashSize, it means that the entry is for nodesbackend.
+		// If the itered key is not chainhash.HashSize, it's not for cachedLeavesBackend.
 		// Skip it since it's not relevant here.
 		if len(iter.Key()) != chainhash.HashSize {
 			continue
@@ -408,7 +406,7 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 	})
 	iter := m.db.NewIterator(nil, nil)
 	for iter.Next() {
-		// If the itered key isn't chainhash.HashSize, it means that the entry is for nodesbackend.
+		// If the itered key is not chainhash.HashSize, it's not for cachedLeavesBackend.
 		// Skip it since it's not relevant here.
 		if len(iter.Key()) != chainhash.HashSize {
 			continue
