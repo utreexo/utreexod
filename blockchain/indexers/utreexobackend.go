@@ -81,9 +81,24 @@ func (us *UtreexoState) flush(bestHash *chainhash.Hash) error {
 		return err
 	}
 
+	// If we're keeping everything in memory, make sure to remove everything from the
+	// current database before flushing as the keys deleted in memory may still exist
+	// on disk.
+	if us.config.MaxMemoryUsage < 0 {
+		iter := us.utreexoStateDB.NewIterator(nil, nil)
+		for iter.Next() {
+			err := ldbTx.Delete(iter.Key(), nil)
+			if err != nil {
+				ldbTx.Discard()
+				return err
+			}
+		}
+	}
+
 	// Write the best block hash and the numleaves for the utreexo state.
 	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, us.state.GetNumLeaves())
 	if err != nil {
+		ldbTx.Discard()
 		return err
 	}
 
