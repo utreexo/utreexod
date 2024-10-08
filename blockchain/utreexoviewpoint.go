@@ -184,7 +184,7 @@ func BlockToDelOPs(
 }
 
 // DedupeBlock takes a bitcoin block, and returns two int slices: the indexes of
-// inputs, and idexes of outputs which can be removed.  These are indexes
+// inputs, and indexes of outputs which can be removed.  These are indexes
 // within the block as a whole, even the coinbase tx.
 // So the coinbase tx in & output numbers affect the skip lists even though
 // the coinbase ins/outs can never be deduped.  it's simpler that way.
