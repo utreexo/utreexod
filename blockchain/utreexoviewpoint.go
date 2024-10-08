@@ -46,8 +46,7 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 	return newUview
 }
 
-// ProcessUData checks that the accumulator proof and the utxo data included in the UData
-// passes consensus and then it updates the underlying accumulator.
+// ProcessUData updates the underlying accumulator. It does NOT check if the verification passes.
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	bestChain *chainView, ud *wire.UData) error {
 
@@ -57,6 +56,32 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	if err != nil {
 		return err
 	}
+
+	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
+	if err != nil {
+		return err
+	}
+
+	// Update the underlying accumulator.
+	updateData, err := uview.Modify(ud, adds, dels)
+	if err != nil {
+		return fmt.Errorf("ProcessUData fail. Error: %v", err)
+	}
+
+	// Add the utreexo data to the block.
+	block.SetUtreexoUpdateData(updateData)
+	block.SetUtreexoAdds(adds)
+
+	return nil
+}
+
+// VerifyUData checks the accumulator proof to ensure that the leaf preimages exist in the
+// accumulator.
+func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
+	bestChain *chainView, ud *wire.UData) error {
+
+	// Extracts the block into additions and deletions that will be processed.
+	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
 	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
 	if err != nil {
 		return err
@@ -84,17 +109,13 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 		}
 	}
 
-	// Update the underlying accumulator.
-	updateData, err := uview.Modify(ud, adds, dels)
-	if err != nil {
-		return fmt.Errorf("ProcessUData fail. Error: %v", err)
+	// TODO we should be verifying here but aren't as the accumulator.Verify
+	// function expects a complete proof.
+	if uview.proofInterval != 1 {
+		return nil
 	}
 
-	// Add the utreexo data to the block.
-	block.SetUtreexoUpdateData(updateData)
-	block.SetUtreexoAdds(adds)
-
-	return nil
+	return uview.accumulator.Verify(dels, ud.AccProof, false)
 }
 
 // AddProof first checks that the utreexo proofs are valid. If it is valid,
@@ -124,7 +145,7 @@ func (uview *UtreexoViewpoint) Modify(ud *wire.UData,
 	var err error
 	var updateData utreexo.UpdateData
 	if uview.proofInterval == 1 {
-		err = uview.accumulator.Verify(dels, ud.AccProof, true)
+		err = uview.accumulator.Ingest(dels, ud.AccProof)
 		if err != nil {
 			return nil, err
 		}
