@@ -53,7 +53,11 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds, dels, err := ExtractAccumulatorAddDels(block, bestChain, ud.RememberIdx)
+	adds, err := ExtractAccumulatorAdds(block, bestChain, ud.RememberIdx)
+	if err != nil {
+		return err
+	}
+	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
 	if err != nil {
 		return err
 	}
@@ -231,26 +235,19 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 	return
 }
 
-// ExtractAccumulatorAddDels extracts the additions and the deletions that will be
-// used to modify the utreexo accumulator.
-func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
-	[]utreexo.Leaf, []utreexo.Hash, error) {
+// ExtractAccumulatorDels extracts the deletions that will be used to modify the utreexo accumulator.
+func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
+	[]utreexo.Hash, error) {
 
 	// Check that UData field isn't nil before doing anything else.
 	if block.MsgBlock().UData == nil {
-		return nil, nil, fmt.Errorf("ExtractAccumulatorAddDels(): block.MsgBlock().UData is nil. " +
-			"Cannot extract utreexo accumulator additions and deletions")
+		return nil, fmt.Errorf("ExtractAccumulatorDels(): block.MsgBlock().UData is nil. " +
+			"Cannot extract utreexo accumulator deletions")
 	}
 
 	ud := block.MsgBlock().UData
 
-	// outskip is all the txOuts that are referenced by a txIn in the same block
-	// outCount is the count of all outskips.
-	_, outCount, inskip, outskip := DedupeBlock(block)
-
-	// Make the now verified utxos into 32 byte leaves ready to be added into the
-	// utreexo accumulator.
-	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
+	_, _, inskip, _ := DedupeBlock(block)
 
 	// Make slice of hashes from the LeafDatas. These are the hash commitments
 	// to be proven.
@@ -262,7 +259,7 @@ func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remem
 		var err error
 		delHashes, err = reconstructUData(ud, block, bestChain, inskip)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -271,10 +268,31 @@ func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remem
 	OPsToProve := BlockToDelOPs(block)
 	err := ProofSanity(ud, OPsToProve)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return leaves, delHashes, nil
+	return delHashes, nil
+}
+
+// ExtractAccumulatorAdds extracts the additions that will beused to modify the utreexo accumulator.
+func ExtractAccumulatorAdds(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
+	[]utreexo.Leaf, error) {
+
+	// Check that UData field isn't nil before doing anything else.
+	if block.MsgBlock().UData == nil {
+		return nil, fmt.Errorf("ExtractAccumulatorAdds(): block.MsgBlock().UData is nil. " +
+			"Cannot extract utreexo accumulator additions")
+	}
+
+	// outskip is all the txOuts that are referenced by a txIn in the same block
+	// outCount is the count of all outskips.
+	_, outCount, _, outskip := DedupeBlock(block)
+
+	// Make the now verified utxos into 32 byte leaves ready to be added into the
+	// utreexo accumulator.
+	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
+
+	return leaves, nil
 }
 
 // it'd be cool if you just had .sort() methods on slices of builtin types...
