@@ -46,14 +46,43 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 	return newUview
 }
 
-// ProcessUData checks that the accumulator proof and the utxo data included in the UData
-// passes consensus and then it updates the underlying accumulator.
+// ProcessUData updates the underlying accumulator. It does NOT check if the verification passes.
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	bestChain *chainView, ud *wire.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds, dels, err := ExtractAccumulatorAddDels(block, bestChain, ud.RememberIdx)
+	adds, err := ExtractAccumulatorAdds(block, bestChain, ud.RememberIdx)
+	if err != nil {
+		return err
+	}
+
+	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
+	if err != nil {
+		return err
+	}
+
+	// Update the underlying accumulator.
+	updateData, err := uview.Modify(ud, adds, dels)
+	if err != nil {
+		return fmt.Errorf("ProcessUData fail. Error: %v", err)
+	}
+
+	// Add the utreexo data to the block.
+	block.SetUtreexoUpdateData(updateData)
+	block.SetUtreexoAdds(adds)
+
+	return nil
+}
+
+// VerifyUData checks the accumulator proof to ensure that the leaf preimages exist in the
+// accumulator.
+func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
+	bestChain *chainView, ud *wire.UData) error {
+
+	// Extracts the block into additions and deletions that will be processed.
+	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
+	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
 	if err != nil {
 		return err
 	}
@@ -80,17 +109,13 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 		}
 	}
 
-	// Update the underlying accumulator.
-	updateData, err := uview.Modify(ud, adds, dels)
-	if err != nil {
-		return fmt.Errorf("ProcessUData fail. Error: %v", err)
+	// TODO we should be verifying here but aren't as the accumulator.Verify
+	// function expects a complete proof.
+	if uview.proofInterval != 1 {
+		return nil
 	}
 
-	// Add the utreexo data to the block.
-	block.SetUtreexoUpdateData(updateData)
-	block.SetUtreexoAdds(adds)
-
-	return nil
+	return uview.accumulator.Verify(dels, ud.AccProof, false)
 }
 
 // AddProof first checks that the utreexo proofs are valid. If it is valid,
@@ -120,7 +145,7 @@ func (uview *UtreexoViewpoint) Modify(ud *wire.UData,
 	var err error
 	var updateData utreexo.UpdateData
 	if uview.proofInterval == 1 {
-		err = uview.accumulator.Verify(dels, ud.AccProof, true)
+		err = uview.accumulator.Ingest(dels, ud.AccProof)
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +209,7 @@ func BlockToDelOPs(
 }
 
 // DedupeBlock takes a bitcoin block, and returns two int slices: the indexes of
-// inputs, and idexes of outputs which can be removed.  These are indexes
+// inputs, and indexes of outputs which can be removed.  These are indexes
 // within the block as a whole, even the coinbase tx.
 // So the coinbase tx in & output numbers affect the skip lists even though
 // the coinbase ins/outs can never be deduped.  it's simpler that way.
@@ -231,26 +256,19 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 	return
 }
 
-// ExtractAccumulatorAddDels extracts the additions and the deletions that will be
-// used to modify the utreexo accumulator.
-func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
-	[]utreexo.Leaf, []utreexo.Hash, error) {
+// ExtractAccumulatorDels extracts the deletions that will be used to modify the utreexo accumulator.
+func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
+	[]utreexo.Hash, error) {
 
 	// Check that UData field isn't nil before doing anything else.
 	if block.MsgBlock().UData == nil {
-		return nil, nil, fmt.Errorf("ExtractAccumulatorAddDels(): block.MsgBlock().UData is nil. " +
-			"Cannot extract utreexo accumulator additions and deletions")
+		return nil, fmt.Errorf("ExtractAccumulatorDels(): block.MsgBlock().UData is nil. " +
+			"Cannot extract utreexo accumulator deletions")
 	}
 
 	ud := block.MsgBlock().UData
 
-	// outskip is all the txOuts that are referenced by a txIn in the same block
-	// outCount is the count of all outskips.
-	_, outCount, inskip, outskip := DedupeBlock(block)
-
-	// Make the now verified utxos into 32 byte leaves ready to be added into the
-	// utreexo accumulator.
-	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
+	_, _, inskip, _ := DedupeBlock(block)
 
 	// Make slice of hashes from the LeafDatas. These are the hash commitments
 	// to be proven.
@@ -262,7 +280,7 @@ func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remem
 		var err error
 		delHashes, err = reconstructUData(ud, block, bestChain, inskip)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -271,10 +289,31 @@ func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remem
 	OPsToProve := BlockToDelOPs(block)
 	err := ProofSanity(ud, OPsToProve)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return leaves, delHashes, nil
+	return delHashes, nil
+}
+
+// ExtractAccumulatorAdds extracts the additions that will beused to modify the utreexo accumulator.
+func ExtractAccumulatorAdds(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
+	[]utreexo.Leaf, error) {
+
+	// Check that UData field isn't nil before doing anything else.
+	if block.MsgBlock().UData == nil {
+		return nil, fmt.Errorf("ExtractAccumulatorAdds(): block.MsgBlock().UData is nil. " +
+			"Cannot extract utreexo accumulator additions")
+	}
+
+	// outskip is all the txOuts that are referenced by a txIn in the same block
+	// outCount is the count of all outskips.
+	_, outCount, _, outskip := DedupeBlock(block)
+
+	// Make the now verified utxos into 32 byte leaves ready to be added into the
+	// utreexo accumulator.
+	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
+
+	return leaves, nil
 }
 
 // it'd be cool if you just had .sort() methods on slices of builtin types...

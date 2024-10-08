@@ -1075,7 +1075,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 	// If utreexo accumulators are enabled, then check that the accumulator
 	// proof is ok.  Then convert the msgBlock.UData into UtxoViewpoint.
 	if utreexoView != nil {
-		err := utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+		err := utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
 		if err != nil {
 			return fmt.Errorf("checkConnectBlock fail. error: %v", err)
 		}
