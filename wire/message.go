@@ -28,37 +28,38 @@ const MaxMessagePayload = (1024 * 1024 * 32) // 32MB
 
 // Commands used in bitcoin message headers which describe the type of message.
 const (
-	CmdVersion      = "version"
-	CmdVerAck       = "verack"
-	CmdGetAddr      = "getaddr"
-	CmdAddr         = "addr"
-	CmdGetBlocks    = "getblocks"
-	CmdInv          = "inv"
-	CmdGetData      = "getdata"
-	CmdNotFound     = "notfound"
-	CmdBlock        = "block"
-	CmdTx           = "tx"
-	CmdUtreexoTx    = "utreexotx"
-	CmdGetHeaders   = "getheaders"
-	CmdHeaders      = "headers"
-	CmdPing         = "ping"
-	CmdPong         = "pong"
-	CmdAlert        = "alert"
-	CmdMemPool      = "mempool"
-	CmdFilterAdd    = "filteradd"
-	CmdFilterClear  = "filterclear"
-	CmdFilterLoad   = "filterload"
-	CmdMerkleBlock  = "merkleblock"
-	CmdReject       = "reject"
-	CmdSendHeaders  = "sendheaders"
-	CmdFeeFilter    = "feefilter"
-	CmdGetCFilters  = "getcfilters"
-	CmdGetCFHeaders = "getcfheaders"
-	CmdGetCFCheckpt = "getcfcheckpt"
-	CmdCFilter      = "cfilter"
-	CmdCFHeaders    = "cfheaders"
-	CmdCFCheckpt    = "cfcheckpt"
-	CmdSendAddrV2   = "sendaddrv2"
+	CmdVersion       = "version"
+	CmdVerAck        = "verack"
+	CmdGetAddr       = "getaddr"
+	CmdAddr          = "addr"
+	CmdGetBlocks     = "getblocks"
+	CmdInv           = "inv"
+	CmdGetData       = "getdata"
+	CmdNotFound      = "notfound"
+	CmdBlock         = "block"
+	CmdTx            = "tx"
+	CmdUtreexoTx     = "utreexotx"
+	CmdGetHeaders    = "getheaders"
+	CmdHeaders       = "headers"
+	CmdUtreexoHeader = "uheader"
+	CmdPing          = "ping"
+	CmdPong          = "pong"
+	CmdAlert         = "alert"
+	CmdMemPool       = "mempool"
+	CmdFilterAdd     = "filteradd"
+	CmdFilterClear   = "filterclear"
+	CmdFilterLoad    = "filterload"
+	CmdMerkleBlock   = "merkleblock"
+	CmdReject        = "reject"
+	CmdSendHeaders   = "sendheaders"
+	CmdFeeFilter     = "feefilter"
+	CmdGetCFilters   = "getcfilters"
+	CmdGetCFHeaders  = "getcfheaders"
+	CmdGetCFCheckpt  = "getcfcheckpt"
+	CmdCFilter       = "cfilter"
+	CmdCFHeaders     = "cfheaders"
+	CmdCFCheckpt     = "cfcheckpt"
+	CmdSendAddrV2    = "sendaddrv2"
 )
 
 // MessageEncoding represents the wire message encoding format to be used.
@@ -146,6 +147,9 @@ func makeEmptyMessage(command string) (Message, error) {
 
 	case CmdHeaders:
 		msg = &MsgHeaders{}
+
+	case CmdUtreexoHeader:
+		msg = &MsgUtreexoHeader{}
 
 	case CmdAlert:
 		msg = &MsgAlert{}
