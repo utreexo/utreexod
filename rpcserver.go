@@ -3453,7 +3453,6 @@ func handleGetUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struc
 
 	getReply := &btcjson.GetUtreexoProofVerboseResult{
 		ProofHashes:     proofString,
-		RememberIndexes: udata.RememberIdx,
 		TargetHashes:    targetHashString,
 		TargetPreimages: targetPreimageString,
 		ProofTargets:    udata.AccProof.Targets,
