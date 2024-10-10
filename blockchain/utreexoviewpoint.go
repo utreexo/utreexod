@@ -52,12 +52,12 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds, err := ExtractAccumulatorAdds(block, bestChain, ud.RememberIdx)
+	adds, err := ExtractAccumulatorAdds(block, bestChain, []uint32{})
 	if err != nil {
 		return err
 	}
 
-	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
+	dels, err := ExtractAccumulatorDels(block, bestChain, []uint32{})
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
+	dels, err := ExtractAccumulatorDels(block, bestChain, []uint32{})
 	if err != nil {
 		return err
 	}
