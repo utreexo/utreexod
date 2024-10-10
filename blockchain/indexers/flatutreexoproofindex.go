@@ -41,11 +41,6 @@ const (
 	// proof index.  This name is used as the dataFile name in the flat files.
 	flatUtreexoUndoName = "undo"
 
-	// flatRememberIdxName is the name given to the remember idx data of the flat
-	// utreexo proof index.  This name is used as the dataFile name in the flat
-	// files.
-	flatRememberIdxName = "remember"
-
 	// flatUtreexoProofStatsName is the name given to the proof stats data of the flat
 	// utreexo proof index.  This name is used as the dataFile name in the flat
 	// files.
@@ -85,7 +80,6 @@ type FlatUtreexoProofIndex struct {
 	proofGenInterVal int32
 	proofState       FlatFileState
 	undoState        FlatFileState
-	rememberIdxState FlatFileState
 	proofStatsState  FlatFileState
 	rootsState       FlatFileState
 
@@ -149,17 +143,6 @@ func (idx *FlatUtreexoProofIndex) consistentFlatFileState(tipHeight int32) error
 		}
 	}
 
-	if idx.rememberIdxState.BestHeight() != 0 &&
-		tipHeight < idx.rememberIdxState.BestHeight() {
-		bestHeight := idx.rememberIdxState.BestHeight()
-		for tipHeight != bestHeight && bestHeight > 0 {
-			err := idx.rememberIdxState.DisconnectBlock(bestHeight)
-			if err != nil {
-				return err
-			}
-			bestHeight--
-		}
-	}
 	if idx.proofStatsState.BestHeight() != 0 &&
 		tipHeight < idx.proofStatsState.BestHeight() {
 		bestHeight := idx.proofStatsState.BestHeight()
@@ -380,7 +363,6 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 			return err
 		}
 	} else {
-		// Even if we are an
 		err = idx.storeUndoBlock(block.Height(), 0, nil, nil)
 		if err != nil {
 			return err
@@ -740,7 +722,7 @@ func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight
 		panic(err)
 	}
 
-	delsToProve, remembers, err := idx.deletionsToProve(blocks, allStxos)
+	delsToProve, _, err := idx.deletionsToProve(blocks, allStxos)
 	if err != nil {
 		return err
 	}
@@ -757,12 +739,6 @@ func (idx *FlatUtreexoProofIndex) MakeMultiBlockProof(currentHeight, proveHeight
 
 	// Store the proof that we have created.
 	err = idx.storeMultiBlockProof(currentHeight, currentUD, ud, delHashes)
-	if err != nil {
-		return err
-	}
-
-	// Store the cache that we have created.
-	err = idx.storeRemembers(remembers, proveHeight)
 	if err != nil {
 		return err
 	}
@@ -1062,24 +1038,6 @@ func (idx *FlatUtreexoProofIndex) FetchMultiUtreexoProof(height int32) (
 	return ud, multiUd, dels, nil
 }
 
-// FetchRemembers fetches the remember indexes of the desired block height.
-func (idx *FlatUtreexoProofIndex) FetchRemembers(height int32) ([]uint32, error) {
-	// Fetch the raw bytes.
-	rememberBytes, err := idx.rememberIdxState.FetchData(height)
-	if err != nil {
-		return nil, err
-	}
-
-	// Deserialize the raw bytes into a uint32 slice.
-	r := bytes.NewReader(rememberBytes)
-	remembers, err := wire.DeserializeRemembers(r)
-	if err != nil {
-		return nil, err
-	}
-
-	return remembers, nil
-}
-
 // storeProof serializes and stores the utreexo data in the proof state.
 func (idx *FlatUtreexoProofIndex) storeProof(height int32, excludeAccProof bool, ud *wire.UData) error {
 	if excludeAccProof {
@@ -1180,31 +1138,6 @@ func (idx *FlatUtreexoProofIndex) storeRoots(height int32, p utreexo.Utreexo) er
 	err = idx.rootsState.StoreData(height, serialized)
 	if err != nil {
 		return fmt.Errorf("store roots err. %v", err)
-	}
-
-	return nil
-}
-
-// storeRemembers serializes and stores the remember indexes in the remember index state.
-func (idx *FlatUtreexoProofIndex) storeRemembers(remembers [][]uint32, startHeight int32) error {
-	for i, remember := range remembers {
-		if startHeight == 0 && i == 0 {
-			continue
-		}
-
-		// Remember indexes size.
-		size := wire.SerializeRemembersSize(remember)
-		bytesBuf := bytes.NewBuffer(make([]byte, 0, size))
-
-		err := wire.SerializeRemembers(bytesBuf, remember)
-		if err != nil {
-			return err
-		}
-
-		err = idx.rememberIdxState.StoreData(startHeight+int32(i), bytesBuf.Bytes())
-		if err != nil {
-			return fmt.Errorf("store remembers err. %v", err)
-		}
 	}
 
 	return nil
@@ -1406,13 +1339,6 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 	}
 	idx.undoState = *undoState
 
-	// Init the remember idx state.
-	rememberIdxState, err := loadFlatFileState(dataDir, flatRememberIdxName)
-	if err != nil {
-		return nil, err
-	}
-	idx.rememberIdxState = *rememberIdxState
-
 	proofStatsState, err := loadFlatFileState(dataDir, flatUtreexoProofStatsName)
 	if err != nil {
 		return nil, err
@@ -1449,12 +1375,6 @@ func DropFlatUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan 
 
 	undoPath := flatFilePath(dataDir, flatUtreexoUndoName)
 	err = deleteFlatFile(undoPath)
-	if err != nil {
-		return err
-	}
-
-	rememberIdxPath := flatFilePath(dataDir, flatRememberIdxName)
-	err = deleteFlatFile(rememberIdxPath)
 	if err != nil {
 		return err
 	}
