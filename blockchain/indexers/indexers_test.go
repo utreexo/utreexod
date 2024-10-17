@@ -70,12 +70,10 @@ func createDB(dbName string) (database.DB, string, error) {
 	return db, dbPath, nil
 }
 
-func initIndexes(interval int32, dbPath string, db database.DB, params *chaincfg.Params) (
+func initIndexes(dbPath string, db database.DB, params *chaincfg.Params) (
 	*Manager, []Indexer, error) {
 
-	proofGenInterval := new(int32)
-	*proofGenInterval = interval
-	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, proofGenInterval, 50*1024*1024, dbPath, db.Flush)
+	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, 50*1024*1024, dbPath, db.Flush)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,7 +91,7 @@ func initIndexes(interval int32, dbPath string, db database.DB, params *chaincfg
 	return indexManager, indexes, nil
 }
 
-func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
+func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
 	params := chaincfg.RegressionNetParams
 	params.CoinbaseMaturity = 1
 
@@ -109,7 +107,7 @@ func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.Blo
 	}
 
 	// Create the indexes to be used in the chain.
-	indexManager, indexes, err := initIndexes(proofGenInterval, dbPath, db, &params)
+	indexManager, indexes, err := initIndexes(dbPath, db, &params)
 	if err != nil {
 		tearDown()
 		os.RemoveAll(testDbRoot)
@@ -483,7 +481,7 @@ func TestProveUtxos(t *testing.T) {
 	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
-	chain, indexes, params, _, tearDown := indexersTestChain("TestProveUtxos", 1)
+	chain, indexes, params, _, tearDown := indexersTestChain("TestProveUtxos")
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -621,7 +619,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
-	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoProofIndex", 1)
+	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoProofIndex")
 	defer tearDown()
 
 	tip := btcutil.NewBlock(params.GenesisBlock)
@@ -742,7 +740,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
 
-	chain, indexes, params, indexManager, tearDown := indexersTestChain("TestBridgeNodePruneUndoDataGen", 1)
+	chain, indexes, params, indexManager, tearDown := indexersTestChain("TestBridgeNodePruneUndoDataGen")
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
