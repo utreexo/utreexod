@@ -1076,9 +1076,16 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return err
 			}
 		} else {
-			// Check that the block txOuts are valid by checking the utreexo proof and
-			// extra data and then update the accumulator.
-			err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			err := b.utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return fmt.Errorf("reorganizeChain fail while attaching "+
+					"block %s. Error: %v", block.Hash().String(), err)
+			}
+			err = b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return fmt.Errorf("reorganizeChain fail while attaching "+
+					"block %s. Error: %v", block.Hash().String(), err)
+			}
 			if err != nil {
 				return fmt.Errorf("reorganizeChain fail while attaching "+
 					"block %s. Error: %v", block.Hash().String(), err)
@@ -1337,7 +1344,14 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			} else {
 				// Check that the block txOuts are valid by checking the utreexo proof and
 				// extra data and then update the accumulator.
-				err := utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+				err := utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+				if err != nil {
+					return nil, nil, nil,
+						fmt.Errorf("verifyReorganizationValidity fail "+
+							"while attaching block %s. Error %v",
+							block.Hash().String(), err)
+				}
+				err = utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 				if err != nil {
 					return nil, nil, nil,
 						fmt.Errorf("verifyReorganizationValidity fail "+
@@ -1376,6 +1390,15 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 				}
 			}
 			return nil, nil, nil, err
+		}
+		if utreexoView != nil {
+			err = utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return nil, nil, nil,
+					fmt.Errorf("verifyReorganizationValidity fail "+
+						"while attaching block %s. Error %v",
+						block.Hash().String(), err)
+			}
 		}
 		b.index.SetStatusFlags(n, statusValid)
 	}
@@ -1453,16 +1476,22 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		if b.utreexoView != nil {
 			if fastAdd {
 				// Check that the block txOuts are valid by checking the utreexo proof and
-				// extra data and then update the accumulator.
-				err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+				// the leaf data.
+				err := b.utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
 				if err != nil {
 					return false, fmt.Errorf("connectBestChain fail on block %s. "+
 						"Error: %v", block.Hash().String(), err)
 				}
 			}
+			// Update the accumulator.
+			err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return false, fmt.Errorf("connectBestChain fail on block %s. "+
+					"Error: %v", block.Hash().String(), err)
+			}
 			view := NewUtxoViewpoint()
 			view.SetBestHash(parentHash)
-			err := view.BlockToUtxoView(block)
+			err = view.BlockToUtxoView(block)
 			if err != nil {
 				return false, err
 			}
