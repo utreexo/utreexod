@@ -332,7 +332,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-	dels, _, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip, -1)
+	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip)
 	if err != nil {
 		return err
 	}
@@ -418,7 +418,7 @@ func calcProofOverhead(ud *wire.UData) float64 {
 // attachBlock attaches the passed in block to the utreexo accumulator state.
 func (idx *FlatUtreexoProofIndex) attachBlock(blk *btcutil.Block, stxos []blockchain.SpentTxOut) error {
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(blk)
-	dels, _, err := blockchain.BlockToDelLeaves(stxos, idx.chain, blk, inskip, -1)
+	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, blk, inskip)
 	if err != nil {
 		return err
 	}

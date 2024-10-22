@@ -522,22 +522,17 @@ type ExcludedUtxo struct {
 // BlockToDelLeaves takes a non-utreexo block and stxos and turns the block into
 // leaves that are to be deleted.
 //
-// inskip and excludeAfter are optional arguments. inskip will skip indexes of the
-// txIns that match with the ones included in the slice. For example, if [0, 3, 11]
-// is given as the inskip list, then txIns that appear in the 0th, 3rd, and 11th in
-// the block will be skipped over.
+// inskip is an optional argument. inskip will skip indexes of the txIns that match
+// with the ones included in the slice. For example, if [0, 3, 11] is given as the
+// inskip list, then txIns that appear in the 0th, 3rd, and 11th in the block will
+// be skipped over.
 //
-// excludeAfter will exclude all txIns that were created after a certain block height.
-// For example, 1000 as the excludeAfter value will skip the generation of leaf datas
-// for txIns that reference utxos created on and after the height 1000.
-//
-// NOTE To opt out of the optional arguments inskip and excludeAfter, just pass nil
-// for inskip and -1 for excludeAfter.
+// NOTE To opt out of the optional arguments inskip, just pass nil.
 func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Block,
-	inskip []uint32, excludeAfter int32) (delLeaves []wire.LeafData, excluded []ExcludedUtxo, err error) {
+	inskip []uint32) (delLeaves []wire.LeafData, err error) {
 
 	if chain == nil {
-		return nil, nil, fmt.Errorf("Passed in chain is nil. Cannot make delLeaves")
+		return nil, fmt.Errorf("Passed in chain is nil. Cannot make delLeaves")
 	}
 
 	var blockInIdx uint32
@@ -563,20 +558,12 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 
 			stxo := stxos[blockInIdx-1]
 
-			// Skip all those that have heights greater and equal to
-			// the excludeAfter height.
-			if excludeAfter >= 0 && stxo.Height >= excludeAfter {
-				blockInIdx++
-				excluded = append(excluded, ExcludedUtxo{stxo.Height, op})
-				continue
-			}
-
 			blockHash, err := chain.BlockHashByHeight(stxo.Height)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			if blockHash == nil {
-				return nil, nil, fmt.Errorf("Couldn't find blockhash for height %d",
+				return nil, fmt.Errorf("Couldn't find blockhash for height %d",
 					stxo.Height)
 			}
 

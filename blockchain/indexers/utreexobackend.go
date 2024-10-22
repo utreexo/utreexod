@@ -639,7 +639,7 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 		}
 
 		_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-		dels, _, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip, -1)
+		dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip)
 		if err != nil {
 			return err
 		}
