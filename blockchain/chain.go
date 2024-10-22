@@ -1011,7 +1011,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 			_, outCount, inskip, outskip := DedupeBlock(block)
 
 			// Generate the deleted hashes.
-			dels, _, err := BlockToDelLeaves(detachSpentTxOuts[i], b, block, inskip, -1)
+			dels, err := BlockToDelLeaves(detachSpentTxOuts[i], b, block, inskip)
 			if err != nil {
 				return err
 			}
