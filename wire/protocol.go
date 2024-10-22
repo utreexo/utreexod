@@ -87,6 +87,10 @@ const (
 	// filters (CFs).
 	SFNodeCF
 
+	// SFNodeUtreexoCF is a flag used to indicate a peer supports utreexo
+	// committed filters (utreexo CFs).
+	SFNodeUtreexoCF
+
 	// SFNode2X is a flag used to indicate a peer is running the Segwit2X
 	// software.
 	SFNode2X
@@ -115,6 +119,7 @@ var sfStrings = map[ServiceFlag]string{
 	SFNodeCF:             "SFNodeCF",
 	SFNode2X:             "SFNode2X",
 	SFNodeUtreexo:        "SFNodeUtreexo",
+	SFNodeUtreexoCF:      "SFNodeUtreexoCF",
 }
 
 // orderedSFStrings is an ordered list of service flags from highest to
@@ -130,6 +135,7 @@ var orderedSFStrings = []ServiceFlag{
 	SFNodeCF,
 	SFNode2X,
 	SFNodeUtreexo,
+	SFNodeUtreexoCF,
 }
 
 // String returns the ServiceFlag in human-readable form.
