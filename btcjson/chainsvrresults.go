@@ -930,7 +930,6 @@ type ProveUtxoChainTipInclusionVerboseResult struct {
 // is returned.
 type GetUtreexoProofVerboseResult struct {
 	ProofHashes     []string `json:"proofhashes"`
-	RememberIndexes []uint32 `json:"rememberindexes"`
 	TargetHashes    []string `json:"targethashes"`
 	TargetPreimages []string `json:"targetpreimages"`
 	ProofTargets    []uint64 `json:"prooftargets"`

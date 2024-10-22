@@ -22,10 +22,6 @@ import (
 
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator
 type UtreexoViewpoint struct {
-	// proofInterval is the interval of block in which to receive the
-	// accumulator proofs. Only relevant when in multiblock proof mode.
-	proofInterval int32
-
 	// accumulator is the bare-minimum accumulator for the utxo set.
 	// It only holds the root hashes and the number of elements in the
 	// accumulator.
@@ -52,12 +48,12 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds, err := ExtractAccumulatorAdds(block, bestChain, ud.RememberIdx)
+	adds, err := ExtractAccumulatorAdds(block, bestChain, []uint32{})
 	if err != nil {
 		return err
 	}
 
-	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
+	dels, err := ExtractAccumulatorDels(block, bestChain, []uint32{})
 	if err != nil {
 		return err
 	}
@@ -82,7 +78,7 @@ func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	dels, err := ExtractAccumulatorDels(block, bestChain, ud.RememberIdx)
+	dels, err := ExtractAccumulatorDels(block, bestChain, []uint32{})
 	if err != nil {
 		return err
 	}
@@ -107,12 +103,6 @@ func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
 				"to spend unspendable leaf %s", block.Hash().String(),
 				block.Height(), block91812UnspendableUtreexoLeafHash.String())
 		}
-	}
-
-	// TODO we should be verifying here but aren't as the accumulator.Verify
-	// function expects a complete proof.
-	if uview.proofInterval != 1 {
-		return nil
 	}
 
 	return uview.accumulator.Verify(dels, ud.AccProof, false)
@@ -142,33 +132,23 @@ func (uview *UtreexoViewpoint) Modify(ud *wire.UData,
 		addHashes[i] = add.Hash
 	}
 
-	var err error
+	// We have to do this in order to generate the update data for the wallet.
+	// TODO: get rid of this once the pollard can generate the update data.
+	s := uview.accumulator.GetStump()
 	var updateData utreexo.UpdateData
-	if uview.proofInterval == 1 {
-		err = uview.accumulator.Ingest(dels, ud.AccProof)
-		if err != nil {
-			return nil, err
-		}
+	updateData, err := s.Update(dels, addHashes, ud.AccProof)
+	if err != nil {
+		return nil, err
+	}
 
-		// We have to do this in order to generate the update data for the wallet.
-		// TODO: get rid of this once the pollard can generate the update data.
-		s := uview.accumulator.GetStump()
-		updateData, err = s.Update(dels, addHashes, ud.AccProof)
-		if err != nil {
-			return nil, err
-		}
-
-		err = uview.accumulator.Modify(adds, dels, ud.AccProof)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// TODO we should be verifying here but aren't as the accumulator.Verify
-		// function expects a complete proof.
-		err = uview.accumulator.Modify(adds, dels, ud.AccProof)
-		if err != nil {
-			return nil, err
-		}
+	// Ingest and modify the accumulator.
+	err = uview.accumulator.Ingest(dels, ud.AccProof)
+	if err != nil {
+		return nil, err
+	}
+	err = uview.accumulator.Modify(adds, dels, ud.AccProof)
+	if err != nil {
+		return nil, err
 	}
 
 	return &updateData, nil
@@ -833,17 +813,6 @@ func (uview *UtreexoViewpoint) compareRoots(compRoot []utreexo.Hash) bool {
 	return true
 }
 
-// SetProofInterval sets the interval of the utreexo proofs to be received by the node.
-// Ex: interval of 10 means that you receive a utreexo proof every 10 blocks.
-func (uview *UtreexoViewpoint) SetProofInterval(proofInterval int32) {
-	uview.proofInterval = proofInterval
-}
-
-// GetProofInterval returns the proof interval of the current utreexo viewpoint.
-func (uview *UtreexoViewpoint) GetProofInterval() int32 {
-	return uview.proofInterval
-}
-
 // PruneAll deletes all the cached leaves in the utreexo viewpoint, leaving only the
 // roots of the accumulator.
 func (uview *UtreexoViewpoint) PruneAll() {
@@ -854,9 +823,7 @@ func (uview *UtreexoViewpoint) PruneAll() {
 // NewUtreexoViewpoint returns an empty UtreexoViewpoint
 func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
-		// Use 1 as a default value.
-		proofInterval: 1,
-		accumulator:   utreexo.NewMapPollard(false),
+		accumulator: utreexo.NewMapPollard(false),
 	}
 }
 
@@ -864,8 +831,6 @@ func NewUtreexoViewpoint() *UtreexoViewpoint {
 // assumedUtreexoPoint.
 func (b *BlockChain) SetUtreexoStateFromAssumePoint() {
 	b.utreexoView = &UtreexoViewpoint{
-		// Use 1 as a default value.
-		proofInterval: 1,
 		accumulator: utreexo.NewMapPollardFromRoots(
 			b.assumeUtreexoPoint.Roots, b.assumeUtreexoPoint.NumLeaves, false),
 	}

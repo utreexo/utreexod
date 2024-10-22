@@ -617,7 +617,6 @@ var helpDescsEnUS = map[string]string{
 	// GetUtreexoProofVerboseResult help.
 	"getutreexoproofverboseresult-proofhashes": "One half of the utreexo accumulator proof (the other half being prooftargets).\n" +
 		"The proof hashes for the utreexo accumulator proof of the given UTXOs.",
-	"getutreexoproofverboseresult-rememberindexes": "Indexes of the targets to cache when performing initial block download",
 	"getutreexoproofverboseresult-targethashes":    "Hashes that correspond to each of the prooftargets",
 	"getutreexoproofverboseresult-targetpreimages": "Preimages of the targethashes",
 	"getutreexoproofverboseresult-prooftargets": "One half of the utreexo accumulator proof (the other half being proofhashes).\n" +

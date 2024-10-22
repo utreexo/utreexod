@@ -63,9 +63,8 @@ func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
 			accProof := utreexo.Proof{Targets: utreexoProof.ProofTargets, Proof: proofHashes}
 
 			udata := wire.UData{
-				AccProof:    accProof,
-				LeafDatas:   lds,
-				RememberIdx: utreexoProof.RememberIndexes,
+				AccProof:  accProof,
+				LeafDatas: lds,
 			}
 
 			return &udata, nil

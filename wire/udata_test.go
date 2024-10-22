@@ -21,7 +21,6 @@ type testData struct {
 	name           string
 	height         int32
 	leavesPerBlock []LeafData
-	rememberIdx    []uint32
 
 	size             int
 	sizeCompact      int
@@ -59,9 +58,8 @@ var mainNetBlock104773 = testData{
 			IsCoinBase: false,
 		},
 	},
-	rememberIdx:      []uint32{2, 3},
-	size:             220,
-	sizeCompact:      86,
+	size:             217,
+	sizeCompact:      83,
 	sizeCompactNoAcc: 82,
 }
 
@@ -114,9 +112,8 @@ var testNetBlock383 = testData{
 			IsCoinBase: true,
 		},
 	},
-	rememberIdx:      []uint32{1, 2, 3},
-	size:             465,
-	sizeCompact:      197,
+	size:             461,
+	sizeCompact:      193,
 	sizeCompactNoAcc: 192,
 }
 
@@ -183,13 +180,6 @@ func checkUDEqual(ud, checkUData *UData, isCompact bool, name string) error {
 		}
 	}
 
-	for i := range ud.RememberIdx {
-		if ud.RememberIdx[i] != checkUData.RememberIdx[i] {
-			return fmt.Errorf("%s: UData RememberIdx mismatch. expect %v, got %v",
-				name, ud.RememberIdx[i], checkUData.RememberIdx[i])
-		}
-	}
-
 	if !isCompact {
 		if !reflect.DeepEqual(ud, checkUData) {
 			if !reflect.DeepEqual(ud.AccProof, checkUData.AccProof) {
@@ -198,9 +188,6 @@ func checkUDEqual(ud, checkUData *UData, isCompact bool, name string) error {
 
 			if !reflect.DeepEqual(ud.LeafDatas, checkUData.LeafDatas) {
 				return fmt.Errorf("ud and checkUData reflect.DeepEqual LeafDatas mismatch")
-			}
-			if !reflect.DeepEqual(ud.RememberIdx, checkUData.RememberIdx) {
-				return fmt.Errorf("ud and checkUData reflect.DeepEqual TxoTTLs mismatch")
 			}
 		}
 	}
@@ -246,8 +233,6 @@ func TestUDataSerializeSize(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-
-		ud.RememberIdx = testData.rememberIdx
 
 		// Append to the tests.
 		tests = append(tests, test{
@@ -340,8 +325,6 @@ func TestUDataSerializeSize(t *testing.T) {
 		// Test that SerializeUxtoDataSizeCompact and SerializeUxtoDataSizeCompact
 		// sums up to the entire thing.
 		totals := test.ud.SerializeUxtoDataSizeCompact() + test.ud.SerializeAccSizeCompact()
-		totals += test.ud.SerializeRememberIdxSize()
-
 		if totals != test.ud.SerializeSizeCompact() {
 			t.Errorf("%s: expected %d for but got %d as the sum of utxodata, accumulator data, and the remember idxs",
 				test.name, test.ud.SerializeSizeCompact(), totals)
@@ -384,8 +367,6 @@ func TestUDataSerialize(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-
-		ud.RememberIdx = testData.rememberIdx
 
 		// Append to the tests.
 		tests = append(tests, test{name: testData.name, ud: *ud})
