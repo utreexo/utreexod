@@ -103,30 +103,41 @@ func BatchProofDeserialize(r io.Reader) (*utreexo.Proof, error) {
 		return nil, err
 	}
 
-	targets := make([]uint64, targetCount)
-	for i := range targets {
-		target, err := ReadVarInt(r, 0)
-		if err != nil {
-			return nil, err
-		}
+	proof := new(utreexo.Proof)
 
-		targets[i] = target
+	if targetCount > 0 {
+		targets := make([]uint64, 0, targetCount)
+		for i := 0; i < int(targetCount); i++ {
+			target, err := ReadVarInt(r, 0)
+			if err != nil {
+				return nil, err
+			}
+
+			targets = append(targets, target)
+		}
+		proof.Targets = targets
 	}
 
 	proofCount, err := ReadVarInt(r, 0)
 	if err != nil {
 		return nil, err
 	}
+	if proofCount == 0 {
+		return proof, nil
+	}
 
-	proofs := make([]utreexo.Hash, proofCount)
-	for i := range proofs {
-		_, err = io.ReadFull(r, proofs[i][:])
+	proofs := make([]utreexo.Hash, 0, proofCount)
+	for i := 0; i < int(proofCount); i++ {
+		var hash utreexo.Hash
+		_, err = io.ReadFull(r, hash[:])
 		if err != nil {
 			return nil, err
 		}
+		proofs = append(proofs, hash)
 	}
+	proof.Proof = proofs
 
-	return &utreexo.Proof{Targets: targets, Proof: proofs}, nil
+	return proof, nil
 }
 
 // BatchProofToString converts a batchproof into a human-readable string.  Note
