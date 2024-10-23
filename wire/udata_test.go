@@ -631,3 +631,47 @@ func TestGenerateUData(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestUDataCopy tests that modifying the leafdata copy does not modify the original.
+func TestUDataCopy(t *testing.T) {
+	// New forest object.
+	p := utreexo.NewAccumulator()
+
+	// Create hashes to add from the stxo data.
+	testDatas := getTestDatas()
+	addHashes := make([]utreexo.Leaf, 0, len(testDatas[0].leavesPerBlock))
+	for i, ld := range testDatas[0].leavesPerBlock {
+		addHashes = append(addHashes, utreexo.Leaf{
+			Hash: ld.LeafHash(),
+			// Just half and half.
+			Remember: i%2 == 0,
+		})
+	}
+	// Add to the accumulator.
+	err := p.Modify(addHashes, nil, utreexo.Proof{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Generate Proof.
+	ud, err := GenerateUData(testDatas[0].leavesPerBlock, &p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	udOrig, err := GenerateUData(testDatas[0].leavesPerBlock, &p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	udCopy := ud.Copy()
+	udCopy.AccProof.Targets[0] = 1 << 17
+	udCopy.LeafDatas[0].Amount = 55
+
+	if reflect.DeepEqual(udCopy, ud) {
+		t.Fatalf("udCopy and ud are same")
+	}
+
+	if !reflect.DeepEqual(ud, udOrig) {
+		t.Fatalf("ud and udOrig are different")
+	}
+}

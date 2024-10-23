@@ -23,6 +23,28 @@ type UData struct {
 	LeafDatas []LeafData
 }
 
+// Copy creates a deep copy of the utreexo data so the original does not get modified
+// when the copy is manipulated.
+func (ud *UData) Copy() *UData {
+	proofCopy := utreexo.Proof{
+		Targets: make([]uint64, len(ud.AccProof.Targets)),
+		Proof:   make([]utreexo.Hash, len(ud.AccProof.Proof)),
+	}
+	copy(proofCopy.Targets, ud.AccProof.Targets)
+	copy(proofCopy.Proof, ud.AccProof.Proof)
+
+	newUD := UData{
+		AccProof:  proofCopy,
+		LeafDatas: make([]LeafData, len(ud.LeafDatas)),
+	}
+
+	for i := range newUD.LeafDatas {
+		newUD.LeafDatas[i] = *ud.LeafDatas[i].Copy()
+	}
+
+	return &newUD
+}
+
 // StxosHashes returns the hash of all stxos in this UData.  The hashes returned
 // here represent the hash commitments of the stxos.
 func (ud *UData) StxoHashes() []utreexo.Hash {
