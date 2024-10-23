@@ -111,16 +111,21 @@ func (ud *UData) Deserialize(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if udCount == 0 {
+		return nil
+	}
 
-	ud.LeafDatas = make([]LeafData, udCount)
-	for i := range ud.LeafDatas {
-		err = ud.LeafDatas[i].Deserialize(r)
+	ud.LeafDatas = make([]LeafData, 0, udCount)
+	for i := 0; i < int(udCount); i++ {
+		ld := LeafData{}
+		err = ld.Deserialize(r)
 		if err != nil {
 			str := fmt.Sprintf("targetCount:%d, Stxos[%d], err:%s\n",
 				len(ud.AccProof.Targets), i, err.Error())
 			returnErr := messageError("Deserialize stxos", str)
 			return returnErr
 		}
+		ud.LeafDatas = append(ud.LeafDatas, ld)
 	}
 
 	return nil

@@ -137,7 +137,7 @@ func TestBatchProofSerializeSize(t *testing.T) {
 		if BatchProofSerializeSize(&test.bp) != test.size {
 			err := fmt.Errorf("TestBatchProofSerializeSize \"%s\": expected size of %d but got %d",
 				test.name, test.size, BatchProofSerializeSize(&test.bp))
-			t.Errorf(err.Error())
+			t.Error(err)
 		}
 
 		var buf bytes.Buffer
@@ -149,7 +149,7 @@ func TestBatchProofSerializeSize(t *testing.T) {
 		if test.size != len(buf.Bytes()) {
 			err := fmt.Errorf("TestBatchProofSerializeSize \"%s\": serialized bytes len of %d but serialize size of %d",
 				test.name, len(buf.Bytes()), BatchProofSerializeSize(&test.bp))
-			t.Errorf(err.Error())
+			t.Error(err)
 		}
 	}
 }

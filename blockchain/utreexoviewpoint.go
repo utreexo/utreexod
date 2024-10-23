@@ -883,7 +883,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 			str += fmt.Sprintf("%s\n", txIn.PreviousOutPoint.String())
 		}
 
-		return fmt.Errorf(str)
+		return fmt.Errorf("%v", str)
 	}
 
 	// Make a slice of hashes from LeafDatas. These are the hash commitments
@@ -954,7 +954,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 				ud.LeafDatas[i].String(), hex.EncodeToString(leafHash[:]))
 		}
 		str += fmt.Sprintf("err: %s", err.Error())
-		return fmt.Errorf(str)
+		return fmt.Errorf("%v", str)
 	}
 
 	if remember {
