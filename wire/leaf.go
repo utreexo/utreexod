@@ -49,6 +49,23 @@ type LeafData struct {
 	PkScript              []byte
 }
 
+// Copy creates a deep copy of the leafdata so the original does not get modified
+// when the copy is manipulated.
+func (l *LeafData) Copy() *LeafData {
+	newL := LeafData{
+		BlockHash:             l.BlockHash,
+		OutPoint:              l.OutPoint,
+		Height:                l.Height,
+		IsCoinBase:            l.IsCoinBase,
+		Amount:                l.Amount,
+		ReconstructablePkType: l.ReconstructablePkType,
+		PkScript:              make([]byte, len(l.PkScript)),
+	}
+
+	copy(newL.PkScript, l.PkScript)
+	return &newL
+}
+
 func (l LeafData) MarshalJSON() ([]byte, error) {
 	s := struct {
 		BlockHash             string `json:"blockhash"`

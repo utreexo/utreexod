@@ -38,6 +38,7 @@ const (
 	CmdNotFound     = "notfound"
 	CmdBlock        = "block"
 	CmdTx           = "tx"
+	CmdUtreexoTx    = "utreexotx"
 	CmdGetHeaders   = "getheaders"
 	CmdHeaders      = "headers"
 	CmdPing         = "ping"
