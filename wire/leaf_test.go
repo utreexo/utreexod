@@ -633,3 +633,42 @@ func TestLeafHash(t *testing.T) {
 		}
 	}
 }
+
+// TestLeafDataCopy tests that modifying the leafdata copy does not modify the original.
+func TestLeafDataCopy(t *testing.T) {
+	ld := LeafData{
+		BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
+		OutPoint: OutPoint{
+			Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
+			Index: 10,
+		},
+		Amount:     200000,
+		PkScript:   hexToBytes("a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"),
+		Height:     1599255,
+		IsCoinBase: false,
+	}
+
+	ldOrig := LeafData{
+		BlockHash: *newHashFromStr("00000000000172ff8a4e14441512072bacaf8d38b995a3fcd2f8435efc61717d"),
+		OutPoint: OutPoint{
+			Hash:  *newHashFromStr("061bb0bf3a1b9df13773da06bf92920394887a9c2b8b8772ac06be4e077df5eb"),
+			Index: 10,
+		},
+		Amount:     200000,
+		PkScript:   hexToBytes("a914e8d74935cfa223f9750a32b18d609cba17a5c3fe87"),
+		Height:     1599255,
+		IsCoinBase: false,
+	}
+
+	ldCopy := ld.Copy()
+	ldCopy.OutPoint.Index = 7777
+	ldCopy.OutPoint.Hash[31] = 0x17
+	ldCopy.PkScript[0] = 0x77
+	if reflect.DeepEqual(ldCopy, ld) {
+		t.Fatalf("ldCopy and ld are same")
+	}
+
+	if !reflect.DeepEqual(ld, ldOrig) {
+		t.Fatalf("ld and ldOrig are different")
+	}
+}
