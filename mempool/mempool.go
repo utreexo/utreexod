@@ -586,6 +586,22 @@ func (mp *TxPool) addTransaction(utxoView *blockchain.UtxoViewpoint, tx *btcutil
 	return txD
 }
 
+// addUtreexoData add the passed leaves to the memory pool and caches the proof to the accumulator.
+// It should not be called directly as it doesn't perform any validation.
+//
+// This function MUST be called with the mempool lock held (for writes).
+func (mp *TxPool) addUtreexoData(tx *btcutil.Tx, udata *wire.UData) error {
+	// Ingest the proof. Shouldn't error out with the proof being invalid
+	// here since we've already verified it above.
+	err := mp.cfg.VerifyUData(udata, tx.MsgTx().TxIn, true)
+	if err != nil {
+		return fmt.Errorf("error while ingesting proof. %v", err)
+	}
+	mp.poolLeaves[*tx.Hash()] = udata.LeafDatas
+
+	return nil
+}
+
 // checkPoolDoubleSpend checks whether or not the passed transaction is
 // attempting to spend coins already spent by other transactions in the pool.
 // If it does, we'll check whether each of those transactions are signaling for
