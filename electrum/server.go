@@ -577,7 +577,7 @@ func handleTransactionBroadcast(s *ElectrumServer, cmd *btcjson.Request, conn ne
 	// Also, since an error is being returned to the caller, ensure the
 	// transaction is removed from the memory pool.
 	if len(acceptedTxs) == 0 || !acceptedTxs[0].Tx.Hash().IsEqual(tx.Hash()) {
-		s.cfg.Mempool.RemoveTransaction(tx, true, true)
+		s.cfg.Mempool.RemoveTransaction(tx, true)
 
 		errStr := fmt.Errorf("transaction %v is not in accepted list",
 			tx.Hash())
