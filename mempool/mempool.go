@@ -826,18 +826,18 @@ func (mp *TxPool) fetchInputUtxos(tx *btcutil.Tx) (*blockchain.UtxoViewpoint, er
 	return utxoView, nil
 }
 
-// fetchInputUtxosFromUData extracts utxo details about the input transactions
-// provided in the UData for the passed transaction.  First, it extracts the
+// fetchInputUtxosFromLeaves extracts utxo details about the input transactions
+// provided in the leaves for the passed transaction.  First, it extracts the
 // details from the udata, then it adjusts them based upon the contents of the
 // transaction pool.
 //
 // This function MUST be called with the mempool lock held (for reads).
-func (mp *TxPool) fetchInputUtxosFromUData(tx *btcutil.Tx, ud *wire.UData) *blockchain.UtxoViewpoint {
+func (mp *TxPool) fetchInputUtxosFromLeaves(tx *btcutil.Tx, leaves []wire.LeafData) *blockchain.UtxoViewpoint {
 	utxoView := blockchain.NewUtxoViewpoint()
 	viewEntries := utxoView.Entries()
 
 	// Loop through leaf datas and convert them into UtxoEntries.
-	for _, ld := range ud.LeafDatas {
+	for _, ld := range leaves {
 		// If the leaf data was marked to be unconfirmed, set as nil.
 		// The outpoint for the txIn that this LeafData is supposed to
 		// represent will be attempted to be fetched from the mempool
@@ -1492,7 +1492,7 @@ func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx,
 		log.Debugf("VerifyUData passed for tx %s", txHash.String())
 
 		// After the validation passes, turn that proof into a utxoView.
-		utxoView = mp.fetchInputUtxosFromUData(tx, ud)
+		utxoView = mp.fetchInputUtxosFromLeaves(tx, ud.LeafDatas)
 	} else {
 		// Fetch all of the unspent transaction outputs referenced by the
 		// inputs to this transaction. This function also attempts to fetch the
