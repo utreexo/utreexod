@@ -1314,10 +1314,13 @@ func (mp *TxPool) RawMempoolVerbose() map[string]*btcjson.GetRawMempoolVerboseRe
 		// input transactions can't be found for some reason.
 		tx := desc.Tx
 		var currentPriority float64
-		utxos, err := mp.fetchInputUtxos(tx)
-		if err == nil {
-			currentPriority = mining.CalcPriority(tx.MsgTx(), utxos,
-				bestHeight+1)
+		// Don't calculate for utreexo nodes yet.
+		if mp.cfg.IsUtreexoViewActive == nil && !mp.cfg.IsUtreexoViewActive() {
+			utxos, err := mp.fetchInputUtxos(tx)
+			if err == nil {
+				currentPriority = mining.CalcPriority(tx.MsgTx(), utxos,
+					bestHeight+1)
+			}
 		}
 
 		mpd := &btcjson.GetRawMempoolVerboseResult{
@@ -1474,17 +1477,35 @@ func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx,
 		return nil, err
 	}
 
-	// Fetch all of the unspent transaction outputs referenced by the
-	// inputs to this transaction. This function also attempts to fetch the
-	// transaction itself to be used for detecting a duplicate transaction
-	// without needing to do a separate lookup.
-	utxoView, err := mp.fetchInputUtxos(tx)
-	if err != nil {
-		if cerr, ok := err.(blockchain.RuleError); ok {
-			return nil, chainRuleError(cerr)
-		}
+	var utxoView *blockchain.UtxoViewpoint
+	if mp.cfg.IsUtreexoViewActive != nil && mp.cfg.IsUtreexoViewActive() {
+		ud := tx.MsgTx().UData
 
-		return nil, err
+		// First verify the proof to ensure that the proof the peer has
+		// sent was over valid.
+		err = mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn, false)
+		if err != nil {
+			str := fmt.Sprintf("transaction %v failed the utreexo data verification. %v",
+				txHash, err)
+			return nil, txRuleError(wire.RejectInvalid, str)
+		}
+		log.Debugf("VerifyUData passed for tx %s", txHash.String())
+
+		// After the validation passes, turn that proof into a utxoView.
+		utxoView = mp.fetchInputUtxosFromUData(tx, ud)
+	} else {
+		// Fetch all of the unspent transaction outputs referenced by the
+		// inputs to this transaction. This function also attempts to fetch the
+		// transaction itself to be used for detecting a duplicate transaction
+		// without needing to do a separate lookup.
+		utxoView, err = mp.fetchInputUtxos(tx)
+		if err != nil {
+			if cerr, ok := err.(blockchain.RuleError); ok {
+				return nil, chainRuleError(cerr)
+			}
+
+			return nil, err
+		}
 	}
 
 	// Don't allow the transaction if it exists in the main chain and is
