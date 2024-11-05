@@ -1749,8 +1749,10 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 		// Reinsert all of the transactions (except the coinbase) into
 		// the transaction pool.
+		//
+		// TODO handle txs here for utreexo nodes.
 		for _, tx := range block.Transactions()[1:] {
-			_, _, err := sm.txMemPool.MaybeAcceptTransaction(tx,
+			_, _, err := sm.txMemPool.MaybeAcceptTransaction(tx, nil,
 				false, false)
 			if err != nil {
 				// Remove the transaction and all transactions
