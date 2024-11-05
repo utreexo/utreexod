@@ -523,7 +523,7 @@ func handleTransactionBroadcast(s *ElectrumServer, cmd *btcjson.Request, conn ne
 	}
 	tx.MsgTx().UData = udata
 
-	acceptedTxs, err := s.cfg.Mempool.ProcessTransaction(tx, false, false, 0)
+	acceptedTxs, err := s.cfg.Mempool.ProcessTransaction(tx, udata, false, false, 0)
 	if err != nil {
 		// When the error is a rule error, it means the transaction was
 		// simply rejected as opposed to something actually going wrong,

@@ -73,7 +73,7 @@ func (m *MockTxMempool) HaveTransaction(hash *chainhash.Hash) bool {
 // free-standing transactions into the memory pool. It includes functionality
 // such as rejecting duplicate transactions, ensuring transactions follow all
 // rules, orphan transaction handling, and insertion into the memory pool.
-func (m *MockTxMempool) ProcessTransaction(tx *btcutil.Tx, allowOrphan,
+func (m *MockTxMempool) ProcessTransaction(tx *btcutil.Tx, utreexoData *wire.UData, allowOrphan,
 	rateLimit bool, tag Tag) ([]*TxDesc, error) {
 
 	args := m.Called(tx, allowOrphan, rateLimit, tag)
