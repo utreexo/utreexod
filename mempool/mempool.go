@@ -1010,7 +1010,7 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit,
 
 	// Check for mempool acceptance.
 	r, err := mp.checkMempoolAcceptance(
-		tx, isNew, rateLimit, rejectDupOrphans,
+		tx, nil, isNew, rateLimit, rejectDupOrphans,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1314,10 +1314,16 @@ func (mp *TxPool) RawMempoolVerbose() map[string]*btcjson.GetRawMempoolVerboseRe
 		// input transactions can't be found for some reason.
 		tx := desc.Tx
 		var currentPriority float64
-		// Don't calculate for utreexo nodes yet.
 		if mp.cfg.IsUtreexoViewActive == nil && !mp.cfg.IsUtreexoViewActive() {
 			utxos, err := mp.fetchInputUtxos(tx)
 			if err == nil {
+				currentPriority = mining.CalcPriority(tx.MsgTx(), utxos,
+					bestHeight+1)
+			}
+		} else {
+			udata, found := mp.poolLeaves[*tx.Hash()]
+			if found {
+				utxos := mp.fetchInputUtxosFromLeaves(tx, udata)
 				currentPriority = mining.CalcPriority(tx.MsgTx(), utxos,
 					bestHeight+1)
 			}
@@ -1399,7 +1405,7 @@ func (mp *TxPool) CheckMempoolAcceptance(tx *btcutil.Tx) (
 	// which has the effect that we always check the fee paid from this tx
 	// is greater than min relay fee. We also reject this tx if it's
 	// already an orphan.
-	result, err := mp.checkMempoolAcceptance(tx, true, true, true)
+	result, err := mp.checkMempoolAcceptance(tx, nil, true, true, true)
 	if err != nil {
 		log.Errorf("CheckMempoolAcceptance: %v", err)
 		return nil, err
@@ -1414,7 +1420,7 @@ func (mp *TxPool) CheckMempoolAcceptance(tx *btcutil.Tx) (
 // checkMempoolAcceptance performs a series of validations on the given
 // transaction. It returns an error when the transaction fails to meet the
 // mempool policy, otherwise a `mempoolAcceptResult` is returned.
-func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx,
+func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx, utreexoData *wire.UData,
 	isNew, rateLimit, rejectDupOrphans bool) (*MempoolAcceptResult, error) {
 
 	txHash := tx.Hash()
@@ -1479,11 +1485,9 @@ func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx,
 
 	var utxoView *blockchain.UtxoViewpoint
 	if mp.cfg.IsUtreexoViewActive != nil && mp.cfg.IsUtreexoViewActive() {
-		ud := tx.MsgTx().UData
-
 		// First verify the proof to ensure that the proof the peer has
 		// sent was over valid.
-		err = mp.cfg.VerifyUData(ud, tx.MsgTx().TxIn, false)
+		err = mp.cfg.VerifyUData(utreexoData, tx.MsgTx().TxIn, false)
 		if err != nil {
 			str := fmt.Sprintf("transaction %v failed the utreexo data verification. %v",
 				txHash, err)
@@ -1492,7 +1496,7 @@ func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx,
 		log.Debugf("VerifyUData passed for tx %s", txHash.String())
 
 		// After the validation passes, turn that proof into a utxoView.
-		utxoView = mp.fetchInputUtxosFromLeaves(tx, ud.LeafDatas)
+		utxoView = mp.fetchInputUtxosFromLeaves(tx, utreexoData.LeafDatas)
 	} else {
 		// Fetch all of the unspent transaction outputs referenced by the
 		// inputs to this transaction. This function also attempts to fetch the
