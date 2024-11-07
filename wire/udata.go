@@ -247,6 +247,9 @@ func (ud *UData) DeserializeCompact(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if udCount == 0 {
+		return nil
+	}
 	ud.LeafDatas = make([]LeafData, udCount)
 
 	for i := range ud.LeafDatas {
