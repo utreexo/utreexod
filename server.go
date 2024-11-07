@@ -601,6 +601,33 @@ func (sp *serverPeer) OnTx(_ *peer.Peer, msg *wire.MsgTx) {
 	<-sp.txProcessed
 }
 
+// OnUtreexoTx is invoked when a peer receives a utreexo tx bitcoin message.
+// It blocks until the bitcoin transaction has been fully processed.  Unlock the block
+// handler this does not serialize all transactions through a single thread
+// transactions don't rely on the previous one in a linear fashion like blocks.
+func (sp *serverPeer) OnUtreexoTx(_ *peer.Peer, msg *wire.MsgUtreexoTx) {
+	if cfg.BlocksOnly {
+		peerLog.Tracef("Ignoring utreexo tx %v from %v - blocksonly enabled",
+			msg.TxHash(), sp)
+		return
+	}
+
+	// Add the transaction to the known inventory for the peer.
+	// Convert the raw MsgUtreexoTx to a btcutil.UtreexoTx which provides some convenience
+	// methods and things such as hash caching.
+	tx := btcutil.NewUtreexoTx(msg)
+	iv := wire.NewInvVect(wire.InvTypeTx, tx.Hash())
+	sp.AddKnownInventory(iv)
+
+	// Queue the transaction up to be handled by the sync manager and
+	// intentionally block further receives until the transaction is fully
+	// processed and known good or bad.  This helps prevent a malicious peer
+	// from queuing up a bunch of bad transactions before disconnecting (or
+	// being disconnected) and wasting memory.
+	sp.server.syncManager.QueueUtreexoTx(tx, sp.Peer, sp.txProcessed)
+	<-sp.txProcessed
+}
+
 // OnBlock is invoked when a peer receives a block bitcoin message.  It
 // blocks until the bitcoin block has been fully processed.
 func (sp *serverPeer) OnBlock(_ *peer.Peer, msg *wire.MsgBlock, buf []byte) {
@@ -2408,6 +2435,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 			OnVerAck:       sp.OnVerAck,
 			OnMemPool:      sp.OnMemPool,
 			OnTx:           sp.OnTx,
+			OnUtreexoTx:    sp.OnUtreexoTx,
 			OnBlock:        sp.OnBlock,
 			OnInv:          sp.OnInv,
 			OnHeaders:      sp.OnHeaders,
