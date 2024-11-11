@@ -47,7 +47,7 @@ type TxMempool interface {
 	// error is nil, the list will include the passed transaction itself
 	// along with any additional orphan transactions that were added as a
 	// result of the passed one being accepted.
-	ProcessTransaction(tx *btcutil.Tx, allowOrphan,
+	ProcessTransaction(tx *btcutil.Tx, utreexoData *wire.UData, allowOrphan,
 		rateLimit bool, tag Tag) ([]*TxDesc, error)
 
 	// RemoveTransaction removes the passed transaction from the mempool.

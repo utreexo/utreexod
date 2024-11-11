@@ -117,6 +117,9 @@ type MessageListeners struct {
 	// OnTx is invoked when a peer receives a tx bitcoin message.
 	OnTx func(p *Peer, msg *wire.MsgTx)
 
+	// OnUtreexoTx is invoked when a peer receives a utreexo tx bitcoin message.
+	OnUtreexoTx func(p *Peer, msg *wire.MsgUtreexoTx)
+
 	// OnBlock is invoked when a peer receives a block bitcoin message.
 	OnBlock func(p *Peer, msg *wire.MsgBlock, buf []byte)
 
@@ -1175,6 +1178,7 @@ func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd st
 		pendingResponses[wire.CmdBlock] = deadline
 		pendingResponses[wire.CmdMerkleBlock] = deadline
 		pendingResponses[wire.CmdTx] = deadline
+		pendingResponses[wire.CmdUtreexoTx] = deadline
 		pendingResponses[wire.CmdNotFound] = deadline
 
 	case wire.CmdGetHeaders:
@@ -1234,10 +1238,13 @@ out:
 					fallthrough
 				case wire.CmdTx:
 					fallthrough
+				case wire.CmdUtreexoTx:
+					fallthrough
 				case wire.CmdNotFound:
 					delete(pendingResponses, wire.CmdBlock)
 					delete(pendingResponses, wire.CmdMerkleBlock)
 					delete(pendingResponses, wire.CmdTx)
+					delete(pendingResponses, wire.CmdUtreexoTx)
 					delete(pendingResponses, wire.CmdNotFound)
 
 				default:
@@ -1437,6 +1444,11 @@ out:
 		case *wire.MsgTx:
 			if p.cfg.Listeners.OnTx != nil {
 				p.cfg.Listeners.OnTx(p, msg)
+			}
+
+		case *wire.MsgUtreexoTx:
+			if p.cfg.Listeners.OnUtreexoTx != nil {
+				p.cfg.Listeners.OnUtreexoTx(p, msg)
 			}
 
 		case *wire.MsgBlock:

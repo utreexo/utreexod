@@ -679,14 +679,6 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 		scriptPool.Return(pkScript)
 	}
 
-	if enc&UtreexoEncoding == UtreexoEncoding {
-		msg.UData = new(UData)
-		err = msg.UData.DeserializeCompact(r)
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -784,17 +776,6 @@ func (msg *MsgTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error
 	err = bs.PutUint32(w, littleEndian, msg.LockTime)
 	if err != nil {
 		return err
-	}
-
-	if enc&UtreexoEncoding == UtreexoEncoding {
-		// AccProof can be nil for transactions that are included in
-		// a block.
-		if msg.UData != nil {
-			err = msg.UData.SerializeCompact(w)
-			if err != nil {
-				return err
-			}
-		}
 	}
 
 	return nil

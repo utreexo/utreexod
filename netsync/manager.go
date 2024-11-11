@@ -100,6 +100,14 @@ type txMsg struct {
 	reply chan struct{}
 }
 
+// utreexoTxMsg packages a bitcoin utreexo tx message and the peer it came from together
+// so the block handler has access to that information.
+type utreexoTxMsg struct {
+	utreexoTx *btcutil.UtreexoTx
+	peer      *peerpkg.Peer
+	reply     chan struct{}
+}
+
 // getSyncPeerMsg is a message type to be sent across the message channel for
 // retrieving the current sync peer.
 type getSyncPeerMsg struct {
@@ -591,8 +599,7 @@ func (sm *SyncManager) updateSyncPeer(dcSyncPeer bool) {
 }
 
 // handleTxMsg handles transaction messages from all peers.
-func (sm *SyncManager) handleTxMsg(tmsg *txMsg) {
-	peer := tmsg.peer
+func (sm *SyncManager) handleTxMsg(tx *btcutil.Tx, peer *peerpkg.Peer, utreexoData *wire.UData) {
 	state, exists := sm.peerStates[peer]
 	if !exists {
 		log.Warnf("Received tx message from unknown peer %s", peer)
@@ -607,7 +614,7 @@ func (sm *SyncManager) handleTxMsg(tmsg *txMsg) {
 	// spec to proliferate.  While this is not ideal, there is no check here
 	// to disconnect peers for sending unsolicited transactions to provide
 	// interoperability.
-	txHash := tmsg.tx.Hash()
+	txHash := tx.Hash()
 
 	// Ignore transactions that we have already rejected.  Do not
 	// send a reject message here because if the transaction was already
@@ -620,7 +627,7 @@ func (sm *SyncManager) handleTxMsg(tmsg *txMsg) {
 
 	// Process the transaction to include validation, insertion in the
 	// memory pool, orphan handling, etc.
-	acceptedTxs, err := sm.txMemPool.ProcessTransaction(tmsg.tx,
+	acceptedTxs, err := sm.txMemPool.ProcessTransaction(tx, utreexoData,
 		true, true, mempool.Tag(peer.ID()))
 
 	// Remove transaction from request maps. Either the mempool/chain
@@ -1380,9 +1387,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			// Add it to the request queue.
 			state.requestQueue = append(state.requestQueue, iv)
 
-			// If the inv is for a utreexo tx, then also pop off the utreexo
-			// proof hash invs and add it to the request queue.
-			if peer.IsUtreexoEnabled() {
+			if sm.chain.IsUtreexoViewActive() {
 				switch iv.Type {
 				case wire.InvTypeTx:
 				case wire.InvTypeWitnessTx:
@@ -1549,7 +1554,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 					}
 
 					// Add in the utreexo flag then add the tx inv.
-					iv.Type |= wire.InvUtreexoFlag
+					iv.Type = wire.InvTypeUtreexoTx
 					gdmsg.AddInvVect(iv)
 					numRequested++
 
@@ -1597,7 +1602,11 @@ out:
 				sm.handleNewPeerMsg(msg.peer)
 
 			case *txMsg:
-				sm.handleTxMsg(msg)
+				sm.handleTxMsg(msg.tx, msg.peer, nil)
+				msg.reply <- struct{}{}
+
+			case *utreexoTxMsg:
+				sm.handleTxMsg(&msg.utreexoTx.Tx, msg.peer, &msg.utreexoTx.MsgUtreexoTx().UData)
 				msg.reply <- struct{}{}
 
 			case *blockMsg:
@@ -1749,8 +1758,10 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 		// Reinsert all of the transactions (except the coinbase) into
 		// the transaction pool.
+		//
+		// TODO handle txs here for utreexo nodes.
 		for _, tx := range block.Transactions()[1:] {
-			_, _, err := sm.txMemPool.MaybeAcceptTransaction(tx,
+			_, _, err := sm.txMemPool.MaybeAcceptTransaction(tx, nil,
 				false, false)
 			if err != nil {
 				// Remove the transaction and all transactions
@@ -1787,6 +1798,19 @@ func (sm *SyncManager) QueueTx(tx *btcutil.Tx, peer *peerpkg.Peer, done chan str
 	}
 
 	sm.msgChan <- &txMsg{tx: tx, peer: peer, reply: done}
+}
+
+// QueueUtreexoTx adds the passed transaction message and peer to the block handling
+// queue. Responds to the done channel argument after the utreexo tx message is
+// processed.
+func (sm *SyncManager) QueueUtreexoTx(tx *btcutil.UtreexoTx, peer *peerpkg.Peer, done chan struct{}) {
+	// Don't accept more transactions if we're shutting down.
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		done <- struct{}{}
+		return
+	}
+
+	sm.msgChan <- &utreexoTxMsg{utreexoTx: tx, peer: peer, reply: done}
 }
 
 // QueueBlock adds the passed block message and peer to the block handling
