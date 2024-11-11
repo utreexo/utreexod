@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/addrmgr"
 	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
@@ -2093,40 +2094,19 @@ func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
 		return
 	}
 
+	tx, err := s.txMemPool.FetchTransaction(&msg.invVect.Hash)
+	if err != nil {
+		btcdLog.Debugf("Couldn't relay tx %s as the tx "+
+			"wasn't available in the mempool. %v",
+			msg.invVect.Hash.String(), err)
+		return
+	}
+
 	// Generate the positions packed into hashes. How it's generated depends on
 	// the type of the utreexo node.
 	var packedPositions []chainhash.Hash
 	switch {
-	case !cfg.NoUtreexo:
-		// Get the leaf datas to figure out the positions needed to send
-		// over to the peers.
-		leafDatas, err := s.txMemPool.FetchLeafDatas(&msg.invVect.Hash)
-		if err != nil {
-			btcdLog.Debugf("Couldn't relay tx %s as the tx "+
-				"wasn't available in the mempool. %v",
-				msg.invVect.Hash.String(), err)
-			return
-		}
-
-		// Generate the hashes for the leafdatas.
-		leafHashes, err := wire.HashesFromLeafDatas(leafDatas)
-		if err != nil {
-			btcdLog.Debugf("Couldn't generate leaf hashes for tx %s "+
-				"err: %v",
-				msg.invVect.Hash.String(), err)
-			return
-		}
-
-		packedPositions = s.chain.PackedPositions(leafHashes)
-	default:
-		tx, err := s.txMemPool.FetchTransaction(&msg.invVect.Hash)
-		if err != nil {
-			btcdLog.Debugf("Couldn't relay tx %s as the tx "+
-				"wasn't available in the mempool. %v",
-				msg.invVect.Hash.String(), err)
-			return
-		}
-
+	case cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex:
 		leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
 		if err != nil {
 			btcdLog.Debugf("Couldn't relay tx %s as the leaf data "+
@@ -2134,13 +2114,13 @@ func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
 			return
 		}
 
-		// Generate the hashes for the leafdatas.
-		leafHashes, err := wire.HashesFromLeafDatas(leafDatas)
-		if err != nil {
-			btcdLog.Debugf("Couldn't generate leaf hashes for tx %s "+
-				"err: %v",
-				msg.invVect.Hash.String(), err)
-			return
+		leafHashes := make([]utreexo.Hash, 0, len(leafDatas))
+		for _, ld := range leafDatas {
+			// We can't calculate the correct hash if the leaf data is in
+			// the compact state.
+			if !ld.IsUnconfirmed() {
+				leafHashes = append(leafHashes, ld.LeafHash())
+			}
 		}
 
 		// Pick a proof index that's not nil.
@@ -2151,6 +2131,35 @@ func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
 			positions := s.flatUtreexoProofIndex.GetLeafHashPositions(leafHashes)
 			packedPositions = chainhash.Uint64sToPackedHashes(positions)
 		}
+	default:
+		// Get the leaf datas to figure out the positions needed to send
+		// over to the peers.
+		leafDatas, err := s.txMemPool.FetchLeafDatas(&msg.invVect.Hash)
+		if err != nil {
+			btcdLog.Debugf("Couldn't relay tx %s as the tx "+
+				"wasn't available in the mempool. %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		leafDatas, err = s.chain.ReconstructLeafDatas(leafDatas, tx.MsgTx().TxIn)
+		if err != nil {
+			btcdLog.Debugf("Couldn't generate leaf hashes for tx %s "+
+				"err: %v",
+				msg.invVect.Hash.String(), err)
+			return
+		}
+
+		leafHashes := make([]utreexo.Hash, 0, len(leafDatas))
+		for _, ld := range leafDatas {
+			if ld.IsUnconfirmed() {
+				continue
+			}
+
+			leafHashes = append(leafHashes, ld.LeafHash())
+		}
+
+		packedPositions = s.chain.PackedPositions(leafHashes)
 	}
 
 	// +1 for the tx inv.
@@ -2785,7 +2794,6 @@ func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
 		}
 		s.addProofBytesReceived(uint64(utxoDataSize))
 		s.addAccBytesReceived(uint64(accSize))
-
 	}
 
 	return nil
