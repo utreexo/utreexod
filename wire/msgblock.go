@@ -234,8 +234,15 @@ func (msg *MsgBlock) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) er
 		return err
 	}
 
+	// Unset UtreexoEncoding for the encoding that we'll pass off to the
+	// tx.BtcDecode().  This is done as tx.BtcDecode() expects Utreexo
+	// Proofs to be appended to each tx if UtreexoEncoding bit is turned on.
+	// However, this only applies to mempool txs and there are no separate
+	// Utreexo Proofs for individual txs as the MsgBlock contains a proof
+	// for all the txs.
+	txEncoding := enc &^ UtreexoEncoding
 	for _, tx := range msg.Transactions {
-		err = tx.BtcEncode(w, pver, enc)
+		err = tx.BtcEncode(w, pver, txEncoding)
 		if err != nil {
 			return err
 		}
