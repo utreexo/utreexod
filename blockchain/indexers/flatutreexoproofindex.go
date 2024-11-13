@@ -243,7 +243,7 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		}
 		r := bytes.NewReader(proofBytes)
 		ud := new(wire.UData)
-		err = ud.DeserializeCompact(r)
+		err = ud.Deserialize(r)
 		if err != nil {
 			return err
 		}
@@ -626,7 +626,7 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (
 	r := bytes.NewReader(proofBytes)
 
 	ud := new(wire.UData)
-	err = ud.DeserializeCompact(r)
+	err = ud.Deserialize(r)
 	if err != nil {
 		return nil, err
 	}
@@ -686,8 +686,8 @@ func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, pos
 
 // storeProof serializes and stores the utreexo data in the proof state.
 func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error {
-	bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSizeCompact()))
-	err := ud.SerializeCompact(bytesBuf)
+	bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSize()))
+	err := ud.Serialize(bytesBuf)
 	if err != nil {
 		return err
 	}
