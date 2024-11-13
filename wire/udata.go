@@ -45,15 +45,10 @@ func (ud *UData) Copy() *UData {
 	return &newUD
 }
 
-// StxosHashes returns the hash of all stxos in this UData.  The hashes returned
-// here represent the hash commitments of the stxos.
-func (ud *UData) StxoHashes() []utreexo.Hash {
-	leafHashes := make([]utreexo.Hash, len(ud.LeafDatas))
-	for i, stxo := range ud.LeafDatas {
-		leafHashes[i] = stxo.LeafHash()
-	}
-
-	return leafHashes
+// SerializeAccSize returns the number of bytes it would take to serialize
+// the accumulator with the compact accumulator serialization format.
+func (ud *UData) SerializeAccSize() int {
+	return BatchProofSerializeSize(&ud.AccProof)
 }
 
 // SerializeUtxoDataSize returns the number of bytes it would take to serialize the
@@ -61,7 +56,7 @@ func (ud *UData) StxoHashes() []utreexo.Hash {
 func (ud *UData) SerializeUtxoDataSize() int {
 	size := VarIntSerializeSize(uint64(len(ud.LeafDatas)))
 	for _, l := range ud.LeafDatas {
-		size += l.SerializeSize()
+		size += l.SerializeSizeCompact()
 	}
 
 	return size
@@ -70,7 +65,7 @@ func (ud *UData) SerializeUtxoDataSize() int {
 // SerializeSize returns the number of bytes it would take to serialize the
 // UData.
 func (ud *UData) SerializeSize() int {
-	// Leaf data size.
+	// Accumulator proof size + leaf data size
 	return BatchProofSerializeSize(&ud.AccProof) + ud.SerializeUtxoDataSize()
 }
 
@@ -84,7 +79,7 @@ func (ud *UData) SerializeSize() int {
 // Accumulator proof serialization follows the batchproof serialization found
 // in wire/batchproof.go.
 //
-// LeafData serialization can be found in wire/leaf.go.
+// LeafData compact serialization can be found in wire/leaf.go.
 //
 // All together, the serialization looks like so:
 //
@@ -99,8 +94,7 @@ func (ud *UData) Serialize(w io.Writer) error {
 	// Write batch proof.
 	err := BatchProofSerialize(w, &ud.AccProof)
 	if err != nil {
-		returnErr := messageError("Serialize", err.Error())
-		return returnErr
+		return err
 	}
 
 	// Write the size of the leaf datas.
@@ -111,7 +105,7 @@ func (ud *UData) Serialize(w io.Writer) error {
 
 	// Write the actual leaf datas.
 	for _, ld := range ud.LeafDatas {
-		err = ld.Serialize(w)
+		err = ld.SerializeCompact(w)
 		if err != nil {
 			return err
 		}
@@ -124,23 +118,24 @@ func (ud *UData) Serialize(w io.Writer) error {
 func (ud *UData) Deserialize(r io.Reader) error {
 	proof, err := BatchProofDeserialize(r)
 	if err != nil {
-		returnErr := messageError("Deserialize AccProof", err.Error())
-		return returnErr
+		return err
 	}
 	ud.AccProof = *proof
 
-	udCount, err := ReadVarInt(r, 0)
+	// Read the size of the leaf datas.
+	txInCount, err := ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
-	if udCount == 0 {
+	if txInCount == 0 {
+		ud.LeafDatas = nil
 		return nil
 	}
 
-	ud.LeafDatas = make([]LeafData, 0, udCount)
-	for i := 0; i < int(udCount); i++ {
+	ud.LeafDatas = make([]LeafData, 0, txInCount)
+	for i := 0; i < int(txInCount); i++ {
 		ld := LeafData{}
-		err = ld.Deserialize(r)
+		err = ld.DeserializeCompact(r)
 		if err != nil {
 			str := fmt.Sprintf("targetCount:%d, Stxos[%d], err:%s\n",
 				len(ud.AccProof.Targets), i, err.Error())
@@ -148,118 +143,6 @@ func (ud *UData) Deserialize(r io.Reader) error {
 			return returnErr
 		}
 		ud.LeafDatas = append(ud.LeafDatas, ld)
-	}
-
-	return nil
-}
-
-// -----------------------------------------------------------------------------
-// UData compact serialization includes only the data that is missing for a
-// utreexo node to verify a block or a tx with only the utreexo roots.  The
-// compact serialization leaves out data that is able to be fetched locally
-// by a node.
-//
-// The serialized format is:
-// [<accumulator proof><leaf datas>]
-//
-// Accumulator proof serialization follows the batchproof serialization found
-// in wire/batchproof.go.
-//
-// Compact LeafData serialization can be found in wire/leaf.go.
-//
-// All together, the serialization looks like so:
-//
-// Field                    Type       Size
-// accumulator proof        []byte     variable
-// leaf datas               []byte     variable
-//
-// -----------------------------------------------------------------------------
-
-// SerializeAccSizeCompact returns the number of bytes it would take to serialize
-// the accumulator with the compact accumulator serialization format.
-func (ud *UData) SerializeAccSizeCompact() int {
-	return BatchProofSerializeSize(&ud.AccProof)
-}
-
-// SerializeUxtoDataSizeCompact returns the number of bytes it would take to serialize
-// the utxo data and the remember idx data with the compact serialization format.
-func (ud *UData) SerializeUxtoDataSizeCompact() int {
-	var size int
-
-	// Explicitly serialize the count for the leaf datas.
-	size += VarIntSerializeSize(uint64(len(ud.LeafDatas)))
-	for _, l := range ud.LeafDatas {
-		size += l.SerializeSizeCompact()
-	}
-
-	return size
-}
-
-// SerializeSizeCompact returns the number of bytes it would take to serialize the
-// UData using the compact UData serialization format.
-func (ud *UData) SerializeSizeCompact() int {
-	// Accumulator proof size + leaf data size
-	return BatchProofSerializeSize(&ud.AccProof) + ud.SerializeUxtoDataSizeCompact()
-}
-
-// SerializeCompact encodes the UData to w using the compact UData
-// serialization format.  It follows the normal UData serialization format with
-// the exception that compact leaf data serialization is used.  Everything else
-// remains the same.
-func (ud *UData) SerializeCompact(w io.Writer) error {
-	err := BatchProofSerialize(w, &ud.AccProof)
-	if err != nil {
-		returnErr := messageError("SerializeCompact", err.Error())
-		return returnErr
-	}
-
-	err = WriteVarInt(w, 0, uint64(len(ud.LeafDatas)))
-	if err != nil {
-		return err
-	}
-
-	// Write all the leafDatas.
-	for _, ld := range ud.LeafDatas {
-		err = ld.SerializeCompact(w)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// DeserializeCompact decodes the UData from r using the compact UData
-// serialization format.
-//
-// NOTE if deserializing for a transaction, a non zero txInCount MUST be passed
-// in as a correct txCount is critical for deserializing correctly.  When
-// deserializing a block, txInCount does not matter.
-func (ud *UData) DeserializeCompact(r io.Reader) error {
-	proof, err := BatchProofDeserialize(r)
-	if err != nil {
-		return err
-	}
-	ud.AccProof = *proof
-
-	// Grab the count for the udatas
-	udCount, err := ReadVarInt(r, 0)
-	if err != nil {
-		return err
-	}
-	if udCount == 0 {
-		return nil
-	}
-	ud.LeafDatas = make([]LeafData, udCount)
-
-	for i := range ud.LeafDatas {
-		err = ud.LeafDatas[i].DeserializeCompact(r)
-		if err != nil {
-			str := fmt.Sprintf("targetCount:%d, LeafDatas[%d], err:%s\n",
-				len(ud.AccProof.Targets), i, err.Error())
-			returnErr := messageError("Deserialize leaf datas", str)
-			return returnErr
-		}
 	}
 
 	return nil

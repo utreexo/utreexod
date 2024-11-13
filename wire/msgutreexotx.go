@@ -51,7 +51,7 @@ func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding
 	// Decode the utreexo data.
 	ud := new(UData)
 	ud.LeafDatas = nil
-	err = ud.DeserializeCompact(r)
+	err = ud.Deserialize(r)
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding
 	}
 
 	// Encode the utreexo data.
-	return msg.UData.SerializeCompact(w)
+	return msg.UData.Serialize(w)
 }
 
 // Command returns the protocol command string for the message.  This is part
