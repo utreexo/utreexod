@@ -494,7 +494,7 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (uint64, []u
 	)
 
 	if !idx.config.Pruned {
-		ud, err := idx.FetchUtreexoProof(block.Height(), false)
+		ud, err := idx.FetchUtreexoProof(block.Height())
 		if err != nil {
 			return 0, nil, nil, err
 		}
@@ -605,7 +605,7 @@ func (idx *FlatUtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, l
 }
 
 // FetchUtreexoProof returns the Utreexo proof data for the given block height.
-func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32, excludeAccProof bool) (
+func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (
 	*wire.UData, error) {
 
 	if height == 0 {
@@ -626,16 +626,9 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32, excludeAccProo
 	r := bytes.NewReader(proofBytes)
 
 	ud := new(wire.UData)
-	if excludeAccProof {
-		err = ud.DeserializeCompactNoAccProof(r)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		err = ud.DeserializeCompact(r)
-		if err != nil {
-			return nil, err
-		}
+	err = ud.DeserializeCompact(r)
+	if err != nil {
+		return nil, err
 	}
 
 	return ud, nil
