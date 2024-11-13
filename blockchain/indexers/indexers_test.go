@@ -213,7 +213,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 			case *FlatUtreexoProofIndex:
 				var err error
 				if !idxType.config.Pruned {
-					flatUD, err = idxType.FetchUtreexoProof(b, false)
+					flatUD, err = idxType.FetchUtreexoProof(b)
 					if err != nil {
 						return err
 					}
@@ -302,7 +302,7 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
-				flatUD, err = idxType.FetchUtreexoProof(b, false)
+				flatUD, err = idxType.FetchUtreexoProof(b)
 				if err != nil {
 					return err
 				}
@@ -350,7 +350,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
 			var err error
-			flatUD, err = idxType.FetchUtreexoProof(block.Height(), false)
+			flatUD, err = idxType.FetchUtreexoProof(block.Height())
 			if err != nil {
 				return err
 			}
@@ -833,7 +833,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
 			for height := int32(1); height <= maxHeight; height++ {
-				_, err := idxType.FetchUtreexoProof(height, false)
+				_, err := idxType.FetchUtreexoProof(height)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -888,7 +888,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
-			_, err := idxType.FetchUtreexoProof(maxHeight, false)
+			_, err := idxType.FetchUtreexoProof(maxHeight)
 			if err == nil {
 				t.Fatalf("expected an error when trying to" +
 					"fetch proofs from pruned bridges")

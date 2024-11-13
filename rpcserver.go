@@ -3402,7 +3402,7 @@ func handleGetUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struc
 			}
 		}
 	} else {
-		udata, err = s.cfg.FlatUtreexoProofIndex.FetchUtreexoProof(height, false)
+		udata, err = s.cfg.FlatUtreexoProofIndex.FetchUtreexoProof(height)
 		if err != nil {
 			return nil, &btcjson.RPCError{
 				Code: btcjson.ErrRPCMisc,

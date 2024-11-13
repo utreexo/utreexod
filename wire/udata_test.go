@@ -22,9 +22,8 @@ type testData struct {
 	height         int32
 	leavesPerBlock []LeafData
 
-	size             int
-	sizeCompact      int
-	sizeCompactNoAcc int
+	size        int
+	sizeCompact int
 }
 
 func getTestDatas() []testData {
@@ -58,9 +57,8 @@ var mainNetBlock104773 = testData{
 			IsCoinBase: false,
 		},
 	},
-	size:             217,
-	sizeCompact:      83,
-	sizeCompactNoAcc: 82,
+	size:        217,
+	sizeCompact: 83,
 }
 
 var testNetBlock383 = testData{
@@ -112,9 +110,8 @@ var testNetBlock383 = testData{
 			IsCoinBase: true,
 		},
 	},
-	size:             461,
-	sizeCompact:      193,
-	sizeCompactNoAcc: 192,
+	size:        461,
+	sizeCompact: 193,
 }
 
 func checkUDEqual(ud, checkUData *UData, isCompact bool, name string) error {
@@ -199,11 +196,10 @@ func TestUDataSerializeSize(t *testing.T) {
 	t.Parallel()
 
 	type test struct {
-		name             string
-		ud               UData
-		size             int
-		sizeCompact      int
-		sizeCompactNoAcc int
+		name        string
+		ud          UData
+		size        int
+		sizeCompact int
 	}
 
 	testDatas := getTestDatas()
@@ -236,11 +232,10 @@ func TestUDataSerializeSize(t *testing.T) {
 
 		// Append to the tests.
 		tests = append(tests, test{
-			name:             testData.name,
-			ud:               *ud,
-			size:             testData.size,
-			sizeCompact:      testData.sizeCompact,
-			sizeCompactNoAcc: testData.sizeCompactNoAcc,
+			name:        testData.name,
+			ud:          *ud,
+			size:        testData.size,
+			sizeCompact: testData.sizeCompact,
 		})
 	}
 
@@ -299,27 +294,6 @@ func TestUDataSerializeSize(t *testing.T) {
 		err = test.ud.SerializeCompact(&buf)
 		if err != nil {
 			t.Fatal(err)
-		}
-
-		gotSize = test.ud.SerializeSizeCompactNoAccProof()
-		if gotSize != test.sizeCompactNoAcc {
-			t.Errorf("%s: UData serialize size compact no accumulator proof fail. "+
-				"expect %d, got %d", test.name,
-				test.sizeCompactNoAcc, gotSize)
-			continue
-		}
-
-		// Sanity check.  Actually serialize the data and compare against our hardcoded number.
-		buf.Reset()
-		err = test.ud.SerializeCompactNoAccProof(&buf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(buf.Bytes()) != test.sizeCompactNoAcc {
-			t.Errorf("%s: UData serialize size compact no accumulator proof fail. "+
-				"serialized %d, hardcoded %d", test.name,
-				len(buf.Bytes()), test.sizeCompactNoAcc)
-			continue
 		}
 
 		// Test that SerializeUxtoDataSizeCompact and SerializeUxtoDataSizeCompact
@@ -467,90 +441,6 @@ func TestUDataSerializeCompact(t *testing.T) {
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
 		checkUData.SerializeCompact(afterWriter)
-		test.after = afterWriter.Bytes()
-
-		// Check if before and after match.
-		if !bytes.Equal(test.before, test.after) {
-			t.Errorf("%s: UData serialize/deserialize fail. "+
-				"Before len %d, after len %d", test.name,
-				len(test.before), len(test.after))
-		}
-	}
-}
-
-func TestSerializeNoAccProof(t *testing.T) {
-	t.Parallel()
-
-	type test struct {
-		name      string
-		isForTx   bool
-		leafCount int
-		ud        UData
-		before    []byte
-		after     []byte
-	}
-
-	testDatas := getTestDatas()
-	tests := make([]test, 0, len(testDatas))
-
-	for _, testData := range testDatas {
-		// New forest object.
-		p := utreexo.NewAccumulator()
-
-		// Create hashes to add from the stxo data.
-		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
-		for i, ld := range testData.leavesPerBlock {
-			addHashes = append(addHashes, utreexo.Leaf{
-				Hash: ld.LeafHash(),
-				// Just half and half.
-				Remember: i%2 == 0,
-			})
-		}
-		// Add to the accumulator.
-		err := p.Modify(addHashes, nil, utreexo.Proof{})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Generate Proof.
-		ud, err := GenerateUData(testData.leavesPerBlock, &p)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Append to the tests.
-		tests = append(tests, test{
-			name:    testData.name,
-			isForTx: false,
-			ud:      *ud,
-		})
-	}
-
-	for _, test := range tests {
-		ud := test.ud
-		// Serialize
-		writer := &bytes.Buffer{}
-		err := ud.SerializeCompactNoAccProof(writer)
-		if err != nil {
-			t.Fatal(err)
-		}
-		test.before = writer.Bytes()
-
-		// Deserialize
-		checkUData := new(UData)
-		err = checkUData.DeserializeCompactNoAccProof(writer)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = checkUDEqual(&ud, checkUData, true, test.name)
-		if err != nil {
-			t.Error(err)
-		}
-
-		// Re-serialize
-		afterWriter := &bytes.Buffer{}
-		checkUData.SerializeCompactNoAccProof(afterWriter)
 		test.after = afterWriter.Bytes()
 
 		// Check if before and after match.
