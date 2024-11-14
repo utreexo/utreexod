@@ -2786,11 +2786,6 @@ func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
 		s.addProofBytesReceived(uint64(utxoDataSize))
 		s.addAccBytesReceived(uint64(accSize))
 
-	} else if s.chain.IsUtreexoViewActive() {
-		if msgTx.UData != nil {
-			s.addProofBytesReceived(uint64(msgTx.UData.SerializeSize()))
-			s.addAccBytesReceived(uint64(msgTx.UData.SerializeAccSize()))
-		}
 	}
 
 	return nil
@@ -2807,12 +2802,6 @@ func (s *server) UpdateProofBytesWritten(msgTx *wire.MsgTx) error {
 		}
 		s.addProofBytesSent(uint64(utxoDataSize))
 		s.addAccBytesSent(uint64(accSize))
-
-	} else if s.chain.IsUtreexoViewActive() {
-		if msgTx.UData != nil {
-			s.addProofBytesSent(uint64(msgTx.UData.SerializeSize()))
-			s.addAccBytesSent(uint64(msgTx.UData.SerializeAccSize()))
-		}
 	}
 
 	return nil

@@ -183,7 +183,6 @@ func (tx RelevantTxData) MarshalJSON() ([]byte, error) {
 	}
 
 	txBuf := bytes.NewBuffer(make([]byte, 0, tx.Tx.SerializeSize()))
-	tx.Tx.UData = nil
 	err := tx.Tx.Serialize(txBuf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize tx %s. Error %v",
@@ -963,8 +962,6 @@ func (wm *WatchOnlyWalletManager) filterBlock(block *btcutil.Block) ([]uint32, [
 				Tx:          tx.MsgTx(),
 			}
 
-			// Explicitly set to nil as we won't be fetching the udata from here.
-			relevantTx.Tx.UData = nil
 			wm.wallet.RelevantTxs[*tx.Hash()] = relevantTx
 
 			inIdx++

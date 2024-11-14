@@ -317,7 +317,6 @@ type MsgTx struct {
 	Version  int32
 	TxIn     []*TxIn
 	TxOut    []*TxOut
-	UData    *UData
 	LockTime uint32
 }
 

@@ -521,7 +521,6 @@ func handleTransactionBroadcast(s *ElectrumServer, cmd *btcjson.Request, conn ne
 			Message: "Failed to prove the tx in the utreexo accumulator: " + err.Error(),
 		}
 	}
-	tx.MsgTx().UData = udata
 
 	acceptedTxs, err := s.cfg.Mempool.ProcessTransaction(tx, udata, false, false, 0)
 	if err != nil {
