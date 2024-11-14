@@ -130,7 +130,7 @@ func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding
 	// Go through the TxIns and mark the ones that are not confirmed with a 1 in the LSB.
 	for i := range msg.TxIn {
 		msg.TxIn[i].PreviousOutPoint.Index <<= 1
-		if msg.UData.LeafDatas[i].Equal(emptyLd) {
+		if msg.LeafDatas[i].Equal(emptyLd) {
 			msg.TxIn[i].PreviousOutPoint.Index |= 1
 		}
 	}
