@@ -5,6 +5,7 @@
 package wire
 
 import (
+	"bytes"
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
@@ -29,16 +30,22 @@ var (
 	// empty is useful when comparing against BlockHash to see if it hasn't been
 	// initialized.
 	empty chainhash.Hash
+
+	// emptyLd is useful when comparing against LeafData to see if it hasn't been
+	// initialized.
+	emptyLd LeafData
 )
 
 // LeafData is all the data that goes into a leaf in the utreexo accumulator.
 // The data here serve two roles: commitments and data needed for verification.
 //
-// Commitment:   BlockHash is included in the LeafData to commit to a block.
-// Verification: OutPoint is the OutPoint for the utxo being referenced.
+// Commitment:
+//   - BlockHash is included in the LeafData to commit to a block.
 //
-//	Height, IsCoinbase, Amount, and PkScript is the data needed for
-//	tx verification (script, signatures, etc).
+// Verification:
+//   - OutPoint is the OutPoint for the utxo being referenced.
+//   - Height, IsCoinbase, Amount, and PkScript is the data needed for
+//     tx verification (script, signatures, etc).
 type LeafData struct {
 	BlockHash             chainhash.Hash
 	OutPoint              OutPoint
@@ -47,6 +54,17 @@ type LeafData struct {
 	Amount                int64
 	ReconstructablePkType PkType
 	PkScript              []byte
+}
+
+// Equal returns if the passed in LeafData is equal to this one.
+func (l *LeafData) Equal(other LeafData) bool {
+	return l.BlockHash == other.BlockHash &&
+		l.OutPoint == other.OutPoint &&
+		l.Height == other.Height &&
+		l.IsCoinBase == other.IsCoinBase &&
+		l.Amount == other.Amount &&
+		l.ReconstructablePkType == other.ReconstructablePkType &&
+		bytes.Equal(l.PkScript, other.PkScript)
 }
 
 // Copy creates a deep copy of the leafdata so the original does not get modified

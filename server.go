@@ -1642,8 +1642,9 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions
 			}
 
 			utreexoTx = &wire.MsgUtreexoTx{
-				MsgTx: *tx.MsgTx(),
-				UData: *ud,
+				MsgTx:     *tx.MsgTx(),
+				LeafDatas: ud.LeafDatas,
+				AccProof:  ud.AccProof,
 			}
 		}
 	}
@@ -1671,8 +1672,9 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions
 			}
 
 			utreexoTx = &wire.MsgUtreexoTx{
-				MsgTx: *tx.MsgTx(),
-				UData: *ud,
+				MsgTx:     *tx.MsgTx(),
+				LeafDatas: ud.LeafDatas,
+				AccProof:  ud.AccProof,
 			}
 		}
 	} else if s.flatUtreexoProofIndex != nil {
@@ -1696,8 +1698,9 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions
 			}
 
 			utreexoTx = &wire.MsgUtreexoTx{
-				MsgTx: *tx.MsgTx(),
-				UData: *ud,
+				MsgTx:     *tx.MsgTx(),
+				LeafDatas: ud.LeafDatas,
+				AccProof:  ud.AccProof,
 			}
 		}
 	}
