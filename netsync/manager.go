@@ -1611,7 +1611,7 @@ out:
 				msg.reply <- struct{}{}
 
 			case *utreexoTxMsg:
-				sm.handleTxMsg(&msg.utreexoTx.Tx, msg.peer, &msg.utreexoTx.MsgUtreexoTx().UData)
+				sm.handleTxMsg(&msg.utreexoTx.Tx, msg.peer, msg.utreexoTx.MsgUtreexoTx().UData)
 				msg.reply <- struct{}{}
 
 			case *blockMsg:
