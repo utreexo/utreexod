@@ -908,69 +908,19 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 			"Cannot validate utreexo accumulator proof")
 	}
 
-	// Check that there are equal amount of LeafDatas for txIns.
-	if len(txIns) != len(ud.LeafDatas) {
-		str := fmt.Sprintf("VerifyUData(): length of txIns and LeafDatas differ. "+
-			"%d txIns, but %d LeafDatas. TxIns PreviousOutPoints are:\n",
-			len(txIns), len(ud.LeafDatas))
-		for _, txIn := range txIns {
-			str += fmt.Sprintf("%s\n", txIn.PreviousOutPoint.String())
-		}
-
-		return fmt.Errorf("%v", str)
+	var err error
+	ud.LeafDatas, err = b.ReconstructLeafDatas(ud.LeafDatas, txIns)
+	if err != nil {
+		return err
 	}
 
-	// Make a slice of hashes from LeafDatas. These are the hash commitments
-	// to be proven.
 	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
-	for i, txIn := range txIns {
-		ld := &ud.LeafDatas[i]
-
-		// Get OutPoint.
-		op := wire.OutPoint{
-			Hash:  txIn.PreviousOutPoint.Hash,
-			Index: txIn.PreviousOutPoint.Index,
+	for _, ld := range ud.LeafDatas {
+		if ld.IsCompact() {
+			continue
 		}
-		ld.OutPoint = op
 
-		// Only append and try to fetch blockHash for confirmed txs.  Skip
-		// all unconfirmed txs.
-		if !ld.IsUnconfirmed() {
-			// Get BlockHash.
-			blockNode := b.bestChain.NodeByHeight(ld.Height)
-			if blockNode == nil {
-				return fmt.Errorf("Couldn't find blockNode for height %d for outpoint %s",
-					ld.Height, txIn.PreviousOutPoint.String())
-			}
-			ld.BlockHash = blockNode.hash
-
-			if ld.ReconstructablePkType != wire.OtherTy &&
-				ld.PkScript == nil {
-
-				var class txscript.ScriptClass
-
-				switch ld.ReconstructablePkType {
-				case wire.PubKeyHashTy:
-					class = txscript.PubKeyHashTy
-				case wire.ScriptHashTy:
-					class = txscript.ScriptHashTy
-				case wire.WitnessV0PubKeyHashTy:
-					class = txscript.WitnessV0PubKeyHashTy
-				case wire.WitnessV0ScriptHashTy:
-					class = txscript.WitnessV0ScriptHashTy
-				}
-
-				scriptToUse, err := txscript.ReconstructScript(
-					txIn.SignatureScript, txIn.Witness, class)
-				if err != nil {
-					return err
-				}
-
-				ld.PkScript = scriptToUse
-			}
-
-			delHashes = append(delHashes, ld.LeafHash())
-		}
+		delHashes = append(delHashes, ld.LeafHash())
 	}
 
 	// Acquire read lock before accessing the accumulator state.
@@ -979,7 +929,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 
 	// VerifyBatchProof checks that the utreexo proofs are valid without
 	// mutating the accumulator.
-	err := b.utreexoView.accumulator.VerifyPartialProof(ud.AccProof.Targets, delHashes, ud.AccProof.Proof, remember)
+	err = b.utreexoView.accumulator.VerifyPartialProof(ud.AccProof.Targets, delHashes, ud.AccProof.Proof, remember)
 	if err != nil {
 		str := "Verify fail. All txIns-leaf datas:\n"
 		for i, txIn := range txIns {
