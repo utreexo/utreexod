@@ -377,47 +377,11 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 			}
 
 			ld := &ud.LeafDatas[ldIdx]
-
-			// Get BlockHash.
-			blockNode := chainView.NodeByHeight(ld.Height)
-			if blockNode == nil {
-				return nil, fmt.Errorf("Couldn't find blockNode for height %d",
-					ld.Height)
+			var err error
+			ld, err = reconstructLeafData(ld, txIn, chainView)
+			if err != nil {
+				return nil, err
 			}
-			ld.BlockHash = blockNode.hash
-
-			// Get OutPoint.
-			op := wire.OutPoint{
-				Hash:  txIn.PreviousOutPoint.Hash,
-				Index: txIn.PreviousOutPoint.Index,
-			}
-			ld.OutPoint = op
-
-			if ld.ReconstructablePkType != wire.OtherTy &&
-				ld.PkScript == nil {
-
-				var class txscript.ScriptClass
-
-				switch ld.ReconstructablePkType {
-				case wire.PubKeyHashTy:
-					class = txscript.PubKeyHashTy
-				case wire.ScriptHashTy:
-					class = txscript.ScriptHashTy
-				case wire.WitnessV0PubKeyHashTy:
-					class = txscript.WitnessV0PubKeyHashTy
-				case wire.WitnessV0ScriptHashTy:
-					class = txscript.WitnessV0ScriptHashTy
-				}
-
-				scriptToUse, err := txscript.ReconstructScript(
-					txIn.SignatureScript, txIn.Witness, class)
-				if err != nil {
-					return nil, err
-				}
-
-				ld.PkScript = scriptToUse
-			}
-
 			delHashes = append(delHashes, ld.LeafHash())
 
 			blockInIdx++
@@ -426,6 +390,47 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 	}
 
 	return delHashes, nil
+}
+
+// reconstructLeafData reconstructs a single leafdata given the associated txIn and the chainview.
+func reconstructLeafData(ld *wire.LeafData, txIn *wire.TxIn, chainView *chainView) (*wire.LeafData, error) {
+	// Get BlockHash.
+	blockNode := chainView.NodeByHeight(ld.Height)
+	if blockNode == nil {
+		return nil, fmt.Errorf("Couldn't find blockNode for height %d",
+			ld.Height)
+	}
+	ld.BlockHash = blockNode.hash
+
+	// Get OutPoint.
+	ld.OutPoint = txIn.PreviousOutPoint
+
+	if ld.ReconstructablePkType != wire.OtherTy &&
+		ld.PkScript == nil {
+
+		var class txscript.ScriptClass
+
+		switch ld.ReconstructablePkType {
+		case wire.PubKeyHashTy:
+			class = txscript.PubKeyHashTy
+		case wire.ScriptHashTy:
+			class = txscript.ScriptHashTy
+		case wire.WitnessV0PubKeyHashTy:
+			class = txscript.WitnessV0PubKeyHashTy
+		case wire.WitnessV0ScriptHashTy:
+			class = txscript.WitnessV0ScriptHashTy
+		}
+
+		scriptToUse, err := txscript.ReconstructScript(
+			txIn.SignatureScript, txIn.Witness, class)
+		if err != nil {
+			return nil, err
+		}
+
+		ld.PkScript = scriptToUse
+	}
+
+	return ld, nil
 }
 
 // IsUnspendable determines whether a tx is spendable or not.
