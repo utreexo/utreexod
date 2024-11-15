@@ -392,6 +392,35 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 	return delHashes, nil
 }
 
+// ReconstructLeafDatas reconstruct the passed in leaf datas with the given txIns.
+//
+// NOTE: the length of the leafdatas MUST match the TxIns. Otherwise it'll return an error.
+func (b *BlockChain) ReconstructLeafDatas(lds []wire.LeafData, txIns []*wire.TxIn) ([]wire.LeafData, error) {
+	if len(lds) == 0 {
+		return lds, nil
+	}
+
+	if len(lds) != len(txIns) {
+		err := fmt.Errorf("Can't reconstruct leaf datas.  Have %d txins but %d leaf datas",
+			len(txIns), len(lds))
+		return nil, err
+	}
+
+	for i, txIn := range txIns {
+		if lds[i].IsUnconfirmed() {
+			continue
+		}
+
+		ld, err := reconstructLeafData(&lds[i], txIn, b.bestChain)
+		if err != nil {
+			return nil, err
+		}
+		lds[i] = *ld
+	}
+
+	return lds, nil
+}
+
 // reconstructLeafData reconstructs a single leafdata given the associated txIn and the chainview.
 func reconstructLeafData(ld *wire.LeafData, txIn *wire.TxIn, chainView *chainView) (*wire.LeafData, error) {
 	// Get BlockHash.
