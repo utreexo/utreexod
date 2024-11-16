@@ -476,8 +476,6 @@ func (l *LeafData) SerializeSizeCompact() int {
 
 // SerializeCompact encodes the LeafData to w using the compact leaf data serialization format.
 func (l *LeafData) SerializeCompact(w io.Writer) error {
-	// If the tx is unconfirmed, write the unconfirmed marker and
-	// return immediately.
 	if l.IsUnconfirmed() {
 		return nil
 	}
