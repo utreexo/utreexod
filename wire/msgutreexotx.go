@@ -82,19 +82,29 @@ func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding
 		return nil
 	}
 
-	msg.LeafDatas = make([]LeafData, len(msg.MsgTx.TxIn))
-	for i, txIn := range msgTx.TxIn {
+	// Go through each of the txIn and attempt to deserialize if the
+	// txIn has a leaf data.
+	msg.LeafDatas = make([]LeafData, 0, len(msg.MsgTx.TxIn))
+	for _, txIn := range msgTx.TxIn {
 		isUnconfirmed := txIn.PreviousOutPoint.Index&1 == 1
 		txIn.PreviousOutPoint.Index >>= 1
 
+		var ld LeafData
+		ld.OutPoint = txIn.PreviousOutPoint
+
+		// Skip if the txIn is unconfimred because it won't
+		// have a leaf data.
 		if isUnconfirmed {
+			ld.SetUnconfirmed()
+			msg.LeafDatas = append(msg.LeafDatas, ld)
 			continue
 		}
 
-		err = msg.LeafDatas[i].DeserializeCompact(r)
+		err = ld.DeserializeCompact(r)
 		if err != nil {
 			return err
 		}
+		msg.LeafDatas = append(msg.LeafDatas, ld)
 	}
 
 	return nil
@@ -103,7 +113,8 @@ func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding
 // Deserialize decodes a transaction from r into the receiver using a format
 // that is suitable for long-term storage such as a database while respecting
 // the Version field in the transaction.  This function differs from BtcDecode
-// in that BtcDecode decodes from the bitcoin wire protocol as it was sent across the network.  The wire encoding can technically differ depending on
+// in that BtcDecode decodes from the bitcoin wire protocol as it was sent
+// across the network.  The wire encoding can technically differ depending on
 // the protocol version and doesn't even really need to match the format of a
 // stored transaction at all.  As of the time this comment was written, the
 // encoded transaction is the same in both instances, but there is a distinct
@@ -143,6 +154,9 @@ func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding
 
 	// Write the actual leaf datas.
 	for _, ld := range msg.LeafDatas {
+		if ld.IsUnconfirmed() {
+			continue
+		}
 		err = ld.SerializeCompact(w)
 		if err != nil {
 			return err
