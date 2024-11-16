@@ -141,7 +141,7 @@ func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding
 	// Go through the TxIns and mark the ones that are not confirmed with a 1 in the LSB.
 	for i := range msg.TxIn {
 		msg.TxIn[i].PreviousOutPoint.Index <<= 1
-		if msg.LeafDatas[i].Equal(emptyLd) {
+		if msg.LeafDatas[i].IsUnconfirmed() {
 			msg.TxIn[i].PreviousOutPoint.Index |= 1
 		}
 	}
@@ -154,9 +154,6 @@ func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding
 
 	// Write the actual leaf datas.
 	for _, ld := range msg.LeafDatas {
-		if ld.IsUnconfirmed() {
-			continue
-		}
 		err = ld.SerializeCompact(w)
 		if err != nil {
 			return err
