@@ -916,7 +916,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 
 	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
 	for _, ld := range ud.LeafDatas {
-		if ld.IsCompact() {
+		if ld.IsCompact() || ld.IsUnconfirmed() {
 			continue
 		}
 
