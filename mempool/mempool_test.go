@@ -325,13 +325,14 @@ func newPoolHarness(chainParams *chaincfg.Params) (*poolHarness, []spendableOutp
 				MinRelayTxFee:        1000, // 1 Satoshi per byte
 				MaxTxVersion:         1,
 			},
-			ChainParams:      chainParams,
-			FetchUtxoView:    chain.FetchUtxoView,
-			BestHeight:       chain.BestHeight,
-			MedianTimePast:   chain.MedianTimePast,
-			CalcSequenceLock: chain.CalcSequenceLock,
-			SigCache:         nil,
-			AddrIndex:        nil,
+			ChainParams:         chainParams,
+			FetchUtxoView:       chain.FetchUtxoView,
+			IsUtreexoViewActive: func() bool { return false },
+			BestHeight:          chain.BestHeight,
+			MedianTimePast:      chain.MedianTimePast,
+			CalcSequenceLock:    chain.CalcSequenceLock,
+			SigCache:            nil,
+			AddrIndex:           nil,
 		}),
 	}
 
