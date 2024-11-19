@@ -516,8 +516,8 @@ var helpDescsEnUS = map[string]string{
 	"getnettotalsresult-timemillis":     "Number of milliseconds since 1 Jan 1970 GMT",
 
 	// GetTxTotalsResult help.
-	"gettxtotalsresult-totaltxbytesrecv":    "Total tx bytes received",
-	"gettxtotalsresult-totaltxbytessent":    "Total tx bytes sent",
+	"gettxtotalsresult-totaltxbytesrecv":    "Total tx bytes received (includes all utreexo data)",
+	"gettxtotalsresult-totaltxbytessent":    "Total tx bytes sent (includes all utreexo data)",
 	"gettxtotalsresult-totalproofbytesrecv": "Total utxo data bytes received",
 	"gettxtotalsresult-totalproofbytessent": "Total utxo data bytes sent",
 	"gettxtotalsresult-totalaccbytesrecv":   "Total accumulator proof bytes received",

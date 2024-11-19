@@ -1409,13 +1409,9 @@ func (sp *serverPeer) OnAddr(_ *peer.Peer, msg *wire.MsgAddr) {
 func (sp *serverPeer) OnRead(_ *peer.Peer, bytesRead int, msg wire.Message, err error) {
 	sp.server.AddBytesReceived(uint64(bytesRead))
 
-	switch msgTx := msg.(type) {
-	case *wire.MsgTx:
-		err := sp.server.UpdateProofBytesRead(msgTx)
-		if err != nil {
-			srvrLog.Debugf("Couldn't update proof bytes read. err: %s",
-				err.Error())
-		}
+	switch msg := msg.(type) {
+	case *wire.MsgUtreexoTx:
+		sp.server.UpdateProofBytesRead(msg)
 		sp.server.addTxBytesReceived(uint64(bytesRead))
 	}
 }
@@ -1425,13 +1421,9 @@ func (sp *serverPeer) OnRead(_ *peer.Peer, bytesRead int, msg wire.Message, err 
 func (sp *serverPeer) OnWrite(_ *peer.Peer, bytesWritten int, msg wire.Message, err error) {
 	sp.server.AddBytesSent(uint64(bytesWritten))
 
-	switch msgTx := msg.(type) {
-	case *wire.MsgTx:
-		err := sp.server.UpdateProofBytesWritten(msgTx)
-		if err != nil {
-			srvrLog.Debugf("Couldn't update proof bytes written. err: %s",
-				err.Error())
-		}
+	switch msg := msg.(type) {
+	case *wire.MsgUtreexoTx:
+		sp.server.UpdateProofBytesWritten(msg)
 		sp.server.addTxBytesSent(uint64(bytesWritten))
 	}
 }
@@ -2750,69 +2742,34 @@ func (s *server) addAccBytesSent(bytesSent uint64) {
 	atomic.AddUint64(&s.txBytes.accBytesSent, bytesSent)
 }
 
-// GetProofSizeforTx calculates the size of the raw proof that would needed for
-// proving the tx to an utreexo node.
-func (s *server) GetProofSizeforTx(msgTx *wire.MsgTx) (int, int, error) {
-	// If utreexo proof index is not present, we can't calculate the
-	// proof size as we can't grab the proof for the tx.
-	if s.utreexoProofIndex == nil && s.flatUtreexoProofIndex == nil {
-		err := fmt.Errorf("UtreexoProofIndex and FlatUtreexoProofIndex is nil. "+
-			"Cannot calculate proof size for tx %s.", msgTx.TxHash().String())
-		return 0, 0, err
-	}
-
-	tx := btcutil.NewTx(msgTx)
-	leafDatas, err := blockchain.TxToDelLeaves(tx, s.chain)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	var ud *wire.UData
-
-	// We already checked that at least one is active.  Pick one and
-	// generate the UData.
-	if s.utreexoProofIndex != nil {
-		ud, err = s.utreexoProofIndex.GenerateUData(leafDatas)
-	} else {
-		ud, err = s.flatUtreexoProofIndex.GenerateUData(leafDatas)
-	}
-	if err != nil {
-		return 0, 0, err
-	}
-
-	return ud.SerializeAccSize(), ud.SerializeUtxoDataSize(), nil
-}
-
 // UpdateProofBytesRead updates the bytes for utreexo proofs that would have
 // been received from all peers for tx messages.
-func (s *server) UpdateProofBytesRead(msgTx *wire.MsgTx) error {
-	// If utreexo proof index is present, also grab the proof size.
-	if s.utreexoProofIndex != nil || s.flatUtreexoProofIndex != nil {
-		accSize, utxoDataSize, err := s.GetProofSizeforTx(msgTx)
-		if err != nil {
-			return err
+func (s *server) UpdateProofBytesRead(msgUtreexoTx *wire.MsgUtreexoTx) {
+	if s.chain.IsUtreexoViewActive() {
+		var utxoDataSize uint64
+		for _, ld := range msgUtreexoTx.LeafDatas {
+			utxoDataSize += uint64(ld.SerializeSizeCompact())
 		}
-		s.addProofBytesReceived(uint64(utxoDataSize))
-		s.addAccBytesReceived(uint64(accSize))
-	}
+		accSize := uint64(wire.BatchProofSerializeAccProofSize(&msgUtreexoTx.AccProof))
 
-	return nil
+		s.addProofBytesReceived(utxoDataSize)
+		s.addAccBytesReceived(accSize)
+	}
 }
 
 // UpdateProofBytesWritten updates the bytes for utreexo proofs that would have
 // been sent to all peers for tx messages.
-func (s *server) UpdateProofBytesWritten(msgTx *wire.MsgTx) error {
-	// If utreexo proof index is present, also grab the proof size.
-	if s.utreexoProofIndex != nil || s.flatUtreexoProofIndex != nil {
-		accSize, utxoDataSize, err := s.GetProofSizeforTx(msgTx)
-		if err != nil {
-			return err
+func (s *server) UpdateProofBytesWritten(msgUtreexoTx *wire.MsgUtreexoTx) {
+	if s.chain.IsUtreexoViewActive() {
+		var utxoDataSize uint64
+		for _, ld := range msgUtreexoTx.LeafDatas {
+			utxoDataSize += uint64(ld.SerializeSizeCompact())
 		}
-		s.addProofBytesSent(uint64(utxoDataSize))
-		s.addAccBytesSent(uint64(accSize))
-	}
+		accSize := uint64(wire.BatchProofSerializeAccProofSize(&msgUtreexoTx.AccProof))
 
-	return nil
+		s.addProofBytesReceived(utxoDataSize)
+		s.addAccBytesReceived(accSize)
+	}
 }
 
 // TxTotals returns the sum of all bytes received and sent across the network
