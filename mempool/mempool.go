@@ -195,6 +195,7 @@ type TxPool struct {
 	pool          map[chainhash.Hash]*TxDesc
 	poolLeaves    map[chainhash.Hash][]wire.LeafData
 	orphans       map[chainhash.Hash]*orphanTx
+	orphanUData   map[chainhash.Hash]*wire.UData
 	orphansByPrev map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx
 	outpoints     map[wire.OutPoint]*btcutil.Tx
 	pennyTotal    float64 // exponentially decaying total for penny spends.
@@ -223,6 +224,21 @@ func (mp *TxPool) removeOrphan(tx *btcutil.Tx, removeRedeemers bool) {
 	otx, exists := mp.orphans[*txHash]
 	if !exists {
 		return
+	}
+
+	if mp.cfg.IsUtreexoViewActive() {
+		ud, found := mp.orphanUData[*tx.Hash()]
+		if found {
+			// Remove related utreexo data.
+			//
+			// TODO uncache from the accumulator.
+			delete(mp.orphanUData, *tx.Hash())
+			err := mp.cfg.PruneFromAccumulator(ud.LeafDatas)
+			if err != nil {
+				log.Debugf("error while pruning proof for orphan tx %v"+
+					"from the accumulator.", tx.Hash())
+			}
+		}
 	}
 
 	// Remove the reference from the previous orphan index.
@@ -337,7 +353,7 @@ func (mp *TxPool) limitNumOrphans() error {
 // addOrphan adds an orphan transaction to the orphan pool.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) addOrphan(tx *btcutil.Tx, tag Tag) {
+func (mp *TxPool) addOrphan(tx *btcutil.Tx, utreexoData *wire.UData, tag Tag) {
 	// Nothing to do if no orphans are allowed.
 	if mp.cfg.Policy.MaxOrphanTxs <= 0 {
 		return
@@ -360,6 +376,12 @@ func (mp *TxPool) addOrphan(tx *btcutil.Tx, tag Tag) {
 		}
 		mp.orphansByPrev[txIn.PreviousOutPoint][*tx.Hash()] = tx
 	}
+	if mp.cfg.IsUtreexoViewActive() {
+		// Ingest the proof. Shouldn't error out with the proof being invalid
+		// here since we've already verified it above.
+		mp.cfg.VerifyUData(utreexoData, tx.MsgTx().TxIn, true)
+		mp.orphanUData[*tx.Hash()] = utreexoData
+	}
 
 	log.Debugf("Stored orphan transaction %v (total: %d)", tx.Hash(),
 		len(mp.orphans))
@@ -368,7 +390,7 @@ func (mp *TxPool) addOrphan(tx *btcutil.Tx, tag Tag) {
 // maybeAddOrphan potentially adds an orphan to the orphan pool.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) maybeAddOrphan(tx *btcutil.Tx, tag Tag) error {
+func (mp *TxPool) maybeAddOrphan(tx *btcutil.Tx, utreexoData *wire.UData, tag Tag) error {
 	// Ignore orphan transactions that are too large.  This helps avoid
 	// a memory exhaustion attack based on sending a lot of really large
 	// orphans.  In the case there is a valid transaction larger than this,
@@ -388,7 +410,7 @@ func (mp *TxPool) maybeAddOrphan(tx *btcutil.Tx, tag Tag) error {
 	}
 
 	// Add the orphan if the none of the above disqualified it.
-	mp.addOrphan(tx, tag)
+	mp.addOrphan(tx, utreexoData, tag)
 
 	return nil
 }
@@ -1127,8 +1149,18 @@ func (mp *TxPool) processOrphans(acceptedTx *btcutil.Tx) []*TxDesc {
 
 			// Potentially accept an orphan into the tx pool.
 			for _, tx := range orphans {
+				var uData *wire.UData
+				if mp.cfg.IsUtreexoViewActive() {
+					var found bool
+					uData, found = mp.orphanUData[*tx.Hash()]
+					if !found {
+						log.Debugf("is a utreexo node but is missing udata for"+
+							"orphan tx %v", tx.Hash())
+						continue
+					}
+				}
 				missing, txD, err := mp.maybeAcceptTransaction(
-					tx, nil, true, true, false)
+					tx, uData, true, true, false)
 				if err != nil {
 					// The orphan is now invalid, so there
 					// is no way any other orphans which
@@ -1252,7 +1284,7 @@ func (mp *TxPool) ProcessTransaction(tx *btcutil.Tx, utreexoData *wire.UData, al
 	}
 
 	// Potentially add the orphan transaction to the orphan pool.
-	err = mp.maybeAddOrphan(tx, tag)
+	err = mp.maybeAddOrphan(tx, utreexoData, tag)
 	return nil, err
 }
 
@@ -1882,6 +1914,7 @@ func New(cfg *Config) *TxPool {
 		pool:           make(map[chainhash.Hash]*TxDesc),
 		poolLeaves:     make(map[chainhash.Hash][]wire.LeafData),
 		orphans:        make(map[chainhash.Hash]*orphanTx),
+		orphanUData:    make(map[chainhash.Hash]*wire.UData),
 		orphansByPrev:  make(map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx),
 		nextExpireScan: time.Now().Add(orphanExpireScanInterval),
 		outpoints:      make(map[wire.OutPoint]*btcutil.Tx),

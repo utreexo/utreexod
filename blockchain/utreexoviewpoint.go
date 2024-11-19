@@ -377,47 +377,11 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 			}
 
 			ld := &ud.LeafDatas[ldIdx]
-
-			// Get BlockHash.
-			blockNode := chainView.NodeByHeight(ld.Height)
-			if blockNode == nil {
-				return nil, fmt.Errorf("Couldn't find blockNode for height %d",
-					ld.Height)
+			var err error
+			ld, err = reconstructLeafData(ld, txIn, chainView)
+			if err != nil {
+				return nil, err
 			}
-			ld.BlockHash = blockNode.hash
-
-			// Get OutPoint.
-			op := wire.OutPoint{
-				Hash:  txIn.PreviousOutPoint.Hash,
-				Index: txIn.PreviousOutPoint.Index,
-			}
-			ld.OutPoint = op
-
-			if ld.ReconstructablePkType != wire.OtherTy &&
-				ld.PkScript == nil {
-
-				var class txscript.ScriptClass
-
-				switch ld.ReconstructablePkType {
-				case wire.PubKeyHashTy:
-					class = txscript.PubKeyHashTy
-				case wire.ScriptHashTy:
-					class = txscript.ScriptHashTy
-				case wire.WitnessV0PubKeyHashTy:
-					class = txscript.WitnessV0PubKeyHashTy
-				case wire.WitnessV0ScriptHashTy:
-					class = txscript.WitnessV0ScriptHashTy
-				}
-
-				scriptToUse, err := txscript.ReconstructScript(
-					txIn.SignatureScript, txIn.Witness, class)
-				if err != nil {
-					return nil, err
-				}
-
-				ld.PkScript = scriptToUse
-			}
-
 			delHashes = append(delHashes, ld.LeafHash())
 
 			blockInIdx++
@@ -426,6 +390,76 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 	}
 
 	return delHashes, nil
+}
+
+// ReconstructLeafDatas reconstruct the passed in leaf datas with the given txIns.
+//
+// NOTE: the length of the leafdatas MUST match the TxIns. Otherwise it'll return an error.
+func (b *BlockChain) ReconstructLeafDatas(lds []wire.LeafData, txIns []*wire.TxIn) ([]wire.LeafData, error) {
+	if len(lds) == 0 {
+		return lds, nil
+	}
+
+	if len(lds) != len(txIns) {
+		err := fmt.Errorf("Can't reconstruct leaf datas.  Have %d txins but %d leaf datas",
+			len(txIns), len(lds))
+		return nil, err
+	}
+
+	for i, txIn := range txIns {
+		if lds[i].IsUnconfirmed() {
+			continue
+		}
+
+		ld, err := reconstructLeafData(&lds[i], txIn, b.bestChain)
+		if err != nil {
+			return nil, err
+		}
+		lds[i] = *ld
+	}
+
+	return lds, nil
+}
+
+// reconstructLeafData reconstructs a single leafdata given the associated txIn and the chainview.
+func reconstructLeafData(ld *wire.LeafData, txIn *wire.TxIn, chainView *chainView) (*wire.LeafData, error) {
+	// Get BlockHash.
+	blockNode := chainView.NodeByHeight(ld.Height)
+	if blockNode == nil {
+		return nil, fmt.Errorf("Couldn't find blockNode for height %d",
+			ld.Height)
+	}
+	ld.BlockHash = blockNode.hash
+
+	// Get OutPoint.
+	ld.OutPoint = txIn.PreviousOutPoint
+
+	if ld.ReconstructablePkType != wire.OtherTy &&
+		ld.PkScript == nil {
+
+		var class txscript.ScriptClass
+
+		switch ld.ReconstructablePkType {
+		case wire.PubKeyHashTy:
+			class = txscript.PubKeyHashTy
+		case wire.ScriptHashTy:
+			class = txscript.ScriptHashTy
+		case wire.WitnessV0PubKeyHashTy:
+			class = txscript.WitnessV0PubKeyHashTy
+		case wire.WitnessV0ScriptHashTy:
+			class = txscript.WitnessV0ScriptHashTy
+		}
+
+		scriptToUse, err := txscript.ReconstructScript(
+			txIn.SignatureScript, txIn.Witness, class)
+		if err != nil {
+			return nil, err
+		}
+
+		ld.PkScript = scriptToUse
+	}
+
+	return ld, nil
 }
 
 // IsUnspendable determines whether a tx is spendable or not.
@@ -874,69 +908,19 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 			"Cannot validate utreexo accumulator proof")
 	}
 
-	// Check that there are equal amount of LeafDatas for txIns.
-	if len(txIns) != len(ud.LeafDatas) {
-		str := fmt.Sprintf("VerifyUData(): length of txIns and LeafDatas differ. "+
-			"%d txIns, but %d LeafDatas. TxIns PreviousOutPoints are:\n",
-			len(txIns), len(ud.LeafDatas))
-		for _, txIn := range txIns {
-			str += fmt.Sprintf("%s\n", txIn.PreviousOutPoint.String())
-		}
-
-		return fmt.Errorf("%v", str)
+	var err error
+	ud.LeafDatas, err = b.ReconstructLeafDatas(ud.LeafDatas, txIns)
+	if err != nil {
+		return err
 	}
 
-	// Make a slice of hashes from LeafDatas. These are the hash commitments
-	// to be proven.
 	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
-	for i, txIn := range txIns {
-		ld := &ud.LeafDatas[i]
-
-		// Get OutPoint.
-		op := wire.OutPoint{
-			Hash:  txIn.PreviousOutPoint.Hash,
-			Index: txIn.PreviousOutPoint.Index,
+	for _, ld := range ud.LeafDatas {
+		if ld.IsCompact() || ld.IsUnconfirmed() {
+			continue
 		}
-		ld.OutPoint = op
 
-		// Only append and try to fetch blockHash for confirmed txs.  Skip
-		// all unconfirmed txs.
-		if !ld.IsUnconfirmed() {
-			// Get BlockHash.
-			blockNode := b.bestChain.NodeByHeight(ld.Height)
-			if blockNode == nil {
-				return fmt.Errorf("Couldn't find blockNode for height %d for outpoint %s",
-					ld.Height, txIn.PreviousOutPoint.String())
-			}
-			ld.BlockHash = blockNode.hash
-
-			if ld.ReconstructablePkType != wire.OtherTy &&
-				ld.PkScript == nil {
-
-				var class txscript.ScriptClass
-
-				switch ld.ReconstructablePkType {
-				case wire.PubKeyHashTy:
-					class = txscript.PubKeyHashTy
-				case wire.ScriptHashTy:
-					class = txscript.ScriptHashTy
-				case wire.WitnessV0PubKeyHashTy:
-					class = txscript.WitnessV0PubKeyHashTy
-				case wire.WitnessV0ScriptHashTy:
-					class = txscript.WitnessV0ScriptHashTy
-				}
-
-				scriptToUse, err := txscript.ReconstructScript(
-					txIn.SignatureScript, txIn.Witness, class)
-				if err != nil {
-					return err
-				}
-
-				ld.PkScript = scriptToUse
-			}
-
-			delHashes = append(delHashes, ld.LeafHash())
-		}
+		delHashes = append(delHashes, ld.LeafHash())
 	}
 
 	// Acquire read lock before accessing the accumulator state.
@@ -945,7 +929,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 
 	// VerifyBatchProof checks that the utreexo proofs are valid without
 	// mutating the accumulator.
-	err := b.utreexoView.accumulator.VerifyPartialProof(ud.AccProof.Targets, delHashes, ud.AccProof.Proof, remember)
+	err = b.utreexoView.accumulator.VerifyPartialProof(ud.AccProof.Targets, delHashes, ud.AccProof.Proof, remember)
 	if err != nil {
 		str := "Verify fail. All txIns-leaf datas:\n"
 		for i, txIn := range txIns {
