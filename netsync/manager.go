@@ -1355,6 +1355,16 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			continue
 		}
 
+		// Ignore txs when we're not current as we can't verify them
+		// and they'll just go in the orphan pool.
+		if iv.Type == wire.InvTypeWitnessTx ||
+			iv.Type == wire.InvTypeTx {
+
+			if !sm.current() {
+				continue
+			}
+		}
+
 		// Add the inventory to the cache of known inventory
 		// for the peer.
 		peer.AddKnownInventory(iv)
