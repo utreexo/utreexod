@@ -959,10 +959,13 @@ func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint
 	ud := new(wire.UData)
 	ud.LeafDatas = dels
 
-	// Get the positions of the targets of delHashes.
-	delHashes, err := wire.HashesFromLeafDatas(ud.LeafDatas)
-	if err != nil {
-		return nil, err
+	delHashes := make([]utreexo.Hash, 0, len(dels))
+	for _, del := range dels {
+		// We can't calculate the correct hash if the leaf data is in
+		// the compact state.
+		if !del.IsUnconfirmed() {
+			delHashes = append(delHashes, del.LeafHash())
+		}
 	}
 	targets := b.getLeafHashPositions(delHashes)
 
