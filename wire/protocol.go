@@ -57,6 +57,12 @@ const (
 	FeeFilterVersion uint32 = 70013
 )
 
+const (
+	// NodeNetworkLimitedBlockThreshold is the number of blocks that a node
+	// broadcasting SFNodeNetworkLimited MUST be able to serve from the tip.
+	NodeNetworkLimitedBlockThreshold = 288
+)
+
 // ServiceFlag identifies services supported by a bitcoin peer.
 type ServiceFlag uint64
 
@@ -130,6 +136,11 @@ var orderedSFStrings = []ServiceFlag{
 	SFNodeCF,
 	SFNode2X,
 	SFNodeUtreexo,
+}
+
+// HasFlag returns a bool indicating if the service has the given flag.
+func (f ServiceFlag) HasFlag(s ServiceFlag) bool {
+	return f&s == s
 }
 
 // String returns the ServiceFlag in human-readable form.
