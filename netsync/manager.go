@@ -80,6 +80,13 @@ type headersMsg struct {
 	peer    *peerpkg.Peer
 }
 
+// utreexoHeaderMsg packages a bitcoin utreexo header message and the peer it came from
+// together so the block handler has access to that information.
+type utreexoHeaderMsg struct {
+	header *wire.MsgUtreexoHeader
+	peer   *peerpkg.Peer
+}
+
 // notFoundMsg packages a bitcoin notfound message and the peer it came from
 // together so the block handler has access to that information.
 type notFoundMsg struct {
@@ -211,10 +218,12 @@ type SyncManager struct {
 	headersBuildMode bool
 
 	// The following fields are used for headers-first mode.
-	headersFirstMode bool
-	headerList       *list.List
-	startHeader      *list.Element
-	nextCheckpoint   *chaincfg.Checkpoint
+	headersFirstMode        bool
+	headerList              *list.List
+	startHeader             *list.Element
+	nextCheckpoint          *chaincfg.Checkpoint
+	utreexoHeaders          map[chainhash.Hash]*wire.MsgUtreexoHeader
+	requestedUtreexoHeaders map[chainhash.Hash]struct{}
 
 	// An optional fee estimator.
 	feeEstimator *mempool.FeeEstimator
@@ -750,6 +759,17 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		}
 	}
 
+	// Check if we've received the utreexo headers already.
+	if sm.chain.IsUtreexoViewActive() {
+		utreexoHeader, found := sm.utreexoHeaders[*bmsg.block.Hash()]
+		if !found {
+			log.Warnf("got block %v but don't have the associated "+
+				"utreexo header", bmsg.block.Hash())
+			return
+		}
+		bmsg.block.MsgBlock().UData.AccProof.Targets = utreexoHeader.Targets
+	}
+
 	// When in headers-first mode, if the block matches the hash of the
 	// first header in the list of headers that are being fetched, it's
 	// eligible for less validation since the headers have already been
@@ -854,6 +874,9 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 			sm.lastProgressTime = time.Now()
 		}
 
+		// It's safe to delete the utreexo header for this block now.
+		delete(sm.utreexoHeaders, *bmsg.block.Hash())
+
 		// When the block is not an orphan, log information about it and
 		// update the chain state.
 		sm.progressLogger.LogBlockHeight(bmsg.block, sm.chain)
@@ -943,6 +966,36 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		log.Warnf("Failed to send getblocks message to peer %s: %v",
 			peer.Addr(), err)
 		return
+	}
+}
+
+// fetchUtreexoHeaders creates and sends a request to the syncPeer for the next
+// list of utreexo headers to be downloaded based on the current list of headers.
+func (sm *SyncManager) fetchUtreexoHeaders() {
+	// Nothing to do if there is no start header.
+	if sm.startHeader == nil {
+		log.Warnf("fetchUtreexoHeaders called with no start header")
+		return
+	}
+
+	for e := sm.startHeader; e != nil; e = e.Next() {
+		node, ok := e.Value.(*headerNode)
+		if !ok {
+			log.Warn("Header list node type is not a headerNode")
+			continue
+		}
+
+		_, requested := sm.requestedUtreexoHeaders[*node.hash]
+		_, have := sm.utreexoHeaders[*node.hash]
+		if !requested && !have {
+			sm.requestedUtreexoHeaders[*node.hash] = struct{}{}
+			ghmsg := wire.NewMsgGetUtreexoHeader(*node.hash)
+			sm.syncPeer.QueueMessage(ghmsg, nil)
+		}
+
+		if len(sm.requestedUtreexoHeaders) > 16 {
+			break
+		}
 	}
 }
 
@@ -1175,9 +1228,22 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		}
 	}
 
+	utreexoViewActive := sm.chain.IsUtreexoViewActive()
 	// When this header is a checkpoint, switch to fetching the blocks for
 	// all of the headers since the last checkpoint.
 	if receivedCheckpoint {
+		if utreexoViewActive {
+			// Since the first entry of the list is always the final block
+			// that is already in the database and is only used to ensure
+			// the next header links properly, it must be removed before
+			// fetching the utreexo headers.
+			sm.headerList.Remove(sm.headerList.Front())
+			log.Infof("Received %v block headers: Fetching utreexo headers",
+				sm.headerList.Len())
+			sm.progressLogger.SetLastLogTime(time.Now())
+			sm.fetchUtreexoHeaders()
+			return
+		}
 		// Since the first entry of the list is always the final block
 		// that is already in the database and is only used to ensure
 		// the next header links properly, it must be removed before
@@ -1200,6 +1266,76 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			"peer %s: %v", peer.Addr(), err)
 		return
 	}
+}
+
+// handleUtreexoHeaderMsg is called during utreexo-headers first download. It checks that
+// each header was asked for and is from a known peer.
+func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
+	peer := hmsg.peer
+	peerState, exists := sm.peerStates[peer]
+	if !exists {
+		log.Warnf("Received utreexo header message from unknown peer %s", peer)
+		return
+	}
+
+	// If we're in headers first, check if we have the final utreexo header. If not
+	// ask for more utreexo headers.
+	msg := hmsg.header
+	if sm.headersFirstMode {
+		_, found := sm.requestedUtreexoHeaders[msg.BlockHash]
+		if !found {
+			log.Warnf("Got unrequested utreexo header from %s -- "+
+				"disconnecting", peer.Addr())
+			peer.Disconnect()
+			return
+		}
+
+		for e := sm.startHeader; e != nil; e = e.Next() {
+			node, ok := e.Value.(*headerNode)
+			if !ok {
+				log.Warn("Header list node type is not a headerNode")
+				continue
+			}
+
+			if node.hash.IsEqual(&msg.BlockHash) {
+				delete(sm.requestedUtreexoHeaders, msg.BlockHash)
+				sm.progressLogger.SetLastLogTime(time.Now())
+				sm.lastProgressTime = time.Now()
+
+				sm.utreexoHeaders[msg.BlockHash] = hmsg.header
+				log.Debugf("accepted utreexo header for block %v. have %v headers",
+					msg.BlockHash, len(sm.utreexoHeaders))
+
+				if msg.BlockHash == *sm.nextCheckpoint.Hash {
+					log.Infof("Received utreexo headers to block "+
+						"%d/hash %s. Fetching blocks",
+						node.height, node.hash)
+					sm.fetchHeaderBlocks()
+					return
+				}
+			}
+		}
+
+		if len(sm.requestedUtreexoHeaders) < minInFlightBlocks {
+			sm.fetchUtreexoHeaders()
+		}
+
+		return
+	}
+
+	// We're not in headers-first mode. When we receive a utreexo header,
+	// immediately ask for the block.
+	sm.utreexoHeaders[msg.BlockHash] = hmsg.header
+	log.Debugf("accepted utreexo header for block %v. have %v headers",
+		msg.BlockHash, len(sm.utreexoHeaders))
+
+	sm.requestedBlocks[msg.BlockHash] = struct{}{}
+	peerState.requestedBlocks[msg.BlockHash] = struct{}{}
+
+	gdmsg := wire.NewMsgGetData()
+	iv := wire.NewInvVect(wire.InvTypeWitnessUtreexoBlock, &msg.BlockHash)
+	gdmsg.AddInvVect(iv)
+	peer.QueueMessage(gdmsg, nil)
 }
 
 // handleNotFoundMsg handles notfound messages from all peers.
@@ -1520,16 +1656,19 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			// Request the block if there is not already a pending
 			// request.
 			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
+				amUtreexoNode := sm.chain.IsUtreexoViewActive()
+				if amUtreexoNode {
+					sm.requestedUtreexoHeaders[iv.Hash] = struct{}{}
+					ghmsg := wire.NewMsgGetUtreexoHeader(iv.Hash)
+					peer.QueueMessage(ghmsg, nil)
+					continue
+				}
+
 				limitAdd(sm.requestedBlocks, iv.Hash, maxRequestedBlocks)
 				limitAdd(state.requestedBlocks, iv.Hash, maxRequestedBlocks)
 
 				if peer.IsWitnessEnabled() {
 					iv.Type = wire.InvTypeWitnessBlock
-				}
-
-				amUtreexoNode := sm.chain.IsUtreexoViewActive()
-				if amUtreexoNode {
-					iv.Type |= wire.InvUtreexoFlag
 				}
 
 				gdmsg.AddInvVect(iv)
@@ -1672,6 +1811,9 @@ out:
 
 			case *headersMsg:
 				sm.handleHeadersMsg(msg)
+
+			case *utreexoHeaderMsg:
+				sm.handleUtreexoHeaderMsg(msg)
 
 			case *notFoundMsg:
 				sm.handleNotFoundMsg(msg)
@@ -1903,6 +2045,18 @@ func (sm *SyncManager) QueueHeaders(headers *wire.MsgHeaders, peer *peerpkg.Peer
 	sm.msgChan <- &headersMsg{headers: headers, peer: peer}
 }
 
+// QueueHeaders adds the passed utreexo header message and peer to the block handling
+// queue.
+func (sm *SyncManager) QueueUtreexoHeader(header *wire.MsgUtreexoHeader, peer *peerpkg.Peer) {
+	// No channel handling here because peers do not need to block on
+	// headers messages.
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		return
+	}
+
+	sm.msgChan <- &utreexoHeaderMsg{header: header, peer: peer}
+}
+
 // QueueNotFound adds the passed notfound message and peer to the block handling
 // queue.
 func (sm *SyncManager) QueueNotFound(notFound *wire.MsgNotFound, peer *peerpkg.Peer) {
@@ -1990,19 +2144,21 @@ func (sm *SyncManager) Pause() chan<- struct{} {
 // block, tx, and inv updates.
 func New(config *Config) (*SyncManager, error) {
 	sm := SyncManager{
-		peerNotifier:    config.PeerNotifier,
-		chain:           config.Chain,
-		txMemPool:       config.TxMemPool,
-		chainParams:     config.ChainParams,
-		rejectedTxns:    make(map[chainhash.Hash]struct{}),
-		requestedTxns:   make(map[chainhash.Hash]struct{}),
-		requestedBlocks: make(map[chainhash.Hash]struct{}),
-		peerStates:      make(map[*peerpkg.Peer]*peerSyncState),
-		progressLogger:  newBlockProgressLogger("Processed", log),
-		msgChan:         make(chan interface{}, config.MaxPeers*3),
-		headerList:      list.New(),
-		quit:            make(chan struct{}),
-		feeEstimator:    config.FeeEstimator,
+		peerNotifier:            config.PeerNotifier,
+		chain:                   config.Chain,
+		txMemPool:               config.TxMemPool,
+		chainParams:             config.ChainParams,
+		rejectedTxns:            make(map[chainhash.Hash]struct{}),
+		requestedTxns:           make(map[chainhash.Hash]struct{}),
+		requestedBlocks:         make(map[chainhash.Hash]struct{}),
+		requestedUtreexoHeaders: make(map[chainhash.Hash]struct{}),
+		utreexoHeaders:          make(map[chainhash.Hash]*wire.MsgUtreexoHeader),
+		peerStates:              make(map[*peerpkg.Peer]*peerSyncState),
+		progressLogger:          newBlockProgressLogger("Processed", log),
+		msgChan:                 make(chan interface{}, config.MaxPeers*3),
+		headerList:              list.New(),
+		quit:                    make(chan struct{}),
+		feeEstimator:            config.FeeEstimator,
 	}
 
 	best := sm.chain.BestSnapshot()
@@ -2016,7 +2172,7 @@ func New(config *Config) (*SyncManager, error) {
 		log.Info("Checkpoints are disabled")
 	}
 
-	// If we're at assume utreexo mode, then build headers first.
+	// If we're at assume utreexo mode, build headers first.
 	if sm.chain.IsUtreexoViewActive() && sm.chain.IsAssumeUtreexo() {
 		log.Info("Assumed Utreexo is enabled. Downloading headers...")
 		sm.headersBuildMode = true
