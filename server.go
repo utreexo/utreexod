@@ -463,10 +463,8 @@ func (sp *serverPeer) OnVersion(_ *peer.Peer, msg *wire.MsgVersion) *wire.MsgRej
 		return nil
 	}
 
-	// Reject outbound peers that are not full nodes.
-	wantServices := wire.SFNodeNetwork
-
 	// Also reject outbound peers that aren't utreexo nodes if we're a utreexo csn.
+	var wantServices wire.ServiceFlag
 	if sp.server.chain.IsUtreexoViewActive() {
 		wantServices |= wire.SFNodeUtreexo
 	}
