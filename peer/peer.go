@@ -140,6 +140,9 @@ type MessageListeners struct {
 	// OnHeaders is invoked when a peer receives a headers bitcoin message.
 	OnHeaders func(p *Peer, msg *wire.MsgHeaders)
 
+	// OnUtreexoHeader is invoked when a peer receives a headers bitcoin message.
+	OnUtreexoHeader func(p *Peer, msg *wire.MsgUtreexoHeader)
+
 	// OnNotFound is invoked when a peer receives a notfound bitcoin
 	// message.
 	OnNotFound func(p *Peer, msg *wire.MsgNotFound)
@@ -1470,6 +1473,11 @@ out:
 		case *wire.MsgHeaders:
 			if p.cfg.Listeners.OnHeaders != nil {
 				p.cfg.Listeners.OnHeaders(p, msg)
+			}
+
+		case *wire.MsgUtreexoHeader:
+			if p.cfg.Listeners.OnUtreexoHeader != nil {
+				p.cfg.Listeners.OnUtreexoHeader(p, msg)
 			}
 
 		case *wire.MsgNotFound:

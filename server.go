@@ -696,6 +696,12 @@ func (sp *serverPeer) OnHeaders(_ *peer.Peer, msg *wire.MsgHeaders) {
 	sp.server.syncManager.QueueHeaders(msg, sp.Peer)
 }
 
+// OnUtreexoHeader is invoked when a peer receives a utreexo header bitcoin
+// message.  The message is passed down to the sync manager.
+func (sp *serverPeer) OnUtreexoHeader(_ *peer.Peer, msg *wire.MsgUtreexoHeader) {
+	sp.server.syncManager.QueueUtreexoHeader(msg, sp.Peer)
+}
+
 // handleGetData is invoked when a peer receives a getdata bitcoin message and
 // is used to deliver block and transaction information.
 func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
@@ -2540,6 +2546,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 			OnBlock:            sp.OnBlock,
 			OnInv:              sp.OnInv,
 			OnHeaders:          sp.OnHeaders,
+			OnUtreexoHeader:    sp.OnUtreexoHeader,
 			OnGetData:          sp.OnGetData,
 			OnGetBlocks:        sp.OnGetBlocks,
 			OnGetHeaders:       sp.OnGetHeaders,
