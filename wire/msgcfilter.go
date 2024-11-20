@@ -17,6 +17,7 @@ type FilterType uint8
 const (
 	// GCSFilterRegular is the regular filter type.
 	GCSFilterRegular FilterType = iota
+	UtreexoCFilter
 )
 
 const (
