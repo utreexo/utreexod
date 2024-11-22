@@ -1933,10 +1933,13 @@ func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
 	for i := 0; i < len(invVects); i++ {
 		ty := invVects[i].Type
 
+		iv := *invVects[i]
+		iv.Type &^= wire.InvUtreexoFlag
+
 		// Don't add the inventory to the send queue if the peer is already
 		// known to have it.
 		if ty != wire.InvTypeUtreexoProofHash &&
-			p.knownInventory.Contains(invVects[i]) {
+			p.knownInventory.Contains(iv) {
 
 			invVects = append(invVects[:i], invVects[i+1:]...)
 			i--
