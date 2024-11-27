@@ -140,6 +140,9 @@ type MessageListeners struct {
 	// OnHeaders is invoked when a peer receives a headers bitcoin message.
 	OnHeaders func(p *Peer, msg *wire.MsgHeaders)
 
+	// OnUtreexoHeader is invoked when a peer receives a headers bitcoin message.
+	OnUtreexoHeader func(p *Peer, msg *wire.MsgUtreexoHeader)
+
 	// OnNotFound is invoked when a peer receives a notfound bitcoin
 	// message.
 	OnNotFound func(p *Peer, msg *wire.MsgNotFound)
@@ -154,6 +157,10 @@ type MessageListeners struct {
 	// OnGetHeaders is invoked when a peer receives a getheaders bitcoin
 	// message.
 	OnGetHeaders func(p *Peer, msg *wire.MsgGetHeaders)
+
+	// OnGetUtreexoHeader is invoked when a peer receives a getutreexoheader bitcoin
+	// message.
+	OnGetUtreexoHeader func(p *Peer, msg *wire.MsgGetUtreexoHeader)
 
 	// OnGetCFilters is invoked when a peer receives a getcfilters bitcoin
 	// message.
@@ -1468,6 +1475,11 @@ out:
 				p.cfg.Listeners.OnHeaders(p, msg)
 			}
 
+		case *wire.MsgUtreexoHeader:
+			if p.cfg.Listeners.OnUtreexoHeader != nil {
+				p.cfg.Listeners.OnUtreexoHeader(p, msg)
+			}
+
 		case *wire.MsgNotFound:
 			if p.cfg.Listeners.OnNotFound != nil {
 				p.cfg.Listeners.OnNotFound(p, msg)
@@ -1486,6 +1498,11 @@ out:
 		case *wire.MsgGetHeaders:
 			if p.cfg.Listeners.OnGetHeaders != nil {
 				p.cfg.Listeners.OnGetHeaders(p, msg)
+			}
+
+		case *wire.MsgGetUtreexoHeader:
+			if p.cfg.Listeners.OnGetUtreexoHeader != nil {
+				p.cfg.Listeners.OnGetUtreexoHeader(p, msg)
 			}
 
 		case *wire.MsgGetCFilters:
@@ -1916,10 +1933,13 @@ func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
 	for i := 0; i < len(invVects); i++ {
 		ty := invVects[i].Type
 
+		iv := *invVects[i]
+		iv.Type &^= wire.InvUtreexoFlag
+
 		// Don't add the inventory to the send queue if the peer is already
 		// known to have it.
 		if ty != wire.InvTypeUtreexoProofHash &&
-			p.knownInventory.Contains(invVects[i]) {
+			p.knownInventory.Contains(iv) {
 
 			invVects = append(invVects[:i], invVects[i+1:]...)
 			i--

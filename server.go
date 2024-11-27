@@ -696,6 +696,12 @@ func (sp *serverPeer) OnHeaders(_ *peer.Peer, msg *wire.MsgHeaders) {
 	sp.server.syncManager.QueueHeaders(msg, sp.Peer)
 }
 
+// OnUtreexoHeader is invoked when a peer receives a utreexo header bitcoin
+// message.  The message is passed down to the sync manager.
+func (sp *serverPeer) OnUtreexoHeader(_ *peer.Peer, msg *wire.MsgUtreexoHeader) {
+	sp.server.syncManager.QueueUtreexoHeader(msg, sp.Peer)
+}
+
 // handleGetData is invoked when a peer receives a getdata bitcoin message and
 // is used to deliver block and transaction information.
 func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
@@ -880,6 +886,105 @@ func (sp *serverPeer) OnGetHeaders(_ *peer.Peer, msg *wire.MsgGetHeaders) {
 		blockHeaders[i] = &headers[i]
 	}
 	sp.QueueMessage(&wire.MsgHeaders{Headers: blockHeaders}, nil)
+}
+
+// OnGetUtreexoHeader is invoked when a peer receives a getutreexoheader bitcoin message.
+func (sp *serverPeer) OnGetUtreexoHeader(_ *peer.Peer, msg *wire.MsgGetUtreexoHeader) {
+	// Ignore getutreexoheaders requests if not in sync.
+	if !sp.server.syncManager.IsCurrent() {
+		return
+	}
+
+	// Check if we're a utreexo node. Ignore if we're not.
+	if sp.server.utreexoProofIndex == nil && sp.server.flatUtreexoProofIndex == nil && cfg.NoUtreexo {
+		return
+	}
+
+	if !cfg.NoUtreexo {
+		height, err := sp.server.chain.BlockHeightByHash(&msg.BlockHash)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch height for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+
+		// If we're pruned and the requested block is beyond the point where pruned blocks
+		// are able to serve blocks, just ignore the message.
+		if cfg.Prune != 0 && height >= sp.server.chain.BestSnapshot().Height-288 {
+			return
+		}
+
+		var blockBytes []byte
+		err = sp.server.db.View(func(dbTx database.Tx) error {
+			var err error
+			blockBytes, err = dbTx.FetchBlock(&msg.BlockHash)
+			return err
+		})
+		if err != nil {
+			chanLog.Debugf("Unable to fetch block %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+		var msgBlock wire.MsgBlock
+		err = msgBlock.Deserialize(bytes.NewReader(blockBytes))
+		if err != nil {
+			chanLog.Debugf("Unable to deserialize block with hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+
+		targets := msgBlock.UData.AccProof.Targets
+
+		var blockHeader wire.MsgUtreexoHeader
+		blockHeader.BlockHash = msg.BlockHash
+		blockHeader.NumAdds = uint16(len(msgBlock.UData.LeafDatas))
+		blockHeader.Targets = make([]uint64, len(targets))
+		copy(blockHeader.Targets, targets)
+		sp.QueueMessage(&blockHeader, nil)
+
+		return
+	}
+
+	if sp.server.utreexoProofIndex != nil {
+		udata, err := sp.server.utreexoProofIndex.FetchUtreexoProof(&msg.BlockHash)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+
+		var blockHeader wire.MsgUtreexoHeader
+		blockHeader.BlockHash = msg.BlockHash
+		blockHeader.NumAdds = uint16(len(udata.LeafDatas))
+		blockHeader.Targets = make([]uint64, len(udata.AccProof.Targets))
+		copy(blockHeader.Targets, udata.AccProof.Targets)
+		sp.QueueMessage(&blockHeader, nil)
+		return
+	}
+
+	if sp.server.flatUtreexoProofIndex != nil {
+		height, err := sp.server.chain.BlockHeightByHash(&msg.BlockHash)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch height for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+
+		udata, err := sp.server.flatUtreexoProofIndex.FetchUtreexoProof(height)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+
+		var blockHeader wire.MsgUtreexoHeader
+		blockHeader.BlockHash = msg.BlockHash
+		blockHeader.NumAdds = uint16(len(udata.LeafDatas))
+		blockHeader.Targets = make([]uint64, len(udata.AccProof.Targets))
+		copy(blockHeader.Targets, udata.AccProof.Targets)
+		sp.QueueMessage(&blockHeader, nil)
+		return
+	}
 }
 
 // OnGetCFilters is invoked when a peer receives a getcfilters bitcoin message.
@@ -2433,29 +2538,31 @@ func disconnectPeer(peerList map[int32]*serverPeer, compareFunc func(*serverPeer
 func newPeerConfig(sp *serverPeer) *peer.Config {
 	return &peer.Config{
 		Listeners: peer.MessageListeners{
-			OnVersion:      sp.OnVersion,
-			OnVerAck:       sp.OnVerAck,
-			OnMemPool:      sp.OnMemPool,
-			OnTx:           sp.OnTx,
-			OnUtreexoTx:    sp.OnUtreexoTx,
-			OnBlock:        sp.OnBlock,
-			OnInv:          sp.OnInv,
-			OnHeaders:      sp.OnHeaders,
-			OnGetData:      sp.OnGetData,
-			OnGetBlocks:    sp.OnGetBlocks,
-			OnGetHeaders:   sp.OnGetHeaders,
-			OnGetCFilters:  sp.OnGetCFilters,
-			OnGetCFHeaders: sp.OnGetCFHeaders,
-			OnGetCFCheckpt: sp.OnGetCFCheckpt,
-			OnFeeFilter:    sp.OnFeeFilter,
-			OnFilterAdd:    sp.OnFilterAdd,
-			OnFilterClear:  sp.OnFilterClear,
-			OnFilterLoad:   sp.OnFilterLoad,
-			OnGetAddr:      sp.OnGetAddr,
-			OnAddr:         sp.OnAddr,
-			OnRead:         sp.OnRead,
-			OnWrite:        sp.OnWrite,
-			OnNotFound:     sp.OnNotFound,
+			OnVersion:          sp.OnVersion,
+			OnVerAck:           sp.OnVerAck,
+			OnMemPool:          sp.OnMemPool,
+			OnTx:               sp.OnTx,
+			OnUtreexoTx:        sp.OnUtreexoTx,
+			OnBlock:            sp.OnBlock,
+			OnInv:              sp.OnInv,
+			OnHeaders:          sp.OnHeaders,
+			OnUtreexoHeader:    sp.OnUtreexoHeader,
+			OnGetData:          sp.OnGetData,
+			OnGetBlocks:        sp.OnGetBlocks,
+			OnGetHeaders:       sp.OnGetHeaders,
+			OnGetUtreexoHeader: sp.OnGetUtreexoHeader,
+			OnGetCFilters:      sp.OnGetCFilters,
+			OnGetCFHeaders:     sp.OnGetCFHeaders,
+			OnGetCFCheckpt:     sp.OnGetCFCheckpt,
+			OnFeeFilter:        sp.OnFeeFilter,
+			OnFilterAdd:        sp.OnFilterAdd,
+			OnFilterClear:      sp.OnFilterClear,
+			OnFilterLoad:       sp.OnFilterLoad,
+			OnGetAddr:          sp.OnGetAddr,
+			OnAddr:             sp.OnAddr,
+			OnRead:             sp.OnRead,
+			OnWrite:            sp.OnWrite,
+			OnNotFound:         sp.OnNotFound,
 
 			// Note: The reference client currently bans peers that send alerts
 			// not signed with its key.  We could verify against their key, but
