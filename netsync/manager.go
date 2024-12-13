@@ -362,7 +362,12 @@ func (sm *SyncManager) startSync() {
 		// Clear the requestedBlocks if the sync peer changes, otherwise
 		// we may ignore blocks we need that the last sync peer failed
 		// to send.
-		sm.requestedBlocks = make(map[chainhash.Hash]struct{})
+		//
+		// We don't reset it during headersFirstMode since it's not used
+		// during headersFirstMode.
+		if !sm.headersFirstMode {
+			sm.requestedBlocks = make(map[chainhash.Hash]struct{})
+		}
 
 		locator, err := sm.chain.LatestBlockLocator()
 		if err != nil {
@@ -614,12 +619,15 @@ func (sm *SyncManager) clearRequestedState(state *peerSyncState) {
 		delete(sm.requestedTxns, txHash)
 	}
 
-	// Remove requested blocks from the global map so that they will be
-	// fetched from elsewhere next time we get an inv.
-	// TODO: we could possibly here check which peers have these blocks
-	// and request them now to speed things up a little.
-	for blockHash := range state.requestedBlocks {
-		delete(sm.requestedBlocks, blockHash)
+	// The global map of requestedBlocks is not used during headersFirstMode.
+	if !sm.headersFirstMode {
+		// Remove requested blocks from the global map so that they will
+		// be fetched from elsewhere next time we get an inv.
+		// TODO: we could possibly here check which peers have these
+		// blocks and request them now to speed things up a little.
+		for blockHash := range state.requestedBlocks {
+			delete(sm.requestedBlocks, blockHash)
+		}
 	}
 }
 
@@ -797,7 +805,11 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// so we shouldn't have any more instances of trying to fetch it, or we
 	// will fail the insert and thus we'll retry next time we get an inv.
 	delete(state.requestedBlocks, *blockHash)
-	delete(sm.requestedBlocks, *blockHash)
+	if !sm.headersFirstMode {
+		// The global map of requestedBlocks is not used during
+		// headersFirstMode.
+		delete(sm.requestedBlocks, *blockHash)
+	}
 
 	// Process the block to include validation, best chain selection, orphan
 	// handling, etc.
@@ -1028,8 +1040,6 @@ func (sm *SyncManager) fetchHeaderBlocks() {
 		}
 		if !haveInv {
 			syncPeerState := sm.peerStates[sm.syncPeer]
-
-			sm.requestedBlocks[*node.hash] = struct{}{}
 			syncPeerState.requestedBlocks[*node.hash] = struct{}{}
 
 			// If we're fetching from a witness enabled peer
@@ -1327,7 +1337,9 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 	log.Debugf("accepted utreexo header for block %v. have %v headers",
 		msg.BlockHash, len(sm.utreexoHeaders))
 
-	sm.requestedBlocks[msg.BlockHash] = struct{}{}
+	if !sm.headersFirstMode {
+		sm.requestedBlocks[msg.BlockHash] = struct{}{}
+	}
 	peerState.requestedBlocks[msg.BlockHash] = struct{}{}
 
 	gdmsg := wire.NewMsgGetData()
@@ -1357,7 +1369,11 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 		case wire.InvTypeBlock:
 			if _, exists := state.requestedBlocks[inv.Hash]; exists {
 				delete(state.requestedBlocks, inv.Hash)
-				delete(sm.requestedBlocks, inv.Hash)
+				// The global map of requestedBlocks is not used
+				// during headersFirstMode.
+				if !sm.headersFirstMode {
+					delete(sm.requestedBlocks, inv.Hash)
+				}
 			}
 
 		case wire.InvTypeWitnessTx:
@@ -1655,6 +1671,9 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeBlock:
 			// Request the block if there is not already a pending
 			// request.
+			//
+			// No check for if we're in headers first since it's
+			// already done so earlier in the method.
 			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
 				amUtreexoNode := sm.chain.IsUtreexoViewActive()
 				if amUtreexoNode {
