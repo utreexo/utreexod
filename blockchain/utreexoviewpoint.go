@@ -279,12 +279,6 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView, remember
 func ExtractAccumulatorAdds(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
 	[]utreexo.Leaf, error) {
 
-	// Check that UData field isn't nil before doing anything else.
-	if block.MsgBlock().UData == nil {
-		return nil, fmt.Errorf("ExtractAccumulatorAdds(): block.MsgBlock().UData is nil. " +
-			"Cannot extract utreexo accumulator additions")
-	}
-
 	// outskip is all the txOuts that are referenced by a txIn in the same block
 	// outCount is the count of all outskips.
 	_, outCount, _, outskip := DedupeBlock(block)
