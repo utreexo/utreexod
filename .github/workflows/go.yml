@@ -16,7 +16,7 @@ jobs:
         rust:
           - version: stable
             clippy: true
-          - version: 1.73.0 # As specified in rust-toolchain
+          - version: 1.78.0 # As specified in rust-toolchain
     steps:
     - uses: actions/checkout@v3
 
