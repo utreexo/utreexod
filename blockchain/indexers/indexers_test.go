@@ -70,6 +70,10 @@ func createDB(dbName string) (database.DB, string, error) {
 	return db, dbPath, nil
 }
 
+func CreateDBWrapper(dbName string) (database.DB, string, error) {
+	return createDB(dbName)
+}
+
 func initIndexes(dbPath string, db database.DB, params *chaincfg.Params) (
 	*Manager, []Indexer, error) {
 
@@ -91,11 +95,15 @@ func initIndexes(dbPath string, db database.DB, params *chaincfg.Params) (
 	return indexManager, indexes, nil
 }
 
+func InitIndexesWrapper(dbPath string, db database.DB, params *chaincfg.Params) (*Manager, []Indexer, error) {
+	return initIndexes(dbPath, db, params)
+}
+
 func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
 	params := chaincfg.RegressionNetParams
 	params.CoinbaseMaturity = 1
 
-	db, dbPath, err := createDB(testName)
+	db, dbPath, err := CreateDBWrapper(testName)
 	tearDown := func() {
 		db.Close()
 		os.RemoveAll(dbPath)
@@ -107,7 +115,7 @@ func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *cha
 	}
 
 	// Create the indexes to be used in the chain.
-	indexManager, indexes, err := initIndexes(dbPath, db, &params)
+	indexManager, indexes, err := InitIndexesWrapper(dbPath, db, &params)
 	if err != nil {
 		tearDown()
 		os.RemoveAll(testDbRoot)
@@ -131,6 +139,10 @@ func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *cha
 	}
 
 	return chain, indexes, &params, indexManager, tearDown
+}
+
+func IndexersTestChainWrapper(testName string) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
+	return indexersTestChain(testName)
 }
 
 // csnTestChain creates a chain using the compact utreexo state.
