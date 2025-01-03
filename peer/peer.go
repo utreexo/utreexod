@@ -143,6 +143,9 @@ type MessageListeners struct {
 	// OnUtreexoHeader is invoked when a peer receives a headers bitcoin message.
 	OnUtreexoHeader func(p *Peer, msg *wire.MsgUtreexoHeader)
 
+	// OnUtreexoProof is invoked when a peer receives a utreexo proof bitcoin message.
+	OnUtreexoProof func(p *Peer, msg *wire.MsgUtreexoProof)
+
 	// OnGetUtreexoProof is invoked when a peer receives a utreexo proof bitcoin message.
 	OnGetUtreexoProof func(p *Peer, msg *wire.MsgGetUtreexoProof)
 
@@ -1481,6 +1484,11 @@ out:
 		case *wire.MsgUtreexoHeader:
 			if p.cfg.Listeners.OnUtreexoHeader != nil {
 				p.cfg.Listeners.OnUtreexoHeader(p, msg)
+			}
+
+		case *wire.MsgUtreexoProof:
+			if p.cfg.Listeners.OnUtreexoProof != nil {
+				p.cfg.Listeners.OnUtreexoProof(p, msg)
 			}
 
 		case *wire.MsgGetUtreexoProof:

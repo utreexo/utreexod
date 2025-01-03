@@ -1378,6 +1378,11 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 	sp.QueueMessage(&utreexoProof, nil)
 }
 
+// OnUtreexoProof is invoked when a peer receives a utreexoproof bitcoin message.
+func (sp *serverPeer) OnUtreexoProof(_ *peer.Peer, msg *wire.MsgUtreexoProof) {
+	sp.server.syncManager.QueueUtreexoProof(msg, sp.Peer)
+}
+
 // enforceNodeBloomFlag disconnects the peer if the server is not configured to
 // allow bloom filters.  Additionally, if the peer has negotiated to a protocol
 // version  that is high enough to observe the bloom filter service support bit,
@@ -2614,6 +2619,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 			OnInv:              sp.OnInv,
 			OnHeaders:          sp.OnHeaders,
 			OnUtreexoHeader:    sp.OnUtreexoHeader,
+			OnUtreexoProof:     sp.OnUtreexoProof,
 			OnGetUtreexoProof:  sp.OnGetUtreexoProof,
 			OnGetData:          sp.OnGetData,
 			OnGetBlocks:        sp.OnGetBlocks,
