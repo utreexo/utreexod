@@ -61,6 +61,8 @@ const (
 	CmdCFHeaders        = "cfheaders"
 	CmdCFCheckpt        = "cfcheckpt"
 	CmdSendAddrV2       = "sendaddrv2"
+	CmdUtreexoProof     = "uproof"
+	CmdGetUtreexoProof  = "getuproof"
 )
 
 // MessageEncoding represents the wire message encoding format to be used.
@@ -154,6 +156,12 @@ func makeEmptyMessage(command string) (Message, error) {
 
 	case CmdUtreexoHeader:
 		msg = &MsgUtreexoHeader{}
+
+	case CmdUtreexoProof:
+		msg = &MsgUtreexoProof{}
+
+	case CmdGetUtreexoProof:
+		msg = &MsgGetUtreexoProof{}
 
 	case CmdAlert:
 		msg = &MsgAlert{}
