@@ -900,51 +900,38 @@ func (sp *serverPeer) OnGetUtreexoHeader(_ *peer.Peer, msg *wire.MsgGetUtreexoHe
 		return
 	}
 
-	if !cfg.NoUtreexo {
-		height, err := sp.server.chain.BlockHeightByHash(&msg.BlockHash)
-		if err != nil {
-			chanLog.Debugf("Unable to fetch height for block hash %v: %v",
-				msg.BlockHash, err)
-			return
-		}
-
-		// If we're pruned and the requested block is beyond the point where pruned blocks
-		// are able to serve blocks, just ignore the message.
-		if cfg.Prune != 0 && height >= sp.server.chain.BestSnapshot().Height-288 {
-			return
-		}
-
-		var blockBytes []byte
-		err = sp.server.db.View(func(dbTx database.Tx) error {
-			var err error
-			blockBytes, err = dbTx.FetchBlock(&msg.BlockHash)
-			return err
-		})
-		if err != nil {
-			chanLog.Debugf("Unable to fetch block %v: %v",
-				msg.BlockHash, err)
-			return
-		}
-		var msgBlock wire.MsgBlock
-		err = msgBlock.Deserialize(bytes.NewReader(blockBytes))
-		if err != nil {
-			chanLog.Debugf("Unable to deserialize block with hash %v: %v",
-				msg.BlockHash, err)
-			return
-		}
-
-		targets := msgBlock.UData.AccProof.Targets
-
-		var blockHeader wire.MsgUtreexoHeader
-		blockHeader.BlockHash = msg.BlockHash
-		blockHeader.NumAdds = uint16(len(msgBlock.UData.LeafDatas))
-		blockHeader.Targets = make([]uint64, len(targets))
-		copy(blockHeader.Targets, targets)
-		sp.QueueMessage(&blockHeader, nil)
-
+	height, err := sp.server.chain.BlockHeightByHash(&msg.BlockHash)
+	if err != nil {
+		chanLog.Debugf("Unable to fetch height for block hash %v: %v",
+			msg.BlockHash, err)
 		return
 	}
 
+	// If we're pruned and the requested block is beyond the point where pruned blocks
+	// are able to serve blocks, just ignore the message.
+	if cfg.Prune != 0 && height >= sp.server.chain.BestSnapshot().Height-288 {
+		return
+	}
+
+	// Fetch adds.
+	block, err := sp.server.chain.BlockByHash(&msg.BlockHash)
+	if err != nil {
+		chanLog.Debugf("Unable to fetch block for block hash %v: %v",
+			msg.BlockHash, err)
+		return
+	}
+	adds, err := blockchain.ExtractAccumulatorAdds(block, []uint32{})
+	if err != nil {
+		chanLog.Debugf("Unable to extract adds for block hash %v: %v",
+			msg.BlockHash, err)
+		return
+	}
+
+	// Fetch targets.
+	var targets []uint64
+	if !cfg.NoUtreexo {
+		targets = block.MsgBlock().UData.AccProof.Targets
+	}
 	if sp.server.utreexoProofIndex != nil {
 		udata, err := sp.server.utreexoProofIndex.FetchUtreexoProof(&msg.BlockHash)
 		if err != nil {
@@ -952,39 +939,26 @@ func (sp *serverPeer) OnGetUtreexoHeader(_ *peer.Peer, msg *wire.MsgGetUtreexoHe
 				msg.BlockHash, err)
 			return
 		}
-
-		var blockHeader wire.MsgUtreexoHeader
-		blockHeader.BlockHash = msg.BlockHash
-		blockHeader.NumAdds = uint16(len(udata.LeafDatas))
-		blockHeader.Targets = make([]uint64, len(udata.AccProof.Targets))
-		copy(blockHeader.Targets, udata.AccProof.Targets)
-		sp.QueueMessage(&blockHeader, nil)
-		return
+		targets = udata.AccProof.Targets
 	}
-
 	if sp.server.flatUtreexoProofIndex != nil {
-		height, err := sp.server.chain.BlockHeightByHash(&msg.BlockHash)
-		if err != nil {
-			chanLog.Debugf("Unable to fetch height for block hash %v: %v",
-				msg.BlockHash, err)
-			return
-		}
-
 		udata, err := sp.server.flatUtreexoProofIndex.FetchUtreexoProof(height)
 		if err != nil {
 			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
 				msg.BlockHash, err)
 			return
 		}
-
-		var blockHeader wire.MsgUtreexoHeader
-		blockHeader.BlockHash = msg.BlockHash
-		blockHeader.NumAdds = uint16(len(udata.LeafDatas))
-		blockHeader.Targets = make([]uint64, len(udata.AccProof.Targets))
-		copy(blockHeader.Targets, udata.AccProof.Targets)
-		sp.QueueMessage(&blockHeader, nil)
-		return
+		targets = udata.AccProof.Targets
 	}
+
+	// Construct the utreexo header.
+	blockHeader := wire.MsgUtreexoHeader{
+		BlockHash: msg.BlockHash,
+		NumAdds:   uint16(len(adds)),
+		Targets:   make([]uint64, len(targets)),
+	}
+	copy(blockHeader.Targets, targets)
+	sp.QueueMessage(&blockHeader, nil)
 }
 
 // OnGetCFilters is invoked when a peer receives a getcfilters bitcoin message.
