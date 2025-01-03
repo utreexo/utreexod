@@ -1311,6 +1311,95 @@ func (sp *serverPeer) OnGetCFCheckpt(_ *peer.Peer, msg *wire.MsgGetCFCheckpt) {
 	sp.QueueMessage(checkptMsg, nil)
 }
 
+// OnGetUtreexoProof is invoked when a peer receives a getutreexoproof bitcoin message.
+func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoProof) {
+	// Ignore getutreexoproof requests if not in sync.
+	if !sp.server.syncManager.IsCurrent() {
+		return
+	}
+
+	// Check if we're a utreexo node. Ignore if we're not.
+	if sp.server.utreexoProofIndex == nil && sp.server.flatUtreexoProofIndex == nil && cfg.NoUtreexo {
+		return
+	}
+
+	height, err := sp.server.chain.BlockHeightByHash(&msg.BlockHash)
+	if err != nil {
+		chanLog.Debugf("Unable to fetch height for block hash %v: %v",
+			msg.BlockHash, err)
+		return
+	}
+
+	// If we're pruned and the requested block is beyond the point where pruned blocks
+	// are able to serve blocks, just ignore the message.
+	if cfg.Prune != 0 && height >= sp.server.chain.BestSnapshot().Height-288 {
+		return
+	}
+
+	block, err := sp.server.chain.BlockByHash(&msg.BlockHash)
+	if err != nil {
+		chanLog.Debugf("Unable to fetch block with hash %v: %v",
+			msg.BlockHash, err)
+		return
+	}
+
+	// Fetch UData.
+	var udata *wire.UData
+	if !cfg.NoUtreexo {
+		udata = block.MsgBlock().UData
+	}
+	if sp.server.utreexoProofIndex != nil {
+		udata, err = sp.server.utreexoProofIndex.FetchUtreexoProof(&msg.BlockHash)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+	}
+	if sp.server.flatUtreexoProofIndex != nil {
+		udata, err = sp.server.flatUtreexoProofIndex.FetchUtreexoProof(height)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+	}
+
+	_, err = sp.server.chain.ReconstructUData(udata, msg.BlockHash)
+	if err != nil {
+		chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
+			msg.BlockHash, err)
+		return
+	}
+
+	// Construct utreexo proof to send.
+	leafDatas := make([]wire.LeafData, 0, len(msg.LeafIndexes))
+	for _, idx := range msg.LeafIndexes {
+		if int(idx) > len(udata.LeafDatas) {
+			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+		leafDatas = append(leafDatas, udata.LeafDatas[idx])
+	}
+	proofHashes := make([]utreexo.Hash, 0, len(msg.ProofIndexes))
+	for _, idx := range msg.ProofIndexes {
+		if int(idx) >= len(udata.AccProof.Proof) {
+			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+		proofHashes = append(proofHashes, udata.AccProof.Proof[idx])
+	}
+	utreexoProof := wire.MsgUtreexoProof{
+		BlockHash:   msg.BlockHash,
+		ProofHashes: proofHashes,
+		LeafDatas:   leafDatas,
+	}
+
+	sp.QueueMessage(&utreexoProof, nil)
+}
+
 // enforceNodeBloomFlag disconnects the peer if the server is not configured to
 // allow bloom filters.  Additionally, if the peer has negotiated to a protocol
 // version  that is high enough to observe the bloom filter service support bit,
@@ -2547,6 +2636,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 			OnInv:              sp.OnInv,
 			OnHeaders:          sp.OnHeaders,
 			OnUtreexoHeader:    sp.OnUtreexoHeader,
+			OnGetUtreexoProof:  sp.OnGetUtreexoProof,
 			OnGetData:          sp.OnGetData,
 			OnGetBlocks:        sp.OnGetBlocks,
 			OnGetHeaders:       sp.OnGetHeaders,
