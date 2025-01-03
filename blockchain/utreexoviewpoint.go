@@ -48,7 +48,7 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds, err := ExtractAccumulatorAdds(block, bestChain, []uint32{})
+	adds, err := ExtractAccumulatorAdds(block, []uint32{})
 	if err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView, remember
 }
 
 // ExtractAccumulatorAdds extracts the additions that will beused to modify the utreexo accumulator.
-func ExtractAccumulatorAdds(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
+func ExtractAccumulatorAdds(block *btcutil.Block, remembers []uint32) (
 	[]utreexo.Leaf, error) {
 
 	// outskip is all the txOuts that are referenced by a txIn in the same block
