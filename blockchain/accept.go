@@ -172,7 +172,5 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeade
 	newNode := newBlockNode(header, prevNode)
 	b.index.AddNode(newNode)
 
-	// This node is now the end of the best chain.
-	b.bestChain.SetTip(newNode)
 	return newNode, nil
 }

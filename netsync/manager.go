@@ -1092,6 +1092,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 
 	if sm.headersBuildMode {
 		var finalHeader *wire.BlockHeader
+		var finalHeight int32
 		for _, blockHeader := range msg.Headers {
 			finalHeader = blockHeader
 
@@ -1103,31 +1104,29 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 				peer.Disconnect()
 				return
 			}
+
+			prevNodeEl := sm.headerList.Back()
+			prevNode := prevNodeEl.Value.(*headerNode)
+
+			if prevNode.hash.IsEqual(&blockHeader.PrevBlock) {
+				hash := blockHeader.BlockHash()
+				node := headerNode{height: prevNode.height + 1, hash: &hash}
+				finalHeight = node.height
+				sm.headerList.PushBack(&node)
+			}
 		}
 
 		finalHash := finalHeader.BlockHash()
-		finalHeight, err := sm.chain.BlockHeightByHash(&finalHash)
-		if err != nil {
-			log.Warnf("Failed to grab block height for last block hash "+
-				"%v. %v.", finalHash.String(), err)
-			return
-		}
 
 		// We're now done downloading headers at this point.
 		if finalHeight >= sm.chain.AssumeUtreexoHeight() {
-			assumeUtreexoHeight := sm.chain.AssumeUtreexoHeight()
-			indexHash, err := sm.chain.BlockHashByHeight(assumeUtreexoHeight)
-			if err != nil {
-				log.Warnf("Failed to grab block height for last block hash "+
-					"%v. %v.", finalHash.String(), err)
-				return
-			}
-			if sm.chain.AssumeUtreexoHash() != *indexHash {
-				log.Warnf("The nodea had hash %v hardcoded in but the valid proof-of-work "+
+			assumeUtreexoHash := sm.chain.AssumeUtreexoHash()
+			if !finalHash.IsEqual(&assumeUtreexoHash) {
+				log.Warnf("The node had hash %v hardcoded in but the valid proof-of-work "+
 					"chain has the hash %v at height %v. The user should not trust this "+
 					"software as genuine and there may be attempts to steal funds. The user "+
-					"should delete the datadir at %v ", sm.chain.AssumeUtreexoHash().String(),
-					indexHash.String(), assumeUtreexoHeight)
+					"should delete the datadir", sm.chain.AssumeUtreexoHash().String(),
+					finalHash.String(), finalHeight)
 				os.Exit(1)
 			}
 
@@ -1147,7 +1146,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 				"at block %v(%d)", bestState.Hash.String(), bestState.Height)
 
 			locator := blockchain.BlockLocator([]*chainhash.Hash{&bestState.Hash})
-			err = peer.PushGetBlocksMsg(locator, &zeroHash)
+			err := peer.PushGetBlocksMsg(locator, &zeroHash)
 			if err != nil {
 				log.Warnf("Failed to send getblocks message to "+
 					"peer %s: %v", peer.Addr(), err)
@@ -1162,7 +1161,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		// next checkpoint.
 		locator := blockchain.BlockLocator([]*chainhash.Hash{&finalHash})
 		stopHash := sm.chain.AssumeUtreexoHash()
-		err = peer.PushGetHeadersMsg(locator, &stopHash)
+		err := peer.PushGetHeadersMsg(locator, &stopHash)
 		if err != nil {
 			log.Warnf("Failed to send getheaders message to "+
 				"peer %s: %v", peer.Addr(), err)
