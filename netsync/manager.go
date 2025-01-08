@@ -2337,12 +2337,10 @@ func New(config *Config) (*SyncManager, error) {
 	if !config.DisableCheckpoints {
 		// Initialize the next checkpoint based on the current height.
 		sm.nextCheckpoint = sm.findNextHeaderCheckpoint(best.Height)
-		if sm.nextCheckpoint != nil {
-			sm.resetHeaderState(&best.Hash, best.Height)
-		}
 	} else {
 		log.Info("Checkpoints are disabled")
 	}
+	sm.resetHeaderState(&best.Hash, best.Height)
 
 	// If we're at assume utreexo mode, build headers first.
 	if sm.chain.IsUtreexoViewActive() && sm.chain.IsAssumeUtreexo() {
