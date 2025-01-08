@@ -430,10 +430,8 @@ func (sm *SyncManager) startSync() {
 		// full block hasn't been tampered with.
 		//
 		// Once we have passed the final checkpoint, or checkpoints are
-		// disabled, use standard inv messages learn about the blocks
-		// and fully validate them.  Finally, regression test mode does
-		// not support the headers-first approach so do normal block
-		// downloads when in regression test mode.
+		// disabled, still download the headers first but validate them
+		// first before accepting them.
 		if sm.headersBuildMode && best.Height < sm.nextCheckpoint.Height &&
 			sm.chainParams != &chaincfg.RegressionNetParams {
 
@@ -1212,6 +1210,82 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		return
 	}
 
+	utreexoViewActive := sm.chain.IsUtreexoViewActive()
+
+	// This means that we've ran out of checkpoints and need to verify the headers that
+	// we've received.
+	if sm.nextCheckpoint == nil {
+		var finalHeight int32
+		var finalHeader *wire.BlockHeader
+		for _, blockHeader := range msg.Headers {
+			blockHash := blockHeader.BlockHash()
+			err := sm.chain.ProcessBlockHeader(blockHeader)
+			if err != nil {
+				log.Warnf("Received block header that does not "+
+					"properly connect to the chain from peer %s "+
+					"-- disconnecting", peer.Addr())
+				peer.Disconnect()
+				return
+			}
+
+			prevNodeEl := sm.headerList.Back()
+			if prevNodeEl == nil {
+				log.Warnf("Header list does not contain a previous" +
+					"element as expected -- disconnecting peer")
+				peer.Disconnect()
+				return
+			}
+
+			prevNode := prevNodeEl.Value.(*headerNode)
+			node := headerNode{hash: &blockHash}
+			if prevNode.hash.IsEqual(&blockHeader.PrevBlock) {
+				node.height = prevNode.height + 1
+				finalHeader = blockHeader
+				finalHeight = node.height
+				e := sm.headerList.PushBack(&node)
+				if sm.startHeader == nil {
+					sm.startHeader = e
+				}
+			} else {
+				log.Warnf("Received block header that does not "+
+					"properly connect to the chain from peer %s "+
+					"-- disconnecting", peer.Addr())
+				peer.Disconnect()
+				return
+			}
+		}
+
+		if finalHeight != sm.syncPeer.LastBlock() {
+			finalHash := finalHeader.BlockHash()
+			locator := blockchain.BlockLocator([]*chainhash.Hash{&finalHash})
+			err := peer.PushGetHeadersMsg(locator, &zeroHash)
+			if err != nil {
+				log.Warnf("Failed to send getheaders message to "+
+					"peer %s: %v", peer.Addr(), err)
+				return
+			}
+		} else {
+			// Since the first entry of the list is always the final block
+			// that is already in the database and is only used to ensure
+			// the next header links properly, it must be removed before
+			// fetching the headers or the utreexo headers.
+			sm.headerList.Remove(sm.headerList.Front())
+			sm.progressLogger.SetLastLogTime(time.Now())
+
+			if utreexoViewActive {
+				log.Infof("Received %v block headers: Fetching utreexo headers",
+					sm.headerList.Len())
+				sm.fetchUtreexoHeaders()
+			} else {
+				log.Infof("Received %v block headers: Fetching blocks",
+					sm.headerList.Len())
+				sm.fetchHeaderBlocks()
+			}
+		}
+
+		return
+	}
+
 	// Process all of the received headers ensuring each one connects to the
 	// previous and that checkpoints match.
 	receivedCheckpoint := false
@@ -1268,7 +1342,6 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		}
 	}
 
-	utreexoViewActive := sm.chain.IsUtreexoViewActive()
 	// When this header is a checkpoint, switch to fetching the blocks for
 	// all of the headers since the last checkpoint.
 	if receivedCheckpoint {
