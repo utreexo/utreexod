@@ -236,13 +236,8 @@ func (sm *SyncManager) resetHeaderState(newestHash *chainhash.Hash, newestHeight
 		return
 	}
 
-	// When there is a next checkpoint, add an entry for the latest known
-	// block into the header pool.  This allows the next downloaded header
-	// to prove it links to the chain properly.
-	if sm.nextCheckpoint != nil {
-		node := headerNode{height: newestHeight, hash: newestHash}
-		sm.headerList.PushBack(&node)
-	}
+	node := headerNode{height: newestHeight, hash: newestHash}
+	sm.headerList.PushBack(&node)
 }
 
 // findNextHeaderCheckpoint returns the next checkpoint after the passed height.
