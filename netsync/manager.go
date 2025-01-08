@@ -816,7 +816,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// properly.
 	isCheckpointBlock := false
 	behaviorFlags := blockchain.BFNone
-	if sm.headersFirstMode {
+	if sm.headersFirstMode && sm.nextCheckpoint != nil {
 		firstNodeEl := sm.headerList.Front()
 		if firstNodeEl != nil {
 			firstNode := firstNodeEl.Value.(*headerNode)
@@ -958,6 +958,25 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 			if err := sm.chain.FlushUtxoCache(blockchain.FlushPeriodic); err != nil {
 				log.Errorf("Error while flushing the blockchain cache: %v", err)
 			}
+		}
+
+		return
+	}
+
+	if sm.nextCheckpoint == nil {
+		lastHeight := sm.syncPeer.LastBlock()
+		if bmsg.block.Height() < lastHeight {
+			if sm.startHeader != nil &&
+				len(state.requestedBlocks) < minInFlightBlocks {
+				sm.fetchHeaderBlocks()
+			}
+			return
+		}
+		if bmsg.block.Height() >= lastHeight {
+			log.Infof("Finished the initial block download and caught up to block %v(%v) "+
+				"-- now listening to blocks.", bmsg.block.Hash(), bmsg.block.Height())
+			sm.headersFirstMode = false
+			sm.headerList.Init()
 		}
 
 		return
