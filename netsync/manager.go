@@ -379,7 +379,7 @@ func (sm *SyncManager) startSync() {
 
 		// Check if we have some headers already downloaded.
 		var locator blockchain.BlockLocator
-		if sm.headerList.Len() > 0 && sm.nextCheckpoint != nil {
+		if sm.headerList.Len() > 0 {
 			e := sm.headerList.Back()
 			node := e.Value.(*headerNode)
 
@@ -387,13 +387,36 @@ func (sm *SyncManager) startSync() {
 			// means we've verified the downloaded headers and
 			// can start fetching blocks or start fetching the
 			// utreexo headers.
-			if node.hash.IsEqual(sm.nextCheckpoint.Hash) {
+			if sm.nextCheckpoint != nil && node.hash.IsEqual(sm.nextCheckpoint.Hash) {
 				sm.startHeader = sm.headerList.Front()
 				if utreexoViewActive {
-					sm.fetchUtreexoHeaders()
-				} else {
-					sm.fetchHeaderBlocks()
+					// If we have the last utreexo header, then we
+					// should have all the previous headers as well.
+					_, have := sm.utreexoHeaders[*node.hash]
+					if !have {
+						sm.fetchUtreexoHeaders()
+						return
+					}
 				}
+				sm.fetchHeaderBlocks()
+				return
+			}
+
+			// If the final height is the same as the sync peer, then
+			// start downloading blocks as we have all the headers
+			// already downloaded.
+			if node.height == sm.syncPeer.LastBlock() {
+				sm.startHeader = sm.headerList.Front()
+				if utreexoViewActive {
+					// If we have the last utreexo header, then we
+					// should have all the previous headers as well.
+					_, have := sm.utreexoHeaders[*node.hash]
+					if !have {
+						sm.fetchUtreexoHeaders()
+						return
+					}
+				}
+				sm.fetchHeaderBlocks()
 				return
 			}
 
@@ -413,6 +436,13 @@ func (sm *SyncManager) startSync() {
 				return
 			}
 		}
+
+		// Always reset header state as we may have switched to a different
+		// sync peer. If there's an existing header state, the state will not
+		// be modified. If there isn't an existing state, then the added best
+		// block will be required to properly connect the downloaded header
+		// to the headerList.
+		sm.resetHeaderState(&best.Hash, best.Height)
 
 		// When the current height is less than a known checkpoint we
 		// can use block headers to learn about which blocks comprise
@@ -446,7 +476,12 @@ func (sm *SyncManager) startSync() {
 				"%d from peer %s", best.Height+1,
 				sm.nextCheckpoint.Height, bestPeer.Addr())
 		} else {
-			bestPeer.PushGetBlocksMsg(locator, &zeroHash)
+			sm.headersFirstMode = true
+			bestPeer.PushGetHeadersMsg(locator, &zeroHash)
+			log.Infof("Downloading headers for blocks %d to "+
+				"%d from peer %s", best.Height+1,
+				bestPeer.LastBlock(), bestPeer.Addr())
+
 		}
 	} else {
 		log.Warnf("No sync peer candidates available")
@@ -1011,17 +1046,14 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		return
 	}
 
-	// This is headers-first mode, the block is a checkpoint, and there are
-	// no more checkpoints, so switch to normal mode by requesting blocks
-	// from the block after this one up to the end of the chain (zero hash).
-	sm.headersFirstMode = false
-	sm.headerList.Init()
 	log.Infof("Reached the final checkpoint -- switching to normal mode")
-	locator := blockchain.BlockLocator([]*chainhash.Hash{blockHash})
-	err = peer.PushGetBlocksMsg(locator, &zeroHash)
+	log.Infof("Downloading headers from %d to %d from peer %s", bmsg.block.Height()+1,
+		peer.LastBlock(), peer.Addr())
+	locator := blockchain.BlockLocator([]*chainhash.Hash{prevHash})
+	err = peer.PushGetHeadersMsg(locator, &zeroHash)
 	if err != nil {
-		log.Warnf("Failed to send getblocks message to peer %s: %v",
-			peer.Addr(), err)
+		log.Warnf("Failed to send getheaders message to "+
+			"peer %s: %v", peer.Addr(), err)
 		return
 	}
 }
