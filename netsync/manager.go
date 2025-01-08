@@ -336,6 +336,8 @@ func (sm *SyncManager) startSync() {
 
 	if sm.chain.IsCurrent() && len(higherPeers) == 0 {
 		log.Infof("Caught up to block %s(%d)", best.Hash.String(), best.Height)
+		sm.headersFirstMode = false
+		sm.headerList.Init()
 		return
 	}
 
