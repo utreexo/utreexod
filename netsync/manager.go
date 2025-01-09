@@ -1467,7 +1467,14 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 				log.Debugf("accepted utreexo header for block %v. have %v headers",
 					msg.BlockHash, len(sm.utreexoHeaders))
 
-				if msg.BlockHash == *sm.nextCheckpoint.Hash {
+				if sm.nextCheckpoint != nil &&
+					msg.BlockHash == *sm.nextCheckpoint.Hash {
+					log.Infof("Received utreexo headers to block "+
+						"%d/hash %s. Fetching blocks",
+						node.height, node.hash)
+					sm.fetchHeaderBlocks()
+					return
+				} else if node.height == peer.LastBlock() {
 					log.Infof("Received utreexo headers to block "+
 						"%d/hash %s. Fetching blocks",
 						node.height, node.hash)
