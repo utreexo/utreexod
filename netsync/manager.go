@@ -164,10 +164,11 @@ type headerNode struct {
 // peerSyncState stores additional information that the SyncManager tracks
 // about a peer.
 type peerSyncState struct {
-	syncCandidate   bool
-	requestQueue    []*wire.InvVect
-	requestedTxns   map[chainhash.Hash]struct{}
-	requestedBlocks map[chainhash.Hash]struct{}
+	syncCandidate           bool
+	requestQueue            []*wire.InvVect
+	requestedTxns           map[chainhash.Hash]struct{}
+	requestedBlocks         map[chainhash.Hash]struct{}
+	requestedUtreexoHeaders map[chainhash.Hash]struct{}
 }
 
 // limitAdd is a helper function for maps that require a maximum limit by
@@ -365,6 +366,7 @@ func (sm *SyncManager) startSync() {
 		// during headersFirstMode.
 		if !sm.headersFirstMode {
 			sm.requestedBlocks = make(map[chainhash.Hash]struct{})
+			sm.requestedUtreexoHeaders = make(map[chainhash.Hash]struct{})
 		}
 
 		log.Infof("Syncing to block height %d from peer %v",
@@ -582,9 +584,10 @@ func (sm *SyncManager) handleNewPeerMsg(peer *peerpkg.Peer) {
 	// Initialize the peer state.
 	isSyncCandidate := sm.isSyncCandidate(peer)
 	sm.peerStates[peer] = &peerSyncState{
-		syncCandidate:   isSyncCandidate,
-		requestedTxns:   make(map[chainhash.Hash]struct{}),
-		requestedBlocks: make(map[chainhash.Hash]struct{}),
+		syncCandidate:           isSyncCandidate,
+		requestedTxns:           make(map[chainhash.Hash]struct{}),
+		requestedBlocks:         make(map[chainhash.Hash]struct{}),
+		requestedUtreexoHeaders: make(map[chainhash.Hash]struct{}),
 	}
 
 	// Start syncing by choosing the best candidate if needed.
@@ -689,6 +692,12 @@ func (sm *SyncManager) clearRequestedState(state *peerSyncState) {
 		// blocks and request them now to speed things up a little.
 		for blockHash := range state.requestedBlocks {
 			delete(sm.requestedBlocks, blockHash)
+		}
+
+		// Also remove requested utreexo headers from the global map so
+		// that they will be fetched from elsewhere next time we get an inv.
+		for blockHash := range state.requestedUtreexoHeaders {
+			delete(sm.requestedUtreexoHeaders, blockHash)
 		}
 	}
 }
@@ -1067,6 +1076,12 @@ func (sm *SyncManager) fetchUtreexoHeaders() {
 		return
 	}
 
+	state, exists := sm.peerStates[sm.syncPeer]
+	if !exists {
+		log.Warnf("Don't have peer state for sync peer %s", sm.syncPeer.String())
+		return
+	}
+
 	for e := sm.startHeader; e != nil; e = e.Next() {
 		node, ok := e.Value.(*headerNode)
 		if !ok {
@@ -1074,15 +1089,15 @@ func (sm *SyncManager) fetchUtreexoHeaders() {
 			continue
 		}
 
-		_, requested := sm.requestedUtreexoHeaders[*node.hash]
+		_, requested := state.requestedUtreexoHeaders[*node.hash]
 		_, have := sm.utreexoHeaders[*node.hash]
 		if !requested && !have {
-			sm.requestedUtreexoHeaders[*node.hash] = struct{}{}
+			state.requestedUtreexoHeaders[*node.hash] = struct{}{}
 			ghmsg := wire.NewMsgGetUtreexoHeader(*node.hash)
 			sm.syncPeer.QueueMessage(ghmsg, nil)
 		}
 
-		if len(sm.requestedUtreexoHeaders) > 16 {
+		if len(state.requestedUtreexoHeaders) > minInFlightBlocks {
 			break
 		}
 	}
@@ -1438,18 +1453,21 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 		log.Warnf("Received utreexo header message from unknown peer %s", peer)
 		return
 	}
-
-	// If we're in headers first, check if we have the final utreexo header. If not
-	// ask for more utreexo headers.
 	msg := hmsg.header
+
+	// If we're in headers first, check if we have the final utreexo header. If not,
+	// ask for more utreexo headers.
 	if sm.headersFirstMode {
-		_, found := sm.requestedUtreexoHeaders[msg.BlockHash]
+		_, found := peerState.requestedUtreexoHeaders[msg.BlockHash]
 		if !found {
 			log.Warnf("Got unrequested utreexo header from %s -- "+
 				"disconnecting", peer.Addr())
 			peer.Disconnect()
 			return
 		}
+
+		// Since we received it, it's no longer requested.
+		delete(peerState.requestedUtreexoHeaders, msg.BlockHash)
 
 		for e := sm.startHeader; e != nil; e = e.Next() {
 			node, ok := e.Value.(*headerNode)
@@ -1459,7 +1477,6 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 			}
 
 			if node.hash.IsEqual(&msg.BlockHash) {
-				delete(sm.requestedUtreexoHeaders, msg.BlockHash)
 				sm.progressLogger.SetLastLogTime(time.Now())
 				sm.lastProgressTime = time.Now()
 
@@ -1484,7 +1501,7 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 			}
 		}
 
-		if len(sm.requestedUtreexoHeaders) < minInFlightBlocks {
+		if len(peerState.requestedUtreexoHeaders) < minInFlightBlocks {
 			sm.fetchUtreexoHeaders()
 		}
 
@@ -1494,6 +1511,7 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 	// We're not in headers-first mode. When we receive a utreexo header,
 	// immediately ask for the block.
 	sm.utreexoHeaders[msg.BlockHash] = hmsg.header
+	delete(sm.requestedUtreexoHeaders, msg.BlockHash)
 	log.Debugf("accepted utreexo header for block %v. have %v headers",
 		msg.BlockHash, len(sm.utreexoHeaders))
 
