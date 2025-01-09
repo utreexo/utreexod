@@ -812,6 +812,48 @@ func (sm *SyncManager) current() bool {
 	return true
 }
 
+// checkHeadersList checks if the sync manager is in headers-first mode and returns
+// if the given block hash is a checkpointed block and the behavior flags for this
+// block. If the block is still under the checkpoint, then it's given the fast-add
+// flag.
+func (sm *SyncManager) checkHeadersList(blockHash *chainhash.Hash) (
+	bool, blockchain.BehaviorFlags) {
+
+	// Nothing to check if we're not in headers-first mode.
+	if !sm.headersFirstMode {
+		return false, blockchain.BFNone
+	}
+
+	isCheckpointBlock := false
+	behaviorFlags := blockchain.BFNone
+
+	firstNodeEl := sm.headerList.Front()
+	if firstNodeEl == nil {
+		log.Warnf("headers-first mode is on but the headersList is empty")
+		return isCheckpointBlock, behaviorFlags
+	}
+
+	firstNode := firstNodeEl.Value.(*headerNode)
+	if !blockHash.IsEqual(firstNode.hash) {
+		return isCheckpointBlock, behaviorFlags
+	}
+
+	if sm.nextCheckpoint != nil {
+		behaviorFlags |= blockchain.BFFastAdd
+		if firstNode.hash.IsEqual(sm.nextCheckpoint.Hash) {
+			isCheckpointBlock = true
+		} else {
+			sm.headerList.Remove(firstNodeEl)
+		}
+	} else {
+		if firstNode.height != sm.syncPeer.LastBlock() {
+			sm.headerList.Remove(firstNodeEl)
+		}
+	}
+
+	return isCheckpointBlock, behaviorFlags
+}
+
 // handleBlockMsg handles block messages from all peers.
 func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	peer := bmsg.peer
@@ -848,29 +890,8 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		bmsg.block.MsgBlock().UData.AccProof.Targets = utreexoHeader.Targets
 	}
 
-	// When in headers-first mode, if the block matches the hash of the
-	// first header in the list of headers that are being fetched, it's
-	// eligible for less validation since the headers have already been
-	// verified to link together and are valid up to the next checkpoint.
-	// Also, remove the list entry for all blocks except the checkpoint
-	// since it is needed to verify the next round of headers links
-	// properly.
-	isCheckpointBlock := false
-	behaviorFlags := blockchain.BFNone
-	if sm.headersFirstMode && sm.nextCheckpoint != nil {
-		firstNodeEl := sm.headerList.Front()
-		if firstNodeEl != nil {
-			firstNode := firstNodeEl.Value.(*headerNode)
-			if blockHash.IsEqual(firstNode.hash) {
-				behaviorFlags |= blockchain.BFFastAdd
-				if firstNode.hash.IsEqual(sm.nextCheckpoint.Hash) {
-					isCheckpointBlock = true
-				} else {
-					sm.headerList.Remove(firstNodeEl)
-				}
-			}
-		}
-	}
+	// Process the block based off the headers if we're still in headers-first mode.
+	isCheckpointBlock, behaviorFlags := sm.checkHeadersList(blockHash)
 
 	// Remove block from request maps. Either chain will know about it and
 	// so we shouldn't have any more instances of trying to fetch it, or we
