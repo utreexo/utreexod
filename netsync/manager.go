@@ -164,10 +164,11 @@ type headerNode struct {
 // peerSyncState stores additional information that the SyncManager tracks
 // about a peer.
 type peerSyncState struct {
-	syncCandidate   bool
-	requestQueue    []*wire.InvVect
-	requestedTxns   map[chainhash.Hash]struct{}
-	requestedBlocks map[chainhash.Hash]struct{}
+	syncCandidate           bool
+	requestQueue            []*wire.InvVect
+	requestedTxns           map[chainhash.Hash]struct{}
+	requestedBlocks         map[chainhash.Hash]struct{}
+	requestedUtreexoHeaders map[chainhash.Hash]struct{}
 }
 
 // limitAdd is a helper function for maps that require a maximum limit by
@@ -232,17 +233,12 @@ type SyncManager struct {
 // resetHeaderState sets the headers-first mode state to values appropriate for
 // syncing from a new peer.
 func (sm *SyncManager) resetHeaderState(newestHash *chainhash.Hash, newestHeight int32) {
-	sm.headersFirstMode = false
-	sm.headerList.Init()
-	sm.startHeader = nil
-
-	// When there is a next checkpoint, add an entry for the latest known
-	// block into the header pool.  This allows the next downloaded header
-	// to prove it links to the chain properly.
-	if sm.nextCheckpoint != nil {
-		node := headerNode{height: newestHeight, hash: newestHash}
-		sm.headerList.PushBack(&node)
+	if sm.headerList.Len() != 0 {
+		return
 	}
+
+	node := headerNode{height: newestHeight, hash: newestHash}
+	sm.headerList.PushBack(&node)
 }
 
 // findNextHeaderCheckpoint returns the next checkpoint after the passed height.
@@ -341,6 +337,8 @@ func (sm *SyncManager) startSync() {
 
 	if sm.chain.IsCurrent() && len(higherPeers) == 0 {
 		log.Infof("Caught up to block %s(%d)", best.Hash.String(), best.Height)
+		sm.headersFirstMode = false
+		sm.headerList.Init()
 		return
 	}
 
@@ -363,17 +361,90 @@ func (sm *SyncManager) startSync() {
 		// Clear the requestedBlocks if the sync peer changes, otherwise
 		// we may ignore blocks we need that the last sync peer failed
 		// to send.
-		sm.requestedBlocks = make(map[chainhash.Hash]struct{})
-
-		locator, err := sm.chain.LatestBlockLocator()
-		if err != nil {
-			log.Errorf("Failed to get block locator for the "+
-				"latest block: %v", err)
-			return
+		//
+		// We don't reset it during headersFirstMode since it's not used
+		// during headersFirstMode.
+		if !sm.headersFirstMode {
+			sm.requestedBlocks = make(map[chainhash.Hash]struct{})
+			sm.requestedUtreexoHeaders = make(map[chainhash.Hash]struct{})
 		}
 
 		log.Infof("Syncing to block height %d from peer %v",
 			bestPeer.LastBlock(), bestPeer.Addr())
+
+		sm.syncPeer = bestPeer
+
+		// Reset the last progress time now that we have a non-nil
+		// syncPeer to avoid instantly detecting it as stalled in the
+		// event the progress time hasn't been updated recently.
+		sm.lastProgressTime = time.Now()
+
+		// Check if we have some headers already downloaded.
+		var locator blockchain.BlockLocator
+		if sm.headerList.Len() > 0 {
+			e := sm.headerList.Back()
+			node := e.Value.(*headerNode)
+
+			// If the final hash equals next checkpoint, that
+			// means we've verified the downloaded headers and
+			// can start fetching blocks or start fetching the
+			// utreexo headers.
+			if sm.nextCheckpoint != nil && node.hash.IsEqual(sm.nextCheckpoint.Hash) {
+				sm.startHeader = sm.headerList.Front()
+				if utreexoViewActive {
+					// If we have the last utreexo header, then we
+					// should have all the previous headers as well.
+					_, have := sm.utreexoHeaders[*node.hash]
+					if !have {
+						sm.fetchUtreexoHeaders()
+						return
+					}
+				}
+				sm.fetchHeaderBlocks()
+				return
+			}
+
+			// If the final height is the same as the sync peer, then
+			// start downloading blocks as we have all the headers
+			// already downloaded.
+			if node.height == sm.syncPeer.LastBlock() {
+				sm.startHeader = sm.headerList.Front()
+				if utreexoViewActive {
+					// If we have the last utreexo header, then we
+					// should have all the previous headers as well.
+					_, have := sm.utreexoHeaders[*node.hash]
+					if !have {
+						sm.fetchUtreexoHeaders()
+						return
+					}
+				}
+				sm.fetchHeaderBlocks()
+				return
+			}
+
+			// If the last hash doesn't equal the checkpoint,
+			// make the locator as the last hash.
+			locator = blockchain.BlockLocator(
+				[]*chainhash.Hash{node.hash})
+		}
+
+		// If we don't already have headers downloaded we need to fetch
+		// the block locator from chain.
+		if len(locator) == 0 {
+			locator, err = sm.chain.LatestBlockLocator()
+			if err != nil {
+				log.Errorf("Failed to get block locator for the "+
+					"latest block: %v", err)
+				return
+			}
+		}
+
+		// Always reset header state as we may have switched to a different
+		// sync peer. If there's an existing header state, the state will not
+		// be modified. If there isn't an existing state, then the added best
+		// block will be required to properly connect the downloaded header
+		// to the headerList.
+		sm.resetHeaderState(&best.Hash, best.Height)
 
 		// When the current height is less than a known checkpoint we
 		// can use block headers to learn about which blocks comprise
@@ -388,10 +459,8 @@ func (sm *SyncManager) startSync() {
 		// full block hasn't been tampered with.
 		//
 		// Once we have passed the final checkpoint, or checkpoints are
-		// disabled, use standard inv messages learn about the blocks
-		// and fully validate them.  Finally, regression test mode does
-		// not support the headers-first approach so do normal block
-		// downloads when in regression test mode.
+		// disabled, still download the headers first but validate them
+		// first before accepting them.
 		if sm.headersBuildMode && best.Height < sm.nextCheckpoint.Height &&
 			sm.chainParams != &chaincfg.RegressionNetParams {
 
@@ -409,14 +478,13 @@ func (sm *SyncManager) startSync() {
 				"%d from peer %s", best.Height+1,
 				sm.nextCheckpoint.Height, bestPeer.Addr())
 		} else {
-			bestPeer.PushGetBlocksMsg(locator, &zeroHash)
-		}
-		sm.syncPeer = bestPeer
+			sm.headersFirstMode = true
+			bestPeer.PushGetHeadersMsg(locator, &zeroHash)
+			log.Infof("Downloading headers for blocks %d to "+
+				"%d from peer %s", best.Height+1,
+				bestPeer.LastBlock(), bestPeer.Addr())
 
-		// Reset the last progress time now that we have a non-nil
-		// syncPeer to avoid instantly detecting it as stalled in the
-		// event the progress time hasn't been updated recently.
-		sm.lastProgressTime = time.Now()
+		}
 	} else {
 		log.Warnf("No sync peer candidates available")
 	}
@@ -516,9 +584,10 @@ func (sm *SyncManager) handleNewPeerMsg(peer *peerpkg.Peer) {
 	// Initialize the peer state.
 	isSyncCandidate := sm.isSyncCandidate(peer)
 	sm.peerStates[peer] = &peerSyncState{
-		syncCandidate:   isSyncCandidate,
-		requestedTxns:   make(map[chainhash.Hash]struct{}),
-		requestedBlocks: make(map[chainhash.Hash]struct{}),
+		syncCandidate:           isSyncCandidate,
+		requestedTxns:           make(map[chainhash.Hash]struct{}),
+		requestedBlocks:         make(map[chainhash.Hash]struct{}),
+		requestedUtreexoHeaders: make(map[chainhash.Hash]struct{}),
 	}
 
 	// Start syncing by choosing the best candidate if needed.
@@ -615,12 +684,21 @@ func (sm *SyncManager) clearRequestedState(state *peerSyncState) {
 		delete(sm.requestedTxns, txHash)
 	}
 
-	// Remove requested blocks from the global map so that they will be
-	// fetched from elsewhere next time we get an inv.
-	// TODO: we could possibly here check which peers have these blocks
-	// and request them now to speed things up a little.
-	for blockHash := range state.requestedBlocks {
-		delete(sm.requestedBlocks, blockHash)
+	// The global map of requestedBlocks is not used during headersFirstMode.
+	if !sm.headersFirstMode {
+		// Remove requested blocks from the global map so that they will
+		// be fetched from elsewhere next time we get an inv.
+		// TODO: we could possibly here check which peers have these
+		// blocks and request them now to speed things up a little.
+		for blockHash := range state.requestedBlocks {
+			delete(sm.requestedBlocks, blockHash)
+		}
+
+		// Also remove requested utreexo headers from the global map so
+		// that they will be fetched from elsewhere next time we get an inv.
+		for blockHash := range state.requestedUtreexoHeaders {
+			delete(sm.requestedUtreexoHeaders, blockHash)
+		}
 	}
 }
 
@@ -734,6 +812,48 @@ func (sm *SyncManager) current() bool {
 	return true
 }
 
+// checkHeadersList checks if the sync manager is in headers-first mode and returns
+// if the given block hash is a checkpointed block and the behavior flags for this
+// block. If the block is still under the checkpoint, then it's given the fast-add
+// flag.
+func (sm *SyncManager) checkHeadersList(blockHash *chainhash.Hash) (
+	bool, blockchain.BehaviorFlags) {
+
+	// Nothing to check if we're not in headers-first mode.
+	if !sm.headersFirstMode {
+		return false, blockchain.BFNone
+	}
+
+	isCheckpointBlock := false
+	behaviorFlags := blockchain.BFNone
+
+	firstNodeEl := sm.headerList.Front()
+	if firstNodeEl == nil {
+		log.Warnf("headers-first mode is on but the headersList is empty")
+		return isCheckpointBlock, behaviorFlags
+	}
+
+	firstNode := firstNodeEl.Value.(*headerNode)
+	if !blockHash.IsEqual(firstNode.hash) {
+		return isCheckpointBlock, behaviorFlags
+	}
+
+	if sm.nextCheckpoint != nil {
+		behaviorFlags |= blockchain.BFFastAdd
+		if firstNode.hash.IsEqual(sm.nextCheckpoint.Hash) {
+			isCheckpointBlock = true
+		} else {
+			sm.headerList.Remove(firstNodeEl)
+		}
+	} else {
+		if firstNode.height != sm.syncPeer.LastBlock() {
+			sm.headerList.Remove(firstNodeEl)
+		}
+	}
+
+	return isCheckpointBlock, behaviorFlags
+}
+
 // handleBlockMsg handles block messages from all peers.
 func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	peer := bmsg.peer
@@ -770,35 +890,18 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		bmsg.block.MsgBlock().UData.AccProof.Targets = utreexoHeader.Targets
 	}
 
-	// When in headers-first mode, if the block matches the hash of the
-	// first header in the list of headers that are being fetched, it's
-	// eligible for less validation since the headers have already been
-	// verified to link together and are valid up to the next checkpoint.
-	// Also, remove the list entry for all blocks except the checkpoint
-	// since it is needed to verify the next round of headers links
-	// properly.
-	isCheckpointBlock := false
-	behaviorFlags := blockchain.BFNone
-	if sm.headersFirstMode {
-		firstNodeEl := sm.headerList.Front()
-		if firstNodeEl != nil {
-			firstNode := firstNodeEl.Value.(*headerNode)
-			if blockHash.IsEqual(firstNode.hash) {
-				behaviorFlags |= blockchain.BFFastAdd
-				if firstNode.hash.IsEqual(sm.nextCheckpoint.Hash) {
-					isCheckpointBlock = true
-				} else {
-					sm.headerList.Remove(firstNodeEl)
-				}
-			}
-		}
-	}
+	// Process the block based off the headers if we're still in headers-first mode.
+	isCheckpointBlock, behaviorFlags := sm.checkHeadersList(blockHash)
 
 	// Remove block from request maps. Either chain will know about it and
 	// so we shouldn't have any more instances of trying to fetch it, or we
 	// will fail the insert and thus we'll retry next time we get an inv.
 	delete(state.requestedBlocks, *blockHash)
-	delete(sm.requestedBlocks, *blockHash)
+	if !sm.headersFirstMode {
+		// The global map of requestedBlocks is not used during
+		// headersFirstMode.
+		delete(sm.requestedBlocks, *blockHash)
+	}
 
 	// Process the block to include validation, best chain selection, orphan
 	// handling, etc.
@@ -922,6 +1025,25 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		return
 	}
 
+	if sm.nextCheckpoint == nil {
+		lastHeight := sm.syncPeer.LastBlock()
+		if bmsg.block.Height() < lastHeight {
+			if sm.startHeader != nil &&
+				len(state.requestedBlocks) < minInFlightBlocks {
+				sm.fetchHeaderBlocks()
+			}
+			return
+		}
+		if bmsg.block.Height() >= lastHeight {
+			log.Infof("Finished the initial block download and caught up to block %v(%v) "+
+				"-- now listening to blocks.", bmsg.block.Hash(), bmsg.block.Height())
+			sm.headersFirstMode = false
+			sm.headerList.Init()
+		}
+
+		return
+	}
+
 	// This is headers-first mode, so if the block is not a checkpoint
 	// request more blocks using the header list when the request queue is
 	// getting short.
@@ -954,17 +1076,14 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		return
 	}
 
-	// This is headers-first mode, the block is a checkpoint, and there are
-	// no more checkpoints, so switch to normal mode by requesting blocks
-	// from the block after this one up to the end of the chain (zero hash).
-	sm.headersFirstMode = false
-	sm.headerList.Init()
 	log.Infof("Reached the final checkpoint -- switching to normal mode")
-	locator := blockchain.BlockLocator([]*chainhash.Hash{blockHash})
-	err = peer.PushGetBlocksMsg(locator, &zeroHash)
+	log.Infof("Downloading headers from %d to %d from peer %s", bmsg.block.Height()+1,
+		peer.LastBlock(), peer.Addr())
+	locator := blockchain.BlockLocator([]*chainhash.Hash{prevHash})
+	err = peer.PushGetHeadersMsg(locator, &zeroHash)
 	if err != nil {
-		log.Warnf("Failed to send getblocks message to peer %s: %v",
-			peer.Addr(), err)
+		log.Warnf("Failed to send getheaders message to "+
+			"peer %s: %v", peer.Addr(), err)
 		return
 	}
 }
@@ -978,6 +1097,12 @@ func (sm *SyncManager) fetchUtreexoHeaders() {
 		return
 	}
 
+	state, exists := sm.peerStates[sm.syncPeer]
+	if !exists {
+		log.Warnf("Don't have peer state for sync peer %s", sm.syncPeer.String())
+		return
+	}
+
 	for e := sm.startHeader; e != nil; e = e.Next() {
 		node, ok := e.Value.(*headerNode)
 		if !ok {
@@ -985,15 +1110,15 @@ func (sm *SyncManager) fetchUtreexoHeaders() {
 			continue
 		}
 
-		_, requested := sm.requestedUtreexoHeaders[*node.hash]
+		_, requested := state.requestedUtreexoHeaders[*node.hash]
 		_, have := sm.utreexoHeaders[*node.hash]
 		if !requested && !have {
-			sm.requestedUtreexoHeaders[*node.hash] = struct{}{}
+			state.requestedUtreexoHeaders[*node.hash] = struct{}{}
 			ghmsg := wire.NewMsgGetUtreexoHeader(*node.hash)
 			sm.syncPeer.QueueMessage(ghmsg, nil)
 		}
 
-		if len(sm.requestedUtreexoHeaders) > 16 {
+		if len(state.requestedUtreexoHeaders) > minInFlightBlocks {
 			break
 		}
 	}
@@ -1029,8 +1154,6 @@ func (sm *SyncManager) fetchHeaderBlocks() {
 		}
 		if !haveInv {
 			syncPeerState := sm.peerStates[sm.syncPeer]
-
-			sm.requestedBlocks[*node.hash] = struct{}{}
 			syncPeerState.requestedBlocks[*node.hash] = struct{}{}
 
 			// If we're fetching from a witness enabled peer
@@ -1171,6 +1294,82 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		return
 	}
 
+	utreexoViewActive := sm.chain.IsUtreexoViewActive()
+
+	// This means that we've ran out of checkpoints and need to verify the headers that
+	// we've received.
+	if sm.nextCheckpoint == nil {
+		var finalHeight int32
+		var finalHeader *wire.BlockHeader
+		for _, blockHeader := range msg.Headers {
+			blockHash := blockHeader.BlockHash()
+			err := sm.chain.ProcessBlockHeader(blockHeader)
+			if err != nil {
+				log.Warnf("Received block header that does not "+
+					"properly connect to the chain from peer %s "+
+					"-- disconnecting", peer.Addr())
+				peer.Disconnect()
+				return
+			}
+
+			prevNodeEl := sm.headerList.Back()
+			if prevNodeEl == nil {
+				log.Warnf("Header list does not contain a previous" +
+					"element as expected -- disconnecting peer")
+				peer.Disconnect()
+				return
+			}
+
+			prevNode := prevNodeEl.Value.(*headerNode)
+			node := headerNode{hash: &blockHash}
+			if prevNode.hash.IsEqual(&blockHeader.PrevBlock) {
+				node.height = prevNode.height + 1
+				finalHeader = blockHeader
+				finalHeight = node.height
+				e := sm.headerList.PushBack(&node)
+				if sm.startHeader == nil {
+					sm.startHeader = e
+				}
+			} else {
+				log.Warnf("Received block header that does not "+
+					"properly connect to the chain from peer %s "+
+					"-- disconnecting", peer.Addr())
+				peer.Disconnect()
+				return
+			}
+		}
+
+		if finalHeight != sm.syncPeer.LastBlock() {
+			finalHash := finalHeader.BlockHash()
+			locator := blockchain.BlockLocator([]*chainhash.Hash{&finalHash})
+			err := peer.PushGetHeadersMsg(locator, &zeroHash)
+			if err != nil {
+				log.Warnf("Failed to send getheaders message to "+
+					"peer %s: %v", peer.Addr(), err)
+				return
+			}
+		} else {
+			// Since the first entry of the list is always the final block
+			// that is already in the database and is only used to ensure
+			// the next header links properly, it must be removed before
+			// fetching the headers or the utreexo headers.
+			sm.headerList.Remove(sm.headerList.Front())
+			sm.progressLogger.SetLastLogTime(time.Now())
+
+			if utreexoViewActive {
+				log.Infof("Received %v block headers: Fetching utreexo headers",
+					sm.headerList.Len())
+				sm.fetchUtreexoHeaders()
+			} else {
+				log.Infof("Received %v block headers: Fetching blocks",
+					sm.headerList.Len())
+				sm.fetchHeaderBlocks()
+			}
+		}
+
+		return
+	}
+
 	// Process all of the received headers ensuring each one connects to the
 	// previous and that checkpoints match.
 	receivedCheckpoint := false
@@ -1227,7 +1426,6 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		}
 	}
 
-	utreexoViewActive := sm.chain.IsUtreexoViewActive()
 	// When this header is a checkpoint, switch to fetching the blocks for
 	// all of the headers since the last checkpoint.
 	if receivedCheckpoint {
@@ -1276,18 +1474,21 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 		log.Warnf("Received utreexo header message from unknown peer %s", peer)
 		return
 	}
-
-	// If we're in headers first, check if we have the final utreexo header. If not
-	// ask for more utreexo headers.
 	msg := hmsg.header
+
+	// If we're in headers first, check if we have the final utreexo header. If not,
+	// ask for more utreexo headers.
 	if sm.headersFirstMode {
-		_, found := sm.requestedUtreexoHeaders[msg.BlockHash]
+		_, found := peerState.requestedUtreexoHeaders[msg.BlockHash]
 		if !found {
 			log.Warnf("Got unrequested utreexo header from %s -- "+
 				"disconnecting", peer.Addr())
 			peer.Disconnect()
 			return
 		}
+
+		// Since we received it, it's no longer requested.
+		delete(peerState.requestedUtreexoHeaders, msg.BlockHash)
 
 		for e := sm.startHeader; e != nil; e = e.Next() {
 			node, ok := e.Value.(*headerNode)
@@ -1297,7 +1498,6 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 			}
 
 			if node.hash.IsEqual(&msg.BlockHash) {
-				delete(sm.requestedUtreexoHeaders, msg.BlockHash)
 				sm.progressLogger.SetLastLogTime(time.Now())
 				sm.lastProgressTime = time.Now()
 
@@ -1305,7 +1505,14 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 				log.Debugf("accepted utreexo header for block %v. have %v headers",
 					msg.BlockHash, len(sm.utreexoHeaders))
 
-				if msg.BlockHash == *sm.nextCheckpoint.Hash {
+				if sm.nextCheckpoint != nil &&
+					msg.BlockHash == *sm.nextCheckpoint.Hash {
+					log.Infof("Received utreexo headers to block "+
+						"%d/hash %s. Fetching blocks",
+						node.height, node.hash)
+					sm.fetchHeaderBlocks()
+					return
+				} else if node.height == peer.LastBlock() {
 					log.Infof("Received utreexo headers to block "+
 						"%d/hash %s. Fetching blocks",
 						node.height, node.hash)
@@ -1315,7 +1522,7 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 			}
 		}
 
-		if len(sm.requestedUtreexoHeaders) < minInFlightBlocks {
+		if len(peerState.requestedUtreexoHeaders) < minInFlightBlocks {
 			sm.fetchUtreexoHeaders()
 		}
 
@@ -1325,10 +1532,13 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 	// We're not in headers-first mode. When we receive a utreexo header,
 	// immediately ask for the block.
 	sm.utreexoHeaders[msg.BlockHash] = hmsg.header
+	delete(sm.requestedUtreexoHeaders, msg.BlockHash)
 	log.Debugf("accepted utreexo header for block %v. have %v headers",
 		msg.BlockHash, len(sm.utreexoHeaders))
 
-	sm.requestedBlocks[msg.BlockHash] = struct{}{}
+	if !sm.headersFirstMode {
+		sm.requestedBlocks[msg.BlockHash] = struct{}{}
+	}
 	peerState.requestedBlocks[msg.BlockHash] = struct{}{}
 
 	gdmsg := wire.NewMsgGetData()
@@ -1358,7 +1568,11 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 		case wire.InvTypeBlock:
 			if _, exists := state.requestedBlocks[inv.Hash]; exists {
 				delete(state.requestedBlocks, inv.Hash)
-				delete(sm.requestedBlocks, inv.Hash)
+				// The global map of requestedBlocks is not used
+				// during headersFirstMode.
+				if !sm.headersFirstMode {
+					delete(sm.requestedBlocks, inv.Hash)
+				}
 			}
 
 		case wire.InvTypeWitnessTx:
@@ -1499,6 +1713,11 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		}
 	}
 
+	// Don't request on inventory messages when we're in headers-first mode.
+	if sm.headersFirstMode {
+		return
+	}
+
 	// Request the advertised inventory if we don't already have it.  Also,
 	// request parent blocks of orphans if we receive one we already have.
 	// Finally, attempt to detect potential stalls due to long side chains
@@ -1540,11 +1759,6 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		// Add the inventory to the cache of known inventory
 		// for the peer.
 		peer.AddKnownInventory(&addIv)
-
-		// Ignore inventory when we're in headers-first mode.
-		if sm.headersFirstMode {
-			continue
-		}
 
 		// Request the inventory if we don't already have it.
 		haveInv, err := sm.haveInventory(iv)
@@ -1656,6 +1870,9 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeBlock:
 			// Request the block if there is not already a pending
 			// request.
+			//
+			// No check for if we're in headers first since it's
+			// already done so earlier in the method.
 			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
 				amUtreexoNode := sm.chain.IsUtreexoViewActive()
 				if amUtreexoNode {
@@ -2166,12 +2383,10 @@ func New(config *Config) (*SyncManager, error) {
 	if !config.DisableCheckpoints {
 		// Initialize the next checkpoint based on the current height.
 		sm.nextCheckpoint = sm.findNextHeaderCheckpoint(best.Height)
-		if sm.nextCheckpoint != nil {
-			sm.resetHeaderState(&best.Hash, best.Height)
-		}
 	} else {
 		log.Info("Checkpoints are disabled")
 	}
+	sm.resetHeaderState(&best.Hash, best.Height)
 
 	// If we're at assume utreexo mode, build headers first.
 	if sm.chain.IsUtreexoViewActive() && sm.chain.IsAssumeUtreexo() {
