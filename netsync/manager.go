@@ -219,12 +219,11 @@ type SyncManager struct {
 	headersBuildMode bool
 
 	// The following fields are used for headers-first mode.
-	headersFirstMode        bool
-	headerList              *list.List
-	startHeader             *list.Element
-	nextCheckpoint          *chaincfg.Checkpoint
-	utreexoHeaders          map[chainhash.Hash]*wire.MsgUtreexoHeader
-	requestedUtreexoHeaders map[chainhash.Hash]struct{}
+	headersFirstMode bool
+	headerList       *list.List
+	startHeader      *list.Element
+	nextCheckpoint   *chaincfg.Checkpoint
+	utreexoHeaders   map[chainhash.Hash]*wire.MsgUtreexoHeader
 
 	// An optional fee estimator.
 	feeEstimator *mempool.FeeEstimator
@@ -366,7 +365,6 @@ func (sm *SyncManager) startSync() {
 		// during headersFirstMode.
 		if !sm.headersFirstMode {
 			sm.requestedBlocks = make(map[chainhash.Hash]struct{})
-			sm.requestedUtreexoHeaders = make(map[chainhash.Hash]struct{})
 		}
 
 		log.Infof("Syncing to block height %d from peer %v",
@@ -692,12 +690,6 @@ func (sm *SyncManager) clearRequestedState(state *peerSyncState) {
 		// blocks and request them now to speed things up a little.
 		for blockHash := range state.requestedBlocks {
 			delete(sm.requestedBlocks, blockHash)
-		}
-
-		// Also remove requested utreexo headers from the global map so
-		// that they will be fetched from elsewhere next time we get an inv.
-		for blockHash := range state.requestedUtreexoHeaders {
-			delete(sm.requestedUtreexoHeaders, blockHash)
 		}
 	}
 }
@@ -1602,7 +1594,7 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 	// We're not in headers-first mode. When we receive a utreexo header,
 	// immediately ask for the block.
 	sm.utreexoHeaders[msg.BlockHash] = hmsg.header
-	delete(sm.requestedUtreexoHeaders, msg.BlockHash)
+	delete(peerState.requestedUtreexoHeaders, msg.BlockHash)
 	log.Debugf("accepted utreexo header for block %v. have %v headers",
 		msg.BlockHash, len(sm.utreexoHeaders))
 
@@ -1946,7 +1938,6 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
 				amUtreexoNode := sm.chain.IsUtreexoViewActive()
 				if amUtreexoNode {
-					sm.requestedUtreexoHeaders[iv.Hash] = struct{}{}
 					ghmsg := wire.NewMsgGetUtreexoHeader(iv.Hash)
 					peer.QueueMessage(ghmsg, nil)
 					continue
@@ -2432,21 +2423,20 @@ func (sm *SyncManager) Pause() chan<- struct{} {
 // block, tx, and inv updates.
 func New(config *Config) (*SyncManager, error) {
 	sm := SyncManager{
-		peerNotifier:            config.PeerNotifier,
-		chain:                   config.Chain,
-		txMemPool:               config.TxMemPool,
-		chainParams:             config.ChainParams,
-		rejectedTxns:            make(map[chainhash.Hash]struct{}),
-		requestedTxns:           make(map[chainhash.Hash]struct{}),
-		requestedBlocks:         make(map[chainhash.Hash]struct{}),
-		requestedUtreexoHeaders: make(map[chainhash.Hash]struct{}),
-		utreexoHeaders:          make(map[chainhash.Hash]*wire.MsgUtreexoHeader),
-		peerStates:              make(map[*peerpkg.Peer]*peerSyncState),
-		progressLogger:          newBlockProgressLogger("Processed", log),
-		msgChan:                 make(chan interface{}, config.MaxPeers*3),
-		headerList:              list.New(),
-		quit:                    make(chan struct{}),
-		feeEstimator:            config.FeeEstimator,
+		peerNotifier:    config.PeerNotifier,
+		chain:           config.Chain,
+		txMemPool:       config.TxMemPool,
+		chainParams:     config.ChainParams,
+		rejectedTxns:    make(map[chainhash.Hash]struct{}),
+		requestedTxns:   make(map[chainhash.Hash]struct{}),
+		requestedBlocks: make(map[chainhash.Hash]struct{}),
+		utreexoHeaders:  make(map[chainhash.Hash]*wire.MsgUtreexoHeader),
+		peerStates:      make(map[*peerpkg.Peer]*peerSyncState),
+		progressLogger:  newBlockProgressLogger("Processed", log),
+		msgChan:         make(chan interface{}, config.MaxPeers*3),
+		headerList:      list.New(),
+		quit:            make(chan struct{}),
+		feeEstimator:    config.FeeEstimator,
 	}
 
 	best := sm.chain.BestSnapshot()
