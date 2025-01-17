@@ -521,6 +521,10 @@ func (sp *serverPeer) OnVersion(_ *peer.Peer, msg *wire.MsgVersion) *wire.MsgRej
 // to kick start communication with them.
 func (sp *serverPeer) OnVerAck(_ *peer.Peer, _ *wire.MsgVerAck) {
 	sp.server.AddPeer(sp)
+
+	// Let the peer know that we prefer headers over invs for block annoucements.
+	sendHeadersMsg := wire.NewMsgSendHeaders()
+	sp.QueueMessage(sendHeadersMsg, nil)
 }
 
 // OnMemPool is invoked when a peer receives a mempool bitcoin message.
