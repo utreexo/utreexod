@@ -396,11 +396,11 @@ func (sm *SyncManager) startSync() {
 					// should have all the previous headers as well.
 					_, have := sm.utreexoHeaders[*node.hash]
 					if !have {
-						sm.fetchUtreexoHeaders()
+						sm.fetchUtreexoHeaders(nil)
 						return
 					}
 				}
-				sm.fetchHeaderBlocks()
+				sm.fetchHeaderBlocks(nil)
 				return
 			}
 
@@ -414,11 +414,11 @@ func (sm *SyncManager) startSync() {
 					// should have all the previous headers as well.
 					_, have := sm.utreexoHeaders[*node.hash]
 					if !have {
-						sm.fetchUtreexoHeaders()
+						sm.fetchUtreexoHeaders(nil)
 						return
 					}
 				}
-				sm.fetchHeaderBlocks()
+				sm.fetchHeaderBlocks(nil)
 				return
 			}
 
@@ -1030,7 +1030,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		if bmsg.block.Height() < lastHeight {
 			if sm.startHeader != nil &&
 				len(state.requestedBlocks) < minInFlightBlocks {
-				sm.fetchHeaderBlocks()
+				sm.fetchHeaderBlocks(nil)
 			}
 			return
 		}
@@ -1050,7 +1050,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	if !isCheckpointBlock {
 		if sm.startHeader != nil &&
 			len(state.requestedBlocks) < minInFlightBlocks {
-			sm.fetchHeaderBlocks()
+			sm.fetchHeaderBlocks(nil)
 		}
 		return
 	}
@@ -1090,16 +1090,23 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 
 // fetchUtreexoHeaders creates and sends a request to the syncPeer for the next
 // list of utreexo headers to be downloaded based on the current list of headers.
-func (sm *SyncManager) fetchUtreexoHeaders() {
+// Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
+func (sm *SyncManager) fetchUtreexoHeaders(peer *peerpkg.Peer) {
 	// Nothing to do if there is no start header.
 	if sm.startHeader == nil {
 		log.Warnf("fetchUtreexoHeaders called with no start header")
 		return
 	}
 
-	state, exists := sm.peerStates[sm.syncPeer]
+	// Default to the syncPeer unless we're given a peer by the caller.
+	reqPeer := sm.syncPeer
+	if reqPeer == nil {
+		reqPeer = peer
+	}
+
+	state, exists := sm.peerStates[reqPeer]
 	if !exists {
-		log.Warnf("Don't have peer state for sync peer %s", sm.syncPeer.String())
+		log.Warnf("Don't have peer state for request peer %s", reqPeer.String())
 		return
 	}
 
@@ -1115,7 +1122,7 @@ func (sm *SyncManager) fetchUtreexoHeaders() {
 		if !requested && !have {
 			state.requestedUtreexoHeaders[*node.hash] = struct{}{}
 			ghmsg := wire.NewMsgGetUtreexoHeader(*node.hash)
-			sm.syncPeer.QueueMessage(ghmsg, nil)
+			reqPeer.QueueMessage(ghmsg, nil)
 		}
 
 		if len(state.requestedUtreexoHeaders) > minInFlightBlocks {
@@ -1126,11 +1133,18 @@ func (sm *SyncManager) fetchUtreexoHeaders() {
 
 // fetchHeaderBlocks creates and sends a request to the syncPeer for the next
 // list of blocks to be downloaded based on the current list of headers.
-func (sm *SyncManager) fetchHeaderBlocks() {
+// Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
+func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	// Nothing to do if there is no start header.
 	if sm.startHeader == nil {
 		log.Warnf("fetchHeaderBlocks called with no start header")
 		return
+	}
+
+	// Default to the syncPeer unless we're given a peer by the caller.
+	reqPeer := sm.syncPeer
+	if reqPeer == nil {
+		reqPeer = peer
 	}
 
 	// Build up a getdata request for the list of blocks the headers
@@ -1153,24 +1167,24 @@ func (sm *SyncManager) fetchHeaderBlocks() {
 				"fetch: %v", err)
 		}
 		if !haveInv {
-			syncPeerState := sm.peerStates[sm.syncPeer]
+			syncPeerState := sm.peerStates[reqPeer]
 			syncPeerState.requestedBlocks[*node.hash] = struct{}{}
 
 			// If we're fetching from a witness enabled peer
 			// post-fork, then ensure that we receive all the
 			// witness data in the blocks.
-			if sm.syncPeer.IsWitnessEnabled() {
+			if reqPeer.IsWitnessEnabled() {
 				iv.Type = wire.InvTypeWitnessBlock
 
 				// If we're syncing from a utreexo enabled peer, also
 				// ask for the proofs.
-				if sm.syncPeer.IsUtreexoEnabled() {
+				if reqPeer.IsUtreexoEnabled() {
 					iv.Type = wire.InvTypeWitnessUtreexoBlock
 				}
 			} else {
 				// If we're syncing from a utreexo enabled peer, also
 				// ask for the proofs.
-				if sm.syncPeer.IsUtreexoEnabled() {
+				if reqPeer.IsUtreexoEnabled() {
 					iv.Type = wire.InvTypeUtreexoBlock
 				}
 			}
@@ -1184,7 +1198,7 @@ func (sm *SyncManager) fetchHeaderBlocks() {
 		}
 	}
 	if len(gdmsg.InvList) > 0 {
-		sm.syncPeer.QueueMessage(gdmsg, nil)
+		reqPeer.QueueMessage(gdmsg, nil)
 	}
 }
 
@@ -1359,11 +1373,11 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			if utreexoViewActive {
 				log.Infof("Received %v block headers: Fetching utreexo headers",
 					sm.headerList.Len())
-				sm.fetchUtreexoHeaders()
+				sm.fetchUtreexoHeaders(nil)
 			} else {
 				log.Infof("Received %v block headers: Fetching blocks",
 					sm.headerList.Len())
-				sm.fetchHeaderBlocks()
+				sm.fetchHeaderBlocks(nil)
 			}
 		}
 
@@ -1438,7 +1452,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			log.Infof("Received %v block headers: Fetching utreexo headers",
 				sm.headerList.Len())
 			sm.progressLogger.SetLastLogTime(time.Now())
-			sm.fetchUtreexoHeaders()
+			sm.fetchUtreexoHeaders(nil)
 			return
 		}
 		// Since the first entry of the list is always the final block
@@ -1449,7 +1463,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		log.Infof("Received %v block headers: Fetching blocks",
 			sm.headerList.Len())
 		sm.progressLogger.SetLastLogTime(time.Now())
-		sm.fetchHeaderBlocks()
+		sm.fetchHeaderBlocks(nil)
 		return
 	}
 
@@ -1510,20 +1524,20 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 					log.Infof("Received utreexo headers to block "+
 						"%d/hash %s. Fetching blocks",
 						node.height, node.hash)
-					sm.fetchHeaderBlocks()
+					sm.fetchHeaderBlocks(nil)
 					return
 				} else if node.height == peer.LastBlock() {
 					log.Infof("Received utreexo headers to block "+
 						"%d/hash %s. Fetching blocks",
 						node.height, node.hash)
-					sm.fetchHeaderBlocks()
+					sm.fetchHeaderBlocks(nil)
 					return
 				}
 			}
 		}
 
 		if len(peerState.requestedUtreexoHeaders) < minInFlightBlocks {
-			sm.fetchUtreexoHeaders()
+			sm.fetchUtreexoHeaders(nil)
 		}
 
 		return
