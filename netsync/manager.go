@@ -1598,15 +1598,8 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 	log.Debugf("accepted utreexo header for block %v. have %v headers",
 		msg.BlockHash, len(sm.utreexoHeaders))
 
-	if !sm.headersFirstMode {
-		sm.requestedBlocks[msg.BlockHash] = struct{}{}
-	}
 	peerState.requestedBlocks[msg.BlockHash] = struct{}{}
-
-	gdmsg := wire.NewMsgGetData()
-	iv := wire.NewInvVect(wire.InvTypeWitnessUtreexoBlock, &msg.BlockHash)
-	gdmsg.AddInvVect(iv)
-	peer.QueueMessage(gdmsg, nil)
+	sm.fetchHeaderBlocks(peer)
 }
 
 // handleNotFoundMsg handles notfound messages from all peers.
