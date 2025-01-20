@@ -1164,6 +1164,14 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			continue
 		}
 
+		// If we're a csn then keep track of the numleaves. We need this to construct
+		// the get proof message.
+		if sm.chain.IsUtreexoViewActive() {
+			header := sm.utreexoHeaders[*node.hash]
+			numLeaves := sm.numLeaves[node.height-1] + uint64(header.NumAdds)
+			sm.numLeaves[node.height] = numLeaves
+		}
+
 		iv := wire.NewInvVect(wire.InvTypeBlock, node.hash)
 		haveInv, err := sm.haveInventory(iv)
 		if err != nil {
@@ -1196,6 +1204,22 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 
 			gdmsg.AddInvVect(iv)
 			numRequested++
+
+			// Immediately queue the utreexo proof for this block if we're a
+			// utreexo node.
+			if sm.chain.IsUtreexoViewActive() {
+				utreexoHeader, found := sm.utreexoHeaders[*node.hash]
+				if !found {
+					log.Warnf("Missing utreexo header for %v", node.hash)
+					return
+				}
+				syncPeerState.requestedUtreexoProofs[*node.hash] = struct{}{}
+
+				msg := wire.ConstructGetProofMsg(
+					node.hash, sm.numLeaves[node.height-1], utreexoHeader.Targets)
+				reqPeer.QueueMessage(msg, nil)
+			}
+
 		}
 		sm.startHeader = e.Next()
 		if numRequested >= wire.MaxInvPerMsg {
@@ -2461,6 +2485,18 @@ func New(config *Config) (*SyncManager, error) {
 	if sm.chain.IsUtreexoViewActive() && sm.chain.IsAssumeUtreexo() {
 		log.Info("Assumed Utreexo is enabled. Downloading headers...")
 		sm.headersBuildMode = true
+	}
+
+	// The utreexo header contains the number of added leaves in the block. This
+	// number added with the numleaves from the previous block gets us the numleaves
+	// for the current block. Since the numLeaves map is empty on startup, we need
+	// to put the numleaves for the best state here.
+	if sm.chain.IsUtreexoViewActive() {
+		utreexoView, err := sm.chain.FetchUtreexoViewpoint(&best.Hash)
+		if err != nil {
+			return nil, err
+		}
+		sm.numLeaves[best.Height] = utreexoView.NumLeaves()
 	}
 
 	sm.chain.Subscribe(sm.handleBlockchainNotification)
