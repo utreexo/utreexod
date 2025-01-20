@@ -6,7 +6,9 @@ package wire
 
 import (
 	"io"
+	"sort"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
@@ -108,4 +110,38 @@ func (msg *MsgGetUtreexoProof) Command() string {
 // receiver.  This is part of the Message interface implementation.
 func (msg *MsgGetUtreexoProof) MaxPayloadLength(pver uint32) uint32 {
 	return MaxBlockPayload
+}
+
+// ConstructGetProofMsg returns a constructed MsgGetUtreexoProof message from the
+// given data.
+func ConstructGetProofMsg(blockHash *chainhash.Hash, numLeaves uint64,
+	targets []uint64) *MsgGetUtreexoProof {
+
+	targetIndexes := make([]uint64, len(targets))
+	for i := range targets {
+		targetIndexes[i] = uint64(i)
+	}
+
+	// The targets must be sorted in order for ProofPositions to work correctly.
+	sortedTargets := make([]uint64, len(targets))
+	copy(sortedTargets, targets)
+	sort.Slice(sortedTargets, func(a, b int) bool { return sortedTargets[a] < sortedTargets[b] })
+
+	proofPositions, _ := utreexo.ProofPositions(
+		sortedTargets,
+		numLeaves,
+		utreexo.TreeRows(numLeaves),
+	)
+
+	// Grab all the indexes.
+	proofIndexes := make([]uint64, len(proofPositions))
+	for i := range proofPositions {
+		proofIndexes[i] = uint64(i)
+	}
+
+	return &MsgGetUtreexoProof{
+		BlockHash:    *blockHash,
+		ProofIndexes: proofIndexes,
+		LeafIndexes:  targetIndexes,
+	}
 }
