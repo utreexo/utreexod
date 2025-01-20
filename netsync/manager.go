@@ -169,6 +169,7 @@ type peerSyncState struct {
 	requestedTxns           map[chainhash.Hash]struct{}
 	requestedBlocks         map[chainhash.Hash]struct{}
 	requestedUtreexoHeaders map[chainhash.Hash]struct{}
+	requestedUtreexoProofs  map[chainhash.Hash]struct{}
 }
 
 // limitAdd is a helper function for maps that require a maximum limit by
@@ -586,6 +587,7 @@ func (sm *SyncManager) handleNewPeerMsg(peer *peerpkg.Peer) {
 		requestedTxns:           make(map[chainhash.Hash]struct{}),
 		requestedBlocks:         make(map[chainhash.Hash]struct{}),
 		requestedUtreexoHeaders: make(map[chainhash.Hash]struct{}),
+		requestedUtreexoProofs:  make(map[chainhash.Hash]struct{}),
 	}
 
 	// Start syncing by choosing the best candidate if needed.
