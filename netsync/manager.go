@@ -87,6 +87,13 @@ type utreexoHeaderMsg struct {
 	peer   *peerpkg.Peer
 }
 
+// utreexoProofMsg packages a bitcoin utreexo header message and the peer it came from
+// together so the block handler has access to that information.
+type utreexoProofMsg struct {
+	proof *wire.MsgUtreexoProof
+	peer  *peerpkg.Peer
+}
+
 // notFoundMsg packages a bitcoin notfound message and the peer it came from
 // together so the block handler has access to that information.
 type notFoundMsg struct {
@@ -220,11 +227,14 @@ type SyncManager struct {
 	headersBuildMode bool
 
 	// The following fields are used for headers-first mode.
-	headersFirstMode bool
-	headerList       *list.List
-	startHeader      *list.Element
-	nextCheckpoint   *chaincfg.Checkpoint
-	utreexoHeaders   map[chainhash.Hash]*wire.MsgUtreexoHeader
+	headersFirstMode    bool
+	headerList          *list.List
+	startHeader         *list.Element
+	nextCheckpoint      *chaincfg.Checkpoint
+	utreexoHeaders      map[chainhash.Hash]*wire.MsgUtreexoHeader
+	numLeaves           map[int32]uint64
+	queuedBlocks        map[chainhash.Hash]*blockMsg
+	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
 
 	// An optional fee estimator.
 	feeEstimator *mempool.FeeEstimator
@@ -2419,20 +2429,23 @@ func (sm *SyncManager) Pause() chan<- struct{} {
 // block, tx, and inv updates.
 func New(config *Config) (*SyncManager, error) {
 	sm := SyncManager{
-		peerNotifier:    config.PeerNotifier,
-		chain:           config.Chain,
-		txMemPool:       config.TxMemPool,
-		chainParams:     config.ChainParams,
-		rejectedTxns:    make(map[chainhash.Hash]struct{}),
-		requestedTxns:   make(map[chainhash.Hash]struct{}),
-		requestedBlocks: make(map[chainhash.Hash]struct{}),
-		utreexoHeaders:  make(map[chainhash.Hash]*wire.MsgUtreexoHeader),
-		peerStates:      make(map[*peerpkg.Peer]*peerSyncState),
-		progressLogger:  newBlockProgressLogger("Processed", log),
-		msgChan:         make(chan interface{}, config.MaxPeers*3),
-		headerList:      list.New(),
-		quit:            make(chan struct{}),
-		feeEstimator:    config.FeeEstimator,
+		peerNotifier:        config.PeerNotifier,
+		chain:               config.Chain,
+		txMemPool:           config.TxMemPool,
+		chainParams:         config.ChainParams,
+		rejectedTxns:        make(map[chainhash.Hash]struct{}),
+		requestedTxns:       make(map[chainhash.Hash]struct{}),
+		requestedBlocks:     make(map[chainhash.Hash]struct{}),
+		numLeaves:           make(map[int32]uint64),
+		utreexoHeaders:      make(map[chainhash.Hash]*wire.MsgUtreexoHeader),
+		queuedBlocks:        make(map[chainhash.Hash]*blockMsg),
+		queuedUtreexoProofs: make(map[chainhash.Hash]*utreexoProofMsg),
+		peerStates:          make(map[*peerpkg.Peer]*peerSyncState),
+		progressLogger:      newBlockProgressLogger("Processed", log),
+		msgChan:             make(chan interface{}, config.MaxPeers*3),
+		headerList:          list.New(),
+		quit:                make(chan struct{}),
+		feeEstimator:        config.FeeEstimator,
 	}
 
 	best := sm.chain.BestSnapshot()
