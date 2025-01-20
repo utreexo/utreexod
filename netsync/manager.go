@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -886,12 +887,43 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 
 	// Check if we've received the utreexo headers already.
 	if sm.chain.IsUtreexoViewActive() {
+		best := sm.chain.BestSnapshot()
+		if !best.Hash.IsEqual(&bmsg.block.MsgBlock().Header.PrevBlock) {
+			log.Warnf("got block %v out of order", bmsg.block.Hash())
+			sm.queuedBlocks[*blockHash] = bmsg
+			return
+		}
+
 		utreexoHeader, found := sm.utreexoHeaders[*bmsg.block.Hash()]
 		if !found {
 			log.Warnf("got block %v but don't have the associated "+
 				"utreexo header", bmsg.block.Hash())
+			sm.queuedBlocks[*blockHash] = bmsg
 			return
 		}
+
+		// We need the utreexo proof to be able to verify the block.
+		utreexoProofMsg, found := sm.queuedUtreexoProofs[*bmsg.block.Hash()]
+		if !found {
+			log.Warnf("got block %v but don't have the associated "+
+				"utreexo proof", bmsg.block.Hash())
+			sm.queuedBlocks[*blockHash] = bmsg
+			return
+		}
+
+		// We have all the data necessary to validate the block now so
+		// it's safee to remove this utreexo proof from the queue.
+		delete(sm.queuedUtreexoProofs, *bmsg.block.Hash())
+
+		udata := wire.UData{
+			AccProof: utreexo.Proof{
+				Targets: utreexoHeader.Targets,
+				Proof:   utreexoProofMsg.proof.ProofHashes,
+			},
+			LeafDatas: utreexoProofMsg.proof.LeafDatas,
+		}
+
+		bmsg.block.MsgBlock().UData = &udata
 		bmsg.block.MsgBlock().UData.AccProof.Targets = utreexoHeader.Targets
 	}
 
