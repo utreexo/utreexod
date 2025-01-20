@@ -811,17 +811,14 @@ func (sm *SyncManager) current() bool {
 func (sm *SyncManager) checkHeadersList(blockHash *chainhash.Hash) (
 	bool, blockchain.BehaviorFlags) {
 
-	// Nothing to check if we're not in headers-first mode.
-	if !sm.headersFirstMode {
-		return false, blockchain.BFNone
-	}
-
 	isCheckpointBlock := false
 	behaviorFlags := blockchain.BFNone
 
 	firstNodeEl := sm.headerList.Front()
 	if firstNodeEl == nil {
-		log.Warnf("headers-first mode is on but the headersList is empty")
+		if sm.headersFirstMode {
+			log.Warnf("headers-first mode is on but the headersList is empty")
+		}
 		return isCheckpointBlock, behaviorFlags
 	}
 
@@ -830,6 +827,8 @@ func (sm *SyncManager) checkHeadersList(blockHash *chainhash.Hash) (
 		return isCheckpointBlock, behaviorFlags
 	}
 
+	// When we still have checkpoints, don't remove the last header node
+	// as we need that to check if the next header connects to the list.
 	if sm.nextCheckpoint != nil {
 		behaviorFlags |= blockchain.BFFastAdd
 		if firstNode.hash.IsEqual(sm.nextCheckpoint.Hash) {
@@ -838,9 +837,11 @@ func (sm *SyncManager) checkHeadersList(blockHash *chainhash.Hash) (
 			sm.headerList.Remove(firstNodeEl)
 		}
 	} else {
-		if firstNode.height != sm.syncPeer.LastBlock() {
-			sm.headerList.Remove(firstNodeEl)
-		}
+		// Since we don't have any more checkpoints, it's ok
+		// to remove all the headers from the list as we'll
+		// reset the header state to include the tip for all
+		// the headers received when not in headers-first mode.
+		sm.headerList.Remove(firstNodeEl)
 	}
 
 	return isCheckpointBlock, behaviorFlags
