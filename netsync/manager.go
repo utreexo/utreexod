@@ -1671,6 +1671,33 @@ func (sm *SyncManager) handleUtreexoHeaderMsg(hmsg *utreexoHeaderMsg) {
 	sm.fetchHeaderBlocks(peer)
 }
 
+// handleUtreexoProofMsg queues the utreexo proof and if we already have the block,
+// it'll send that block to be processed by the block handler.
+func (sm *SyncManager) handleUtreexoProofMsg(hmsg *utreexoProofMsg) {
+	peer := hmsg.peer
+	state, exists := sm.peerStates[peer]
+	if !exists {
+		log.Warnf("Received utreexo proof message from unknown peer %s", peer)
+		return
+	}
+
+	blockHash := hmsg.proof.BlockHash
+	if _, exists = state.requestedUtreexoProofs[blockHash]; !exists {
+		log.Warnf("Got unrequested utreexo proof %v from %s -- "+
+			"disconnecting", blockHash, peer.Addr())
+		peer.Disconnect()
+		return
+	}
+
+	sm.queuedUtreexoProofs[blockHash] = hmsg
+
+	bmsg, haveBlock := sm.queuedBlocks[blockHash]
+	if haveBlock {
+		bmsg.reply = make(chan struct{}, 1)
+		sm.msgChan <- bmsg
+	}
+}
+
 // handleNotFoundMsg handles notfound messages from all peers.
 func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 	peer := nfmsg.peer
@@ -2156,6 +2183,9 @@ out:
 			case *utreexoHeaderMsg:
 				sm.handleUtreexoHeaderMsg(msg)
 
+			case *utreexoProofMsg:
+				sm.handleUtreexoProofMsg(msg)
+
 			case *notFoundMsg:
 				sm.handleNotFoundMsg(msg)
 
@@ -2396,6 +2426,17 @@ func (sm *SyncManager) QueueUtreexoHeader(header *wire.MsgUtreexoHeader, peer *p
 	}
 
 	sm.msgChan <- &utreexoHeaderMsg{header: header, peer: peer}
+}
+
+// QueueUtreexoProof adds the utreexo proof to the block handling queue.
+func (sm *SyncManager) QueueUtreexoProof(proof *wire.MsgUtreexoProof, peer *peerpkg.Peer) {
+	// No channel handling here because peers do not need to block on
+	// headers messages.
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		return
+	}
+
+	sm.msgChan <- &utreexoProofMsg{proof: proof, peer: peer}
 }
 
 // QueueNotFound adds the passed notfound message and peer to the block handling
