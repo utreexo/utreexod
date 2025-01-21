@@ -1275,6 +1275,90 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	}
 }
 
+// handleHeadersMsgOnHeadersBuildMode handles a headers first message when
+// the node is in headers build mode.
+func (sm *SyncManager) handleHeadersMsgOnHeadersBuildMode(hmsg *headersMsg) {
+	peer := hmsg.peer
+	msg := hmsg.headers
+
+	var finalHeader *wire.BlockHeader
+	var finalHeight int32
+	for _, blockHeader := range msg.Headers {
+		finalHeader = blockHeader
+
+		err := sm.chain.ProcessBlockHeader(blockHeader)
+		if err != nil {
+			log.Warnf("Received block header that does not "+
+				"properly connect to the chain from peer %s "+
+				"-- disconnecting", peer.Addr())
+			peer.Disconnect()
+			return
+		}
+
+		prevNodeEl := sm.headerList.Back()
+		prevNode := prevNodeEl.Value.(*headerNode)
+
+		if prevNode.hash.IsEqual(&blockHeader.PrevBlock) {
+			hash := blockHeader.BlockHash()
+			node := headerNode{height: prevNode.height + 1, hash: &hash}
+			finalHeight = node.height
+			sm.headerList.PushBack(&node)
+		}
+	}
+
+	finalHash := finalHeader.BlockHash()
+
+	// We're now done downloading headers at this point.
+	if finalHeight >= sm.chain.AssumeUtreexoHeight() {
+		assumeUtreexoHash := sm.chain.AssumeUtreexoHash()
+		if !finalHash.IsEqual(&assumeUtreexoHash) {
+			log.Warnf("The node had hash %v hardcoded in but the valid proof-of-work "+
+				"chain has the hash %v at height %v. The user should not trust this "+
+				"software as genuine and there may be attempts to steal funds. The user "+
+				"should delete the datadir", sm.chain.AssumeUtreexoHash().String(),
+				finalHash.String(), finalHeight)
+			os.Exit(1)
+		}
+
+		// We're done downloading headers.
+		sm.headersBuildMode = false
+
+		// No more headers first mode either.
+		sm.headersFirstMode = false
+		sm.headerList.Init()
+
+		// Set the best state and the utreexo state.
+		sm.chain.SetNewBestStateFromAssumedUtreexoPoint()
+		sm.chain.SetUtreexoStateFromAssumePoint()
+
+		bestState := sm.chain.BestSnapshot()
+		log.Infof("Finished building headers. Initialized assumed utreexo point "+
+			"at block %v(%d)", bestState.Hash.String(), bestState.Height)
+
+		locator := blockchain.BlockLocator([]*chainhash.Hash{&bestState.Hash})
+		err := peer.PushGetBlocksMsg(locator, &zeroHash)
+		if err != nil {
+			log.Warnf("Failed to send getblocks message to "+
+				"peer %s: %v", peer.Addr(), err)
+			return
+		}
+
+		return
+	}
+
+	// This header is not a checkpoint, so request the next batch of
+	// headers starting from the latest known header and ending with the
+	// next checkpoint.
+	locator := blockchain.BlockLocator([]*chainhash.Hash{&finalHash})
+	stopHash := sm.chain.AssumeUtreexoHash()
+	err := peer.PushGetHeadersMsg(locator, &stopHash)
+	if err != nil {
+		log.Warnf("Failed to send getheaders message to "+
+			"peer %s: %v", peer.Addr(), err)
+		return
+	}
+}
+
 // handleHeadersMsg handles block header messages from all peers.  Headers are
 // requested when performing a headers-first sync.
 func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
@@ -1359,83 +1443,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	}
 
 	if sm.headersBuildMode {
-		var finalHeader *wire.BlockHeader
-		var finalHeight int32
-		for _, blockHeader := range msg.Headers {
-			finalHeader = blockHeader
-
-			err := sm.chain.ProcessBlockHeader(blockHeader)
-			if err != nil {
-				log.Warnf("Received block header that does not "+
-					"properly connect to the chain from peer %s "+
-					"-- disconnecting", peer.Addr())
-				peer.Disconnect()
-				return
-			}
-
-			prevNodeEl := sm.headerList.Back()
-			prevNode := prevNodeEl.Value.(*headerNode)
-
-			if prevNode.hash.IsEqual(&blockHeader.PrevBlock) {
-				hash := blockHeader.BlockHash()
-				node := headerNode{height: prevNode.height + 1, hash: &hash}
-				finalHeight = node.height
-				sm.headerList.PushBack(&node)
-			}
-		}
-
-		finalHash := finalHeader.BlockHash()
-
-		// We're now done downloading headers at this point.
-		if finalHeight >= sm.chain.AssumeUtreexoHeight() {
-			assumeUtreexoHash := sm.chain.AssumeUtreexoHash()
-			if !finalHash.IsEqual(&assumeUtreexoHash) {
-				log.Warnf("The node had hash %v hardcoded in but the valid proof-of-work "+
-					"chain has the hash %v at height %v. The user should not trust this "+
-					"software as genuine and there may be attempts to steal funds. The user "+
-					"should delete the datadir", sm.chain.AssumeUtreexoHash().String(),
-					finalHash.String(), finalHeight)
-				os.Exit(1)
-			}
-
-			// We're done downloading headers.
-			sm.headersBuildMode = false
-
-			// No more headers first mode either.
-			sm.headersFirstMode = false
-			sm.headerList.Init()
-
-			// Set the best state and the utreexo state.
-			sm.chain.SetNewBestStateFromAssumedUtreexoPoint()
-			sm.chain.SetUtreexoStateFromAssumePoint()
-
-			bestState := sm.chain.BestSnapshot()
-			log.Infof("Finished building headers. Initialized assumed utreexo point "+
-				"at block %v(%d)", bestState.Hash.String(), bestState.Height)
-
-			locator := blockchain.BlockLocator([]*chainhash.Hash{&bestState.Hash})
-			err := peer.PushGetBlocksMsg(locator, &zeroHash)
-			if err != nil {
-				log.Warnf("Failed to send getblocks message to "+
-					"peer %s: %v", peer.Addr(), err)
-				return
-			}
-
-			return
-		}
-
-		// This header is not a checkpoint, so request the next batch of
-		// headers starting from the latest known header and ending with the
-		// next checkpoint.
-		locator := blockchain.BlockLocator([]*chainhash.Hash{&finalHash})
-		stopHash := sm.chain.AssumeUtreexoHash()
-		err := peer.PushGetHeadersMsg(locator, &stopHash)
-		if err != nil {
-			log.Warnf("Failed to send getheaders message to "+
-				"peer %s: %v", peer.Addr(), err)
-			return
-		}
-
+		sm.handleHeadersMsgOnHeadersBuildMode(hmsg)
 		return
 	}
 
