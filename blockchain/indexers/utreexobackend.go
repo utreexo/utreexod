@@ -586,6 +586,15 @@ func upgradeUtreexoState(cfg *UtreexoConfig, p *utreexo.MapPollard,
 func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 	savedHash, tipHash *chainhash.Hash, tipHeight int32) error {
 
+	// Handle nil tipHash
+	if tipHash == nil {
+		return fmt.Errorf("tipHash is nil, cannot initialize Utreexo state")
+	}
+
+	// Handle negative tipHeight
+	if tipHeight < 0 {
+		return nil
+	}
 	// This is a new accumulator state that we're working with.
 	var empty chainhash.Hash
 	if tipHeight == -1 && tipHash.IsEqual(&empty) {
