@@ -1091,9 +1091,15 @@ func (sm *SyncManager) fetchUtreexoHeaders(peer *peerpkg.Peer) {
 		return
 	}
 
+	// Can't fetch if both are nil.
+	if peer == nil && sm.syncPeer == nil {
+		log.Warnf("fetchUtreexoHeader called with syncPeer and peer as nil")
+		return
+	}
+
 	// Default to the syncPeer unless we're given a peer by the caller.
 	reqPeer := sm.syncPeer
-	if reqPeer == nil {
+	if peer != nil {
 		reqPeer = peer
 	}
 
@@ -1134,9 +1140,15 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		return
 	}
 
+	// Can't fetch if both are nil.
+	if peer == nil && sm.syncPeer == nil {
+		log.Warnf("fetchHeaderBlocks called with syncPeer and peer as nil")
+		return
+	}
+
 	// Default to the syncPeer unless we're given a peer by the caller.
 	reqPeer := sm.syncPeer
-	if reqPeer == nil {
+	if peer != nil {
 		reqPeer = peer
 	}
 
