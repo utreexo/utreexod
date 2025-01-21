@@ -118,7 +118,7 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 // returned.
 //
 // This function MUST be called with the chain lock held (for writes).
-func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeaderSanity bool) (*blockNode, error) {
+func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, flags BehaviorFlags) (*blockNode, error) {
 	// Avoid validating the header again if its validation status is already
 	// known.  Invalid headers are never added to the block index, so if there
 	// is an entry for the block hash, the header itself is known to be valid.
@@ -134,12 +134,11 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeade
 	}
 
 	// Perform context-free sanity checks on the block header.
-	if checkHeaderSanity {
-		err := checkBlockHeaderSanity(header, b.chainParams.PowLimit, b.timeSource, BFNone)
-		if err != nil {
-			return nil, err
-		}
+	err := checkBlockHeaderSanity(header, b.chainParams.PowLimit, b.timeSource, flags)
+	if err != nil {
+		return nil, err
 	}
+
 	// Orphan headers are not allowed and this function should never be called
 	// with the genesis block.
 	prevHash := &header.PrevBlock
@@ -159,7 +158,7 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeade
 
 	// The block must pass all of the validation rules which depend on the
 	// position of the block within the block chain.
-	err := b.checkBlockHeaderContext(header, prevNode, BFNone)
+	err = b.checkBlockHeaderContext(header, prevNode, flags)
 	if err != nil {
 		return nil, err
 	}

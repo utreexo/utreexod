@@ -31,7 +31,7 @@ func (g *chaingenHarness) AcceptHeader(blockName string) {
 
 	// Determine if the header is already known before attempting to process it.
 	alreadyHaveHeader := g.chain.IndexLookupNode(&blockHash) != nil
-	err := g.chain.ProcessBlockHeader(header)
+	err := g.chain.ProcessBlockHeader(header, blockchain.BFNone)
 	if err != nil {
 		g.t.Fatalf("block header %q (hash %s) should have been "+
 			"accepted: %v", blockName, blockHash, err)
@@ -86,7 +86,7 @@ func (g *chaingenHarness) RejectHeader(blockName string, code blockchain.ErrorCo
 	// Determine if the header is already known before attempting to process it.
 	alreadyHaveHeader := g.chain.IndexLookupNode(&blockHash) != nil
 
-	err := g.chain.ProcessBlockHeader(header)
+	err := g.chain.ProcessBlockHeader(header, blockchain.BFNone)
 	if err == nil {
 		g.t.Fatalf("block header %q (hash %s) should not have been "+
 			"accepted", blockName, blockHash)

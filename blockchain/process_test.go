@@ -60,7 +60,7 @@ func TestProcessBlockHeader(t *testing.T) {
 
 	headers := chainedHeaders(&params.GenesisBlock.Header, params, 0, 10)
 	for _, header := range headers {
-		err := chain.ProcessBlockHeader(header)
+		err := chain.ProcessBlockHeader(header, BFNone)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +73,7 @@ func TestProcessBlockHeader(t *testing.T) {
 
 	// Test that the last block header fails as it's missing the previous block
 	// header.
-	err := chain.ProcessBlockHeader(sideChainHeaders[len(sideChainHeaders)-1])
+	err := chain.ProcessBlockHeader(sideChainHeaders[len(sideChainHeaders)-1], BFNone)
 	if err == nil {
 		err := fmt.Errorf("sideChainHeader %v passed verification but "+
 			"should've failed verification"+
@@ -85,7 +85,7 @@ func TestProcessBlockHeader(t *testing.T) {
 
 	// Verify that the side-chain headers verify.
 	for _, header := range sideChainHeaders {
-		err := chain.ProcessBlockHeader(header)
+		err := chain.ProcessBlockHeader(header, BFNone)
 		if err != nil {
 			t.Fatal(err)
 		}

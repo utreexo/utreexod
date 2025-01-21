@@ -155,7 +155,7 @@ func (b *BlockChain) checkKnownInvalidBlock(node *blockNode) error {
 // headers into the block chain using headers-first semantics.  It includes
 // functionality such as rejecting headers that do not connect to an existing
 // known header, ensuring headers follow all rules that do not depend on having
-// all ancestor block data available, and insertion into the block index.
+// all ancestor block header data available, and insertion into the block index.
 //
 // Block headers that have already been inserted are ignored, unless they have
 // subsequently been marked invalid, in which case an appropriate error is
@@ -167,14 +167,15 @@ func (b *BlockChain) checkKnownInvalidBlock(node *blockNode) error {
 // be processed in order.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) ProcessBlockHeader(header *wire.BlockHeader) error {
+func (b *BlockChain) ProcessBlockHeader(header *wire.BlockHeader, flags BehaviorFlags) error {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
-	const checkHeaderSanity = true
-	_, err := b.maybeAcceptBlockHeader(header, checkHeaderSanity)
+
+	_, err := b.maybeAcceptBlockHeader(header, flags)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 

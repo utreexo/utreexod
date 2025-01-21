@@ -1303,7 +1303,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		sm.resetHeaderState(&best.Hash, best.Height)
 
 		for _, blockHeader := range msg.Headers {
-			err := sm.chain.ProcessBlockHeader(blockHeader)
+			err := sm.chain.ProcessBlockHeader(blockHeader, blockchain.BFNone)
 			if err != nil {
 				log.Warnf("Received block header from peer %v "+
 					"failed header verification -- disconnecting",
@@ -1364,7 +1364,8 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		for _, blockHeader := range msg.Headers {
 			finalHeader = blockHeader
 
-			err := sm.chain.ProcessBlockHeader(blockHeader)
+			err := sm.chain.ProcessBlockHeader(blockHeader,
+				blockchain.BFFastAdd|blockchain.BFNoPoWCheck)
 			if err != nil {
 				log.Warnf("Received block header that does not "+
 					"properly connect to the chain from peer %s "+
@@ -1446,7 +1447,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		var finalHeader *wire.BlockHeader
 		for _, blockHeader := range msg.Headers {
 			blockHash := blockHeader.BlockHash()
-			err := sm.chain.ProcessBlockHeader(blockHeader)
+			err := sm.chain.ProcessBlockHeader(blockHeader, blockchain.BFNone)
 			if err != nil {
 				log.Warnf("Received block header that did not "+
 					"pass verification from peer %s "+
