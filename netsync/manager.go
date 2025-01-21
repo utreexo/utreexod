@@ -1368,8 +1368,8 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			blockHash := blockHeader.BlockHash()
 			err := sm.chain.ProcessBlockHeader(blockHeader)
 			if err != nil {
-				log.Warnf("Received block header that does not "+
-					"properly connect to the chain from peer %s "+
+				log.Warnf("Received block header that did not "+
+					"pass verification from peer %s "+
 					"-- disconnecting", peer.Addr())
 				peer.Disconnect()
 				return
