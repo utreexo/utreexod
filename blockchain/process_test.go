@@ -63,9 +63,14 @@ func TestProcessBlockHeader(t *testing.T) {
 	// 	genesis -> 1  -> 2  -> ...  -> 10 (active)
 	headers := chainedHeaders(&params.GenesisBlock.Header, params, 0, 10)
 	for _, header := range headers {
-		err := chain.ProcessBlockHeader(header, BFNone)
+		isMainChain, err := chain.ProcessBlockHeader(header, BFNone)
 		if err != nil {
 			t.Fatal(err)
+		}
+
+		if !isMainChain {
+			t.Fatalf("expected header %v to be in the main chain",
+				header.BlockHash())
 		}
 	}
 
@@ -95,7 +100,7 @@ func TestProcessBlockHeader(t *testing.T) {
 
 	// Test that the last block header fails as it's missing the previous block
 	// header.
-	err := chain.ProcessBlockHeader(sidechainTip, BFNone)
+	_, err := chain.ProcessBlockHeader(sidechainTip, BFNone)
 	if err == nil {
 		err := fmt.Errorf("sideChainHeader %v passed verification but "+
 			"should've failed verification"+
@@ -107,9 +112,13 @@ func TestProcessBlockHeader(t *testing.T) {
 
 	// Verify that the side-chain headers verify.
 	for _, header := range sideChainHeaders {
-		err := chain.ProcessBlockHeader(header, BFNone)
+		isMainChain, err := chain.ProcessBlockHeader(header, BFNone)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if isMainChain {
+			t.Fatalf("expected header %v to not be in the main chain",
+				header.BlockHash())
 		}
 	}
 
@@ -127,9 +136,22 @@ func TestProcessBlockHeader(t *testing.T) {
 	// Verify that the side-chain extending headers verify.
 	sidechainExtendingHeaders := chainedHeaders(sidechainTip, params, forkHeight+int32(len(sideChainHeaders)), 10)
 	for _, header := range sidechainExtendingHeaders {
-		err := chain.ProcessBlockHeader(header, BFNone)
+		isMainChain, err := chain.ProcessBlockHeader(header, BFNone)
 		if err != nil {
 			t.Fatal(err)
+		}
+		blockHash := header.BlockHash()
+		node := chain.IndexLookupNode(&blockHash)
+		if node.height <= 10 {
+			if isMainChain {
+				t.Fatalf("expected header %v to not be in the main chain",
+					header.BlockHash())
+			}
+		} else {
+			if !isMainChain {
+				t.Fatalf("expected header %v to be in the main chain",
+					header.BlockHash())
+			}
 		}
 	}
 
@@ -155,9 +177,13 @@ func TestProcessBlockHeader(t *testing.T) {
 	// Extend the original headers and check it still verifies.
 	extendedOrigHeaders := chainedHeaders(lastHeader, params, int32(len(headers)), 2)
 	for _, header := range extendedOrigHeaders {
-		err := chain.ProcessBlockHeader(header, BFNone)
+		isMainChain, err := chain.ProcessBlockHeader(header, BFNone)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if isMainChain {
+			t.Fatalf("expected header %v to not be in the main chain",
+				header.BlockHash())
 		}
 	}
 

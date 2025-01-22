@@ -166,17 +166,15 @@ func (b *BlockChain) checkKnownInvalidBlock(node *blockNode) error {
 // are already known to be a part of an invalid branch.  This means headers must
 // be processed in order.
 //
+// The returned boolean indicates whether or not the header was in the main chain
+// or not.
+//
 // This function is safe for concurrent access.
-func (b *BlockChain) ProcessBlockHeader(header *wire.BlockHeader, flags BehaviorFlags) error {
+func (b *BlockChain) ProcessBlockHeader(header *wire.BlockHeader, flags BehaviorFlags) (bool, error) {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
 
-	_, err := b.maybeAcceptBlockHeader(header, flags)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return b.maybeAcceptBlockHeader(header, flags)
 }
 
 // ProcessBlock is the main workhorse for handling insertion of new blocks into
