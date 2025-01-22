@@ -1184,6 +1184,7 @@ func (b *BlockChain) createChainState() error {
 	node := newBlockNode(header, nil)
 	node.status = statusDataStored | statusValid
 	b.bestChain.SetTip(node)
+	b.bestHeader.SetTip(node)
 
 	// Add the new node to the index which is used for faster lookups.
 	b.index.addNode(node)
@@ -1392,6 +1393,7 @@ func (b *BlockChain) initChainState() error {
 				"chain tip %s in block index", state.hash))
 		}
 		b.bestChain.SetTip(tip)
+		b.bestHeader.SetTip(tip)
 
 		// Load the raw block bytes for the best block.
 		blockBytes, err := dbTx.FetchBlock(&state.hash)
