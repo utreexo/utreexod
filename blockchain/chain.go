@@ -1086,10 +1086,6 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return fmt.Errorf("reorganizeChain fail while attaching "+
 					"block %s. Error: %v", block.Hash().String(), err)
 			}
-			if err != nil {
-				return fmt.Errorf("reorganizeChain fail while attaching "+
-					"block %s. Error: %v", block.Hash().String(), err)
-			}
 
 			err = view.BlockToUtxoView(block)
 			if err != nil {
