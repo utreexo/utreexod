@@ -94,6 +94,14 @@ func pruneChecks(db database.DB) error {
 			"and sync from the beginning to enable the desired index. You may "+
 			"start the node up without the --cfilters flag", cfg.DataDir)
 	}
+	// If we've previously been pruned and the utreexocfindex isn't present, it means that the
+	// user wants to enable the utreexocfindex after the node has already synced up while being pruned.
+	if beenPruned && !indexers.UtreexoCfIndexInitialized(db) && cfg.UtreexoCFilters {
+		return fmt.Errorf("utreeco cfilters cannot be enabled as the node has been "+
+			"previously pruned. You must delete the files in the datadir: \"%s\" "+
+			"and sync from the beginning to enable the desired index. You may "+
+			"start the node up without the --utreexocfilters flag", cfg.DataDir)
+	}
 
 	// If the user wants to disable the cfindex and is pruned or has enabled pruning, force
 	// the user to either drop the cfindex manually or restart the node without the --cfilters
@@ -112,6 +120,25 @@ func pruneChecks(db database.DB) error {
 			"filters don't get indexed now. To disable compact filters, please drop the "+
 			"index completely with the --dropcfindex flag and restart the node. "+
 			"To keep the compact filters, restart the node with the --cfilters "+
+			"flag", prunedStr)
+	}
+	// If the user wants to disable the utreexocfindex and is pruned or has enabled pruning, force
+	// the user to either drop the utreexocfindex manually or restart the node without the
+	// --utreexocfilters flag.
+	if (beenPruned || cfg.Prune != 0) && indexers.UtreexoCfIndexInitialized(db) && !cfg.UtreexoCFilters {
+		var prunedStr string
+		if beenPruned {
+			prunedStr = "has been previously pruned"
+		} else {
+			prunedStr = fmt.Sprintf("was started with prune flag (--prune=%d)", cfg.Prune)
+		}
+		return fmt.Errorf("--utreexocfilters flag was not given but the utreexo cfilters have "+
+			"previously been enabled on this node and the index data currently "+
+			"exists in the database. The node %s and "+
+			"the database would be left in an inconsistent state if the utreexo c "+
+			"filters don't get indexed now. To disable utreeco cfilters, please drop the "+
+			"index completely with the --droputreexocfindex flag and restart the node. "+
+			"To keep the compact filters, restart the node with the --utreexocfilters "+
 			"flag", prunedStr)
 	}
 	// If the user wants to disable the utreexo proof index and is pruned or has enabled pruning,
@@ -286,6 +313,12 @@ func btcdMain(serverChan chan<- *server) error {
 		}
 
 		return nil
+	}
+	if cfg.DropUtreexoCfIndex {
+		if err := indexers.DropUtreexoCfIndex(db, interrupt); err != nil {
+			btcdLog.Errorf("%v", err)
+			return err
+		}
 	}
 	if cfg.DropTTLIndex {
 		if err := indexers.DropTTLIndex(db, interrupt); err != nil {
