@@ -63,6 +63,7 @@ const (
 	CmdSendAddrV2       = "sendaddrv2"
 	CmdUtreexoProof     = "uproof"
 	CmdGetUtreexoProof  = "getuproof"
+	CmdUtreexoRoot      = "uroot"
 	CmdGetUtreexoRoot   = "geturoot"
 )
 
@@ -163,6 +164,9 @@ func makeEmptyMessage(command string) (Message, error) {
 
 	case CmdGetUtreexoProof:
 		msg = &MsgGetUtreexoProof{}
+
+	case CmdUtreexoRoot:
+		msg = &MsgUtreexoRoot{}
 
 	case CmdGetUtreexoRoot:
 		msg = &MsgGetUtreexoRoot{}
