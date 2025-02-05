@@ -81,20 +81,6 @@ func (us *UtreexoState) flush(bestHash *chainhash.Hash) error {
 		return err
 	}
 
-	// If we're keeping everything in memory, make sure to remove everything from the
-	// current database before flushing as the keys deleted in memory may still exist
-	// on disk.
-	if us.config.MaxMemoryUsage < 0 {
-		iter := us.utreexoStateDB.NewIterator(nil, nil)
-		for iter.Next() {
-			err := ldbTx.Delete(iter.Key(), nil)
-			if err != nil {
-				ldbTx.Discard()
-				return err
-			}
-		}
-	}
-
 	// Write the best block hash and the numleaves for the utreexo state.
 	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, us.state.GetNumLeaves())
 	if err != nil {
@@ -682,80 +668,34 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 	}
 	p.NumLeaves = numLeaves
 
-	var flush func(ldbTx *leveldb.Transaction) error
-	var isFlushNeeded func() bool
-	if cfg.MaxMemoryUsage >= 0 {
-		p.Nodes = nodesDB
-		p.CachedLeaves = cachedLeavesDB
-		flush = func(ldbTx *leveldb.Transaction) error {
-			nodesUsed, nodesCapacity := nodesDB.UsageStats()
-			log.Debugf("Utreexo index nodesDB cache usage: %d/%d (%v%%)\n",
-				nodesUsed, nodesCapacity,
-				float64(nodesUsed)/float64(nodesCapacity))
+	p.Nodes = nodesDB
+	p.CachedLeaves = cachedLeavesDB
+	flush := func(ldbTx *leveldb.Transaction) error {
+		nodesUsed, nodesCapacity := nodesDB.UsageStats()
+		log.Debugf("Utreexo index nodesDB cache usage: %d/%d (%v%%)\n",
+			nodesUsed, nodesCapacity,
+			float64(nodesUsed)/float64(nodesCapacity))
 
-			cachedLeavesUsed, cachedLeavesCapacity := cachedLeavesDB.UsageStats()
-			log.Debugf("Utreexo index cachedLeavesDB cache usage: %d/%d (%v%%)\n",
-				cachedLeavesUsed, cachedLeavesCapacity,
-				float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
+		cachedLeavesUsed, cachedLeavesCapacity := cachedLeavesDB.UsageStats()
+		log.Debugf("Utreexo index cachedLeavesDB cache usage: %d/%d (%v%%)\n",
+			cachedLeavesUsed, cachedLeavesCapacity,
+			float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
 
-			err = nodesDB.Flush(ldbTx)
-			if err != nil {
-				return err
-			}
-			err = cachedLeavesDB.Flush(ldbTx)
-			if err != nil {
-				return err
-			}
-
-			return nil
-		}
-		isFlushNeeded = func() bool {
-			nodesNeedsFlush := nodesDB.IsFlushNeeded()
-			leavesNeedsFlush := cachedLeavesDB.IsFlushNeeded()
-			return nodesNeedsFlush || leavesNeedsFlush
-		}
-	} else {
-		log.Infof("loading the utreexo state from disk...")
-		err = nodesDB.ForEach(func(k uint64, v utreexo.Leaf) error {
-			p.Nodes.Put(k, v)
-			return nil
-		})
+		err = nodesDB.Flush(ldbTx)
 		if err != nil {
-			return nil, err
+			return err
 		}
-
-		err = cachedLeavesDB.ForEach(func(k utreexo.Hash, v uint64) error {
-			p.CachedLeaves.Put(k, v)
-			return nil
-		})
+		err = cachedLeavesDB.Flush(ldbTx)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		log.Infof("Finished loading the utreexo state from disk.")
-
-		flush = func(ldbTx *leveldb.Transaction) error {
-			err = p.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
-				return blockchain.NodesBackendPut(ldbTx, k, v)
-			})
-			if err != nil {
-				return err
-			}
-
-			err = p.CachedLeaves.ForEach(func(k utreexo.Hash, v uint64) error {
-				return blockchain.CachedLeavesBackendPut(ldbTx, k, v)
-			})
-			if err != nil {
-				return err
-			}
-
-			return nil
-		}
-
-		// Flush is never needed since we're keeping everything in memory.
-		isFlushNeeded = func() bool {
-			return false
-		}
+		return nil
+	}
+	isFlushNeeded := func() bool {
+		nodesNeedsFlush := nodesDB.IsFlushNeeded()
+		leavesNeedsFlush := cachedLeavesDB.IsFlushNeeded()
+		return nodesNeedsFlush || leavesNeedsFlush
 	}
 
 	uState := &UtreexoState{
