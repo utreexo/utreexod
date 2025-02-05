@@ -3503,102 +3503,53 @@ func handleGetUtreexoRoots(s *rpcServer, cmd interface{}, closeChan <-chan struc
 		}
 		getReply.NumLeaves = view.NumLeaves()
 	} else if s.cfg.UtreexoProofIndex != nil {
-		// NOTE (kcalvinalvin): so this is an ugly quirk I didn't bother to fix because
-		// I didn't realize we'd have a need for fetching utreexo roots at arbitrary heights.
-		//
-		// For bridges, the roots that are saved BEFORE the modification. So the current
-		// accumulator state is not saved and it only gets saved when a block gets confirmed.
-		// The key:value here would be "block X":"Utreexo roots BEFORE modification of block X".
-		//
-		// I did this because it made reorgs for bridges easier to handle. But now we have this
-		// weird thing. I know I know. I'll fix it. But the below code is correct in that it returns
-		// the roots that the caller wants.
-		if s.cfg.Chain.BestSnapshot().Hash == *blockHash {
-			roots, numLeaves := s.cfg.UtreexoProofIndex.FetchCurrentUtreexoState()
-
-			for _, root := range roots {
-				getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
-			}
-			getReply.NumLeaves = numLeaves
-		} else {
-			height, err := s.cfg.Chain.BlockHeightByHash(blockHash)
+		var roots []*chainhash.Hash
+		var numLeaves uint64
+		err = s.cfg.DB.View(func(dbTx database.Tx) error {
+			roots, numLeaves, err = s.cfg.UtreexoProofIndex.FetchUtreexoState(dbTx, blockHash)
 			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					Message: fmt.Sprintf("Couldn't fetch the block height for blockhash %s from "+
-						"the blockindex. Error: %v", c.BlockHash, err),
-				}
+				return err
 			}
 
-			// NOTE (kcalvinalvin): +1 here because the roots for bridges are saved BEFORE the modification.
-			hash, err := s.cfg.Chain.BlockHashByHeight(height + 1)
-			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					// I'm too ashamed to admit that height+1 is the problem. So I'm gonna lie
-					// to the user and just say it's the view we can't fetch. It's not wrong right?
-					Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
-						"Error: %v", c.BlockHash, err),
-				}
+			return nil
+		})
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
+					"Error: %v", c.BlockHash, err),
 			}
-			var roots []*chainhash.Hash
-			var numLeaves uint64
-			err = s.cfg.DB.View(func(dbTx database.Tx) error {
-				roots, numLeaves, err = s.cfg.UtreexoProofIndex.FetchUtreexoState(dbTx, hash)
-				if err != nil {
-					return err
-				}
-
-				return nil
-			})
-			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
-						"Error: %v", c.BlockHash, err),
-				}
-			}
-
-			for _, root := range roots {
-				getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
-			}
-			getReply.NumLeaves = numLeaves
 		}
+
+		for _, root := range roots {
+			getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
+		}
+		getReply.NumLeaves = numLeaves
 	} else {
-		if s.cfg.Chain.BestSnapshot().Hash == *blockHash {
-			roots, numLeaves := s.cfg.FlatUtreexoProofIndex.FetchCurrentUtreexoState()
-
-			for _, root := range roots {
-				getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
+		height, err := s.cfg.Chain.BlockHeightByHash(blockHash)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't fetch the block height for blockhash %s from "+
+					"the blockindex. Error: %v", c.BlockHash, err),
 			}
-			getReply.NumLeaves = numLeaves
-		} else {
-			height, err := s.cfg.Chain.BlockHeightByHash(blockHash)
-			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					Message: fmt.Sprintf("Couldn't fetch the block height for blockhash %s from "+
-						"the blockindex. Error: %v", c.BlockHash, err),
-				}
-			}
-
-			// NOTE (kcalvinalvin): +1 here because the roots for bridges are saved BEFORE the modification.
-			roots, numLeaves, err := s.cfg.FlatUtreexoProofIndex.FetchUtreexoState(height + 1)
-			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					// I'm too ashamed to admit that height+1 is the problem. So I'm gonna lie
-					// to the user and just say it's the view we can't fetch. It's not wrong right?
-					Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
-						"Error: %v", c.BlockHash, err),
-				}
-			}
-
-			for _, root := range roots {
-				getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
-			}
-			getReply.NumLeaves = numLeaves
 		}
+
+		roots, numLeaves, err := s.cfg.FlatUtreexoProofIndex.FetchUtreexoState(height)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				// I'm too ashamed to admit that height+1 is the problem. So I'm gonna lie
+				// to the user and just say it's the view we can't fetch. It's not wrong right?
+				Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
+					"Error: %v", c.BlockHash, err),
+			}
+		}
+
+		for _, root := range roots {
+			getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
+		}
+		getReply.NumLeaves = numLeaves
 	}
 
 	return getReply, nil

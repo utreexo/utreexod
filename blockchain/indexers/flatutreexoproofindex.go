@@ -413,11 +413,6 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		}
 	}
 
-	err = idx.storeRoots(block.Height(), idx.utreexoState.state)
-	if err != nil {
-		return err
-	}
-
 	addHashes := make([]utreexo.Hash, 0, len(adds))
 	for _, add := range adds {
 		addHashes = append(addHashes, add.Hash)
@@ -426,6 +421,11 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	idx.mtx.Lock()
 	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
+	if err != nil {
+		return err
+	}
+
+	err = idx.storeRoots(block.Height(), idx.utreexoState.state)
 	if err != nil {
 		return err
 	}
@@ -581,7 +581,7 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (uint64, []u
 func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
-	state, err := idx.fetchRoots(block.Height())
+	state, err := idx.fetchRoots(block.Height() - 1)
 	if err != nil {
 		return err
 	}
