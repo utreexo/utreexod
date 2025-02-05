@@ -63,6 +63,7 @@ const (
 	CmdSendAddrV2       = "sendaddrv2"
 	CmdUtreexoProof     = "uproof"
 	CmdGetUtreexoProof  = "getuproof"
+	CmdGetUtreexoRoot   = "geturoot"
 )
 
 // MessageEncoding represents the wire message encoding format to be used.
@@ -162,6 +163,9 @@ func makeEmptyMessage(command string) (Message, error) {
 
 	case CmdGetUtreexoProof:
 		msg = &MsgGetUtreexoProof{}
+
+	case CmdGetUtreexoRoot:
+		msg = &MsgGetUtreexoRoot{}
 
 	case CmdAlert:
 		msg = &MsgAlert{}
