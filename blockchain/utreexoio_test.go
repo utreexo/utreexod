@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/cockroachdb/pebble"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 )
@@ -27,7 +27,7 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		db, err := leveldb.OpenFile(test.tmpDir, nil)
+		db, err := pebble.Open(test.tmpDir, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -48,17 +48,14 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 			cachedLeavesBackEnd.Put(hash, i)
 		}
 
-		ldbTx, err := db.OpenTransaction()
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = ldbTx.Put([]byte("utreexostateconsistency"), make([]byte, 40), nil)
+		batch := db.NewBatch()
+		err = batch.Set([]byte("utreexostateconsistency"), make([]byte, 40), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		// Close and reopen the backend.
-		cachedLeavesBackEnd.Flush(ldbTx)
-		err = ldbTx.Commit()
+		cachedLeavesBackEnd.Flush(batch)
+		err = batch.Commit(nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -67,7 +64,7 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		db, err = leveldb.OpenFile(test.tmpDir, nil)
+		db, err = pebble.Open(test.tmpDir, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -171,7 +168,7 @@ func TestNodesBackEnd(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		db, err := leveldb.OpenFile(test.tmpDir, nil)
+		db, err := pebble.Open(test.tmpDir, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -192,18 +189,14 @@ func TestNodesBackEnd(t *testing.T) {
 			nodesBackEnd.Put(i, utreexo.Leaf{Hash: hash})
 		}
 
-		ldbTx, err := db.OpenTransaction()
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = ldbTx.Put([]byte("utreexostateconsistency"), make([]byte, 40), nil)
+		batch := db.NewBatch()
+		err = batch.Set([]byte("utreexostateconsistency"), make([]byte, 40), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		// Close and reopen the backend.
-		nodesBackEnd.Flush(ldbTx)
-		err = ldbTx.Commit()
+		nodesBackEnd.Flush(batch)
+		err = batch.Commit(nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +205,7 @@ func TestNodesBackEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		db, err = leveldb.OpenFile(test.tmpDir, nil)
+		db, err = pebble.Open(test.tmpDir, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
