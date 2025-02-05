@@ -9,13 +9,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/cockroachdb/pebble"
 	"github.com/utreexo/utreexod/chaincfg"
 )
 
 func TestUtreexoStateConsistencyWrite(t *testing.T) {
 	dbPath := t.TempDir()
-	db, err := leveldb.OpenFile(dbPath, nil)
+	db, err := pebble.Open(dbPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,16 +25,12 @@ func TestUtreexoStateConsistencyWrite(t *testing.T) {
 	numLeaves := rand.Uint64()
 	hash := chaincfg.MainNetParams.GenesisHash
 
-	// Write the consistency state.
-	ldbTx, err := db.OpenTransaction()
+	batch := db.NewBatch()
+	err = dbWriteUtreexoStateConsistency(batch, hash, numLeaves)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = dbWriteUtreexoStateConsistency(ldbTx, hash, numLeaves)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = ldbTx.Commit()
+	err = batch.Commit(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
