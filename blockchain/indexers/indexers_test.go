@@ -355,7 +355,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 				return err
 			}
 
-			flatStump, err = idxType.fetchRoots(block.Height())
+			flatStump, err = idxType.fetchRoots(block.Height() - 1)
 			if err != nil {
 				return err
 			}
@@ -367,8 +367,12 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 				return err
 			}
 
+			prevHash, err := chain.BlockHashByHeight(block.Height() - 1)
+			if err != nil {
+				return err
+			}
 			err = idxType.db.View(func(dbTx database.Tx) error {
-				stump, err = dbFetchUtreexoState(dbTx, block.Hash())
+				stump, err = dbFetchUtreexoState(dbTx, prevHash)
 				if err != nil {
 					return err
 				}

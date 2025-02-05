@@ -285,11 +285,6 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		}
 	}
 
-	err = dbStoreUtreexoState(dbTx, block.Hash(), idx.utreexoState.state)
-	if err != nil {
-		return err
-	}
-
 	delHashes := make([]utreexo.Hash, len(ud.LeafDatas))
 	for i := range delHashes {
 		delHashes[i] = ud.LeafDatas[i].LeafHash()
@@ -307,6 +302,11 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	idx.mtx.Lock()
 	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
+	if err != nil {
+		return err
+	}
+
+	err = dbStoreUtreexoState(dbTx, block.Hash(), idx.utreexoState.state)
 	if err != nil {
 		return err
 	}
@@ -359,7 +359,12 @@ func (idx *UtreexoProofIndex) getUndoData(dbTx database.Tx, block *btcutil.Block
 func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
-	state, err := dbFetchUtreexoState(dbTx, block.Hash())
+	prevHash, err := idx.chain.BlockHashByHeight(block.Height() - 1)
+	if err != nil {
+		return err
+	}
+
+	state, err := dbFetchUtreexoState(dbTx, prevHash)
 	if err != nil {
 		return err
 	}
