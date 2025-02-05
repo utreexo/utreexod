@@ -610,8 +610,7 @@ func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastK
 
 // NewUtreexoProofIndex returns a new instance of an indexer that is used to create a utreexo
 // proof index using the database passed in. The passed in maxMemoryUsage should be in bytes and
-// it determines how much memory the proof index will use up. A maxMemoryUsage of 0 will keep
-// all the elements on disk and a negative maxMemoryUsage will keep all the elements in memory.
+// it determines how much memory the proof index will use up.
 //
 // It implements the Indexer interface which plugs into the IndexManager that in
 // turn is used by the blockchain package.  This allows the index to be
