@@ -176,38 +176,6 @@ func dbFetchUtreexoStateConsistency(db *leveldb.DB) (*chainhash.Hash, uint64, er
 	return bestHash, binary.LittleEndian.Uint64(buf[:8]), nil
 }
 
-// FetchCurrentUtreexoState returns the current utreexo state.
-func (idx *UtreexoProofIndex) FetchCurrentUtreexoState() ([]*chainhash.Hash, uint64) {
-	idx.mtx.RLock()
-	defer idx.mtx.RUnlock()
-
-	roots := idx.utreexoState.state.GetRoots()
-	chainhashRoots := make([]*chainhash.Hash, len(roots))
-
-	for i, root := range roots {
-		newRoot := chainhash.Hash(root)
-		chainhashRoots[i] = &newRoot
-	}
-
-	return chainhashRoots, idx.utreexoState.state.GetNumLeaves()
-}
-
-// FetchCurrentUtreexoState returns the current utreexo state.
-func (idx *FlatUtreexoProofIndex) FetchCurrentUtreexoState() ([]*chainhash.Hash, uint64) {
-	idx.mtx.RLock()
-	defer idx.mtx.RUnlock()
-
-	roots := idx.utreexoState.state.GetRoots()
-
-	chainhashRoots := make([]*chainhash.Hash, len(roots))
-	for i, root := range roots {
-		newRoot := chainhash.Hash(root)
-		chainhashRoots[i] = &newRoot
-	}
-
-	return chainhashRoots, idx.utreexoState.state.GetNumLeaves()
-}
-
 // FetchUtreexoState returns the utreexo state at the desired block.
 func (idx *UtreexoProofIndex) FetchUtreexoState(dbTx database.Tx, blockHash *chainhash.Hash) ([]*chainhash.Hash, uint64, error) {
 	stump, err := dbFetchUtreexoState(dbTx, blockHash)
