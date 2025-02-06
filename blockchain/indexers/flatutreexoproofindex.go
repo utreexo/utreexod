@@ -923,6 +923,40 @@ func (idx *FlatUtreexoProofIndex) updateRootsState() error {
 	return idx.utreexoRootsState.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
 }
 
+// FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.
+func (idx *FlatUtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*wire.MsgUtreexoRoot, error) {
+	height, err := idx.chain.BlockHeightByHash(blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	stump, err := idx.fetchRoots(height)
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, err := blockchain.SerializeUtreexoRoots(stump.NumLeaves, stump.Roots)
+	if err != nil {
+		return nil, err
+	}
+	rootHash := sha256.Sum256(bytes)
+
+	proof, err := idx.utreexoRootsState.Prove([]utreexo.Hash{rootHash})
+	if err != nil {
+		return nil, err
+	}
+
+	msg := &wire.MsgUtreexoRoot{
+		NumLeaves: stump.NumLeaves,
+		Target:    proof.Targets[0],
+		BlockHash: *blockHash,
+		Roots:     stump.Roots,
+		Proof:     proof.Proof,
+	}
+
+	return msg, nil
+}
+
 // flatFilePath returns the path to the flatfile.
 func flatFilePath(dataDir, dataName string) string {
 	flatFileName := dataName + "_" + flatFileNameSuffix
