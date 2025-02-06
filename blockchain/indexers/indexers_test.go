@@ -981,3 +981,108 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 		}
 	}
 }
+
+func compareUtreexoRootsState(indexes []Indexer, blockHash *chainhash.Hash) error {
+	var err error
+	var flatMsg *wire.MsgUtreexoRoot
+	var msg *wire.MsgUtreexoRoot
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			flatMsg, err = idxType.FetchMsgUtreexoRoot(blockHash)
+			if err != nil {
+				return err
+			}
+
+		case *UtreexoProofIndex:
+			msg, err = idxType.FetchMsgUtreexoRoot(blockHash)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if flatMsg.NumLeaves != msg.NumLeaves {
+		return fmt.Errorf("expected %v, got %v", flatMsg.NumLeaves, msg.NumLeaves)
+	}
+
+	if flatMsg.Target != msg.Target {
+		return fmt.Errorf("expected %v, got %v", flatMsg.Target, msg.Target)
+	}
+
+	if !flatMsg.BlockHash.IsEqual(&msg.BlockHash) {
+		return fmt.Errorf("expected %v, got %v", flatMsg.BlockHash, msg.BlockHash)
+	}
+
+	if len(flatMsg.Roots) != len(msg.Roots) {
+		return fmt.Errorf("expected %v, got %v", len(flatMsg.Roots), len(msg.Roots))
+	}
+	for i := range flatMsg.Roots {
+		if flatMsg.Roots[i] != msg.Roots[i] {
+			return fmt.Errorf("expected %v, got %v", flatMsg.Roots[i], msg.Roots[i])
+		}
+	}
+
+	if len(flatMsg.Proof) != len(msg.Proof) {
+		return fmt.Errorf("expected %v, got %v", len(flatMsg.Proof), len(msg.Proof))
+	}
+	for i := range flatMsg.Proof {
+		if flatMsg.Proof[i] != msg.Proof[i] {
+			return fmt.Errorf("expected %v, got %v", flatMsg.Proof[i], msg.Proof[i])
+		}
+	}
+
+	return nil
+}
+
+func TestUtreexoRootsState(t *testing.T) {
+	// Always remove the root on return.
+	defer os.RemoveAll(testDbRoot)
+
+	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoRootsState")
+	defer tearDown()
+
+	var allSpends []*blockchain.SpendableOut
+	var nextSpends []*blockchain.SpendableOut
+
+	// Number of blocks we'll generate for the test.
+	maxHeight := int32(300)
+
+	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	for i := int32(1); i <= maxHeight; i++ {
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextBlock = newBlock
+
+		allSpends = append(allSpends, newSpendableOuts...)
+
+		var nextSpendsTmp []*blockchain.SpendableOut
+		for j := 0; j < len(allSpends); j++ {
+			randIdx := rand.Intn(len(allSpends))
+
+			spend := allSpends[randIdx]                                       // get
+			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+			nextSpendsTmp = append(nextSpendsTmp, spend)
+		}
+		nextSpends = nextSpendsTmp
+
+		err = compareUtreexoRootsState(indexes, newBlock.Hash())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bestHash := chain.BestSnapshot().Hash
+	err := chain.InvalidateBlock(&bestHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bestHash = chain.BestSnapshot().Hash
+	err = compareUtreexoRootsState(indexes, &bestHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
