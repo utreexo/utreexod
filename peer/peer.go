@@ -168,6 +168,10 @@ type MessageListeners struct {
 	// message.
 	OnGetUtreexoHeader func(p *Peer, msg *wire.MsgGetUtreexoHeader)
 
+	// OnGetUtreexoRoot is invoked when a peer receives a getutreexoroot bitcoin
+	// message.
+	OnGetUtreexoRoot func(p *Peer, msg *wire.MsgGetUtreexoRoot)
+
 	// OnGetCFilters is invoked when a peer receives a getcfilters bitcoin
 	// message.
 	OnGetCFilters func(p *Peer, msg *wire.MsgGetCFilters)
@@ -1519,6 +1523,11 @@ out:
 		case *wire.MsgGetUtreexoHeader:
 			if p.cfg.Listeners.OnGetUtreexoHeader != nil {
 				p.cfg.Listeners.OnGetUtreexoHeader(p, msg)
+			}
+
+		case *wire.MsgGetUtreexoRoot:
+			if p.cfg.Listeners.OnGetUtreexoRoot != nil {
+				p.cfg.Listeners.OnGetUtreexoRoot(p, msg)
 			}
 
 		case *wire.MsgGetCFilters:

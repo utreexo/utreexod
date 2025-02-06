@@ -1378,6 +1378,32 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 	sp.QueueMessage(&utreexoProof, nil)
 }
 
+// OnGetUtreexoRoot is invoked when a peer receives a getutreexoroot bitcoin message.
+func (sp *serverPeer) OnGetUtreexoRoot(_ *peer.Peer, msg *wire.MsgGetUtreexoRoot) {
+	// Ignore getutreexoroot requests if not in sync.
+	if !sp.server.syncManager.IsCurrent() {
+		return
+	}
+
+	// Check if we're a utreexo bridge node. Ignore if we're not.
+	if sp.server.flatUtreexoProofIndex == nil {
+		return
+	}
+
+	var err error
+	var utreexoRootMsg *wire.MsgUtreexoRoot
+	if sp.server.flatUtreexoProofIndex != nil {
+		utreexoRootMsg, err = sp.server.flatUtreexoProofIndex.FetchMsgUtreexoRoot(&msg.BlockHash)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch the utreexo root for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+	}
+
+	sp.QueueMessage(utreexoRootMsg, nil)
+}
+
 // OnUtreexoProof is invoked when a peer receives a utreexoproof bitcoin message.
 func (sp *serverPeer) OnUtreexoProof(_ *peer.Peer, msg *wire.MsgUtreexoProof) {
 	sp.server.syncManager.QueueUtreexoProof(msg, sp.Peer)
@@ -2621,6 +2647,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 			OnUtreexoHeader:    sp.OnUtreexoHeader,
 			OnUtreexoProof:     sp.OnUtreexoProof,
 			OnGetUtreexoProof:  sp.OnGetUtreexoProof,
+			OnGetUtreexoRoot:   sp.OnGetUtreexoRoot,
 			OnGetData:          sp.OnGetData,
 			OnGetBlocks:        sp.OnGetBlocks,
 			OnGetHeaders:       sp.OnGetHeaders,
