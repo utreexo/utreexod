@@ -196,16 +196,7 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 		}
 	}
 
-	bytes, err := blockchain.SerializeUtreexoRoots(
-		idx.utreexoState.state.GetNumLeaves(),
-		idx.utreexoState.state.GetRoots(),
-	)
-	if err != nil {
-		return err
-	}
-
-	rootHash := sha256.Sum256(bytes)
-	return idx.utreexoRootsState.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+	return nil
 }
 
 // Init initializes the flat utreexo proof index. This is part of the Indexer
