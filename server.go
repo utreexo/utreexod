@@ -1386,7 +1386,7 @@ func (sp *serverPeer) OnGetUtreexoRoot(_ *peer.Peer, msg *wire.MsgGetUtreexoRoot
 	}
 
 	// Check if we're a utreexo bridge node. Ignore if we're not.
-	if sp.server.flatUtreexoProofIndex == nil {
+	if sp.server.utreexoProofIndex == nil && sp.server.flatUtreexoProofIndex == nil {
 		return
 	}
 
@@ -1394,6 +1394,15 @@ func (sp *serverPeer) OnGetUtreexoRoot(_ *peer.Peer, msg *wire.MsgGetUtreexoRoot
 	var utreexoRootMsg *wire.MsgUtreexoRoot
 	if sp.server.flatUtreexoProofIndex != nil {
 		utreexoRootMsg, err = sp.server.flatUtreexoProofIndex.FetchMsgUtreexoRoot(&msg.BlockHash)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch the utreexo root for block hash %v: %v",
+				msg.BlockHash, err)
+			return
+		}
+	}
+
+	if sp.server.utreexoProofIndex != nil {
+		utreexoRootMsg, err = sp.server.utreexoProofIndex.FetchMsgUtreexoRoot(&msg.BlockHash)
 		if err != nil {
 			chanLog.Debugf("Unable to fetch the utreexo root for block hash %v: %v",
 				msg.BlockHash, err)

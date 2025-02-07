@@ -6,6 +6,7 @@ package indexers
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"sync"
 	"time"
@@ -66,6 +67,11 @@ type UtreexoProofIndex struct {
 	// It keeps all the elements of the forest in order to generate proofs.
 	utreexoState *UtreexoState
 
+	// utreexoRootsState is the accumulator for all the roots at each of the
+	// blocks. This is so that we can serve to peers the proof that a set of
+	// roots at a block is correct.
+	utreexoRootsState utreexo.Pollard
+
 	// The time of when the utreexo state was last flushed.
 	lastFlushTime time.Time
 }
@@ -76,6 +82,41 @@ type UtreexoProofIndex struct {
 // This implements the NeedsInputser interface.
 func (idx *UtreexoProofIndex) NeedsInputs() bool {
 	return true
+}
+
+// initUtreexoRootsState creates an accumulator from all the existing roots and
+// holds it in memory so that the proofs for them can be generated.
+func (idx *UtreexoProofIndex) initUtreexoRootsState(bestHeight int32) error {
+	idx.utreexoRootsState = utreexo.NewAccumulator()
+
+	for h := int32(1); h <= bestHeight; h++ {
+		hash, err := idx.chain.BlockHashByHeight(h)
+		if err != nil {
+			return err
+		}
+		var stump utreexo.Stump
+		err = idx.db.View(func(dbTx database.Tx) error {
+			stump, err = dbFetchUtreexoState(dbTx, hash)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+
+		bytes, err := blockchain.SerializeUtreexoRoots(stump.NumLeaves, stump.Roots)
+		if err != nil {
+			return err
+		}
+		rootHash := sha256.Sum256(bytes)
+
+		err = idx.utreexoRootsState.Modify(
+			[]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Init initializes the utreexo proof index. This is part of the Indexer
@@ -92,6 +133,11 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	}
 	idx.utreexoState = uState
 	idx.lastFlushTime = time.Now()
+
+	err = idx.initUtreexoRootsState(tipHeight)
+	if err != nil {
+		return err
+	}
 
 	// Nothing else to do if the node is an archive node.
 	if !idx.config.Pruned {
@@ -311,7 +357,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
-	return nil
+	return idx.updateRootsState()
 }
 
 // getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from
@@ -405,7 +451,9 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		}
 	}
 
-	return nil
+	// Re-initializes to the current accumulator roots, effectively disconnecting
+	// a block.
+	return idx.initUtreexoRootsState(block.Height() - 1)
 }
 
 // FetchUtreexoProof returns the Utreexo proof data for the given block hash.
@@ -579,6 +627,22 @@ func (idx *UtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
 	return idx.utreexoState.state.Verify(toProve, *proof, false)
 }
 
+// updateRootsState updates the roots accumulator state from the roots of the current accumulator.
+func (idx *UtreexoProofIndex) updateRootsState() error {
+	idx.mtx.Lock()
+	numLeaves := idx.utreexoState.state.GetNumLeaves()
+	roots := idx.utreexoState.state.GetRoots()
+	idx.mtx.Unlock()
+
+	bytes, err := blockchain.SerializeUtreexoRoots(numLeaves, roots)
+	if err != nil {
+		return err
+	}
+
+	rootHash := sha256.Sum256(bytes)
+	return idx.utreexoRootsState.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+}
+
 // PruneBlock is invoked when an older block is deleted after it's been
 // processed.
 //
@@ -606,6 +670,37 @@ func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastK
 	// been yet connected yet on the utreexo state. So this is indeed the correct hash.
 	bestHash := idx.chain.BestSnapshot().Hash
 	return idx.Flush(&bestHash, blockchain.FlushRequired, true)
+}
+
+// FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.
+func (idx *UtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*wire.MsgUtreexoRoot, error) {
+	var stump utreexo.Stump
+	err := idx.db.View(func(dbTx database.Tx) error {
+		var err error
+		stump, err = dbFetchUtreexoState(dbTx, blockHash)
+		return err
+	})
+
+	bytes, err := blockchain.SerializeUtreexoRoots(stump.NumLeaves, stump.Roots)
+	if err != nil {
+		return nil, err
+	}
+	rootHash := sha256.Sum256(bytes)
+
+	proof, err := idx.utreexoRootsState.Prove([]utreexo.Hash{rootHash})
+	if err != nil {
+		return nil, err
+	}
+
+	msg := &wire.MsgUtreexoRoot{
+		NumLeaves: stump.NumLeaves,
+		Target:    proof.Targets[0],
+		BlockHash: *blockHash,
+		Roots:     stump.Roots,
+		Proof:     proof.Proof,
+	}
+
+	return msg, nil
 }
 
 // NewUtreexoProofIndex returns a new instance of an indexer that is used to create a utreexo
