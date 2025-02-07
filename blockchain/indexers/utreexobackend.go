@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/cockroachdb/pebble"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -67,40 +67,29 @@ type UtreexoConfig struct {
 type UtreexoState struct {
 	config         *UtreexoConfig
 	state          utreexo.Utreexo
-	utreexoStateDB *leveldb.DB
+	utreexoStateDB *pebble.DB
 
 	isFlushNeeded       func() bool
-	flushLeavesAndNodes func(ldbTx *leveldb.Transaction) error
+	flushLeavesAndNodes func(batch *pebble.Batch) error
 }
 
 // flush flushes the utreexo state and all the data necessary for the utreexo state to be recoverable
 // on sudden crashes.
 func (us *UtreexoState) flush(bestHash *chainhash.Hash) error {
-	ldbTx, err := us.utreexoStateDB.OpenTransaction()
-	if err != nil {
-		return err
-	}
+	batch := us.utreexoStateDB.NewBatch()
 
 	// Write the best block hash and the numleaves for the utreexo state.
-	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, us.state.GetNumLeaves())
+	err := dbWriteUtreexoStateConsistency(batch, bestHash, us.state.GetNumLeaves())
 	if err != nil {
-		ldbTx.Discard()
 		return err
 	}
 
-	err = us.flushLeavesAndNodes(ldbTx)
+	err = us.flushLeavesAndNodes(batch)
 	if err != nil {
-		ldbTx.Discard()
 		return err
 	}
 
-	err = ldbTx.Commit()
-	if err != nil {
-		ldbTx.Discard()
-		return err
-	}
-
-	return nil
+	return batch.Commit(nil)
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -133,19 +122,19 @@ func checkUtreexoExists(cfg *UtreexoConfig, basePath string) bool {
 }
 
 // dbWriteUtreexoStateConsistency writes the consistency state to the database using the given transaction.
-func dbWriteUtreexoStateConsistency(ldbTx *leveldb.Transaction, bestHash *chainhash.Hash, numLeaves uint64) error {
+func dbWriteUtreexoStateConsistency(batch *pebble.Batch, bestHash *chainhash.Hash, numLeaves uint64) error {
 	// Create the byte slice to be written.
 	var buf [8 + chainhash.HashSize]byte
 	binary.LittleEndian.PutUint64(buf[:8], numLeaves)
 	copy(buf[8:], bestHash[:])
 
-	return ldbTx.Put(utreexoStateConsistencyKeyName, buf[:], nil)
+	return batch.Set(utreexoStateConsistencyKeyName, buf[:], nil)
 }
 
 // dbFetchUtreexoStateConsistency returns the stored besthash and the numleaves in the database.
-func dbFetchUtreexoStateConsistency(db *leveldb.DB) (*chainhash.Hash, uint64, error) {
-	buf, err := db.Get(utreexoStateConsistencyKeyName, nil)
-	if err != nil && err != leveldb.ErrNotFound {
+func dbFetchUtreexoStateConsistency(db *pebble.DB) (*chainhash.Hash, uint64, error) {
+	buf, closer, err := db.Get(utreexoStateConsistencyKeyName)
+	if err != nil && err != pebble.ErrNotFound {
 		return nil, 0, err
 	}
 	// Set error to nil as the error may have been ErrNotFound.
@@ -153,6 +142,7 @@ func dbFetchUtreexoStateConsistency(db *leveldb.DB) (*chainhash.Hash, uint64, er
 	if buf == nil {
 		return nil, 0, nil
 	}
+	defer closer.Close()
 
 	bestHash, err := chainhash.NewHash(buf[8:])
 	if err != nil {
@@ -440,102 +430,6 @@ func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, 
 	return numAdds, targets, delHashes, nil
 }
 
-// upgradeUtreexoState upgrades the utreexo state to be atomic.
-func upgradeUtreexoState(cfg *UtreexoConfig, p *utreexo.MapPollard,
-	db *leveldb.DB, bestHash *chainhash.Hash) error {
-
-	// Check if the current database is an older database that needs to be upgraded.
-	if !checkUtreexoExists(cfg, utreexoBasePath(cfg)) {
-		return nil
-	}
-
-	log.Infof("Upgrading the utreexo state database. Do NOT shut down this process. " +
-		"This may take a while...")
-
-	// Write the nodes to the new database.
-	nodesPath := filepath.Join(utreexoBasePath(cfg), "nodes")
-	nodesDB, err := leveldb.OpenFile(nodesPath, nil)
-	if err != nil {
-		return err
-	}
-
-	ldbTx, err := db.OpenTransaction()
-	if err != nil {
-		return err
-	}
-
-	iter := nodesDB.NewIterator(nil, nil)
-	for iter.Next() {
-		err = ldbTx.Put(iter.Key(), iter.Value(), nil)
-		if err != nil {
-			ldbTx.Discard()
-			return err
-		}
-	}
-	nodesDB.Close()
-
-	// Write the cached leaves to the new database.
-	cachedLeavesPath := filepath.Join(utreexoBasePath(cfg), "cachedleaves")
-	cachedLeavesDB, err := leveldb.OpenFile(cachedLeavesPath, nil)
-	if err != nil {
-		return err
-	}
-
-	iter = cachedLeavesDB.NewIterator(nil, nil)
-	for iter.Next() {
-		err = ldbTx.Put(iter.Key(), iter.Value(), nil)
-		if err != nil {
-			ldbTx.Discard()
-			return err
-		}
-	}
-	cachedLeavesDB.Close()
-
-	// Open the file and read the numLeaves.
-	forestFilePath := filepath.Join(utreexoBasePath(cfg), oldDefaultUtreexoFileName)
-	file, err := os.OpenFile(forestFilePath, os.O_RDWR, 0400)
-	if err != nil {
-		return err
-	}
-	var buf [8]byte
-	_, err = file.Read(buf[:])
-	if err != nil {
-		return err
-	}
-
-	// Save the consistency state
-	p.NumLeaves = binary.LittleEndian.Uint64(buf[:8])
-	err = dbWriteUtreexoStateConsistency(ldbTx, bestHash, p.NumLeaves)
-	if err != nil {
-		ldbTx.Discard()
-		return err
-	}
-
-	// Commit all the writes to the database.
-	err = ldbTx.Commit()
-	if err != nil {
-		ldbTx.Discard()
-		return err
-	}
-
-	// Remove the unnecessary file after the upgrade.
-	err = os.Remove(forestFilePath)
-	if err != nil {
-		return err
-	}
-	err = os.RemoveAll(cachedLeavesPath)
-	if err != nil {
-		return err
-	}
-	err = os.RemoveAll(nodesPath)
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Finished upgrading the utreexo state database.")
-	return nil
-}
-
 // initConsistentUtreexoState makes the utreexo state consistent with the given tipHash.
 func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 	savedHash, tipHash *chainhash.Hash, tipHeight int32) error {
@@ -640,7 +534,11 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 	maxNodesMem := cfg.MaxMemoryUsage * 7 / 10
 	maxCachedLeavesMem := cfg.MaxMemoryUsage - maxNodesMem
 
-	db, err := leveldb.OpenFile(utreexoBasePath(cfg), nil)
+	cache := pebble.NewCache(128 << 20) // 128MB cache
+	db, err := pebble.Open(utreexoBasePath(cfg), &pebble.Options{
+		Cache: cache,
+	})
+	cache.Unref()
 	if err != nil {
 		return nil, err
 	}
@@ -655,13 +553,6 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 		return nil, err
 	}
 
-	// The utreexo state may be an older version where the numLeaves were stored in a flat
-	// file. Upgrade the utreexo state if it needs to be.
-	err = upgradeUtreexoState(cfg, &p, db, tipHash)
-	if err != nil {
-		return nil, err
-	}
-
 	savedHash, numLeaves, err := dbFetchUtreexoStateConsistency(db)
 	if err != nil {
 		return nil, err
@@ -670,7 +561,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 
 	p.Nodes = nodesDB
 	p.CachedLeaves = cachedLeavesDB
-	flush := func(ldbTx *leveldb.Transaction) error {
+	flush := func(batch *pebble.Batch) error {
 		nodesUsed, nodesCapacity := nodesDB.UsageStats()
 		log.Debugf("Utreexo index nodesDB cache usage: %d/%d (%v%%)\n",
 			nodesUsed, nodesCapacity,
@@ -681,11 +572,11 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 			cachedLeavesUsed, cachedLeavesCapacity,
 			float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
 
-		err = nodesDB.Flush(ldbTx)
+		err = nodesDB.Flush(batch)
 		if err != nil {
 			return err
 		}
-		err = cachedLeavesDB.Flush(ldbTx)
+		err = cachedLeavesDB.Flush(batch)
 		if err != nil {
 			return err
 		}
