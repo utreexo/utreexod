@@ -64,6 +64,17 @@ func (h *MsgUtreexoHeader) Serialize(w io.Writer) error {
 	return writeUtreexoHeader(w, 0, h)
 }
 
+// SerializeSize returns the number of bytes it would take to serialize the
+// utreexo header.
+func (h *MsgUtreexoHeader) SerializeSize() int {
+	n := chainhash.HashSize + 2 + VarIntSerializeSize(uint64(len(h.Targets)))
+	for _, target := range h.Targets {
+		n += VarIntSerializeSize(target)
+	}
+
+	return n
+}
+
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver.  This is part of the Message interface implementation.
 func (h *MsgUtreexoHeader) MaxPayloadLength(pver uint32) uint32 {
