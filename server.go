@@ -957,11 +957,11 @@ func (sp *serverPeer) OnGetUtreexoHeader(_ *peer.Peer, msg *wire.MsgGetUtreexoHe
 
 	// Construct the utreexo header.
 	blockHeader := wire.MsgUtreexoHeader{
-		BlockHash: msg.BlockHash,
-		NumAdds:   uint16(len(adds)),
-		Targets:   make([]uint64, len(targets)),
+		BlockHash:    msg.BlockHash,
+		NumAdds:      uint16(len(adds)),
+		BlockTargets: make([]uint64, len(targets)),
 	}
-	copy(blockHeader.Targets, targets)
+	copy(blockHeader.BlockTargets, targets)
 	sp.QueueMessage(&blockHeader, nil)
 }
 
