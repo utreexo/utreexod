@@ -2386,7 +2386,7 @@ func handleGetChainTips(s *rpcServer, cmd interface{}, closeChan <-chan struct{}
 
 // handleGetCFilter implements the getcfilter command.
 func handleGetCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
-	if s.cfg.CfIndex == nil {
+	if s.cfg.CfIndex == nil || s.cfg.UtreexoCfIndex != nil {
 		return nil, &btcjson.RPCError{
 			Code:    btcjson.ErrRPCNoCFIndex,
 			Message: "The CF index must be enabled for this command",
@@ -2399,7 +2399,20 @@ func handleGetCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) 
 		return nil, rpcDecodeHexError(c.Hash)
 	}
 
-	filterBytes, err := s.cfg.CfIndex.FilterByBlockHash(hash, c.FilterType)
+	var filterBytes []byte
+	if c.FilterType == wire.UtreexoCFilter {
+		err = s.cfg.DB.View(func(dbTx database.Tx) error {
+			var err error
+			filterBytes, err = s.cfg.UtreexoCfIndex.FilterByBlockHash(dbTx, hash, c.FilterType)
+			return err
+		})
+		if err != nil {
+			return nil, rpcNoTxInfoError(hash)
+		}
+	} else {
+		filterBytes, err = s.cfg.CfIndex.FilterByBlockHash(hash, c.FilterType)
+	}
+
 	if err != nil {
 		rpcsLog.Debugf("Could not find committed filter for %v: %v",
 			hash, err)
@@ -5723,6 +5736,7 @@ type rpcserverConfig struct {
 	TxIndex               *indexers.TxIndex
 	AddrIndex             *indexers.AddrIndex
 	CfIndex               *indexers.CfIndex
+	UtreexoCfIndex        *indexers.UtreexoCFIndex
 	TTLIndex              *indexers.TTLIndex
 	UtreexoProofIndex     *indexers.UtreexoProofIndex
 	FlatUtreexoProofIndex *indexers.FlatUtreexoProofIndex
