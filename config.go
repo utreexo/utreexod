@@ -204,9 +204,11 @@ type config struct {
 	FlatUtreexoProofIndex      bool  `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
 	UtreexoProofIndexMaxMemory int64 `long:"utreexoproofindexmaxmemory" description:"The maxmimum memory in mebibytes (MiB) that the utreexo proof indexes will use up. Default of 500MiB. Minimum of 250MiB"`
 	CFilters                   bool  `long:"cfilters" description:"Enable committed filtering (CF) support"`
+	UtreexoCFilters            bool  `long:"utreexocfilters" description:"Enable committed filtering (CF) support serving utreexo roots."`
 	NoPeerBloomFilters         bool  `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
 	DropAddrIndex              bool  `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
 	DropCfIndex                bool  `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
+	DropUtreexoCfIndex         bool  `long:"droputreexocfindex" description:"Deletes the index used for custom utreexo commited filter indexing support serving utreexo roots from the database on start up and then exits."`
 	DropTxIndex                bool  `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
 	DropTTLIndex               bool  `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
 	DropUtreexoProofIndex      bool  `long:"droputreexoproofindex" description:"Deletes the utreexo proof index from the database on start up and then exits."`
@@ -1213,6 +1215,14 @@ func loadConfig() (*config, []string, error) {
 	// Set --noassumeutreexo if the node is not a utreexo node.
 	if cfg.NoUtreexo {
 		cfg.NoAssumeUtreexo = true
+	}
+
+	if cfg.NoUtreexo && cfg.UtreexoCFilters && (!cfg.UtreexoProofIndex && !cfg.FlatUtreexoProofIndex) {
+		err := fmt.Errorf("%s: the --utreexocfilters can not be called with --noutreexo option when "+
+			"neither of utreexoproofindex or flatutreexoproofindex options are enabled", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
 	}
 
 	// Specifying --noonion means the onion address dial function results in
