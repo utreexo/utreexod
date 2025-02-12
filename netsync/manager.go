@@ -1041,7 +1041,7 @@ func (sm *SyncManager) fetchUtreexoHeaders(peer *peerpkg.Peer) {
 		_, have := sm.utreexoHeaders[*hash]
 		if !requested && !have {
 			state.requestedUtreexoHeaders[*hash] = struct{}{}
-			ghmsg := wire.NewMsgGetUtreexoHeader(*hash)
+			ghmsg := wire.NewMsgGetUtreexoHeader(*hash, true)
 			reqPeer.QueueMessage(ghmsg, nil)
 		}
 
@@ -1755,7 +1755,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
 				amUtreexoNode := sm.chain.IsUtreexoViewActive()
 				if amUtreexoNode {
-					ghmsg := wire.NewMsgGetUtreexoHeader(iv.Hash)
+					ghmsg := wire.NewMsgGetUtreexoHeader(iv.Hash, true)
 					peer.QueueMessage(ghmsg, nil)
 					continue
 				}

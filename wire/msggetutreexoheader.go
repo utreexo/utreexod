@@ -13,7 +13,8 @@ import (
 // getutreexoheader message. It's used to request the utreexo header at the given
 // block.
 type MsgGetUtreexoHeader struct {
-	BlockHash chainhash.Hash
+	BlockHash    chainhash.Hash
+	IncludeProof bool
 }
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
@@ -24,12 +25,21 @@ func (msg *MsgGetUtreexoHeader) BtcDecode(r io.Reader, pver uint32, enc MessageE
 		return err
 	}
 
+	msg.IncludeProof = msg.BlockHash[31] == 2
+	msg.BlockHash[31] = 0
+
 	return nil
 }
 
 // BtcEncode encodes the receiver to w using the bitcoin protocol encoding.
 // This is part of the Message interface implementation.
 func (msg *MsgGetUtreexoHeader) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
+	if !msg.IncludeProof {
+		msg.BlockHash[31] = 1
+	} else {
+		msg.BlockHash[31] = 2
+	}
+
 	_, err := w.Write(msg.BlockHash[:])
 	if err != nil {
 		return err
@@ -52,6 +62,6 @@ func (msg *MsgGetUtreexoHeader) MaxPayloadLength(pver uint32) uint32 {
 
 // NewMsgGetUtreexoHeader returns a new bitcoin getheaders message that conforms to
 // the Message interface.  See MsgGetUtreexoHeader for details.
-func NewMsgGetUtreexoHeader(blockHash chainhash.Hash) *MsgGetUtreexoHeader {
-	return &MsgGetUtreexoHeader{BlockHash: blockHash}
+func NewMsgGetUtreexoHeader(blockHash chainhash.Hash, includeProof bool) *MsgGetUtreexoHeader {
+	return &MsgGetUtreexoHeader{BlockHash: blockHash, IncludeProof: includeProof}
 }
