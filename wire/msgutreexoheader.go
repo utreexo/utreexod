@@ -6,6 +6,7 @@ package wire
 import (
 	"io"
 
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
@@ -13,13 +14,19 @@ import (
 // of uint64.
 const MaxUtreexoHeaderPayload = (28_000 * 8)
 
+// MaxUtreexoHeaderPerMsg is the maximum number of utreexo headers that can be in a single
+// bitcoin headers message.
+const MaxUtreexoHeaderPerMsg = 1000
+
 // MsgUtreexoHeader implements the Message interface and represents a bitcoin
 // utreexo block header message. It's used to provide the positions of the inputs
 // that are being spent in the given block.
 type MsgUtreexoHeader struct {
-	BlockHash chainhash.Hash
-	NumAdds   uint16
-	Targets   []uint64
+	BlockHash    chainhash.Hash
+	NumAdds      uint16
+	BlockTargets []uint64
+	ProofTargets []uint64
+	ProofHashes  []utreexo.Hash
 }
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
@@ -67,9 +74,17 @@ func (h *MsgUtreexoHeader) Serialize(w io.Writer) error {
 // SerializeSize returns the number of bytes it would take to serialize the
 // utreexo header.
 func (h *MsgUtreexoHeader) SerializeSize() int {
-	n := chainhash.HashSize + 2 + VarIntSerializeSize(uint64(len(h.Targets)))
-	for _, target := range h.Targets {
+	n := chainhash.HashSize + 2 + VarIntSerializeSize(uint64(len(h.BlockTargets)))
+	for _, target := range h.BlockTargets {
 		n += VarIntSerializeSize(target)
+	}
+
+	if len(h.ProofTargets) > 0 {
+		n += VarIntSerializeSize(uint64(len(h.ProofTargets)))
+		for _, target := range h.ProofTargets {
+			n += VarIntSerializeSize(target)
+		}
+		n += VarIntSerializeSize(uint64(len(h.ProofHashes))) + (len(h.ProofHashes) * chainhash.HashSize)
 	}
 
 	return n
@@ -78,8 +93,8 @@ func (h *MsgUtreexoHeader) SerializeSize() int {
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver.  This is part of the Message interface implementation.
 func (h *MsgUtreexoHeader) MaxPayloadLength(pver uint32) uint32 {
-	// BlockHash size + uint16 size + Num headers (varInt) + the max payload of the targets.
-	return chainhash.HashSize + 2 + MaxVarIntPayload + MaxUtreexoHeaderPayload
+	return chainhash.HashSize + 2 + (MaxVarIntPayload * 3) + MaxUtreexoHeaderPayload +
+		(8 * MaxUtreexoHeaderPerMsg) + (chainhash.HashSize * 127)
 }
 
 // NewMsgUtreexoHeader returns a new MsgUtreexoHeader using the provided version, previous
@@ -89,9 +104,9 @@ func NewMsgUtreexoHeader(blockHash chainhash.Hash,
 	numAdds uint16, targets []uint64) *MsgUtreexoHeader {
 
 	return &MsgUtreexoHeader{
-		BlockHash: blockHash,
-		NumAdds:   numAdds,
-		Targets:   targets,
+		BlockHash:    blockHash,
+		NumAdds:      numAdds,
+		BlockTargets: targets,
 	}
 }
 
@@ -117,9 +132,39 @@ func readUtreexoHeader(r io.Reader, _ uint32, bh *MsgUtreexoHeader) error {
 		return err
 	}
 
-	bh.Targets = make([]uint64, count)
-	for i := range bh.Targets {
-		bh.Targets[i], err = ReadVarInt(r, 0)
+	bh.BlockTargets = make([]uint64, count)
+	for i := range bh.BlockTargets {
+		bh.BlockTargets[i], err = ReadVarInt(r, 0)
+		if err != nil {
+			return err
+		}
+	}
+
+	proofCount, err := ReadVarInt(r, 0)
+	if err != nil {
+		// The proof is optional so it just wasn't included.
+		if err == io.EOF {
+			return nil
+		}
+		return err
+	}
+
+	bh.ProofTargets = make([]uint64, proofCount)
+	for i := range bh.ProofTargets {
+		bh.ProofTargets[i], err = ReadVarInt(r, 0)
+		if err != nil {
+			return err
+		}
+	}
+
+	proofHashCount, err := ReadVarInt(r, 0)
+	if err != nil {
+		return err
+	}
+
+	bh.ProofHashes = make([]utreexo.Hash, proofHashCount)
+	for i := range bh.ProofHashes {
+		_, err = io.ReadFull(r, bh.ProofHashes[i][:])
 		if err != nil {
 			return err
 		}
@@ -145,13 +190,42 @@ func writeUtreexoHeader(w io.Writer, _ uint32, bh *MsgUtreexoHeader) error {
 		return err
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(bh.Targets)))
+	err = WriteVarInt(w, 0, uint64(len(bh.BlockTargets)))
 	if err != nil {
 		return err
 	}
 
-	for _, t := range bh.Targets {
+	for _, t := range bh.BlockTargets {
 		err = WriteVarInt(w, 0, t)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Proof is optional.
+	if len(bh.ProofTargets) == 0 {
+		return nil
+	}
+
+	err = WriteVarInt(w, 0, uint64(len(bh.ProofTargets)))
+	if err != nil {
+		return err
+	}
+
+	for _, t := range bh.ProofTargets {
+		err = WriteVarInt(w, 0, t)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = WriteVarInt(w, 0, uint64(len(bh.ProofHashes)))
+	if err != nil {
+		return err
+	}
+
+	for _, proofHash := range bh.ProofHashes {
+		_, err := w.Write(proofHash[:])
 		if err != nil {
 			return err
 		}

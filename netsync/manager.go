@@ -832,14 +832,14 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 
 		udata := wire.UData{
 			AccProof: utreexo.Proof{
-				Targets: utreexoHeader.Targets,
+				Targets: utreexoHeader.BlockTargets,
 				Proof:   utreexoProofMsg.proof.ProofHashes,
 			},
 			LeafDatas: utreexoProofMsg.proof.LeafDatas,
 		}
 
 		bmsg.block.MsgBlock().UData = &udata
-		bmsg.block.MsgBlock().UData.AccProof.Targets = utreexoHeader.Targets
+		bmsg.block.MsgBlock().UData.AccProof.Targets = utreexoHeader.BlockTargets
 	}
 
 	// Process the block based off the headers if we're still in headers-first mode.
@@ -1162,7 +1162,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				syncPeerState.requestedUtreexoProofs[*hash] = struct{}{}
 
 				msg := wire.ConstructGetProofMsg(
-					hash, sm.numLeaves[h-1], utreexoHeader.Targets)
+					hash, sm.numLeaves[h-1], utreexoHeader.BlockTargets)
 				reqPeer.QueueMessage(msg, nil)
 			}
 		}
