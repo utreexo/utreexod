@@ -700,10 +700,10 @@ func (sp *serverPeer) OnHeaders(_ *peer.Peer, msg *wire.MsgHeaders) {
 	sp.server.syncManager.QueueHeaders(msg, sp.Peer)
 }
 
-// OnUtreexoHeader is invoked when a peer receives a utreexo header bitcoin
+// OnUtreexoSummaries is invoked when a peer receives a utreexo summaries bitcoin
 // message.  The message is passed down to the sync manager.
-func (sp *serverPeer) OnUtreexoHeader(_ *peer.Peer, msg *wire.MsgUtreexoHeader) {
-	sp.server.syncManager.QueueUtreexoHeader(msg, sp.Peer)
+func (sp *serverPeer) OnUtreexoSummaries(_ *peer.Peer, msg *wire.MsgUtreexoSummaries) {
+	sp.server.syncManager.QueueUtreexoSummaries(msg, sp.Peer)
 }
 
 // handleGetData is invoked when a peer receives a getdata bitcoin message and
@@ -955,14 +955,16 @@ func (sp *serverPeer) OnGetUtreexoHeader(_ *peer.Peer, msg *wire.MsgGetUtreexoHe
 		targets = udata.AccProof.Targets
 	}
 
-	// Construct the utreexo header.
-	blockHeader := wire.MsgUtreexoHeader{
+	// Construct the utreexo summaries.
+	summary := wire.UtreexoBlockSummary{
 		BlockHash:    msg.BlockHash,
 		NumAdds:      uint16(len(adds)),
 		BlockTargets: make([]uint64, len(targets)),
 	}
-	copy(blockHeader.BlockTargets, targets)
-	sp.QueueMessage(&blockHeader, nil)
+	copy(summary.BlockTargets, targets)
+	usmsg := wire.NewMsgUtreexoSummaries()
+	usmsg.AddSummary(&summary)
+	sp.QueueMessage(usmsg, nil)
 }
 
 // OnGetCFilters is invoked when a peer receives a getcfilters bitcoin message.
@@ -2653,7 +2655,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 			OnBlock:            sp.OnBlock,
 			OnInv:              sp.OnInv,
 			OnHeaders:          sp.OnHeaders,
-			OnUtreexoHeader:    sp.OnUtreexoHeader,
+			OnUtreexoSummaries: sp.OnUtreexoSummaries,
 			OnUtreexoProof:     sp.OnUtreexoProof,
 			OnGetUtreexoProof:  sp.OnGetUtreexoProof,
 			OnGetUtreexoRoot:   sp.OnGetUtreexoRoot,

@@ -9,51 +9,36 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 func TestUtreexoBlockHeaderSerialize(t *testing.T) {
 	tests := []struct {
-		data MsgUtreexoHeader
+		data UtreexoBlockSummary
 	}{
 		{
-			data: MsgUtreexoHeader{
-				BlockHash:    chainhash.HashH([]byte{1}),
-				NumAdds:      8,
-				BlockTargets: []uint64{14181, 484518},
-				ProofTargets: []uint64{33, 34, 35, 36, 37, 38},
-				ProofHashes: []utreexo.Hash{
-					utreexo.Hash(chainhash.HashH([]byte{1})),
-					utreexo.Hash(chainhash.HashH([]byte{2})),
-					utreexo.Hash(chainhash.HashH([]byte{3})),
-					utreexo.Hash(chainhash.HashH([]byte{4})),
-				},
-			},
-		},
-		{
-			data: MsgUtreexoHeader{
+			data: UtreexoBlockSummary{
 				BlockHash:    chainhash.HashH([]byte{1}),
 				NumAdds:      8,
 				BlockTargets: []uint64{14181, 484518},
 			},
 		},
 		{
-			data: MsgUtreexoHeader{
+			data: UtreexoBlockSummary{
+				BlockHash:    chainhash.HashH([]byte{1}),
+				NumAdds:      8,
+				BlockTargets: []uint64{14181, 484518},
+			},
+		},
+		{
+			data: UtreexoBlockSummary{
 				BlockHash:    chainhash.HashH([]byte{5}),
 				NumAdds:      1544,
 				BlockTargets: []uint64{14181, 484518, 11774, 148185, 189416854, 15481, 18518, 2},
-				ProofTargets: []uint64{84154, 84155, 84156, 84157, 84158, 84159, 84160, 84161, 84162, 84163, 84164, 84165},
-				ProofHashes: []utreexo.Hash{
-					utreexo.Hash(chainhash.HashH([]byte{6})),
-					utreexo.Hash(chainhash.HashH([]byte{7})),
-					utreexo.Hash(chainhash.HashH([]byte{8})),
-					utreexo.Hash(chainhash.HashH([]byte{9})),
-				},
 			},
 		},
 		{
-			data: MsgUtreexoHeader{
+			data: UtreexoBlockSummary{
 				BlockHash:    chainhash.HashH([]byte{5}),
 				NumAdds:      1544,
 				BlockTargets: []uint64{14181, 484518, 11774, 148185, 189416854, 15481, 18518, 2},
@@ -79,7 +64,7 @@ func TestUtreexoBlockHeaderSerialize(t *testing.T) {
 
 		// Check data.
 		r := bytes.NewBuffer(b)
-		got := MsgUtreexoHeader{}
+		got := UtreexoBlockSummary{}
 		err = got.Deserialize(r)
 		if err != nil {
 			t.Fatal(err)
