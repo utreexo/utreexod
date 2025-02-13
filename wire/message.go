@@ -42,7 +42,7 @@ const (
 	CmdGetHeaders       = "getheaders"
 	CmdGetUtreexoHeader = "getuheader"
 	CmdHeaders          = "headers"
-	CmdUtreexoHeader    = "uheader"
+	CmdUtreexoSummaries = "usummaries"
 	CmdPing             = "ping"
 	CmdPong             = "pong"
 	CmdAlert            = "alert"
@@ -156,8 +156,8 @@ func makeEmptyMessage(command string) (Message, error) {
 	case CmdHeaders:
 		msg = &MsgHeaders{}
 
-	case CmdUtreexoHeader:
-		msg = &MsgUtreexoHeader{}
+	case CmdUtreexoSummaries:
+		msg = &MsgUtreexoSummaries{}
 
 	case CmdUtreexoProof:
 		msg = &MsgUtreexoProof{}
