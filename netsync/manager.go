@@ -985,7 +985,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		}
 	}
 
-	lastHeight := sm.syncPeer.LastBlock()
+	_, lastHeight := sm.chain.BestHeader()
 	if bmsg.block.Height() < lastHeight {
 		if sm.startHeader != nil && len(state.requestedBlocks) == 0 {
 			sm.fetchHeaderBlocks(nil)
@@ -1376,7 +1376,8 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 			return
 		}
 
-		if height == peer.LastBlock() {
+		_, lastHeight := sm.chain.BestHeader()
+		if height == lastHeight {
 			log.Infof("Received utreexo summaries to block "+
 				"%d/hash %s. Fetching blocks",
 				height, lastSummary.BlockHash)
