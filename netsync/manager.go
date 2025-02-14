@@ -1103,8 +1103,13 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		// If we're a csn then keep track of the numleaves. We need this to construct
 		// the get proof message.
 		if sm.chain.IsUtreexoViewActive() {
-			header := sm.utreexoSummaries[*hash]
-			numLeaves := sm.numLeaves[h-1] + uint64(header.NumAdds)
+			summary, found := sm.utreexoSummaries[*hash]
+			if !found {
+				log.Debugf("couldn't find block summary for %v", hash)
+				sm.fetchUtreexoSummaries(reqPeer)
+				return
+			}
+			numLeaves := sm.numLeaves[h-1] + uint64(summary.NumAdds)
 			sm.numLeaves[h] = numLeaves
 		}
 
@@ -1345,6 +1350,13 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 	}
 	msg := hmsg.summaries
 
+	if len(msg.Summaries) == 0 {
+		log.Warnf("Received empty utreexo summary message from peer %s "+
+			"-- disconnecting", peer)
+		peer.Disconnect()
+		return
+	}
+
 	// If we're in headers first, check if we have the final utreexo block summary. If not,
 	// ask for more utreexo block summaries.
 	if sm.headersFirstMode {
@@ -1393,6 +1405,13 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 	}
 
 	for _, summary := range msg.Summaries {
+		_, found := peerState.requestedUtreexoSummaries[summary.BlockHash]
+		if !found {
+			log.Warnf("Got unrequested utreexo block summary from %s -- "+
+				"disconnecting", peer.Addr())
+			peer.Disconnect()
+			return
+		}
 		delete(peerState.requestedUtreexoSummaries, summary.BlockHash)
 		sm.utreexoSummaries[summary.BlockHash] = summary
 		log.Debugf("accepted utreexo summary for block %v. have %v headers",
