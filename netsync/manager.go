@@ -1083,15 +1083,9 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	gdmsg := wire.NewMsgGetDataSizeHint(uint(length))
 	numRequested := 0
 
-	hash, err := sm.chain.HeaderHashByHeight(bestState.Height + 1)
-	if err != nil {
-		return
-	}
-
-	if sm.headersFirstMode {
-		log.Infof("fetching from %v(%v) to %v(%v) from %v", hash, bestState.Height+1,
-			bestHeaderHash, bestHeaderHeight, reqPeer.String())
-	}
+	hash := bestState.Hash
+	log.Infof("fetching from %v(%v) to %v(%v) from %v", hash, bestState.Height+1,
+		bestHeaderHash, bestHeaderHeight, reqPeer.String())
 	for h := bestState.Height + 1; h <= bestHeaderHeight; h++ {
 		hash, err := sm.chain.HeaderHashByHeight(h)
 		if err != nil {
