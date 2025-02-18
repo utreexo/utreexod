@@ -796,6 +796,37 @@ func NewGetTxOutSetInfoCmd() *GetTxOutSetInfoCmd {
 	return &GetTxOutSetInfoCmd{}
 }
 
+// GetUtreexoCFilterCmd defines the getutreexocfilter JSON-RPC command.
+type GetUtreexoCFilterCmd struct {
+	Hash       string
+	FilterType wire.FilterType
+}
+
+// NewGetUtreexoCFilterCmd returns a new instance which can be used to issue a
+// getutreexocfilter JSON-RPC command.
+func NewGetUtreexoCFilterCmd(hash string, filterType wire.FilterType) *GetUtreexoCFilterCmd {
+	return &GetUtreexoCFilterCmd{
+		Hash:       hash,
+		FilterType: filterType,
+	}
+}
+
+// GetUtreexoCFilterHeaderCmd defines the getutreexocfilterheader JSON-RPC command.
+type GetUtreexoCFilterHeaderCmd struct {
+	Hash       string
+	FilterType wire.FilterType
+}
+
+// NewGetUtreexoCFilterHeaderCmd returns a new instance which can be used to issue a
+// getutreexocfilterheader JSON-RPC command.
+func NewGetUtreexoCFilterHeaderCmd(hash string,
+	filterType wire.FilterType) *GetUtreexoCFilterHeaderCmd {
+	return &GetUtreexoCFilterHeaderCmd{
+		Hash:       hash,
+		FilterType: filterType,
+	}
+}
+
 // GetUtreexoProofCmd defines the getutreexoproof JSON-RPC command.
 type GetUtreexoProofCmd struct {
 	BlockHash string
@@ -1317,6 +1348,8 @@ func init() {
 	MustRegisterCmd("gettxout", (*GetTxOutCmd)(nil), flags)
 	MustRegisterCmd("gettxoutproof", (*GetTxOutProofCmd)(nil), flags)
 	MustRegisterCmd("gettxoutsetinfo", (*GetTxOutSetInfoCmd)(nil), flags)
+	MustRegisterCmd("getutreexocfilter", (*GetUtreexoCFilterCmd)(nil), flags)
+	MustRegisterCmd("getutreexocfilterheader", (*GetUtreexoCFilterHeaderCmd)(nil), flags)
 	MustRegisterCmd("getutreexoproof", (*GetUtreexoProofCmd)(nil), flags)
 	MustRegisterCmd("getutreexoroots", (*GetUtreexoRootsCmd)(nil), flags)
 	MustRegisterCmd("getwork", (*GetWorkCmd)(nil), flags)
