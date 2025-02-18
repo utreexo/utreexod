@@ -504,6 +504,9 @@ type DB interface {
 	// user-supplied function will result in a panic.
 	Update(fn func(tx Tx) error) error
 
+	// Flush flushes the internal cache of the database to the disk.
+	Flush() error
+
 	// Close cleanly shuts down the database and syncs all data.  It will
 	// block until all database transactions have been finalized (rolled
 	// back or committed).

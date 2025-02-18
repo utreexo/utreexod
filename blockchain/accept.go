@@ -114,11 +114,12 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 //
 // In the case the block header is already known, the associated block node is
 // examined to determine if the block is already known to be invalid, in which
-// case an appropriate error will be returned.  Otherwise, the block node is
-// returned.
+// case an appropriate error will be returned.
+//
+// The returned bool indicates if the header extended the best chain of headers.
 //
 // This function MUST be called with the chain lock held (for writes).
-func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeaderSanity bool) (*blockNode, error) {
+func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, flags BehaviorFlags) (bool, error) {
 	// Avoid validating the header again if its validation status is already
 	// known.  Invalid headers are never added to the block index, so if there
 	// is an entry for the block hash, the header itself is known to be valid.
@@ -127,26 +128,25 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeade
 	hash := header.BlockHash()
 	if node := b.index.LookupNode(&hash); node != nil {
 		if err := b.checkKnownInvalidBlock(node); err != nil {
-			return nil, err
+			return false, err
 		}
 
-		return node, nil
+		return false, nil
 	}
 
 	// Perform context-free sanity checks on the block header.
-	if checkHeaderSanity {
-		err := checkBlockHeaderSanity(header, b.chainParams.PowLimit, b.timeSource, BFNone)
-		if err != nil {
-			return nil, err
-		}
+	err := checkBlockHeaderSanity(header, b.chainParams.PowLimit, b.timeSource, flags)
+	if err != nil {
+		return false, err
 	}
+
 	// Orphan headers are not allowed and this function should never be called
 	// with the genesis block.
 	prevHash := &header.PrevBlock
 	prevNode := b.index.LookupNode(prevHash)
 	if prevNode == nil {
 		str := fmt.Sprintf("previous block %s is not known", prevHash)
-		return nil, ruleError(ErrMissingParent, str)
+		return false, ruleError(ErrMissingParent, str)
 	}
 
 	// There is no need to validate the header if an ancestor is already known
@@ -154,14 +154,14 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeade
 	prevNodeStatus := b.index.NodeStatus(prevNode)
 	if prevNodeStatus.KnownInvalid() {
 		str := fmt.Sprintf("previous block %s is known to be invalid", prevHash)
-		return nil, ruleError(ErrInvalidAncestorBlock, str)
+		return false, ruleError(ErrInvalidAncestorBlock, str)
 	}
 
 	// The block must pass all of the validation rules which depend on the
 	// position of the block within the block chain.
-	err := b.checkBlockHeaderContext(header, prevNode, BFNone)
+	err = b.checkBlockHeaderContext(header, prevNode, flags)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	// Create a new block node for the block and add it to the block index.
@@ -172,7 +172,42 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, checkHeade
 	newNode := newBlockNode(header, prevNode)
 	b.index.AddNode(newNode)
 
-	// This node is now the end of the best chain.
-	b.bestChain.SetTip(newNode)
-	return newNode, nil
+	// Check if the header extends the best header tip.
+	isMainChain := false
+	parentHash := &header.PrevBlock
+	if parentHash.IsEqual(&b.bestHeader.Tip().hash) {
+		// This header is now the end of the best headers.
+		b.bestHeader.SetTip(newNode)
+		isMainChain = true
+		return isMainChain, nil
+	}
+
+	// We're extending (or creating) a side chain, but the cumulative
+	// work for this new side chain is not enough to make it the new chain.
+	if newNode.workSum.Cmp(b.bestHeader.Tip().workSum) <= 0 {
+		// Log information about how the header is forking the chain.
+		fork := b.bestHeader.FindFork(newNode)
+		if fork.hash.IsEqual(parentHash) {
+			log.Infof("FORK: BlockHeader %v(%v) forks the chain at block %v(%v) "+
+				"but did not have enough work to be the "+
+				"main chain", newNode.hash, newNode.height, fork.hash, fork.height)
+		} else {
+			log.Infof("EXTEND FORK: BlockHeader %v(%v) extends a side chain "+
+				"which forks the chain at block %v(%v)",
+				newNode.hash, newNode.height, fork.hash, fork.height)
+		}
+
+		return false, nil
+	}
+
+	prevTip := b.bestHeader.Tip()
+	log.Infof("NEW BEST HEADER CHAIN: BlockHeader %v(%v) is now a longer "+
+		"PoW chain than the previous header tip of %v(%v).",
+		newNode.hash, newNode.height,
+		prevTip.hash, prevTip.height)
+
+	b.bestHeader.SetTip(newNode)
+	isMainChain = true
+
+	return isMainChain, nil
 }

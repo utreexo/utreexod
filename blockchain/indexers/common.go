@@ -49,7 +49,7 @@ type Indexer interface {
 	// Init is invoked when the index manager is first initializing the
 	// index.  This differs from the Create method in that it is called on
 	// every load, including the case the index was just created.
-	Init(*blockchain.BlockChain) error
+	Init(*blockchain.BlockChain, *chainhash.Hash, int32) error
 
 	// ConnectBlock is invoked when a new block has been connected to the
 	// main chain. The set of output spent within a block is also passed in
@@ -65,7 +65,10 @@ type Indexer interface {
 
 	// PruneBlock is invoked when an older block is deleted after it's been
 	// processed.
-	PruneBlock(database.Tx, *chainhash.Hash) error
+	PruneBlock(dbTx database.Tx, deletedBlock *chainhash.Hash, lastKeptHeight int32) error
+
+	// Flush flushes the index.
+	Flush(*chainhash.Hash, blockchain.FlushMode, bool) error
 }
 
 // AssertError identifies an error that indicates an internal code consistency

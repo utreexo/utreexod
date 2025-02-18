@@ -1490,6 +1490,34 @@ func TestChainSvrCmds(t *testing.T) {
 			marshalled:   `{"jsonrpc":"1.0","method":"getdescriptorinfo","params":["123"],"id":1}`,
 			unmarshalled: &btcjson.GetDescriptorInfoCmd{Descriptor: "123"},
 		},
+		{
+			name: "testmempoolaccept",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("testmempoolaccept", []string{"rawhex"}, 0.1)
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewTestMempoolAcceptCmd([]string{"rawhex"}, 0.1)
+			},
+			marshalled: `{"jsonrpc":"1.0","method":"testmempoolaccept","params":[["rawhex"],0.1],"id":1}`,
+			unmarshalled: &btcjson.TestMempoolAcceptCmd{
+				RawTxns:    []string{"rawhex"},
+				MaxFeeRate: 0.1,
+			},
+		},
+		{
+			name: "testmempoolaccept with maxfeerate",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("testmempoolaccept", []string{"rawhex"}, 0.01)
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewTestMempoolAcceptCmd([]string{"rawhex"}, 0.01)
+			},
+			marshalled: `{"jsonrpc":"1.0","method":"testmempoolaccept","params":[["rawhex"],0.01],"id":1}`,
+			unmarshalled: &btcjson.TestMempoolAcceptCmd{
+				RawTxns:    []string{"rawhex"},
+				MaxFeeRate: 0.01,
+			},
+		},
 	}
 
 	t.Logf("Running %d tests", len(tests))

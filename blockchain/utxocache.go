@@ -180,11 +180,11 @@ func (ms *mapSlice) deleteMaps() {
 }
 
 const (
-	// utxoFlushPeriodicInterval is the interval at which a flush is performed
+	// UtxoFlushPeriodicInterval is the interval at which a flush is performed
 	// when the flush mode FlushPeriodic is used.  This is used when the initial
 	// block download is complete and it's useful to flush periodically in case
 	// of unforseen shutdowns.
-	utxoFlushPeriodicInterval = time.Minute * 5
+	UtxoFlushPeriodicInterval = time.Minute * 5
 )
 
 // FlushMode is used to indicate the different urgency types for a flush.
@@ -563,7 +563,7 @@ func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState
 	case FlushPeriodic:
 		// If the time since the last flush is over the periodic interval,
 		// force a flush.  Otherwise just flush when the cache is full.
-		if time.Since(s.lastFlushTime) > utxoFlushPeriodicInterval {
+		if time.Since(s.lastFlushTime) > UtxoFlushPeriodicInterval {
 			threshold = 0
 		} else {
 			threshold = s.maxTotalMemoryUsage
@@ -726,10 +726,18 @@ func (b *BlockChain) flushNeededAfterPrune(earliestHeight int32) (bool, error) {
 	if earliestHeight < 0 {
 		return false, nil
 	}
-	lastFlushHeight, err := b.BlockHeightByHash(&b.utxoCache.lastFlushHash)
-	if err != nil {
-		return false, err
+	node := b.index.LookupNode(&b.utxoCache.lastFlushHash)
+	if node == nil {
+		// If we couldn't find the node where we last flushed at, have the utxo cache
+		// flush to be safe and that will set the last flush hash again.
+		//
+		// This realistically should never happen as nodes are never deleted from
+		// the block index.  This happening likely means that there's a hardware
+		// error which is something we can't recover from.  The best that we can
+		// do here is to just force a flush and hope that the newly set
+		// lastFlushHash doesn't error.
+		return true, nil
 	}
-
+	lastFlushHeight := node.height
 	return earliestHeight > lastFlushHeight, nil
 }

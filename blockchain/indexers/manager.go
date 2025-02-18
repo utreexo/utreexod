@@ -311,7 +311,18 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 
 	// Initialize each of the enabled indexes.
 	for _, indexer := range m.enabledIndexes {
-		if err := indexer.Init(chain); err != nil {
+		// Fetch the current tip for the index.
+		var height int32
+		var hash *chainhash.Hash
+		err := m.db.View(func(dbTx database.Tx) error {
+			idxKey := indexer.Key()
+			hash, height, err = dbFetchIndexerTip(dbTx, idxKey)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if err := indexer.Init(chain, hash, height); err != nil {
 			return err
 		}
 	}
@@ -468,24 +479,6 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			return err
 		}
 
-		if interruptRequested(interrupt) {
-			for _, indexer := range m.enabledIndexes {
-				switch idxType := indexer.(type) {
-				case *UtreexoProofIndex:
-					err := idxType.FlushUtreexoState()
-					if err != nil {
-						log.Errorf("Error while flushing utreexo state: %v", err)
-					}
-				case *FlatUtreexoProofIndex:
-					err := idxType.FlushUtreexoState()
-					if err != nil {
-						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
-					}
-				}
-			}
-			return errInterruptRequested
-		}
-
 		// Connect the block for all indexes that need it.
 		var spentTxos []blockchain.SpentTxOut
 		for i, indexer := range m.enabledIndexes {
@@ -523,18 +516,32 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			for _, indexer := range m.enabledIndexes {
 				switch idxType := indexer.(type) {
 				case *UtreexoProofIndex:
-					err := idxType.FlushUtreexoState()
+					err := idxType.flushUtreexoState(block.Hash())
 					if err != nil {
-						log.Errorf("Error while flushing utreexo state: %v", err)
+						log.Errorf("Error while flushing utreexo state for utreexo proof index: %v", err)
+					}
+					err = idxType.utreexoState.utreexoStateDB.Close()
+					if err != nil {
+						log.Errorf("Error while closing the utreexo state for utreexo proof index: %v", err)
 					}
 				case *FlatUtreexoProofIndex:
-					err := idxType.FlushUtreexoState()
+					err := idxType.flushUtreexoState(block.Hash())
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
+					}
+					err = idxType.utreexoState.utreexoStateDB.Close()
+					if err != nil {
+						log.Errorf("Error while closing the utreexo state for flat utreexo proof index: %v", err)
 					}
 				}
 			}
 			return errInterruptRequested
+		}
+
+		// Flush indexes if needed.
+		err = m.Flush(block.Hash(), blockchain.FlushIfNeeded, true)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -645,7 +652,7 @@ func (m *Manager) PruneBlocks(dbTx database.Tx, lastKeptHeight int32,
 			}
 
 			// Notify the indexer with the connected block so it can prune it.
-			err = index.PruneBlock(dbTx, blockHash)
+			err = index.PruneBlock(dbTx, blockHash, lastKeptHeight)
 			if err != nil {
 				return err
 			}
@@ -659,6 +666,18 @@ func (m *Manager) PruneBlocks(dbTx database.Tx, lastKeptHeight int32,
 			return err
 		}
 		err = dbPutIndexerEarliest(dbTx, idxKey, blockHash, height)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Flush flushes the enabled indexes. For the indexers that do not need to be flushed, it's a no-op.
+func (m *Manager) Flush(bestHash *chainhash.Hash, mode blockchain.FlushMode, onConnect bool) error {
+	for _, index := range m.enabledIndexes {
+		err := index.Flush(bestHash, mode, onConnect)
 		if err != nil {
 			return err
 		}

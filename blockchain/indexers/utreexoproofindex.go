@@ -6,8 +6,10 @@ package indexers
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
@@ -52,11 +54,8 @@ var _ NeedsInputser = (*UtreexoProofIndex)(nil)
 
 // UtreexoProofIndex implements a utreexo accumulator proof index for all the blocks.
 type UtreexoProofIndex struct {
-	db          database.DB
-	chainParams *chaincfg.Params
-
-	// If the node is a pruned node or not.
-	pruned bool
+	db     database.DB
+	config *UtreexoConfig
 
 	// The blockchain instance the index corresponds to.
 	chain *blockchain.BlockChain
@@ -67,6 +66,14 @@ type UtreexoProofIndex struct {
 	// utreexoState represents the Bitcoin UTXO set as a utreexo accumulator.
 	// It keeps all the elements of the forest in order to generate proofs.
 	utreexoState *UtreexoState
+
+	// utreexoRootsState is the accumulator for all the roots at each of the
+	// blocks. This is so that we can serve to peers the proof that a set of
+	// roots at a block is correct.
+	utreexoRootsState utreexo.Pollard
+
+	// The time of when the utreexo state was last flushed.
+	lastFlushTime time.Time
 }
 
 // NeedsInputs signals that the index requires the referenced inputs in order
@@ -77,19 +84,69 @@ func (idx *UtreexoProofIndex) NeedsInputs() bool {
 	return true
 }
 
+// initUtreexoRootsState creates an accumulator from all the existing roots and
+// holds it in memory so that the proofs for them can be generated.
+func (idx *UtreexoProofIndex) initUtreexoRootsState(bestHeight int32) error {
+	idx.utreexoRootsState = utreexo.NewAccumulator()
+
+	for h := int32(1); h <= bestHeight; h++ {
+		hash, err := idx.chain.BlockHashByHeight(h)
+		if err != nil {
+			return err
+		}
+		var stump utreexo.Stump
+		err = idx.db.View(func(dbTx database.Tx) error {
+			stump, err = dbFetchUtreexoState(dbTx, hash)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+
+		bytes, err := blockchain.SerializeUtreexoRoots(stump.NumLeaves, stump.Roots)
+		if err != nil {
+			return err
+		}
+		rootHash := sha256.Sum256(bytes)
+
+		err = idx.utreexoRootsState.Modify(
+			[]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Init initializes the utreexo proof index. This is part of the Indexer
 // interface.
-func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
+func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
+	tipHash *chainhash.Hash, tipHeight int32) error {
+
 	idx.chain = chain
 
+	// Init Utreexo State.
+	uState, err := InitUtreexoState(idx.config, chain, tipHash, tipHeight)
+	if err != nil {
+		return err
+	}
+	idx.utreexoState = uState
+	idx.lastFlushTime = time.Now()
+
+	err = idx.initUtreexoRootsState(tipHeight)
+	if err != nil {
+		return err
+	}
+
 	// Nothing else to do if the node is an archive node.
-	if !idx.pruned {
+	if !idx.config.Pruned {
 		return nil
 	}
 
 	// Check if the utreexo undo bucket exists.
 	var exists bool
-	err := idx.db.View(func(dbTx database.Tx) error {
+	err = idx.db.View(func(dbTx database.Tx) error {
 		parentBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey)
 		bucket := parentBucket.Bucket(utreexoUndoKey)
 		exists = bucket != nil
@@ -151,7 +208,7 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain) error {
 			}
 			r := bytes.NewReader(proofBytes)
 
-			err = ud.DeserializeCompact(r)
+			err = ud.Deserialize(r)
 			if err != nil {
 				return err
 			}
@@ -226,7 +283,7 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 	}
 
 	// Only create the undo bucket if the node is pruned.
-	if idx.pruned {
+	if idx.config.Pruned {
 		_, err = utreexoParentBucket.CreateBucket(utreexoUndoKey)
 		if err != nil {
 			return err
@@ -252,7 +309,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-	dels, _, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip, -1)
+	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip)
 	if err != nil {
 		return err
 	}
@@ -267,16 +324,11 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 
 	// Only store the proofs if the node is not pruned.
-	if !idx.pruned {
+	if !idx.config.Pruned {
 		err = dbStoreUtreexoProof(dbTx, block.Hash(), ud)
 		if err != nil {
 			return err
 		}
-	}
-
-	err = dbStoreUtreexoState(dbTx, block.Hash(), idx.utreexoState.state)
-	if err != nil {
-		return err
 	}
 
 	delHashes := make([]utreexo.Hash, len(ud.LeafDatas))
@@ -285,7 +337,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 
 	// For pruned nodes, the undo data is necessary for reorgs.
-	if idx.pruned {
+	if idx.config.Pruned {
 		err = dbStoreUndoData(dbTx,
 			uint64(len(adds)), ud.AccProof.Targets, block.Hash(), delHashes)
 		if err != nil {
@@ -300,7 +352,12 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
-	return nil
+	err = dbStoreUtreexoState(dbTx, block.Hash(), idx.utreexoState.state)
+	if err != nil {
+		return err
+	}
+
+	return idx.updateRootsState()
 }
 
 // getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from
@@ -312,7 +369,7 @@ func (idx *UtreexoProofIndex) getUndoData(dbTx database.Tx, block *btcutil.Block
 		delHashes []utreexo.Hash
 	)
 
-	if !idx.pruned {
+	if !idx.config.Pruned {
 		ud, err := idx.FetchUtreexoProof(block.Hash())
 		if err != nil {
 			return 0, nil, nil, err
@@ -348,7 +405,12 @@ func (idx *UtreexoProofIndex) getUndoData(dbTx database.Tx, block *btcutil.Block
 func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	stxos []blockchain.SpentTxOut) error {
 
-	state, err := dbFetchUtreexoState(dbTx, block.Hash())
+	prevHash, err := idx.chain.BlockHashByHeight(block.Height() - 1)
+	if err != nil {
+		return err
+	}
+
+	state, err := dbFetchUtreexoState(dbTx, prevHash)
 	if err != nil {
 		return err
 	}
@@ -365,12 +427,19 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		return err
 	}
 
+	// Always flush the utreexo state on flushes to never leave the utreexoState
+	// at an unrecoverable state.
+	err = idx.flushUtreexoState(&block.MsgBlock().Header.PrevBlock)
+	if err != nil {
+		return err
+	}
+
 	err = dbDeleteUtreexoState(dbTx, block.Hash())
 	if err != nil {
 		return err
 	}
 
-	if idx.pruned {
+	if idx.config.Pruned {
 		err = dbDeleteUndoData(dbTx, block.Hash())
 		if err != nil {
 			return err
@@ -382,12 +451,14 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		}
 	}
 
-	return nil
+	// Re-initializes to the current accumulator roots, effectively disconnecting
+	// a block.
+	return idx.initUtreexoRootsState(block.Height() - 1)
 }
 
 // FetchUtreexoProof returns the Utreexo proof data for the given block hash.
 func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UData, error) {
-	if idx.pruned {
+	if idx.config.Pruned {
 		return nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
 	}
 
@@ -399,7 +470,7 @@ func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UDa
 		}
 		r := bytes.NewReader(proofBytes)
 
-		err = ud.DeserializeCompact(r)
+		err = ud.Deserialize(r)
 		if err != nil {
 			return err
 		}
@@ -433,10 +504,13 @@ func (idx *UtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positio
 	ud := new(wire.UData)
 	ud.LeafDatas = dels
 
-	// Get the positions of the targets of delHashes.
-	delHashes, err := wire.HashesFromLeafDatas(ud.LeafDatas)
-	if err != nil {
-		return nil, err
+	delHashes := make([]utreexo.Hash, 0, len(dels))
+	for _, del := range dels {
+		// We can't calculate the correct hash if the leaf data is in
+		// the compact state.
+		if !del.IsUnconfirmed() {
+			delHashes = append(delHashes, del.LeafHash())
+		}
 	}
 
 	hashes := make([]utreexo.Hash, len(positions))
@@ -553,41 +627,104 @@ func (idx *UtreexoProofIndex) VerifyAccProof(toProve []utreexo.Hash,
 	return idx.utreexoState.state.Verify(toProve, *proof, false)
 }
 
+// updateRootsState updates the roots accumulator state from the roots of the current accumulator.
+func (idx *UtreexoProofIndex) updateRootsState() error {
+	idx.mtx.Lock()
+	numLeaves := idx.utreexoState.state.GetNumLeaves()
+	roots := idx.utreexoState.state.GetRoots()
+	idx.mtx.Unlock()
+
+	bytes, err := blockchain.SerializeUtreexoRoots(numLeaves, roots)
+	if err != nil {
+		return err
+	}
+
+	rootHash := sha256.Sum256(bytes)
+	return idx.utreexoRootsState.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+}
+
 // PruneBlock is invoked when an older block is deleted after it's been
 // processed.
 //
 // This is part of the Indexer interface.
-func (idx *UtreexoProofIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
-	return nil
+func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastKeptHeight int32) error {
+	hash, _, err := dbFetchUtreexoStateConsistency(idx.utreexoState.utreexoStateDB)
+	if err != nil {
+		return err
+	}
+
+	// It's ok to call block by hash here as the utreexo state consistency hash is always
+	// included in the best chain.
+	lastFlushHeight, err := idx.chain.BlockHeightByHash(hash)
+	if err != nil {
+		return err
+	}
+
+	// If the last flushed utreexo state is the last or greater than the kept block,
+	// we can sync up to the tip so a flush is not required.
+	if lastKeptHeight <= lastFlushHeight {
+		return nil
+	}
+
+	// It's ok to fetch the best snapshot here as the block called on pruneblock has not
+	// been yet connected yet on the utreexo state. So this is indeed the correct hash.
+	bestHash := idx.chain.BestSnapshot().Hash
+	return idx.Flush(&bestHash, blockchain.FlushRequired, true)
+}
+
+// FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.
+func (idx *UtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*wire.MsgUtreexoRoot, error) {
+	var stump utreexo.Stump
+	err := idx.db.View(func(dbTx database.Tx) error {
+		var err error
+		stump, err = dbFetchUtreexoState(dbTx, blockHash)
+		return err
+	})
+
+	bytes, err := blockchain.SerializeUtreexoRoots(stump.NumLeaves, stump.Roots)
+	if err != nil {
+		return nil, err
+	}
+	rootHash := sha256.Sum256(bytes)
+
+	proof, err := idx.utreexoRootsState.Prove([]utreexo.Hash{rootHash})
+	if err != nil {
+		return nil, err
+	}
+
+	msg := &wire.MsgUtreexoRoot{
+		NumLeaves: stump.NumLeaves,
+		Target:    proof.Targets[0],
+		BlockHash: *blockHash,
+		Roots:     stump.Roots,
+		Proof:     proof.Proof,
+	}
+
+	return msg, nil
 }
 
 // NewUtreexoProofIndex returns a new instance of an indexer that is used to create a utreexo
 // proof index using the database passed in. The passed in maxMemoryUsage should be in bytes and
-// it determines how much memory the proof index will use up. A maxMemoryUsage of 0 will keep
-// all the elements on disk and a negative maxMemoryUsage will keep all the elements in memory.
+// it determines how much memory the proof index will use up.
 //
 // It implements the Indexer interface which plugs into the IndexManager that in
 // turn is used by the blockchain package.  This allows the index to be
 // seamlessly maintained along with the chain.
 func NewUtreexoProofIndex(db database.DB, pruned bool, maxMemoryUsage int64,
-	chainParams *chaincfg.Params, dataDir string) (*UtreexoProofIndex, error) {
+	chainParams *chaincfg.Params, dataDir string, flush func() error) (*UtreexoProofIndex, error) {
 
 	idx := &UtreexoProofIndex{
-		db:          db,
-		chainParams: chainParams,
-		mtx:         new(sync.RWMutex),
+		db:  db,
+		mtx: new(sync.RWMutex),
+		config: &UtreexoConfig{
+			MaxMemoryUsage: maxMemoryUsage,
+			Params:         chainParams,
+			Pruned:         pruned,
+			DataDir:        dataDir,
+			Name:           db.Type(),
+			FlushMainDB:    flush,
+		},
 	}
-
-	uState, err := InitUtreexoState(&UtreexoConfig{
-		DataDir: dataDir,
-		Name:    db.Type(),
-		Params:  chainParams,
-	}, maxMemoryUsage)
-	if err != nil {
-		return nil, err
-	}
-	idx.utreexoState = uState
-	idx.pruned = pruned
 
 	return idx, nil
 }
@@ -608,10 +745,10 @@ func DropUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan stru
 // TODO Use the compact serialization.
 func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *wire.UData) error {
 	// Pre-allocated the needed buffer.
-	udSize := ud.SerializeSizeCompact()
+	udSize := ud.SerializeSize()
 	buf := bytes.NewBuffer(make([]byte, 0, udSize))
 
-	err := ud.SerializeCompact(buf)
+	err := ud.Serialize(buf)
 	if err != nil {
 		return err
 	}

@@ -37,7 +37,9 @@ const (
 	InvTypeTx                   InvType = 1
 	InvTypeBlock                InvType = 2
 	InvTypeFilteredBlock        InvType = 3
-	InvTypeUtreexoProofHash     InvType = 4
+	InvTypeCompactBlock         InvType = 4
+	InvTypeWTXIDTx              InvType = 5
+	InvTypeUtreexoProofHash     InvType = 6
 	InvTypeWitnessBlock         InvType = InvTypeBlock | InvWitnessFlag
 	InvTypeUtreexoBlock         InvType = InvTypeBlock | InvUtreexoFlag
 	InvTypeWitnessUtreexoBlock  InvType = InvTypeBlock | InvWitnessFlag | InvUtreexoFlag

@@ -172,8 +172,12 @@ type BlockChain struct {
 	//
 	// bestChain tracks the current active chain by making use of an
 	// efficient chain view into the block index.
-	index     *blockIndex
-	bestChain *chainView
+	//
+	// bestHeader tracks the current active header chain. The tip is the last
+	// header we have on the block index.
+	index      *blockIndex
+	bestChain  *chainView
+	bestHeader *chainView
 
 	// The UTXO state holds a cached view of the UTXO state of the chain.
 	//
@@ -760,6 +764,14 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 		return err
 	}
 
+	// Flush the indexes if they need to be flushed.
+	if b.indexManager != nil {
+		err := b.indexManager.Flush(&state.Hash, FlushIfNeeded, true)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Prune fully spent entries and mark all entries in the view unmodified
 	// now that the modifications have been committed to the database.
 	if view != nil {
@@ -1003,7 +1015,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 			_, outCount, inskip, outskip := DedupeBlock(block)
 
 			// Generate the deleted hashes.
-			dels, _, err := BlockToDelLeaves(detachSpentTxOuts[i], b, block, inskip, -1)
+			dels, err := BlockToDelLeaves(detachSpentTxOuts[i], b, block, inskip)
 			if err != nil {
 				return err
 			}
@@ -1068,9 +1080,12 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return err
 			}
 		} else {
-			// Check that the block txOuts are valid by checking the utreexo proof and
-			// extra data and then update the accumulator.
-			err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			err := b.utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return fmt.Errorf("reorganizeChain fail while attaching "+
+					"block %s. Error: %v", block.Hash().String(), err)
+			}
+			err = b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 			if err != nil {
 				return fmt.Errorf("reorganizeChain fail while attaching "+
 					"block %s. Error: %v", block.Hash().String(), err)
@@ -1329,7 +1344,14 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			} else {
 				// Check that the block txOuts are valid by checking the utreexo proof and
 				// extra data and then update the accumulator.
-				err := utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+				err := utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+				if err != nil {
+					return nil, nil, nil,
+						fmt.Errorf("verifyReorganizationValidity fail "+
+							"while attaching block %s. Error %v",
+							block.Hash().String(), err)
+				}
+				err = utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
 				if err != nil {
 					return nil, nil, nil,
 						fmt.Errorf("verifyReorganizationValidity fail "+
@@ -1368,6 +1390,15 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 				}
 			}
 			return nil, nil, nil, err
+		}
+		if utreexoView != nil {
+			err = utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return nil, nil, nil,
+					fmt.Errorf("verifyReorganizationValidity fail "+
+						"while attaching block %s. Error %v",
+						block.Hash().String(), err)
+			}
 		}
 		b.index.SetStatusFlags(n, statusValid)
 	}
@@ -1445,16 +1476,22 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		if b.utreexoView != nil {
 			if fastAdd {
 				// Check that the block txOuts are valid by checking the utreexo proof and
-				// extra data and then update the accumulator.
-				err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+				// the leaf data.
+				err := b.utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
 				if err != nil {
 					return false, fmt.Errorf("connectBestChain fail on block %s. "+
 						"Error: %v", block.Hash().String(), err)
 				}
 			}
+			// Update the accumulator.
+			err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return false, fmt.Errorf("connectBestChain fail on block %s. "+
+					"Error: %v", block.Hash().String(), err)
+			}
 			view := NewUtxoViewpoint()
 			view.SetBestHash(parentHash)
-			err := view.BlockToUtxoView(block)
+			err = view.BlockToUtxoView(block)
 			if err != nil {
 				return false, err
 			}
@@ -1593,6 +1630,15 @@ func (b *BlockChain) BestSnapshot() *BestState {
 	snapshot := b.stateSnapshot
 	b.stateLock.RUnlock()
 	return snapshot
+}
+
+// BestHeader returns the hash and the height of the best header.
+func (b *BlockChain) BestHeader() (chainhash.Hash, int32) {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	best := b.bestHeader.Tip()
+	return best.hash, best.height
 }
 
 // TipStatus is the status of a chain tip.
@@ -1802,6 +1848,53 @@ func (b *BlockChain) BlockHashByHeight(blockHeight int32) (*chainhash.Hash, erro
 	}
 
 	return &node.hash, nil
+}
+
+// IsValidHeader checks that we've already checked that this header connects to the
+// chain of headers and did not receive an invalid state.
+func (b *BlockChain) IsValidHeader(blockHash *chainhash.Hash) bool {
+	node := b.index.LookupNode(blockHash)
+	if node == nil || !b.bestHeader.Contains(node) {
+		return false
+	}
+
+	if node.status == statusValidateFailed ||
+		node.status == statusInvalidAncestor {
+		return false
+	}
+
+	return true
+}
+
+// LatestBlockLocatorByHeader returns a block locator for the latest known tip of the
+// header chain.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) LatestBlockLocatorByHeader() (BlockLocator, error) {
+	b.chainLock.RLock()
+	locator := b.bestHeader.BlockLocator(nil)
+	b.chainLock.RUnlock()
+	return locator, nil
+}
+
+// HeaderHashByHeight returns the block header's hash given its height.
+func (b *BlockChain) HeaderHashByHeight(blockHeight int32) (*chainhash.Hash, error) {
+	node := b.bestHeader.NodeByHeight(blockHeight)
+	if node == nil || !b.bestHeader.Contains(node) {
+		return nil, fmt.Errorf("blockheight %v not found", blockHeight)
+	}
+
+	return &node.hash, nil
+}
+
+// HeaderHeightByHash returns the height of the header given its hash.
+func (b *BlockChain) HeaderHeightByHash(blockHash chainhash.Hash) (int32, error) {
+	node := b.index.LookupNode(&blockHash)
+	if node == nil || !b.bestHeader.Contains(node) {
+		return -1, fmt.Errorf("blockhash %v not found", blockHash)
+	}
+
+	return node.height, nil
 }
 
 // HeightRange returns a range of block hashes for the given start and end
@@ -2328,6 +2421,27 @@ type IndexManager interface {
 	// PruneBlock is invoked when an older block is deleted after it's been
 	// processed. This lowers the storage requirement for a node.
 	PruneBlocks(database.Tx, int32, func(int32) (*chainhash.Hash, error)) error
+
+	// Flush flushes the relevant indexes if they need to be flushed.
+	Flush(*chainhash.Hash, FlushMode, bool) error
+}
+
+// FlushUtxoCache flushes the indexes if a flush is needed with the given flush mode.
+// If the flush is on a block connect and not a reorg, the onConnect bool should be true.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) FlushIndexes(mode FlushMode, onConnect bool) error {
+	b.chainLock.Lock()
+	defer b.chainLock.Unlock()
+
+	if b.indexManager != nil {
+		err := b.indexManager.Flush(&b.BestSnapshot().Hash, mode, onConnect)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Config is a descriptor which specifies the blockchain instance configuration.
@@ -2475,6 +2589,7 @@ func New(config *Config) (*BlockChain, error) {
 		utreexoView:         config.UtreexoView,
 		hashCache:           config.HashCache,
 		bestChain:           newChainView(nil),
+		bestHeader:          newChainView(nil),
 		orphans:             make(map[chainhash.Hash]*orphanBlock),
 		prevOrphans:         make(map[chainhash.Hash][]*orphanBlock),
 		warningCaches:       newThresholdCaches(vbNumBits),

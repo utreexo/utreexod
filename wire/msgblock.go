@@ -54,6 +54,20 @@ type MsgBlock struct {
 	UData *UData
 }
 
+// Copy creates a deep copy of MsgBlock.
+func (msg *MsgBlock) Copy() *MsgBlock {
+	block := &MsgBlock{
+		Header:       msg.Header,
+		Transactions: make([]*MsgTx, len(msg.Transactions)),
+	}
+
+	for i, tx := range msg.Transactions {
+		block.Transactions[i] = tx.Copy()
+	}
+
+	return block
+}
+
 // AddTransaction adds a transaction to the message.
 func (msg *MsgBlock) AddTransaction(tx *MsgTx) error {
 	msg.Transactions = append(msg.Transactions, tx)
@@ -115,7 +129,7 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 	// checked for length, this probably is ok. But do think of
 	// a better solution.
 	msg.UData = new(UData)
-	err = msg.UData.DeserializeCompact(r)
+	err = msg.UData.Deserialize(r)
 	if err != nil {
 		if enc&UtreexoEncoding == UtreexoEncoding {
 			return err
@@ -220,8 +234,15 @@ func (msg *MsgBlock) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) er
 		return err
 	}
 
+	// Unset UtreexoEncoding for the encoding that we'll pass off to the
+	// tx.BtcDecode().  This is done as tx.BtcDecode() expects Utreexo
+	// Proofs to be appended to each tx if UtreexoEncoding bit is turned on.
+	// However, this only applies to mempool txs and there are no separate
+	// Utreexo Proofs for individual txs as the MsgBlock contains a proof
+	// for all the txs.
+	txEncoding := enc &^ UtreexoEncoding
 	for _, tx := range msg.Transactions {
-		err = tx.BtcEncode(w, pver, enc)
+		err = tx.BtcEncode(w, pver, txEncoding)
 		if err != nil {
 			return err
 		}
@@ -232,7 +253,7 @@ func (msg *MsgBlock) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) er
 			str := "utreexo encoding specified but MsgBlock.UData field is nil"
 			return messageError("MsgBlock.BtcEncode", str)
 		}
-		err = msg.UData.SerializeCompact(w)
+		err = msg.UData.Serialize(w)
 		if err != nil {
 			return err
 		}

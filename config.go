@@ -202,7 +202,7 @@ type config struct {
 	TTLIndex                   bool  `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
 	UtreexoProofIndex          bool  `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
 	FlatUtreexoProofIndex      bool  `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
-	UtreexoProofIndexMaxMemory int64 `long:"utreexoproofindexmaxmemory" description:"The maxmimum memory in mebibytes (MiB) that the utreexo proof indexes will use up. Passing in 0 will make the entire proof index stay on disk. Passing in a negative value will make the entire proof index stay in memory. Default of 250MiB."`
+	UtreexoProofIndexMaxMemory int64 `long:"utreexoproofindexmaxmemory" description:"The maxmimum memory in mebibytes (MiB) that the utreexo proof indexes will use up. Default of 500MiB. Minimum of 250MiB"`
 	CFilters                   bool  `long:"cfilters" description:"Enable committed filtering (CF) support"`
 	UtreexoCFilters            bool  `long:"utreexocfilters" description:"Enable committed filtering (CF) support serving utreexo roots."`
 	NoPeerBloomFilters         bool  `long:"nopeerbloomfilters" description:"Disable bloom filtering support"`
@@ -492,7 +492,7 @@ func loadConfig() (*config, []string, error) {
 		MaxOrphanTxs:               defaultMaxOrphanTransactions,
 		SigCacheMaxSize:            defaultSigCacheMaxSize,
 		UtxoCacheMaxSizeMiB:        defaultUtxoCacheMaxSizeMiB,
-		UtreexoProofIndexMaxMemory: defaultUtxoCacheMaxSizeMiB,
+		UtreexoProofIndexMaxMemory: defaultUtxoCacheMaxSizeMiB * 2,
 		Generate:                   defaultGenerate,
 		TxIndex:                    defaultTxIndex,
 		TTLIndex:                   defaultTTLIndex,
@@ -988,6 +988,15 @@ func loadConfig() (*config, []string, error) {
 	if cfg.FlatUtreexoProofIndex && cfg.DropFlatUtreexoProofIndex {
 		err := fmt.Errorf("%s: the --flatutreexoproofindex and --dropflatutreexoproofindex"+
 			"options may not be activated at the same time ",
+			funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if cfg.UtreexoProofIndexMaxMemory < 250 {
+		err := fmt.Errorf("%s: the --utreexoproofindexmaxmemory "+
+			"option may not be less than 250",
 			funcName)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)

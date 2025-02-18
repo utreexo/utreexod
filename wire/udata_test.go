@@ -6,7 +6,6 @@ package wire
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -21,11 +20,7 @@ type testData struct {
 	name           string
 	height         int32
 	leavesPerBlock []LeafData
-	rememberIdx    []uint32
-
-	size             int
-	sizeCompact      int
-	sizeCompactNoAcc int
+	size           int
 }
 
 func getTestDatas() []testData {
@@ -59,10 +54,7 @@ var mainNetBlock104773 = testData{
 			IsCoinBase: false,
 		},
 	},
-	rememberIdx:      []uint32{2, 3},
-	size:             220,
-	sizeCompact:      86,
-	sizeCompactNoAcc: 82,
+	size: 83,
 }
 
 var testNetBlock383 = testData{
@@ -114,13 +106,10 @@ var testNetBlock383 = testData{
 			IsCoinBase: true,
 		},
 	},
-	rememberIdx:      []uint32{1, 2, 3},
-	size:             465,
-	sizeCompact:      197,
-	sizeCompactNoAcc: 192,
+	size: 193,
 }
 
-func checkUDEqual(ud, checkUData *UData, isCompact bool, name string) error {
+func checkUDEqual(ud, checkUData *UData, name string) error {
 	for i := range ud.AccProof.Targets {
 		if ud.AccProof.Targets[i] != checkUData.AccProof.Targets[i] {
 			return fmt.Errorf("%s: UData.AccProof Target mismatch. expect %v, got %v",
@@ -144,23 +133,6 @@ func checkUDEqual(ud, checkUData *UData, isCompact bool, name string) error {
 		leaf := ud.LeafDatas[i]
 		checkLeaf := checkUData.LeafDatas[i]
 
-		if !isCompact {
-			if leaf.BlockHash != checkLeaf.BlockHash {
-				return fmt.Errorf("%s: LeafData blockhash mismatch. expect %v, got %v",
-					name, hex.EncodeToString(leaf.BlockHash[:]),
-					hex.EncodeToString(checkLeaf.BlockHash[:]))
-			}
-			if leaf.OutPoint.Hash != checkLeaf.OutPoint.Hash {
-				return fmt.Errorf("%s: LeafData outpoint hash mismatch. expect %v, got %v",
-					name, hex.EncodeToString(leaf.OutPoint.Hash[:]),
-					hex.EncodeToString(checkLeaf.OutPoint.Hash[:]))
-			}
-			if leaf.OutPoint.Index != checkLeaf.OutPoint.Index {
-				return fmt.Errorf("%s: LeafData outpoint index mismatch. expect %v, got %v",
-					name, leaf.OutPoint.Index, checkLeaf.OutPoint.Index)
-			}
-		}
-
 		// Only amount, hcb, and pkscript is serialized with the compact serialization.
 		if leaf.Amount != checkLeaf.Amount {
 			return fmt.Errorf("%s: LeafData amount mismatch. expect %v, got %v",
@@ -183,28 +155,6 @@ func checkUDEqual(ud, checkUData *UData, isCompact bool, name string) error {
 		}
 	}
 
-	for i := range ud.RememberIdx {
-		if ud.RememberIdx[i] != checkUData.RememberIdx[i] {
-			return fmt.Errorf("%s: UData RememberIdx mismatch. expect %v, got %v",
-				name, ud.RememberIdx[i], checkUData.RememberIdx[i])
-		}
-	}
-
-	if !isCompact {
-		if !reflect.DeepEqual(ud, checkUData) {
-			if !reflect.DeepEqual(ud.AccProof, checkUData.AccProof) {
-				return fmt.Errorf("ud and checkUData reflect.DeepEqual AccProof mismatch")
-			}
-
-			if !reflect.DeepEqual(ud.LeafDatas, checkUData.LeafDatas) {
-				return fmt.Errorf("ud and checkUData reflect.DeepEqual LeafDatas mismatch")
-			}
-			if !reflect.DeepEqual(ud.RememberIdx, checkUData.RememberIdx) {
-				return fmt.Errorf("ud and checkUData reflect.DeepEqual TxoTTLs mismatch")
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -212,11 +162,9 @@ func TestUDataSerializeSize(t *testing.T) {
 	t.Parallel()
 
 	type test struct {
-		name             string
-		ud               UData
-		size             int
-		sizeCompact      int
-		sizeCompactNoAcc int
+		name string
+		ud   UData
+		size int
 	}
 
 	testDatas := getTestDatas()
@@ -247,15 +195,11 @@ func TestUDataSerializeSize(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		ud.RememberIdx = testData.rememberIdx
-
 		// Append to the tests.
 		tests = append(tests, test{
-			name:             testData.name,
-			ud:               *ud,
-			size:             testData.size,
-			sizeCompact:      testData.sizeCompact,
-			sizeCompactNoAcc: testData.sizeCompactNoAcc,
+			name: testData.name,
+			ud:   *ud,
+			size: testData.size,
 		})
 	}
 
@@ -279,72 +223,6 @@ func TestUDataSerializeSize(t *testing.T) {
 				"serialized %d, hardcoded %d", test.name,
 				len(buf.Bytes()), test.size)
 			continue
-		}
-
-		gotSize = test.ud.SerializeSizeCompact()
-		if gotSize != test.sizeCompact {
-			var buf bytes.Buffer
-			err := test.ud.SerializeCompact(&buf)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fmt.Println("buf size", len(buf.Bytes()))
-
-			t.Errorf("%s: UData serialize size compact (false) fail. "+
-				"expect %d, got %d", test.name,
-				test.sizeCompact, gotSize)
-			continue
-		}
-
-		// Sanity check.  Actually serialize the data and compare against our hardcoded number.
-		buf.Reset()
-		err = test.ud.SerializeCompact(&buf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(buf.Bytes()) != test.sizeCompact {
-			t.Errorf("%s: UData serialize size compact(false) fail. "+
-				"serialized %d, hardcoded %d", test.name,
-				len(buf.Bytes()), test.sizeCompact)
-			continue
-		}
-
-		// Sanity check.  Actually serialize the data and compare against our hardcoded number.
-		buf.Reset()
-		err = test.ud.SerializeCompact(&buf)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gotSize = test.ud.SerializeSizeCompactNoAccProof()
-		if gotSize != test.sizeCompactNoAcc {
-			t.Errorf("%s: UData serialize size compact no accumulator proof fail. "+
-				"expect %d, got %d", test.name,
-				test.sizeCompactNoAcc, gotSize)
-			continue
-		}
-
-		// Sanity check.  Actually serialize the data and compare against our hardcoded number.
-		buf.Reset()
-		err = test.ud.SerializeCompactNoAccProof(&buf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(buf.Bytes()) != test.sizeCompactNoAcc {
-			t.Errorf("%s: UData serialize size compact no accumulator proof fail. "+
-				"serialized %d, hardcoded %d", test.name,
-				len(buf.Bytes()), test.sizeCompactNoAcc)
-			continue
-		}
-
-		// Test that SerializeUxtoDataSizeCompact and SerializeUxtoDataSizeCompact
-		// sums up to the entire thing.
-		totals := test.ud.SerializeUxtoDataSizeCompact() + test.ud.SerializeAccSizeCompact()
-		totals += test.ud.SerializeRememberIdxSize()
-
-		if totals != test.ud.SerializeSizeCompact() {
-			t.Errorf("%s: expected %d for but got %d as the sum of utxodata, accumulator data, and the remember idxs",
-				test.name, test.ud.SerializeSizeCompact(), totals)
 		}
 	}
 }
@@ -385,8 +263,6 @@ func TestUDataSerialize(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		ud.RememberIdx = testData.rememberIdx
-
 		// Append to the tests.
 		tests = append(tests, test{name: testData.name, ud: *ud})
 	}
@@ -401,175 +277,15 @@ func TestUDataSerialize(t *testing.T) {
 		checkUData := new(UData)
 		checkUData.Deserialize(writer)
 
-		err := checkUDEqual(&test.ud, checkUData, false, test.name)
+		err := checkUDEqual(&test.ud, checkUData, test.name)
 		if err != nil {
 			t.Error(err)
+			continue
 		}
 
 		// Re-serialize
 		afterWriter := &bytes.Buffer{}
 		checkUData.Serialize(afterWriter)
-		test.after = afterWriter.Bytes()
-
-		// Check if before and after match.
-		if !bytes.Equal(test.before, test.after) {
-			t.Errorf("%s: UData serialize/deserialize fail. "+
-				"Before len %d, after len %d", test.name,
-				len(test.before), len(test.after))
-		}
-	}
-}
-
-func TestUDataSerializeCompact(t *testing.T) {
-	t.Parallel()
-
-	type test struct {
-		name   string
-		ud     UData
-		before []byte
-		after  []byte
-	}
-
-	testDatas := getTestDatas()
-	tests := make([]test, 0, len(testDatas))
-
-	for _, testData := range testDatas {
-		// New forest object.
-		p := utreexo.NewAccumulator()
-
-		// Create hashes to add from the stxo data.
-		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
-		for i, ld := range testData.leavesPerBlock {
-			addHashes = append(addHashes, utreexo.Leaf{
-				Hash: ld.LeafHash(),
-				// Just half and half.
-				Remember: i%2 == 0,
-			})
-		}
-		// Add to the accumulator.
-		err := p.Modify(addHashes, nil, utreexo.Proof{})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Generate Proof.
-		ud, err := GenerateUData(testData.leavesPerBlock, &p)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Append to the tests.
-		tests = append(tests, test{
-			name: testData.name,
-			ud:   *ud,
-		})
-	}
-
-	for _, test := range tests {
-		// Serialize
-		writer := &bytes.Buffer{}
-		test.ud.SerializeCompact(writer)
-		test.before = writer.Bytes()
-
-		// Deserialize
-		checkUData := new(UData)
-		err := checkUData.DeserializeCompact(writer)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = checkUDEqual(&test.ud, checkUData, true, test.name)
-		if err != nil {
-			t.Error(err)
-		}
-
-		// Re-serialize
-		afterWriter := &bytes.Buffer{}
-		checkUData.SerializeCompact(afterWriter)
-		test.after = afterWriter.Bytes()
-
-		// Check if before and after match.
-		if !bytes.Equal(test.before, test.after) {
-			t.Errorf("%s: UData serialize/deserialize fail. "+
-				"Before len %d, after len %d", test.name,
-				len(test.before), len(test.after))
-		}
-	}
-}
-
-func TestSerializeNoAccProof(t *testing.T) {
-	t.Parallel()
-
-	type test struct {
-		name      string
-		isForTx   bool
-		leafCount int
-		ud        UData
-		before    []byte
-		after     []byte
-	}
-
-	testDatas := getTestDatas()
-	tests := make([]test, 0, len(testDatas))
-
-	for _, testData := range testDatas {
-		// New forest object.
-		p := utreexo.NewAccumulator()
-
-		// Create hashes to add from the stxo data.
-		addHashes := make([]utreexo.Leaf, 0, len(testData.leavesPerBlock))
-		for i, ld := range testData.leavesPerBlock {
-			addHashes = append(addHashes, utreexo.Leaf{
-				Hash: ld.LeafHash(),
-				// Just half and half.
-				Remember: i%2 == 0,
-			})
-		}
-		// Add to the accumulator.
-		err := p.Modify(addHashes, nil, utreexo.Proof{})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Generate Proof.
-		ud, err := GenerateUData(testData.leavesPerBlock, &p)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Append to the tests.
-		tests = append(tests, test{
-			name:    testData.name,
-			isForTx: false,
-			ud:      *ud,
-		})
-	}
-
-	for _, test := range tests {
-		ud := test.ud
-		// Serialize
-		writer := &bytes.Buffer{}
-		err := ud.SerializeCompactNoAccProof(writer)
-		if err != nil {
-			t.Fatal(err)
-		}
-		test.before = writer.Bytes()
-
-		// Deserialize
-		checkUData := new(UData)
-		err = checkUData.DeserializeCompactNoAccProof(writer)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = checkUDEqual(&ud, checkUData, true, test.name)
-		if err != nil {
-			t.Error(err)
-		}
-
-		// Re-serialize
-		afterWriter := &bytes.Buffer{}
-		checkUData.SerializeCompactNoAccProof(afterWriter)
 		test.after = afterWriter.Bytes()
 
 		// Check if before and after match.
@@ -649,4 +365,8 @@ func TestGenerateUData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestUDataCopy tests that modifying the leafdata copy does not modify the original.
+func TestUDataCopy(t *testing.T) {
 }

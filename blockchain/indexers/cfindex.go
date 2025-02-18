@@ -96,7 +96,7 @@ func (idx *CfIndex) NeedsInputs() bool {
 
 // Init initializes the hash-based cf index. This is part of the Indexer
 // interface.
-func (idx *CfIndex) Init(_ *blockchain.BlockChain) error {
+func (idx *CfIndex) Init(_ *blockchain.BlockChain, _ *chainhash.Hash, _ int32) error {
 	return nil // Nothing to do.
 }
 
@@ -261,7 +261,7 @@ func (idx *CfIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 // reindexing as a pruned node.
 //
 // This is part of the Indexer interface.
-func (idx *CfIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+func (idx *CfIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash, _ int32) error {
 	for _, key := range cfIndexKeys {
 		err := dbDeleteFilterIdxEntry(dbTx, key, blockHash)
 		if err != nil {
@@ -283,6 +283,13 @@ func (idx *CfIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) erro
 		}
 	}
 
+	return nil
+}
+
+// For CfIndex, flush is a no-op.
+//
+// This is part of the Indexer interface.
+func (idx *CfIndex) Flush(_ *chainhash.Hash, _ blockchain.FlushMode, _ bool) error {
 	return nil
 }
 

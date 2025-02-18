@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cockroachdb/pebble"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 )
@@ -19,26 +20,18 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 	}{
 		{
 			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestCachedLeavesBackEnd0")
-			}(),
-			maxMemUsage: -1,
-		},
-		{
-			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestCachedLeavesBackEnd1")
-			}(),
-			maxMemUsage: 0,
-		},
-		{
-			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestCachedLeavesBackEnd2")
+				return filepath.Join(os.TempDir(), "TestCachedLeavesBackEnd")
 			}(),
 			maxMemUsage: 1 * 1024 * 1024,
 		},
 	}
 
 	for _, test := range tests {
-		cachedLeavesBackEnd, err := InitCachedLeavesBackEnd(test.tmpDir, test.maxMemUsage)
+		db, err := pebble.Open(test.tmpDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cachedLeavesBackEnd, err := InitCachedLeavesBackEnd(db, test.maxMemUsage)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,12 +48,27 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 			cachedLeavesBackEnd.Put(hash, i)
 		}
 
-		// Close and reopen the backend.
-		err = cachedLeavesBackEnd.Close()
+		batch := db.NewBatch()
+		err = batch.Set([]byte("utreexostateconsistency"), make([]byte, 40), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		cachedLeavesBackEnd, err = InitCachedLeavesBackEnd(test.tmpDir, test.maxMemUsage)
+		// Close and reopen the backend.
+		cachedLeavesBackEnd.Flush(batch)
+		err = batch.Commit(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = db.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		db, err = pebble.Open(test.tmpDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cachedLeavesBackEnd, err = InitCachedLeavesBackEnd(db, test.maxMemUsage)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -153,26 +161,18 @@ func TestNodesBackEnd(t *testing.T) {
 	}{
 		{
 			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestNodesBackEnd0")
-			}(),
-			maxMemUsage: -1,
-		},
-		{
-			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestNodesBackEnd1")
-			}(),
-			maxMemUsage: 0,
-		},
-		{
-			tmpDir: func() string {
-				return filepath.Join(os.TempDir(), "TestNodesBackEnd2")
+				return filepath.Join(os.TempDir(), "TestNodesBackEnd")
 			}(),
 			maxMemUsage: 1 * 1024 * 1024,
 		},
 	}
 
 	for _, test := range tests {
-		nodesBackEnd, err := InitNodesBackEnd(test.tmpDir, test.maxMemUsage)
+		db, err := pebble.Open(test.tmpDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodesBackEnd, err := InitNodesBackEnd(db, test.maxMemUsage)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -189,12 +189,27 @@ func TestNodesBackEnd(t *testing.T) {
 			nodesBackEnd.Put(i, utreexo.Leaf{Hash: hash})
 		}
 
-		// Close and reopen the backend.
-		err = nodesBackEnd.Close()
+		batch := db.NewBatch()
+		err = batch.Set([]byte("utreexostateconsistency"), make([]byte, 40), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		nodesBackEnd, err = InitNodesBackEnd(test.tmpDir, test.maxMemUsage)
+		// Close and reopen the backend.
+		nodesBackEnd.Flush(batch)
+		err = batch.Commit(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = db.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		db, err = pebble.Open(test.tmpDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodesBackEnd, err = InitNodesBackEnd(db, test.maxMemUsage)
 		if err != nil {
 			t.Fatal(err)
 		}

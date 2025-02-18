@@ -80,6 +80,10 @@ const (
 
 	// maxProtocolVersion is the max protocol version the server supports.
 	maxProtocolVersion = 70002
+
+	// defaultMaxFeeRate is the default value to use(0.1 BTC/kvB) when the
+	// `MaxFee` field is not set when calling `testmempoolaccept`.
+	defaultMaxFeeRate = 0.1
 )
 
 var (
@@ -207,6 +211,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"verifymessage":                      handleVerifyMessage,
 	"verifyutxochaintipinclusionproof":   handleVerifyUtxoChainTipInclusionProof,
 	"version":                            handleVersion,
+	"testmempoolaccept":                  handleTestMempoolAccept,
 }
 
 // list of commands that we recognize, but for which btcd has no support because
@@ -3465,7 +3470,7 @@ func handleGetUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struc
 			}
 		}
 	} else {
-		udata, err = s.cfg.FlatUtreexoProofIndex.FetchUtreexoProof(height, false)
+		udata, err = s.cfg.FlatUtreexoProofIndex.FetchUtreexoProof(height)
 		if err != nil {
 			return nil, &btcjson.RPCError{
 				Code: btcjson.ErrRPCMisc,
@@ -3521,7 +3526,6 @@ func handleGetUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struc
 
 	getReply := &btcjson.GetUtreexoProofVerboseResult{
 		ProofHashes:     proofString,
-		RememberIndexes: udata.RememberIdx,
 		TargetHashes:    targetHashString,
 		TargetPreimages: targetPreimageString,
 		ProofTargets:    udata.AccProof.Targets,
@@ -3567,102 +3571,53 @@ func handleGetUtreexoRoots(s *rpcServer, cmd interface{}, closeChan <-chan struc
 		}
 		getReply.NumLeaves = view.NumLeaves()
 	} else if s.cfg.UtreexoProofIndex != nil {
-		// NOTE (kcalvinalvin): so this is an ugly quirk I didn't bother to fix because
-		// I didn't realize we'd have a need for fetching utreexo roots at arbitrary heights.
-		//
-		// For bridges, the roots that are saved BEFORE the modification. So the current
-		// accumulator state is not saved and it only gets saved when a block gets confirmed.
-		// The key:value here would be "block X":"Utreexo roots BEFORE modification of block X".
-		//
-		// I did this because it made reorgs for bridges easier to handle. But now we have this
-		// weird thing. I know I know. I'll fix it. But the below code is correct in that it returns
-		// the roots that the caller wants.
-		if s.cfg.Chain.BestSnapshot().Hash == *blockHash {
-			roots, numLeaves := s.cfg.UtreexoProofIndex.FetchCurrentUtreexoState()
-
-			for _, root := range roots {
-				getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
-			}
-			getReply.NumLeaves = numLeaves
-		} else {
-			height, err := s.cfg.Chain.BlockHeightByHash(blockHash)
+		var roots []*chainhash.Hash
+		var numLeaves uint64
+		err = s.cfg.DB.View(func(dbTx database.Tx) error {
+			roots, numLeaves, err = s.cfg.UtreexoProofIndex.FetchUtreexoState(dbTx, blockHash)
 			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					Message: fmt.Sprintf("Couldn't fetch the block height for blockhash %s from "+
-						"the blockindex. Error: %v", c.BlockHash, err),
-				}
+				return err
 			}
 
-			// NOTE (kcalvinalvin): +1 here because the roots for bridges are saved BEFORE the modification.
-			hash, err := s.cfg.Chain.BlockHashByHeight(height + 1)
-			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					// I'm too ashamed to admit that height+1 is the problem. So I'm gonna lie
-					// to the user and just say it's the view we can't fetch. It's not wrong right?
-					Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
-						"Error: %v", c.BlockHash, err),
-				}
+			return nil
+		})
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
+					"Error: %v", c.BlockHash, err),
 			}
-			var roots []*chainhash.Hash
-			var numLeaves uint64
-			err = s.cfg.DB.View(func(dbTx database.Tx) error {
-				roots, numLeaves, err = s.cfg.UtreexoProofIndex.FetchUtreexoState(dbTx, hash)
-				if err != nil {
-					return err
-				}
-
-				return nil
-			})
-			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
-						"Error: %v", c.BlockHash, err),
-				}
-			}
-
-			for _, root := range roots {
-				getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
-			}
-			getReply.NumLeaves = numLeaves
 		}
+
+		for _, root := range roots {
+			getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
+		}
+		getReply.NumLeaves = numLeaves
 	} else {
-		if s.cfg.Chain.BestSnapshot().Hash == *blockHash {
-			roots, numLeaves := s.cfg.FlatUtreexoProofIndex.FetchCurrentUtreexoState()
-
-			for _, root := range roots {
-				getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
+		height, err := s.cfg.Chain.BlockHeightByHash(blockHash)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't fetch the block height for blockhash %s from "+
+					"the blockindex. Error: %v", c.BlockHash, err),
 			}
-			getReply.NumLeaves = numLeaves
-		} else {
-			height, err := s.cfg.Chain.BlockHeightByHash(blockHash)
-			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					Message: fmt.Sprintf("Couldn't fetch the block height for blockhash %s from "+
-						"the blockindex. Error: %v", c.BlockHash, err),
-				}
-			}
-
-			// NOTE (kcalvinalvin): +1 here because the roots for bridges are saved BEFORE the modification.
-			roots, numLeaves, err := s.cfg.FlatUtreexoProofIndex.FetchUtreexoState(height + 1)
-			if err != nil {
-				return nil, &btcjson.RPCError{
-					Code: btcjson.ErrRPCMisc,
-					// I'm too ashamed to admit that height+1 is the problem. So I'm gonna lie
-					// to the user and just say it's the view we can't fetch. It's not wrong right?
-					Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
-						"Error: %v", c.BlockHash, err),
-				}
-			}
-
-			for _, root := range roots {
-				getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
-			}
-			getReply.NumLeaves = numLeaves
 		}
+
+		roots, numLeaves, err := s.cfg.FlatUtreexoProofIndex.FetchUtreexoState(height)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				// I'm too ashamed to admit that height+1 is the problem. So I'm gonna lie
+				// to the user and just say it's the view we can't fetch. It's not wrong right?
+				Message: fmt.Sprintf("Couldn't fetch the utreexoview for blockhash %s from "+
+					"Error: %v", c.BlockHash, err),
+			}
+		}
+
+		for _, root := range roots {
+			getReply.Roots = append(getReply.Roots, hex.EncodeToString(root[:]))
+		}
+		getReply.NumLeaves = numLeaves
 	}
 
 	return getReply, nil
@@ -4002,7 +3957,7 @@ func handleRebroadcastUnconfirmedBDKTxs(s *rpcServer, cmd interface{}, closeChan
 		tx := unconfirmedTx.Tx
 
 		// If it's already in the mempool, then we've already broadcasted it.
-		if s.cfg.TxMemPool.IsTransactionInPool(tx.Hash()) {
+		if s.cfg.TxMemPool.HaveTransaction(tx.Hash()) {
 			continue
 		}
 
@@ -4337,7 +4292,7 @@ func handleSearchRawTransactions(s *rpcServer, cmd interface{}, closeChan <-chan
 // rpcProcessTx checks that the tx is accepted into the mempool and relays it to peers
 // and other processes.
 func (s *rpcServer) rpcProcessTx(tx *btcutil.Tx, allowOrphan, rateLimit bool) error {
-	acceptedTxs, err := s.cfg.TxMemPool.ProcessTransaction(tx, allowOrphan, rateLimit, 0)
+	acceptedTxs, err := s.cfg.TxMemPool.ProcessTransaction(tx, nil, allowOrphan, rateLimit, 0)
 	if err != nil {
 		// When the error is a rule error, it means the transaction was
 		// simply rejected as opposed to something actually going wrong,
@@ -4391,7 +4346,7 @@ func (s *rpcServer) rpcProcessTx(tx *btcutil.Tx, allowOrphan, rateLimit bool) er
 	// Also, since an error is being returned to the caller, ensure the
 	// transaction is removed from the memory pool.
 	if len(acceptedTxs) == 0 || !acceptedTxs[0].Tx.Hash().IsEqual(tx.Hash()) {
-		s.cfg.TxMemPool.RemoveTransaction(tx, true, true)
+		s.cfg.TxMemPool.RemoveTransaction(tx, true)
 
 		errStr := fmt.Sprintf("transaction %v is not in accepted list",
 			tx.Hash())
@@ -4830,6 +4785,125 @@ func handleVerifyUtxoChainTipInclusionProof(s *rpcServer, cmd interface{}, close
 	}
 
 	return true, nil
+}
+
+// handleTestMempoolAccept implements the testmempoolaccept command.
+func handleTestMempoolAccept(s *rpcServer, cmd interface{},
+	closeChan <-chan struct{}) (interface{}, error) {
+
+	c := cmd.(*btcjson.TestMempoolAcceptCmd)
+
+	// Create txns to hold the decoded tx.
+	txns := make([]*btcutil.Tx, 0, len(c.RawTxns))
+
+	// Iterate the raw hex slice and decode them.
+	for _, rawTx := range c.RawTxns {
+		rawBytes, err := hex.DecodeString(rawTx)
+		if err != nil {
+			return nil, rpcDecodeHexError(rawTx)
+		}
+
+		tx, err := btcutil.NewTxFromBytes(rawBytes)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCDeserialization,
+				Message: "TX decode failed: " + err.Error(),
+			}
+		}
+
+		txns = append(txns, tx)
+	}
+
+	results := make([]*btcjson.TestMempoolAcceptResult, 0, len(txns))
+	for _, tx := range txns {
+		// Create a test result item.
+		item := &btcjson.TestMempoolAcceptResult{
+			Txid:  tx.Hash().String(),
+			Wtxid: tx.WitnessHash().String(),
+		}
+
+		// Check the mempool acceptance.
+		result, err := s.cfg.TxMemPool.CheckMempoolAcceptance(tx)
+
+		// If an error is returned, this tx is not allow, hence we
+		// record the reason.
+		if err != nil {
+			item.Allowed = false
+
+			// TODO(yy): differentiate the errors and put package
+			// error in `PackageError` field.
+			item.RejectReason = err.Error()
+
+			results = append(results, item)
+
+			// Move to the next transaction.
+			continue
+		}
+
+		// If this transaction is an orphan, it's not allowed.
+		if result.MissingParents != nil {
+			item.Allowed = false
+
+			// NOTE: "missing-inputs" is what bitcoind returns
+			// here, so we mimic the same error message.
+			item.RejectReason = "missing-inputs"
+
+			results = append(results, item)
+
+			// Move to the next transaction.
+			continue
+		}
+
+		// Otherwise this tx is allowed if its fee rate is below the
+		// max fee rate, we now patch the fields in
+		// `TestMempoolAcceptItem` as much as possible.
+		//
+		// Calculate the fee field and validate its fee rate.
+		item.Fees, item.Allowed = validateFeeRate(
+			result.TxFee, result.TxSize, c.MaxFeeRate,
+		)
+
+		// If the fee rate check passed, assign the corresponding
+		// fields.
+		if item.Allowed {
+			item.Vsize = int32(result.TxSize)
+		} else {
+			// NOTE: "max-fee-exceeded" is what bitcoind returns
+			// here, so we mimic the same error message.
+			item.RejectReason = "max-fee-exceeded"
+		}
+
+		results = append(results, item)
+	}
+
+	return results, nil
+}
+
+// validateFeeRate checks that the fee rate used by transaction doesn't exceed
+// the max fee rate specified.
+func validateFeeRate(feeSats btcutil.Amount, txSize int64,
+	maxFeeRate float64) (*btcjson.TestMempoolAcceptFees, bool) {
+
+	// Calculate fee rate in sats/kvB.
+	feeRateSatsPerKVB := feeSats * 1e3 / btcutil.Amount(txSize)
+
+	// Convert sats/vB to BTC/kvB.
+	feeRate := feeRateSatsPerKVB.ToBTC()
+
+	// Get the max fee rate, if not provided, default to 0.1 BTC/kvB.
+	if maxFeeRate == 0 {
+		maxFeeRate = defaultMaxFeeRate
+	}
+
+	// If the fee rate is above the max fee rate, this tx is not accepted.
+	if feeRate > maxFeeRate {
+		return nil, false
+	}
+
+	return &btcjson.TestMempoolAcceptFees{
+		Base:             feeSats.ToBTC(),
+		EffectiveFeeRate: feeRate,
+	}, true
 }
 
 // rpcServer provides a concurrent safe RPC server to a chain server.
@@ -5702,7 +5776,7 @@ type rpcserverConfig struct {
 	DB          database.DB
 
 	// TxMemPool defines the transaction memory pool to interact with.
-	TxMemPool *mempool.TxPool
+	TxMemPool mempool.TxMempool
 
 	// These fields allow the RPC server to interface with mining.
 	//

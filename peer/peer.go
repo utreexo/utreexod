@@ -117,6 +117,9 @@ type MessageListeners struct {
 	// OnTx is invoked when a peer receives a tx bitcoin message.
 	OnTx func(p *Peer, msg *wire.MsgTx)
 
+	// OnUtreexoTx is invoked when a peer receives a utreexo tx bitcoin message.
+	OnUtreexoTx func(p *Peer, msg *wire.MsgUtreexoTx)
+
 	// OnBlock is invoked when a peer receives a block bitcoin message.
 	OnBlock func(p *Peer, msg *wire.MsgBlock, buf []byte)
 
@@ -137,6 +140,15 @@ type MessageListeners struct {
 	// OnHeaders is invoked when a peer receives a headers bitcoin message.
 	OnHeaders func(p *Peer, msg *wire.MsgHeaders)
 
+	// OnUtreexoSummaries is invoked when a peer receives a utreexo summaries bitcoin message.
+	OnUtreexoSummaries func(p *Peer, msg *wire.MsgUtreexoSummaries)
+
+	// OnUtreexoProof is invoked when a peer receives a utreexo proof bitcoin message.
+	OnUtreexoProof func(p *Peer, msg *wire.MsgUtreexoProof)
+
+	// OnGetUtreexoProof is invoked when a peer receives a utreexo proof bitcoin message.
+	OnGetUtreexoProof func(p *Peer, msg *wire.MsgGetUtreexoProof)
+
 	// OnNotFound is invoked when a peer receives a notfound bitcoin
 	// message.
 	OnNotFound func(p *Peer, msg *wire.MsgNotFound)
@@ -151,6 +163,14 @@ type MessageListeners struct {
 	// OnGetHeaders is invoked when a peer receives a getheaders bitcoin
 	// message.
 	OnGetHeaders func(p *Peer, msg *wire.MsgGetHeaders)
+
+	// OnGetUtreexoHeader is invoked when a peer receives a getutreexoheader bitcoin
+	// message.
+	OnGetUtreexoHeader func(p *Peer, msg *wire.MsgGetUtreexoHeader)
+
+	// OnGetUtreexoRoot is invoked when a peer receives a getutreexoroot bitcoin
+	// message.
+	OnGetUtreexoRoot func(p *Peer, msg *wire.MsgGetUtreexoRoot)
 
 	// OnGetCFilters is invoked when a peer receives a getcfilters bitcoin
 	// message.
@@ -1031,6 +1051,8 @@ func (p *Peer) readMessage(encoding wire.MessageEncoding) (wire.Message, []byte,
 		p.cfg.Listeners.OnRead(p, n, msg, err)
 	}
 	if err != nil {
+		log.Debugf("error reading message from peer %v. %v",
+			p.String(), err)
 		return nil, nil, err
 	}
 
@@ -1175,6 +1197,7 @@ func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd st
 		pendingResponses[wire.CmdBlock] = deadline
 		pendingResponses[wire.CmdMerkleBlock] = deadline
 		pendingResponses[wire.CmdTx] = deadline
+		pendingResponses[wire.CmdUtreexoTx] = deadline
 		pendingResponses[wire.CmdNotFound] = deadline
 
 	case wire.CmdGetHeaders:
@@ -1234,10 +1257,13 @@ out:
 					fallthrough
 				case wire.CmdTx:
 					fallthrough
+				case wire.CmdUtreexoTx:
+					fallthrough
 				case wire.CmdNotFound:
 					delete(pendingResponses, wire.CmdBlock)
 					delete(pendingResponses, wire.CmdMerkleBlock)
 					delete(pendingResponses, wire.CmdTx)
+					delete(pendingResponses, wire.CmdUtreexoTx)
 					delete(pendingResponses, wire.CmdNotFound)
 
 				default:
@@ -1439,6 +1465,11 @@ out:
 				p.cfg.Listeners.OnTx(p, msg)
 			}
 
+		case *wire.MsgUtreexoTx:
+			if p.cfg.Listeners.OnUtreexoTx != nil {
+				p.cfg.Listeners.OnUtreexoTx(p, msg)
+			}
+
 		case *wire.MsgBlock:
 			if p.cfg.Listeners.OnBlock != nil {
 				p.cfg.Listeners.OnBlock(p, msg, buf)
@@ -1452,6 +1483,21 @@ out:
 		case *wire.MsgHeaders:
 			if p.cfg.Listeners.OnHeaders != nil {
 				p.cfg.Listeners.OnHeaders(p, msg)
+			}
+
+		case *wire.MsgUtreexoSummaries:
+			if p.cfg.Listeners.OnUtreexoSummaries != nil {
+				p.cfg.Listeners.OnUtreexoSummaries(p, msg)
+			}
+
+		case *wire.MsgUtreexoProof:
+			if p.cfg.Listeners.OnUtreexoProof != nil {
+				p.cfg.Listeners.OnUtreexoProof(p, msg)
+			}
+
+		case *wire.MsgGetUtreexoProof:
+			if p.cfg.Listeners.OnGetUtreexoProof != nil {
+				p.cfg.Listeners.OnGetUtreexoProof(p, msg)
 			}
 
 		case *wire.MsgNotFound:
@@ -1472,6 +1518,16 @@ out:
 		case *wire.MsgGetHeaders:
 			if p.cfg.Listeners.OnGetHeaders != nil {
 				p.cfg.Listeners.OnGetHeaders(p, msg)
+			}
+
+		case *wire.MsgGetUtreexoHeader:
+			if p.cfg.Listeners.OnGetUtreexoHeader != nil {
+				p.cfg.Listeners.OnGetUtreexoHeader(p, msg)
+			}
+
+		case *wire.MsgGetUtreexoRoot:
+			if p.cfg.Listeners.OnGetUtreexoRoot != nil {
+				p.cfg.Listeners.OnGetUtreexoRoot(p, msg)
 			}
 
 		case *wire.MsgGetCFilters:
@@ -1902,10 +1958,13 @@ func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
 	for i := 0; i < len(invVects); i++ {
 		ty := invVects[i].Type
 
+		iv := *invVects[i]
+		iv.Type &^= wire.InvUtreexoFlag
+
 		// Don't add the inventory to the send queue if the peer is already
 		// known to have it.
 		if ty != wire.InvTypeUtreexoProofHash &&
-			p.knownInventory.Contains(invVects[i]) {
+			p.knownInventory.Contains(iv) {
 
 			invVects = append(invVects[:i], invVects[i+1:]...)
 			i--

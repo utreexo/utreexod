@@ -528,8 +528,8 @@ var helpDescsEnUS = map[string]string{
 	"getnettotalsresult-timemillis":     "Number of milliseconds since 1 Jan 1970 GMT",
 
 	// GetTxTotalsResult help.
-	"gettxtotalsresult-totaltxbytesrecv":    "Total tx bytes received",
-	"gettxtotalsresult-totaltxbytessent":    "Total tx bytes sent",
+	"gettxtotalsresult-totaltxbytesrecv":    "Total tx bytes received (includes all utreexo data)",
+	"gettxtotalsresult-totaltxbytessent":    "Total tx bytes sent (includes all utreexo data)",
 	"gettxtotalsresult-totalproofbytesrecv": "Total utxo data bytes received",
 	"gettxtotalsresult-totalproofbytessent": "Total utxo data bytes sent",
 	"gettxtotalsresult-totalaccbytesrecv":   "Total accumulator proof bytes received",
@@ -629,7 +629,6 @@ var helpDescsEnUS = map[string]string{
 	// GetUtreexoProofVerboseResult help.
 	"getutreexoproofverboseresult-proofhashes": "One half of the utreexo accumulator proof (the other half being prooftargets).\n" +
 		"The proof hashes for the utreexo accumulator proof of the given UTXOs.",
-	"getutreexoproofverboseresult-rememberindexes": "Indexes of the targets to cache when performing initial block download",
 	"getutreexoproofverboseresult-targethashes":    "Hashes that correspond to each of the prooftargets",
 	"getutreexoproofverboseresult-targetpreimages": "Preimages of the targethashes",
 	"getutreexoproofverboseresult-prooftargets": "One half of the utreexo accumulator proof (the other half being proofhashes).\n" +
@@ -900,6 +899,23 @@ var helpDescsEnUS = map[string]string{
 	"versionresult-patch":         "The patch component of the JSON-RPC API version",
 	"versionresult-prerelease":    "Prerelease info about the current build",
 	"versionresult-buildmetadata": "Metadata about the current build",
+
+	// TestMempoolAcceptCmd help.
+	"testmempoolaccept--synopsis":  "Returns result of mempool acceptance tests indicating if raw transaction(s) would be accepted by mempool.",
+	"testmempoolaccept-rawtxns":    "Serialized transactions to test.",
+	"testmempoolaccept-maxfeerate": "Maximum acceptable fee rate in BTC/kB",
+
+	// TestMempoolAcceptCmd result help.
+	"testmempoolacceptresult-txid":             "The transaction hash in hex.",
+	"testmempoolacceptresult-wtxid":            "The transaction witness hash in hex.",
+	"testmempoolacceptresult-package-error":    "Package validation error, if any (only possible if rawtxs had more than 1 transaction).",
+	"testmempoolacceptresult-allowed":          "Whether the transaction would be accepted to the mempool.",
+	"testmempoolacceptresult-vsize":            "Virtual transaction size as defined in BIP 141.(only present when 'allowed' is true)",
+	"testmempoolacceptresult-reject-reason":    "Rejection string (only present when 'allowed' is false).",
+	"testmempoolacceptresult-fees":             "Transaction fees (only present if 'allowed' is true).",
+	"testmempoolacceptfees-base":               "Transaction fees (only present if 'allowed' is true).",
+	"testmempoolacceptfees-effective-feerate":  "The effective feerate in BTC per KvB.",
+	"testmempoolacceptfees-effective-includes": "Transactions whose fees and vsizes are included in effective-feerate. Each item is a transaction wtxid in hex.",
 }
 
 // rpcResultTypes specifies the result types that each RPC command can return.
@@ -978,6 +994,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"verifymessage":                      {(*bool)(nil)},
 	"verifyutxochaintipinclusionproof":   {(*bool)(nil)},
 	"version":                            {(*map[string]btcjson.VersionResult)(nil)},
+	"testmempoolaccept":                  {(*[]btcjson.TestMempoolAcceptResult)(nil)},
 
 	// Websocket commands.
 	"loadtxfilter":              nil,

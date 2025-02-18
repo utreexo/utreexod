@@ -35,7 +35,7 @@ func TestCachedLeaveMapSliceDuplicates(t *testing.T) {
 	m, maxElems := NewCachedLeavesMapSlice(8000)
 	for i := 0; i < 10; i++ {
 		for j := int64(0); j < maxElems; j++ {
-			if !m.Put(uint64ToHash(uint64(j)), 0) {
+			if !m.Put(uint64ToHash(uint64(j)), CachedPosition{}) {
 				t.Fatalf("unexpected error on m.put")
 			}
 		}
@@ -49,7 +49,7 @@ func TestCachedLeaveMapSliceDuplicates(t *testing.T) {
 	// Try inserting x which should be unique. Should fail as the map is full.
 	x := uint64(0)
 	x -= 1
-	if m.Put(uint64ToHash(x), 0) {
+	if m.Put(uint64ToHash(x), CachedPosition{}) {
 		t.Fatalf("expected error but successfully called put")
 	}
 
@@ -57,22 +57,27 @@ func TestCachedLeaveMapSliceDuplicates(t *testing.T) {
 	// a duplicate element.
 	m.Delete(uint64ToHash(0))
 	x = uint64(maxElems) - 1
-	if !m.Put(uint64ToHash(x), 0) {
+	if !m.Put(uint64ToHash(x), CachedPosition{}) {
 		t.Fatalf("unexpected failure on put")
 	}
 
 	// Make sure the length of the map is 1 less than the max elems.
-	if m.Length() != int(maxElems)-1 {
+	if m.Length()-len(m.overflow) != int(maxElems)-1 {
 		t.Fatalf("expected length of %v but got %v",
 			maxElems-1, m.Length())
 	}
 
 	// Put 0 back in and then compare the map.
-	if !m.Put(uint64ToHash(0), 0) {
+	if !m.Put(uint64ToHash(0), CachedPosition{}) {
 		t.Fatalf("didn't expect error but unsuccessfully called put")
 	}
-	if m.Length() != int(maxElems) {
+	if m.Length()-len(m.overflow) != int(maxElems) {
 		t.Fatalf("expected length of %v but got %v",
 			maxElems, m.Length())
+	}
+
+	if len(m.overflow) != 1 {
+		t.Fatalf("expected length of %v but got %v",
+			1, len(m.overflow))
 	}
 }

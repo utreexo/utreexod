@@ -22,10 +22,6 @@ import (
 
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator
 type UtreexoViewpoint struct {
-	// proofInterval is the interval of block in which to receive the
-	// accumulator proofs. Only relevant when in multiblock proof mode.
-	proofInterval int32
-
 	// accumulator is the bare-minimum accumulator for the utxo set.
 	// It only holds the root hashes and the number of elements in the
 	// accumulator.
@@ -46,14 +42,43 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 	return newUview
 }
 
-// ProcessUData checks that the accumulator proof and the utxo data included in the UData
-// passes consensus and then it updates the underlying accumulator.
+// ProcessUData updates the underlying accumulator. It does NOT check if the verification passes.
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	bestChain *chainView, ud *wire.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds, dels, err := ExtractAccumulatorAddDels(block, bestChain, ud.RememberIdx)
+	adds, err := ExtractAccumulatorAdds(block, []uint32{})
+	if err != nil {
+		return err
+	}
+
+	dels, err := ExtractAccumulatorDels(block, bestChain, []uint32{})
+	if err != nil {
+		return err
+	}
+
+	// Update the underlying accumulator.
+	updateData, err := uview.Modify(ud, adds, dels)
+	if err != nil {
+		return fmt.Errorf("ProcessUData fail. Error: %v", err)
+	}
+
+	// Add the utreexo data to the block.
+	block.SetUtreexoUpdateData(updateData)
+	block.SetUtreexoAdds(adds)
+
+	return nil
+}
+
+// VerifyUData checks the accumulator proof to ensure that the leaf preimages exist in the
+// accumulator.
+func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
+	bestChain *chainView, ud *wire.UData) error {
+
+	// Extracts the block into additions and deletions that will be processed.
+	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
+	dels, err := ExtractAccumulatorDels(block, bestChain, []uint32{})
 	if err != nil {
 		return err
 	}
@@ -80,17 +105,7 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 		}
 	}
 
-	// Update the underlying accumulator.
-	updateData, err := uview.Modify(ud, adds, dels)
-	if err != nil {
-		return fmt.Errorf("ProcessUData fail. Error: %v", err)
-	}
-
-	// Add the utreexo data to the block.
-	block.SetUtreexoUpdateData(updateData)
-	block.SetUtreexoAdds(adds)
-
-	return nil
+	return uview.accumulator.Verify(dels, ud.AccProof, false)
 }
 
 // AddProof first checks that the utreexo proofs are valid. If it is valid,
@@ -117,33 +132,23 @@ func (uview *UtreexoViewpoint) Modify(ud *wire.UData,
 		addHashes[i] = add.Hash
 	}
 
-	var err error
+	// We have to do this in order to generate the update data for the wallet.
+	// TODO: get rid of this once the pollard can generate the update data.
+	s := uview.accumulator.GetStump()
 	var updateData utreexo.UpdateData
-	if uview.proofInterval == 1 {
-		err = uview.accumulator.Verify(dels, ud.AccProof, true)
-		if err != nil {
-			return nil, err
-		}
+	updateData, err := s.Update(dels, addHashes, ud.AccProof)
+	if err != nil {
+		return nil, err
+	}
 
-		// We have to do this in order to generate the update data for the wallet.
-		// TODO: get rid of this once the pollard can generate the update data.
-		s := uview.accumulator.GetStump()
-		updateData, err = s.Update(dels, addHashes, ud.AccProof)
-		if err != nil {
-			return nil, err
-		}
-
-		err = uview.accumulator.Modify(adds, dels, ud.AccProof)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// TODO we should be verifying here but aren't as the accumulator.Verify
-		// function expects a complete proof.
-		err = uview.accumulator.Modify(adds, dels, ud.AccProof)
-		if err != nil {
-			return nil, err
-		}
+	// Ingest and modify the accumulator.
+	err = uview.accumulator.Ingest(dels, ud.AccProof)
+	if err != nil {
+		return nil, err
+	}
+	err = uview.accumulator.Modify(adds, dels, ud.AccProof)
+	if err != nil {
+		return nil, err
 	}
 
 	return &updateData, nil
@@ -184,7 +189,7 @@ func BlockToDelOPs(
 }
 
 // DedupeBlock takes a bitcoin block, and returns two int slices: the indexes of
-// inputs, and idexes of outputs which can be removed.  These are indexes
+// inputs, and indexes of outputs which can be removed.  These are indexes
 // within the block as a whole, even the coinbase tx.
 // So the coinbase tx in & output numbers affect the skip lists even though
 // the coinbase ins/outs can never be deduped.  it's simpler that way.
@@ -231,26 +236,19 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 	return
 }
 
-// ExtractAccumulatorAddDels extracts the additions and the deletions that will be
-// used to modify the utreexo accumulator.
-func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
-	[]utreexo.Leaf, []utreexo.Hash, error) {
+// ExtractAccumulatorDels extracts the deletions that will be used to modify the utreexo accumulator.
+func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
+	[]utreexo.Hash, error) {
 
 	// Check that UData field isn't nil before doing anything else.
 	if block.MsgBlock().UData == nil {
-		return nil, nil, fmt.Errorf("ExtractAccumulatorAddDels(): block.MsgBlock().UData is nil. " +
-			"Cannot extract utreexo accumulator additions and deletions")
+		return nil, fmt.Errorf("ExtractAccumulatorDels(): block.MsgBlock().UData is nil. " +
+			"Cannot extract utreexo accumulator deletions")
 	}
 
 	ud := block.MsgBlock().UData
 
-	// outskip is all the txOuts that are referenced by a txIn in the same block
-	// outCount is the count of all outskips.
-	_, outCount, inskip, outskip := DedupeBlock(block)
-
-	// Make the now verified utxos into 32 byte leaves ready to be added into the
-	// utreexo accumulator.
-	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
+	_, _, inskip, _ := DedupeBlock(block)
 
 	// Make slice of hashes from the LeafDatas. These are the hash commitments
 	// to be proven.
@@ -262,7 +260,7 @@ func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remem
 		var err error
 		delHashes, err = reconstructUData(ud, block, bestChain, inskip)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -271,10 +269,25 @@ func ExtractAccumulatorAddDels(block *btcutil.Block, bestChain *chainView, remem
 	OPsToProve := BlockToDelOPs(block)
 	err := ProofSanity(ud, OPsToProve)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return leaves, delHashes, nil
+	return delHashes, nil
+}
+
+// ExtractAccumulatorAdds extracts the additions that will beused to modify the utreexo accumulator.
+func ExtractAccumulatorAdds(block *btcutil.Block, remembers []uint32) (
+	[]utreexo.Leaf, error) {
+
+	// outskip is all the txOuts that are referenced by a txIn in the same block
+	// outCount is the count of all outskips.
+	_, outCount, _, outskip := DedupeBlock(block)
+
+	// Make the now verified utxos into 32 byte leaves ready to be added into the
+	// utreexo accumulator.
+	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
+
+	return leaves, nil
 }
 
 // it'd be cool if you just had .sort() methods on slices of builtin types...
@@ -358,47 +371,11 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 			}
 
 			ld := &ud.LeafDatas[ldIdx]
-
-			// Get BlockHash.
-			blockNode := chainView.NodeByHeight(ld.Height)
-			if blockNode == nil {
-				return nil, fmt.Errorf("Couldn't find blockNode for height %d",
-					ld.Height)
+			var err error
+			ld, err = reconstructLeafData(ld, txIn, chainView)
+			if err != nil {
+				return nil, err
 			}
-			ld.BlockHash = blockNode.hash
-
-			// Get OutPoint.
-			op := wire.OutPoint{
-				Hash:  txIn.PreviousOutPoint.Hash,
-				Index: txIn.PreviousOutPoint.Index,
-			}
-			ld.OutPoint = op
-
-			if ld.ReconstructablePkType != wire.OtherTy &&
-				ld.PkScript == nil {
-
-				var class txscript.ScriptClass
-
-				switch ld.ReconstructablePkType {
-				case wire.PubKeyHashTy:
-					class = txscript.PubKeyHashTy
-				case wire.ScriptHashTy:
-					class = txscript.ScriptHashTy
-				case wire.WitnessV0PubKeyHashTy:
-					class = txscript.WitnessV0PubKeyHashTy
-				case wire.WitnessV0ScriptHashTy:
-					class = txscript.WitnessV0ScriptHashTy
-				}
-
-				scriptToUse, err := txscript.ReconstructScript(
-					txIn.SignatureScript, txIn.Witness, class)
-				if err != nil {
-					return nil, err
-				}
-
-				ld.PkScript = scriptToUse
-			}
-
 			delHashes = append(delHashes, ld.LeafHash())
 
 			blockInIdx++
@@ -407,6 +384,76 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 	}
 
 	return delHashes, nil
+}
+
+// ReconstructLeafDatas reconstruct the passed in leaf datas with the given txIns.
+//
+// NOTE: the length of the leafdatas MUST match the TxIns. Otherwise it'll return an error.
+func (b *BlockChain) ReconstructLeafDatas(lds []wire.LeafData, txIns []*wire.TxIn) ([]wire.LeafData, error) {
+	if len(lds) == 0 {
+		return lds, nil
+	}
+
+	if len(lds) != len(txIns) {
+		err := fmt.Errorf("Can't reconstruct leaf datas.  Have %d txins but %d leaf datas",
+			len(txIns), len(lds))
+		return nil, err
+	}
+
+	for i, txIn := range txIns {
+		if lds[i].IsUnconfirmed() {
+			continue
+		}
+
+		ld, err := reconstructLeafData(&lds[i], txIn, b.bestChain)
+		if err != nil {
+			return nil, err
+		}
+		lds[i] = *ld
+	}
+
+	return lds, nil
+}
+
+// reconstructLeafData reconstructs a single leafdata given the associated txIn and the chainview.
+func reconstructLeafData(ld *wire.LeafData, txIn *wire.TxIn, chainView *chainView) (*wire.LeafData, error) {
+	// Get BlockHash.
+	blockNode := chainView.NodeByHeight(ld.Height)
+	if blockNode == nil {
+		return nil, fmt.Errorf("Couldn't find blockNode for height %d",
+			ld.Height)
+	}
+	ld.BlockHash = blockNode.hash
+
+	// Get OutPoint.
+	ld.OutPoint = txIn.PreviousOutPoint
+
+	if ld.ReconstructablePkType != wire.OtherTy &&
+		ld.PkScript == nil {
+
+		var class txscript.ScriptClass
+
+		switch ld.ReconstructablePkType {
+		case wire.PubKeyHashTy:
+			class = txscript.PubKeyHashTy
+		case wire.ScriptHashTy:
+			class = txscript.ScriptHashTy
+		case wire.WitnessV0PubKeyHashTy:
+			class = txscript.WitnessV0PubKeyHashTy
+		case wire.WitnessV0ScriptHashTy:
+			class = txscript.WitnessV0ScriptHashTy
+		}
+
+		scriptToUse, err := txscript.ReconstructScript(
+			txIn.SignatureScript, txIn.Witness, class)
+		if err != nil {
+			return nil, err
+		}
+
+		ld.PkScript = scriptToUse
+	}
+
+	return ld, nil
 }
 
 // IsUnspendable determines whether a tx is spendable or not.
@@ -503,22 +550,17 @@ type ExcludedUtxo struct {
 // BlockToDelLeaves takes a non-utreexo block and stxos and turns the block into
 // leaves that are to be deleted.
 //
-// inskip and excludeAfter are optional arguments. inskip will skip indexes of the
-// txIns that match with the ones included in the slice. For example, if [0, 3, 11]
-// is given as the inskip list, then txIns that appear in the 0th, 3rd, and 11th in
-// the block will be skipped over.
+// inskip is an optional argument. inskip will skip indexes of the txIns that match
+// with the ones included in the slice. For example, if [0, 3, 11] is given as the
+// inskip list, then txIns that appear in the 0th, 3rd, and 11th in the block will
+// be skipped over.
 //
-// excludeAfter will exclude all txIns that were created after a certain block height.
-// For example, 1000 as the excludeAfter value will skip the generation of leaf datas
-// for txIns that reference utxos created on and after the height 1000.
-//
-// NOTE To opt out of the optional arguments inskip and excludeAfter, just pass nil
-// for inskip and -1 for excludeAfter.
+// NOTE To opt out of the optional arguments inskip, just pass nil.
 func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Block,
-	inskip []uint32, excludeAfter int32) (delLeaves []wire.LeafData, excluded []ExcludedUtxo, err error) {
+	inskip []uint32) (delLeaves []wire.LeafData, err error) {
 
 	if chain == nil {
-		return nil, nil, fmt.Errorf("Passed in chain is nil. Cannot make delLeaves")
+		return nil, fmt.Errorf("Passed in chain is nil. Cannot make delLeaves")
 	}
 
 	var blockInIdx uint32
@@ -544,20 +586,12 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 
 			stxo := stxos[blockInIdx-1]
 
-			// Skip all those that have heights greater and equal to
-			// the excludeAfter height.
-			if excludeAfter >= 0 && stxo.Height >= excludeAfter {
-				blockInIdx++
-				excluded = append(excluded, ExcludedUtxo{stxo.Height, op})
-				continue
-			}
-
 			blockHash, err := chain.BlockHashByHeight(stxo.Height)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			if blockHash == nil {
-				return nil, nil, fmt.Errorf("Couldn't find blockhash for height %d",
+				return nil, fmt.Errorf("Couldn't find blockhash for height %d",
 					stxo.Height)
 			}
 
@@ -794,17 +828,6 @@ func (uview *UtreexoViewpoint) compareRoots(compRoot []utreexo.Hash) bool {
 	return true
 }
 
-// SetProofInterval sets the interval of the utreexo proofs to be received by the node.
-// Ex: interval of 10 means that you receive a utreexo proof every 10 blocks.
-func (uview *UtreexoViewpoint) SetProofInterval(proofInterval int32) {
-	uview.proofInterval = proofInterval
-}
-
-// GetProofInterval returns the proof interval of the current utreexo viewpoint.
-func (uview *UtreexoViewpoint) GetProofInterval() int32 {
-	return uview.proofInterval
-}
-
 // PruneAll deletes all the cached leaves in the utreexo viewpoint, leaving only the
 // roots of the accumulator.
 func (uview *UtreexoViewpoint) PruneAll() {
@@ -815,9 +838,7 @@ func (uview *UtreexoViewpoint) PruneAll() {
 // NewUtreexoViewpoint returns an empty UtreexoViewpoint
 func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
-		// Use 1 as a default value.
-		proofInterval: 1,
-		accumulator:   utreexo.NewMapPollard(false),
+		accumulator: utreexo.NewMapPollard(false),
 	}
 }
 
@@ -825,8 +846,6 @@ func NewUtreexoViewpoint() *UtreexoViewpoint {
 // assumedUtreexoPoint.
 func (b *BlockChain) SetUtreexoStateFromAssumePoint() {
 	b.utreexoView = &UtreexoViewpoint{
-		// Use 1 as a default value.
-		proofInterval: 1,
 		accumulator: utreexo.NewMapPollardFromRoots(
 			b.assumeUtreexoPoint.Roots, b.assumeUtreexoPoint.NumLeaves, false),
 	}
@@ -883,69 +902,19 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 			"Cannot validate utreexo accumulator proof")
 	}
 
-	// Check that there are equal amount of LeafDatas for txIns.
-	if len(txIns) != len(ud.LeafDatas) {
-		str := fmt.Sprintf("VerifyUData(): length of txIns and LeafDatas differ. "+
-			"%d txIns, but %d LeafDatas. TxIns PreviousOutPoints are:\n",
-			len(txIns), len(ud.LeafDatas))
-		for _, txIn := range txIns {
-			str += fmt.Sprintf("%s\n", txIn.PreviousOutPoint.String())
-		}
-
-		return fmt.Errorf(str)
+	var err error
+	ud.LeafDatas, err = b.ReconstructLeafDatas(ud.LeafDatas, txIns)
+	if err != nil {
+		return err
 	}
 
-	// Make a slice of hashes from LeafDatas. These are the hash commitments
-	// to be proven.
 	delHashes := make([]utreexo.Hash, 0, len(ud.LeafDatas))
-	for i, txIn := range txIns {
-		ld := &ud.LeafDatas[i]
-
-		// Get OutPoint.
-		op := wire.OutPoint{
-			Hash:  txIn.PreviousOutPoint.Hash,
-			Index: txIn.PreviousOutPoint.Index,
+	for _, ld := range ud.LeafDatas {
+		if ld.IsCompact() || ld.IsUnconfirmed() {
+			continue
 		}
-		ld.OutPoint = op
 
-		// Only append and try to fetch blockHash for confirmed txs.  Skip
-		// all unconfirmed txs.
-		if !ld.IsUnconfirmed() {
-			// Get BlockHash.
-			blockNode := b.bestChain.NodeByHeight(ld.Height)
-			if blockNode == nil {
-				return fmt.Errorf("Couldn't find blockNode for height %d for outpoint %s",
-					ld.Height, txIn.PreviousOutPoint.String())
-			}
-			ld.BlockHash = blockNode.hash
-
-			if ld.ReconstructablePkType != wire.OtherTy &&
-				ld.PkScript == nil {
-
-				var class txscript.ScriptClass
-
-				switch ld.ReconstructablePkType {
-				case wire.PubKeyHashTy:
-					class = txscript.PubKeyHashTy
-				case wire.ScriptHashTy:
-					class = txscript.ScriptHashTy
-				case wire.WitnessV0PubKeyHashTy:
-					class = txscript.WitnessV0PubKeyHashTy
-				case wire.WitnessV0ScriptHashTy:
-					class = txscript.WitnessV0ScriptHashTy
-				}
-
-				scriptToUse, err := txscript.ReconstructScript(
-					txIn.SignatureScript, txIn.Witness, class)
-				if err != nil {
-					return err
-				}
-
-				ld.PkScript = scriptToUse
-			}
-
-			delHashes = append(delHashes, ld.LeafHash())
-		}
+		delHashes = append(delHashes, ld.LeafHash())
 	}
 
 	// Acquire read lock before accessing the accumulator state.
@@ -954,7 +923,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 
 	// VerifyBatchProof checks that the utreexo proofs are valid without
 	// mutating the accumulator.
-	err := b.utreexoView.accumulator.VerifyPartialProof(ud.AccProof.Targets, delHashes, ud.AccProof.Proof, remember)
+	err = b.utreexoView.accumulator.VerifyPartialProof(ud.AccProof.Targets, delHashes, ud.AccProof.Proof, remember)
 	if err != nil {
 		str := "Verify fail. All txIns-leaf datas:\n"
 		for i, txIn := range txIns {
@@ -963,7 +932,7 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 				ud.LeafDatas[i].String(), hex.EncodeToString(leafHash[:]))
 		}
 		str += fmt.Sprintf("err: %s", err.Error())
-		return fmt.Errorf(str)
+		return fmt.Errorf("%v", str)
 	}
 
 	if remember {
@@ -984,10 +953,13 @@ func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint
 	ud := new(wire.UData)
 	ud.LeafDatas = dels
 
-	// Get the positions of the targets of delHashes.
-	delHashes, err := wire.HashesFromLeafDatas(ud.LeafDatas)
-	if err != nil {
-		return nil, err
+	delHashes := make([]utreexo.Hash, 0, len(dels))
+	for _, del := range dels {
+		// We can't calculate the correct hash if the leaf data is in
+		// the compact state.
+		if !del.IsUnconfirmed() {
+			delHashes = append(delHashes, del.LeafHash())
+		}
 	}
 	targets := b.getLeafHashPositions(delHashes)
 

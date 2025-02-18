@@ -70,17 +70,15 @@ func createDB(dbName string) (database.DB, string, error) {
 	return db, dbPath, nil
 }
 
-func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincfg.Params) (
+func initIndexes(dbPath string, db database.DB, params *chaincfg.Params) (
 	*Manager, []Indexer, error) {
 
-	proofGenInterval := new(int32)
-	*proofGenInterval = interval
-	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, proofGenInterval, 50*1024*1024, dbPath)
+	flatUtreexoProofIndex, err := NewFlatUtreexoProofIndex(false, params, 50*1024*1024, dbPath, db.Flush)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	utreexoProofIndex, err := NewUtreexoProofIndex(*db, false, 50*1024*1024, params, dbPath)
+	utreexoProofIndex, err := NewUtreexoProofIndex(db, false, 50*1024*1024, params, dbPath, db.Flush)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,11 +87,11 @@ func initIndexes(interval int32, dbPath string, db *database.DB, params *chaincf
 		utreexoProofIndex,
 		flatUtreexoProofIndex,
 	}
-	indexManager := NewManager(*db, indexes)
+	indexManager := NewManager(db, indexes)
 	return indexManager, indexes, nil
 }
 
-func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
+func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
 	params := chaincfg.RegressionNetParams
 	params.CoinbaseMaturity = 1
 
@@ -109,7 +107,7 @@ func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.Blo
 	}
 
 	// Create the indexes to be used in the chain.
-	indexManager, indexes, err := initIndexes(proofGenInterval, dbPath, &db, &params)
+	indexManager, indexes, err := initIndexes(dbPath, db, &params)
 	if err != nil {
 		tearDown()
 		os.RemoveAll(testDbRoot)
@@ -130,14 +128,6 @@ func indexersTestChain(testName string, proofGenInterval int32) (*blockchain.Blo
 		tearDown()
 		os.RemoveAll(testDbRoot)
 		panic(fmt.Errorf("failed to create chain instance: %v", err))
-	}
-
-	// Init the indexes.
-	err = indexManager.Init(chain, nil)
-	if err != nil {
-		tearDown()
-		os.RemoveAll(testDbRoot)
-		panic(fmt.Errorf("failed to init indexs: %v", err))
 	}
 
 	return chain, indexes, &params, indexManager, tearDown
@@ -178,7 +168,7 @@ func csnTestChain(testName string) (*blockchain.BlockChain, *chaincfg.Params, fu
 // to end.
 func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockChain, indexes []Indexer) error {
 	// Check that the newly added data to both of the indexes are equal.
-	for b := start; b < end; b++ {
+	for b := start; b <= end; b++ {
 		// Declare the utreexo data and the undo blocks that we'll be
 		// comparing.
 		var utreexoUD, flatUD *wire.UData
@@ -203,7 +193,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 					return err
 				}
 
-				if !idxType.pruned {
+				if !idxType.config.Pruned {
 					utreexoUD, err = idxType.FetchUtreexoProof(block.Hash())
 					if err != nil {
 						return err
@@ -222,8 +212,8 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 
 			case *FlatUtreexoProofIndex:
 				var err error
-				if !idxType.pruned {
-					flatUD, err = idxType.FetchUtreexoProof(b, false)
+				if !idxType.config.Pruned {
+					flatUD, err = idxType.FetchUtreexoProof(b)
 					if err != nil {
 						return err
 					}
@@ -266,32 +256,6 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 		}
 	}
 
-	// Compare the current utreexo state.
-	var expectRoots []*chainhash.Hash
-	var expectNumLeaves uint64
-	for _, indexer := range indexes {
-		switch idxType := indexer.(type) {
-		case *UtreexoProofIndex:
-			expectRoots, expectNumLeaves = idxType.FetchCurrentUtreexoState()
-		}
-	}
-	for _, indexer := range indexes {
-		switch idxType := indexer.(type) {
-		case *FlatUtreexoProofIndex:
-			roots, numLeaves := idxType.FetchCurrentUtreexoState()
-
-			if !reflect.DeepEqual(roots, expectRoots) {
-				return fmt.Errorf("expected roots of:\n%v\nbut got:\n%v",
-					expectRoots, roots)
-			}
-
-			if numLeaves != expectNumLeaves {
-				return fmt.Errorf("expected numLeaves of %v but got %v",
-					expectNumLeaves, numLeaves)
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -312,7 +276,7 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
-				flatUD, err = idxType.FetchUtreexoProof(b, false)
+				flatUD, err = idxType.FetchUtreexoProof(b)
 				if err != nil {
 					return err
 				}
@@ -345,113 +309,6 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 	return nil
 }
 
-// syncCsnChainMultiBlockProof will take in two chains: one to sync from, one to sync.
-// Sync will be done from start to end using multi-block proofs.
-func syncCsnChainMultiBlockProof(start, end, interval int32, chainToSyncFrom, csnChain *blockchain.BlockChain,
-	indexes []Indexer) error {
-
-	for b := start; b <= end; b++ {
-		var err error
-		var ud, multiUd *wire.UData
-		var dels []utreexo.Hash
-		var remembers []uint32
-		if (b % interval) == 0 {
-			for _, indexer := range indexes {
-				switch idxType := indexer.(type) {
-				case *FlatUtreexoProofIndex:
-					var roots utreexo.Stump
-					if b != 0 {
-						roots, err = idxType.fetchRoots(b)
-						if err != nil {
-							return err
-						}
-					}
-
-					_, multiUd, dels, err = idxType.FetchMultiUtreexoProof(b + csnChain.GetUtreexoView().GetProofInterval())
-					if err != nil {
-						return err
-					}
-
-					ud, _, _, err = idxType.FetchMultiUtreexoProof(b)
-					if err != nil {
-						return err
-					}
-
-					remembers, err = idxType.FetchRemembers(b)
-					if err != nil {
-						return err
-					}
-
-					_, err = utreexo.Verify(roots, dels, multiUd.AccProof)
-					if err != nil {
-						panic(err)
-					}
-				}
-			}
-			err = csnChain.GetUtreexoView().AddProof(dels, &multiUd.AccProof)
-			if err != nil {
-				return fmt.Errorf("syncCsnChainMultiBlockProof err at height %d. err: %v:", b, err)
-			}
-		} else {
-			for _, indexer := range indexes {
-				switch idxType := indexer.(type) {
-				case *FlatUtreexoProofIndex:
-					ud, err = idxType.FetchUtreexoProof(b, true)
-					if err != nil {
-						return err
-					}
-
-					remembers, err = idxType.FetchRemembers(b)
-					if err != nil {
-						return err
-					}
-				}
-			}
-		}
-
-		// Fetch the raw block bytes from the database.
-		block, err := chainToSyncFrom.BlockByHeight(b)
-		if err != nil {
-			str := fmt.Errorf("Fail at block height %d err:%s\n", b, err)
-			return str
-		}
-
-		ud.RememberIdx = remembers
-		block.MsgBlock().UData = ud
-
-		_, _, err = csnChain.ProcessBlock(block, blockchain.BFNone)
-		if err != nil {
-			str := fmt.Errorf("ProcessBlock fail at block height %d err: %s\n", b, err)
-			return str
-		}
-
-		// Fetch and compare the roots after processing the block.
-		var expectRoots []*chainhash.Hash
-		for _, indexer := range indexes {
-			switch idxType := indexer.(type) {
-			case *FlatUtreexoProofIndex:
-				// +1 because for bridge indexes, we save the root before the modify.
-				stump, err := idxType.fetchRoots(block.Height() + 1)
-				if err != nil {
-					return err
-				}
-				expectRoots = make([]*chainhash.Hash, len(stump.Roots))
-
-				for i, root := range stump.Roots {
-					newRoot := chainhash.Hash(root)
-					expectRoots[i] = &newRoot
-				}
-			}
-		}
-		if !csnChain.GetUtreexoView().Equal(expectRoots) {
-			return fmt.Errorf("expected roots %v but got %v on block %s(%d)",
-				expectRoots, csnChain.GetUtreexoView().GetRoots(), block.Hash().String(), block.Height())
-		}
-	}
-
-	return nil
-}
-
 // testUtreexoProof tests the generated proof on the exact same accumulator,
 // making sure that the verification code pass.
 func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexes []Indexer) error {
@@ -467,12 +324,12 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
 			var err error
-			flatUD, err = idxType.FetchUtreexoProof(block.Height(), false)
+			flatUD, err = idxType.FetchUtreexoProof(block.Height())
 			if err != nil {
 				return err
 			}
 
-			flatStump, err = idxType.fetchRoots(block.Height())
+			flatStump, err = idxType.fetchRoots(block.Height() - 1)
 			if err != nil {
 				return err
 			}
@@ -484,8 +341,12 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 				return err
 			}
 
+			prevHash, err := chain.BlockHashByHeight(block.Height() - 1)
+			if err != nil {
+				return err
+			}
 			err = idxType.db.View(func(dbTx database.Tx) error {
-				stump, err = dbFetchUtreexoState(dbTx, block.Hash())
+				stump, err = dbFetchUtreexoState(dbTx, prevHash)
 				if err != nil {
 					return err
 				}
@@ -520,7 +381,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
 	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
 
-	dels, _, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip, -1)
+	dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip)
 	if err != nil {
 		return err
 	}
@@ -598,7 +459,7 @@ func TestProveUtxos(t *testing.T) {
 	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
-	chain, indexes, params, _, tearDown := indexersTestChain("TestProveUtxos", 1)
+	chain, indexes, params, _, tearDown := indexersTestChain("TestProveUtxos")
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -736,7 +597,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
-	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoProofIndex", 1)
+	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoProofIndex")
 	defer tearDown()
 
 	tip := btcutil.NewBlock(params.GenesisBlock)
@@ -853,89 +714,11 @@ func TestUtreexoProofIndex(t *testing.T) {
 	}
 }
 
-func TestMultiBlockProof(t *testing.T) {
-	// Always remove the root on return.
-	defer os.RemoveAll(testDbRoot)
-
-	timenow := time.Now().UnixNano()
-	source := rand.NewSource(timenow)
-	rand := rand.New(source)
-
-	chain, indexes, params, _, tearDown := indexersTestChain("TestMultiBlockProof", defaultProofGenInterval)
-	defer tearDown()
-
-	tip := btcutil.NewBlock(params.GenesisBlock)
-
-	var allSpends []*blockchain.SpendableOut
-	nextBlock := tip
-	nextSpends := []*blockchain.SpendableOut{}
-
-	// Create a chain with 100 blocks.
-	for b := 0; b < 100; b++ {
-		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
-		if err != nil {
-			t.Fatalf("timenow:%v. %v", timenow, err)
-		}
-		nextBlock = newBlock
-
-		allSpends = append(allSpends, newSpendableOuts...)
-
-		var nextSpendsTmp []*blockchain.SpendableOut
-		for i := 0; i < len(allSpends); i++ {
-			randIdx := rand.Intn(len(allSpends))
-
-			spend := allSpends[randIdx]                                       // get
-			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
-			nextSpendsTmp = append(nextSpendsTmp, spend)
-		}
-		nextSpends = nextSpendsTmp
-
-		if b%10 == 0 {
-			// Commit the two base blocks to DB
-			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
-				t.Fatalf("timenow %v. unexpected error while flushing cache: %v. Rand source %v",
-					timenow, err, source)
-			}
-		}
-	}
-
-	// Create a chain that consumes the data from the indexes and test that this
-	// chain is able to consume the data properly.
-	csnChain, _, csnTearDown, err := csnTestChain("TestMultiBlockProof-CsnChain")
-	defer csnTearDown()
-	if err != nil {
-		str := fmt.Errorf("TestMultiBlockProof: csnTestChain err: %v. Rand source: %v", err, source)
-		t.Fatalf("timenow:%v. %v", timenow, str)
-	}
-
-	csnChain.GetUtreexoView().SetProofInterval(defaultProofGenInterval)
-
-	// Sync the csn chain to tip-1 from block 1.  We can only sync til one block away from the tip
-	// as the bridge hasn't built a multiblock proof for the next 10 blocks.
-	err = syncCsnChainMultiBlockProof(
-		1, chain.BestSnapshot().Height-1, defaultProofGenInterval, chain, csnChain, indexes)
-	if err != nil {
-		t.Fatalf("timenow %v. TestMultiBlockProof: syncCsnChainMultiBlockProof err: %v.", timenow, err)
-	}
-
-	bridgeBlock, err := chain.BlockByHeight(csnChain.BestSnapshot().Height)
-	if err != nil {
-		t.Fatalf("timenow:%v. %v", timenow, err)
-	}
-
-	// Sanity check that the csn chain did catch up to the bridge chain.
-	if *bridgeBlock.Hash() != csnChain.BestSnapshot().Hash {
-		t.Fatalf("timenow %v. expected tip to be %s(%d) but got %s(%d) for the csn chain",
-			timenow, bridgeBlock.Hash().String(), bridgeBlock.Height(),
-			csnChain.BestSnapshot().Hash.String(), csnChain.BestSnapshot().Height)
-	}
-}
-
 func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
 
-	chain, indexes, params, indexManager, tearDown := indexersTestChain("TestBridgeNodePruneUndoDataGen", 1)
+	chain, indexes, params, indexManager, tearDown := indexersTestChain("TestBridgeNodePruneUndoDataGen")
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -950,16 +733,20 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 
 	// Grab the utreexo state and numLeaves.
 	for _, indexer := range indexes {
+		state := chain.BestSnapshot()
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
-			utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+			utreexoState, numLeaves, err := idxType.FetchUtreexoState(state.Height)
+			if err != nil {
+				t.Fatal(err)
+			}
 			utreexoStates = append(utreexoStates, utreexoState)
 			utreexoNumLeaves = append(utreexoNumLeaves, numLeaves)
 		}
 	}
 
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
-	for i := int32(0); i < maxHeight; i++ {
+	for i := int32(1); i <= maxHeight; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
 			t.Fatal(err)
@@ -982,7 +769,10 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
-				utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+				utreexoState, numLeaves, err := idxType.FetchUtreexoState(i)
+				if err != nil {
+					t.Fatal(err)
+				}
 				utreexoStates = append(utreexoStates, utreexoState)
 				utreexoNumLeaves = append(utreexoNumLeaves, numLeaves)
 			}
@@ -995,7 +785,19 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 				expectRoots := utreexoStates[len(utreexoStates)-1]
 				expectNumLeaves := utreexoNumLeaves[len(utreexoNumLeaves)-1]
 
-				utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+				var utreexoState []*chainhash.Hash
+				var numLeaves uint64
+				err = idxType.db.View(func(dbTx database.Tx) error {
+					hash, err := idxType.chain.BlockHashByHeight(i)
+					if err != nil {
+						t.Fatal(err)
+					}
+					utreexoState, numLeaves, err = idxType.FetchUtreexoState(dbTx, hash)
+					return err
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
 				if expectNumLeaves != numLeaves {
 					t.Fatalf("expected numLeaves of %v but got %v",
 						expectNumLeaves, numLeaves)
@@ -1028,12 +830,12 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
 			for height := int32(1); height <= maxHeight; height++ {
-				_, err := idxType.FetchUtreexoProof(height, false)
+				_, err := idxType.FetchUtreexoProof(height)
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
-			idxType.pruned = true
+			idxType.config.Pruned = true
 
 		case *UtreexoProofIndex:
 			for height := int32(1); height <= maxHeight; height++ {
@@ -1047,10 +849,26 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			idxType.pruned = true
+			idxType.config.Pruned = true
 		}
 	}
 
+	// Close the databases so that they can be initialized again
+	// to generate the undo data.
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			err := idxType.CloseUtreexoState()
+			if err != nil {
+				t.Fatal(err)
+			}
+		case *UtreexoProofIndex:
+			err := idxType.CloseUtreexoState()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	// Here we generate the undo data and delete the proof files.
 	err = indexManager.Init(chain, nil)
 	if err != nil {
@@ -1067,7 +885,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
-			_, err := idxType.FetchUtreexoProof(maxHeight, false)
+			_, err := idxType.FetchUtreexoProof(maxHeight)
 			if err == nil {
 				t.Fatalf("expected an error when trying to" +
 					"fetch proofs from pruned bridges")
@@ -1115,7 +933,10 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+				utreexoState, numLeaves, err := idxType.FetchUtreexoState(block.Height() - 1)
+				if err != nil {
+					t.Fatal(err)
+				}
 				if numLeaves != expectNumLeaves {
 					t.Fatalf("expected numLeaves of %v but got %v",
 						expectNumLeaves, numLeaves)
@@ -1134,7 +955,19 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				utreexoState, numLeaves := idxType.FetchCurrentUtreexoState()
+				var utreexoState []*chainhash.Hash
+				var numLeaves uint64
+				err = idxType.db.Update(func(dbTx database.Tx) error {
+					hash, err := idxType.chain.BlockHashByHeight(block.Height() - 1)
+					if err != nil {
+						t.Fatal(err)
+					}
+					utreexoState, numLeaves, err = idxType.FetchUtreexoState(dbTx, hash)
+					return err
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
 				if !reflect.DeepEqual(expectState, utreexoState) {
 					t.Fatalf("height %v, expected roots of:\n%v\nbut got:\n%v",
 						i, expectState, utreexoState)
@@ -1146,5 +979,110 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func compareUtreexoRootsState(indexes []Indexer, blockHash *chainhash.Hash) error {
+	var err error
+	var flatMsg *wire.MsgUtreexoRoot
+	var msg *wire.MsgUtreexoRoot
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			flatMsg, err = idxType.FetchMsgUtreexoRoot(blockHash)
+			if err != nil {
+				return err
+			}
+
+		case *UtreexoProofIndex:
+			msg, err = idxType.FetchMsgUtreexoRoot(blockHash)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if flatMsg.NumLeaves != msg.NumLeaves {
+		return fmt.Errorf("expected %v, got %v", flatMsg.NumLeaves, msg.NumLeaves)
+	}
+
+	if flatMsg.Target != msg.Target {
+		return fmt.Errorf("expected %v, got %v", flatMsg.Target, msg.Target)
+	}
+
+	if !flatMsg.BlockHash.IsEqual(&msg.BlockHash) {
+		return fmt.Errorf("expected %v, got %v", flatMsg.BlockHash, msg.BlockHash)
+	}
+
+	if len(flatMsg.Roots) != len(msg.Roots) {
+		return fmt.Errorf("expected %v, got %v", len(flatMsg.Roots), len(msg.Roots))
+	}
+	for i := range flatMsg.Roots {
+		if flatMsg.Roots[i] != msg.Roots[i] {
+			return fmt.Errorf("expected %v, got %v", flatMsg.Roots[i], msg.Roots[i])
+		}
+	}
+
+	if len(flatMsg.Proof) != len(msg.Proof) {
+		return fmt.Errorf("expected %v, got %v", len(flatMsg.Proof), len(msg.Proof))
+	}
+	for i := range flatMsg.Proof {
+		if flatMsg.Proof[i] != msg.Proof[i] {
+			return fmt.Errorf("expected %v, got %v", flatMsg.Proof[i], msg.Proof[i])
+		}
+	}
+
+	return nil
+}
+
+func TestUtreexoRootsState(t *testing.T) {
+	// Always remove the root on return.
+	defer os.RemoveAll(testDbRoot)
+
+	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoRootsState")
+	defer tearDown()
+
+	var allSpends []*blockchain.SpendableOut
+	var nextSpends []*blockchain.SpendableOut
+
+	// Number of blocks we'll generate for the test.
+	maxHeight := int32(300)
+
+	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	for i := int32(1); i <= maxHeight; i++ {
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextBlock = newBlock
+
+		allSpends = append(allSpends, newSpendableOuts...)
+
+		var nextSpendsTmp []*blockchain.SpendableOut
+		for j := 0; j < len(allSpends); j++ {
+			randIdx := rand.Intn(len(allSpends))
+
+			spend := allSpends[randIdx]                                       // get
+			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+			nextSpendsTmp = append(nextSpendsTmp, spend)
+		}
+		nextSpends = nextSpendsTmp
+
+		err = compareUtreexoRootsState(indexes, newBlock.Hash())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bestHash := chain.BestSnapshot().Hash
+	err := chain.InvalidateBlock(&bestHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bestHash = chain.BestSnapshot().Hash
+	err = compareUtreexoRootsState(indexes, &bestHash)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

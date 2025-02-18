@@ -906,8 +906,16 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		}
 
 		checkPoints = []Checkpoint{
+			{20_000, newHashFromStr("000000d86368960eddbf7e127f8ba93a56efe71420b5dd8dbf8b0a68fa9ebbd1")},
+			{40_000, newHashFromStr("0000014086ddfe6836bd52179c2ce1ce5eb8a9b85aee87c18be05c605723793c")},
+			{60_000, newHashFromStr("00000130ab66a74ee232acb3f7ae35f9763dcec197b82b22f482ad0ea4c801f1")},
+			{80_000, newHashFromStr("0000011f3e29efed437f858f1757a7a8ac406194cc80ea2948ed543994962416")},
+			{100_000, newHashFromStr("0000008753108390007b3f5c26e5d924191567e147876b84489b0c0cf133a0bf")},
+			{120_000, newHashFromStr("0000011b6acd2af1a7dc04a2c88a7b2c3980ebd9375dc8d52d331e715deeffcb")},
 			{150_000, newHashFromStr("0000013d778ba3f914530f11f6b69869c9fab54acff85acd7b8201d111f19b7f")},
+			{170_000, newHashFromStr("00000041c812a89f084f633e4cf47e819a2f6b1c0a15162355a930410522c99d")},
 			{193_792, newHashFromStr("000000408463e4809d3a493baf8f17f25a919f883824f5b42247402cfeec1b73")},
+			{231_620, newHashFromStr("0000012f65a81923ad36ee7d6a0d0ab2c7880e1390fbb4a87b2ebab5ee956d2e")},
 		}
 	}
 
