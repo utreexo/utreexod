@@ -7,7 +7,7 @@ package blockchain
 import (
 	"fmt"
 
-	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/cockroachdb/pebble"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -46,14 +46,14 @@ var _ utreexo.NodesInterface = (*NodesBackEnd)(nil)
 
 // NodesBackEnd implements the NodesInterface interface.
 type NodesBackEnd struct {
-	db           *leveldb.DB
+	db           *pebble.DB
 	maxCacheElem int64
 	cache        utreexobackends.NodesMapSlice
 }
 
 // InitNodesBackEnd returns a newly initialized NodesBackEnd which implements
 // utreexo.NodesInterface.
-func InitNodesBackEnd(db *leveldb.DB, maxTotalMemoryUsage int64) (*NodesBackEnd, error) {
+func InitNodesBackEnd(db *pebble.DB, maxTotalMemoryUsage int64) (*NodesBackEnd, error) {
 	cache, maxCacheElems := utreexobackends.NewNodesMapSlice(maxTotalMemoryUsage)
 	nb := NodesBackEnd{
 		db:           db,
@@ -71,10 +71,12 @@ func (m *NodesBackEnd) dbGet(k uint64) (utreexo.Leaf, bool) {
 	buf := make([]byte, size)
 	putVLQ(buf, k)
 
-	val, err := m.db.Get(buf, nil)
+	val, closer, err := m.db.Get(buf)
 	if err != nil {
 		return utreexo.Leaf{}, false
 	}
+	defer closer.Close()
+
 	// Must be leafLength bytes long.
 	if len(val) != leafLength {
 		return utreexo.Leaf{}, false
@@ -112,14 +114,14 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 	return leaf, true
 }
 
-// NodesBackendPut puts a key-value pair in the given leveldb tx.
-func NodesBackendPut(tx *leveldb.Transaction, k uint64, v utreexo.Leaf) error {
+// NodesBackendPut puts a key-value pair in the given pebbledb batch.
+func NodesBackendPut(batch *pebble.Batch, k uint64, v utreexo.Leaf) error {
 	size := serializeSizeVLQ(k)
 	buf := make([]byte, size)
 	putVLQ(buf, k)
 
 	serialized := serializeLeaf(v)
-	return tx.Put(buf[:], serialized[:], nil)
+	return batch.Set(buf[:], serialized[:], nil)
 }
 
 // Put puts the given position and the leaf to the underlying map.
@@ -144,12 +146,12 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 	}
 }
 
-// NodesBackendDelete deletes the corresponding key-value pair from the given leveldb tx.
-func NodesBackendDelete(tx *leveldb.Transaction, k uint64) error {
+// NodesBackendDelete deletes the corresponding key-value pair from the given pebble tx.
+func NodesBackendDelete(batch *pebble.Batch, k uint64) error {
 	size := serializeSizeVLQ(k)
 	buf := make([]byte, size)
 	putVLQ(buf, k)
-	return tx.Delete(buf, nil)
+	return batch.Delete(buf, nil)
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
@@ -180,8 +182,11 @@ func (m *NodesBackEnd) Length() int {
 		return nil
 	})
 
-	iter := m.db.NewIterator(nil, nil)
-	for iter.Next() {
+	// Doesn't look like NewIter can actually return an error based on the
+	// implimentation.
+	iter, _ := m.db.NewIter(nil)
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
 		// The relevant key-value pairs for nodesbackend are leafLength.
 		// Skip it since it's not relevant here.
 		value := iter.Value()
@@ -197,7 +202,6 @@ func (m *NodesBackEnd) Length() int {
 		}
 		length++
 	}
-	iter.Release()
 
 	return length
 }
@@ -214,7 +218,8 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 		return nil
 	})
 
-	iter := m.db.NewIterator(nil, nil)
+	iter, _ := m.db.NewIter(nil)
+	defer iter.Close()
 	for iter.Next() {
 		// The relevant key-value pairs for nodesbackend are leafLength.
 		// Skip it since it's not relevant here.
@@ -238,7 +243,7 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 			return err
 		}
 	}
-	iter.Release()
+
 	return iter.Error()
 }
 
@@ -253,23 +258,23 @@ func (m *NodesBackEnd) UsageStats() (int64, int64) {
 }
 
 // flush saves all the cached entries to disk and resets the cache map.
-func (m *NodesBackEnd) Flush(ldbTx *leveldb.Transaction) error {
+func (m *NodesBackEnd) Flush(batch *pebble.Batch) error {
 	err := m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) error {
 		if v.IsFresh() {
 			if !v.IsRemoved() {
-				err := NodesBackendPut(ldbTx, k, v.Leaf)
+				err := NodesBackendPut(batch, k, v.Leaf)
 				if err != nil {
 					return err
 				}
 			}
 		} else {
 			if v.IsRemoved() {
-				err := NodesBackendDelete(ldbTx, k)
+				err := NodesBackendDelete(batch, k)
 				if err != nil {
 					return err
 				}
 			} else if v.IsModified() {
-				err := NodesBackendPut(ldbTx, k, v.Leaf)
+				err := NodesBackendPut(batch, k, v.Leaf)
 				if err != nil {
 					return err
 				}
@@ -291,17 +296,19 @@ var _ utreexo.CachedLeavesInterface = (*CachedLeavesBackEnd)(nil)
 // CachedLeavesBackEnd implements the CachedLeavesInterface interface. The cache assumes
 // that anything in the cache doesn't exist in the db and vise-versa.
 type CachedLeavesBackEnd struct {
-	db           *leveldb.DB
+	db           *pebble.DB
 	maxCacheElem int64
 	cache        utreexobackends.CachedLeavesMapSlice
 }
 
 // dbGet fetches and deserializes the value from the database.
 func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (uint64, bool) {
-	val, err := m.db.Get(k[:], nil)
+	val, closer, err := m.db.Get(k[:])
 	if err != nil {
 		return 0, false
 	}
+	defer closer.Close()
+
 	pos, _ := deserializeVLQ(val)
 
 	return pos, true
@@ -309,7 +316,7 @@ func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (uint64, bool) {
 
 // InitCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
 // utreexo.CachedLeavesInterface.
-func InitCachedLeavesBackEnd(db *leveldb.DB, maxMemoryUsage int64) (*CachedLeavesBackEnd, error) {
+func InitCachedLeavesBackEnd(db *pebble.DB, maxMemoryUsage int64) (*CachedLeavesBackEnd, error) {
 	cache, maxCacheElem := utreexobackends.NewCachedLeavesMapSlice(maxMemoryUsage)
 	return &CachedLeavesBackEnd{maxCacheElem: maxCacheElem, db: db, cache: cache}, nil
 }
@@ -329,12 +336,12 @@ func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (uint64, bool) {
 	return pos.Position, found
 }
 
-// CachedLeavesBackendPut puts a key-value pair in the given leveldb tx.
-func CachedLeavesBackendPut(tx *leveldb.Transaction, k utreexo.Hash, v uint64) error {
+// CachedLeavesBackendPut puts a key-value pair in the given pebbledb batch.
+func CachedLeavesBackendPut(tx *pebble.Batch, k utreexo.Hash, v uint64) error {
 	size := serializeSizeVLQ(v)
 	buf := make([]byte, size)
 	putVLQ(buf, v)
-	return tx.Put(k[:], buf, nil)
+	return tx.Set(k[:], buf, nil)
 }
 
 // Put puts the given data to the underlying cache. If the cache is full, it evicts
@@ -373,8 +380,9 @@ func (m *CachedLeavesBackEnd) Length() int {
 		}
 		return nil
 	})
-	iter := m.db.NewIterator(nil, nil)
-	for iter.Next() {
+	iter, _ := m.db.NewIter(nil)
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
 		// If the itered key is not chainhash.HashSize, it's not for cachedLeavesBackend.
 		// Skip it since it's not relevant here.
 		if len(iter.Key()) != chainhash.HashSize {
@@ -389,7 +397,6 @@ func (m *CachedLeavesBackEnd) Length() int {
 
 		length++
 	}
-	iter.Release()
 
 	return length
 }
@@ -404,7 +411,8 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 		}
 		return nil
 	})
-	iter := m.db.NewIterator(nil, nil)
+	iter, _ := m.db.NewIter(nil)
+	defer iter.Close()
 	for iter.Next() {
 		// If the itered key is not chainhash.HashSize, it's not for cachedLeavesBackend.
 		// Skip it since it's not relevant here.
@@ -426,7 +434,7 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, uint64) error) error
 			return err
 		}
 	}
-	iter.Release()
+
 	return iter.Error()
 }
 
@@ -441,15 +449,15 @@ func (m *CachedLeavesBackEnd) UsageStats() (int64, int64) {
 }
 
 // Flush resets the cache and saves all the key values onto the database.
-func (m *CachedLeavesBackEnd) Flush(ldbTx *leveldb.Transaction) error {
+func (m *CachedLeavesBackEnd) Flush(batch *pebble.Batch) error {
 	err := m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
 		if v.IsRemoved() {
-			err := ldbTx.Delete(k[:], nil)
+			err := batch.Delete(k[:], nil)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := CachedLeavesBackendPut(ldbTx, k, v.Position)
+			err := CachedLeavesBackendPut(batch, k, v.Position)
 			if err != nil {
 				return err
 			}
