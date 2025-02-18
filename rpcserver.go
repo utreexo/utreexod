@@ -158,8 +158,6 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getchaintips":                       handleGetChainTips,
 	"getcfilter":                         handleGetCFilter,
 	"getcfilterheader":                   handleGetCFilterHeader,
-	"getutreexocfilter":                  handleGetUtreexoCFilter,
-	"getutreexocfilterheader":            handleGetUtreexoCFilterHeader,
 	"getconnectioncount":                 handleGetConnectionCount,
 	"getcurrentnet":                      handleGetCurrentNet,
 	"getdifficulty":                      handleGetDifficulty,
@@ -179,6 +177,8 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getrawtransaction":                  handleGetRawTransaction,
 	"getttl":                             handleGetTTL,
 	"gettxout":                           handleGetTxOut,
+	"getutreexocfilter":                  handleGetUtreexoCFilter,
+	"getutreexocfilterheader":            handleGetUtreexoCFilterHeader,
 	"getutreexoproof":                    handleGetUtreexoProof,
 	"getutreexoroots":                    handleGetUtreexoRoots,
 	"getwatchonlybalance":                handleGetWatchOnlyBalance,
@@ -2392,7 +2392,7 @@ func handleGetCFilter(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) 
 		}
 	}
 
-	c := cmd.(*btcjson.GetCFilterCmd)
+	c := cmd.(*btcjson.GetUtreexoCFilterCmd)
 	hash, err := chainhash.NewHashFromStr(c.Hash)
 	if err != nil {
 		return nil, rpcDecodeHexError(c.Hash)
@@ -2422,7 +2422,7 @@ func handleGetCFilterHeader(s *rpcServer, cmd interface{}, closeChan <-chan stru
 		}
 	}
 
-	c := cmd.(*btcjson.GetCFilterHeaderCmd)
+	c := cmd.(*btcjson.GetUtreexoCFilterHeaderCmd)
 	hash, err := chainhash.NewHashFromStr(c.Hash)
 	if err != nil {
 		return nil, rpcDecodeHexError(c.Hash)
