@@ -77,7 +77,7 @@ func (idx *UtreexoCFIndex) NeedsInputs() bool {
 
 // Init initializes the utreexo cf index. This is part of the Indexer
 // interface.
-func (idx *UtreexoCFIndex) Init(chain *blockchain.BlockChain) error {
+func (idx *UtreexoCFIndex) Init(chain *blockchain.BlockChain, hash *chainhash.Hash, _ int32) error {
 	idx.chain = chain
 	return nil // Nothing to do.
 }
@@ -112,6 +112,10 @@ func (idx *UtreexoCFIndex) Create(dbTx database.Tx) error {
 		}
 	}
 
+	return nil
+}
+
+func (idx *UtreexoCFIndex) Flush(hash *chainhash.Hash, mode blockchain.FlushMode, _ bool) error {
 	return nil
 }
 
@@ -195,12 +199,7 @@ func (idx *UtreexoCFIndex) fetchUtreexoRoots(dbTx database.Tx, blockHash *chainh
 		var roots []*chainhash.Hash
 		var numLeaves uint64
 		var err error
-		if block.Height() < idx.chain.BestSnapshot().Height {
-			log.Infof("block height is less than best snapshot")
-			roots, numLeaves, err = idx.utreexoProofIndex.FetchUtreexoState(dbTx, block.Hash())
-		} else {
-			roots, numLeaves = idx.utreexoProofIndex.FetchCurrentUtreexoState()
-		}
+		roots, numLeaves, err = idx.utreexoProofIndex.FetchUtreexoState(dbTx, block.Hash())
 		if err != nil {
 			log.Errorf("Error fetching utreexo state at block %s: %v", block.Hash(), err)
 			return nil, 0, err
@@ -211,12 +210,7 @@ func (idx *UtreexoCFIndex) fetchUtreexoRoots(dbTx database.Tx, blockHash *chainh
 		var roots []*chainhash.Hash
 		var numLeaves uint64
 		var err error
-		if block.Height() < idx.chain.BestSnapshot().Height {
-			log.Infof("block height is less than best snapshot")
-			roots, numLeaves, err = idx.flatUtreexoProofIndex.FetchUtreexoState(block.Height())
-		} else {
-			roots, numLeaves = idx.flatUtreexoProofIndex.FetchCurrentUtreexoState()
-		}
+		roots, numLeaves, err = idx.flatUtreexoProofIndex.FetchUtreexoState(block.Height())
 		if err != nil {
 			log.Errorf("Error fetching utreexo state at block %s: %v", block.Hash(), err)
 			return nil, 0, err
@@ -249,7 +243,7 @@ func (idx *UtreexoCFIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Bloc
 // reindexing as a pruned node.
 //
 // This is part of the Indexer interface.
-func (idx *UtreexoCFIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash) error {
+func (idx *UtreexoCFIndex) PruneBlock(dbTx database.Tx, blockHash *chainhash.Hash, _ int32) error {
 
 	for _, key := range utreexoCfHeaderKeys {
 		err := dbDeleteUtreexoCFilterIdxEntry(dbTx, key, blockHash)
