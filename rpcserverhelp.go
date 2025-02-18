@@ -431,6 +431,18 @@ var helpDescsEnUS = map[string]string{
 	"gethashespersec--synopsis": "Returns a recent hashes per second performance measurement while generating coins (mining).",
 	"gethashespersec--result0":  "The number of hashes per second",
 
+	// GetUtreexoCFilterCmd help.
+	"getutreexocfilter--synopsis":  "Returns a block's utreexo committed filter given its hash.",
+	"getutreexocfilter-filtertype": "The type of filter to return (0=regular)",
+	"getutreexocfilter-hash":       "The hash of the block",
+	"getutreexocfilter--result0":   "The block's utreexo committed filter",
+
+	// GetUtreexoCFilterHeaderCmd help.
+	"getutreexocfilterheader--synopsis":  "Returns a block's utreexo commited filter header given its hash.",
+	"getutreexocfilterheader-filtertype": "The type of filter header to return (0=regular)",
+	"getutreexocfilterheader-hash":       "The hash of the block",
+	"getutreexocfilterheader--result0":   "The block's utreexo filter header",
+
 	// InfoChainResult help.
 	"infochainresult-version":         "The version of the server",
 	"infochainresult-protocolversion": "The latest supported protocol version",
@@ -917,6 +929,8 @@ var rpcResultTypes = map[string][]interface{}{
 	"getchaintips":                       {(*[]btcjson.GetChainTipsResult)(nil)},
 	"getcfilter":                         {(*string)(nil)},
 	"getcfilterheader":                   {(*string)(nil)},
+	"getutreexocfilter":                  {(*string)(nil)},
+	"getutreexocfilterheader":            {(*string)(nil)},
 	"getconnectioncount":                 {(*int32)(nil)},
 	"getcurrentnet":                      {(*uint32)(nil)},
 	"getdifficulty":                      {(*float64)(nil)},
