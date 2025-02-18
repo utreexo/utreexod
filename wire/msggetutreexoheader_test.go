@@ -23,7 +23,7 @@ func TestMsgGetUtreexoHeaderEncode(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		beforeMsg := NewMsgGetUtreexoHeader(testCase.hash, testCase.includeProof)
+		beforeMsg := NewMsgGetUtreexoSummaries(testCase.hash, testCase.includeProof)
 
 		// Encode.
 		var buf bytes.Buffer
@@ -34,7 +34,7 @@ func TestMsgGetUtreexoHeaderEncode(t *testing.T) {
 
 		serialized := buf.Bytes()
 
-		afterMsg := MsgGetUtreexoHeader{}
+		afterMsg := MsgGetUtreexoSummaries{}
 		r := bytes.NewReader(serialized)
 		err = afterMsg.BtcDecode(r, 0, LatestEncoding)
 		if err != nil {

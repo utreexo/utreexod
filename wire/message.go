@@ -28,43 +28,43 @@ const MaxMessagePayload = (1024 * 1024 * 32) // 32MB
 
 // Commands used in bitcoin message headers which describe the type of message.
 const (
-	CmdVersion          = "version"
-	CmdVerAck           = "verack"
-	CmdGetAddr          = "getaddr"
-	CmdAddr             = "addr"
-	CmdGetBlocks        = "getblocks"
-	CmdInv              = "inv"
-	CmdGetData          = "getdata"
-	CmdNotFound         = "notfound"
-	CmdBlock            = "block"
-	CmdTx               = "tx"
-	CmdUtreexoTx        = "utreexotx"
-	CmdGetHeaders       = "getheaders"
-	CmdGetUtreexoHeader = "getuheader"
-	CmdHeaders          = "headers"
-	CmdUtreexoSummaries = "usummaries"
-	CmdPing             = "ping"
-	CmdPong             = "pong"
-	CmdAlert            = "alert"
-	CmdMemPool          = "mempool"
-	CmdFilterAdd        = "filteradd"
-	CmdFilterClear      = "filterclear"
-	CmdFilterLoad       = "filterload"
-	CmdMerkleBlock      = "merkleblock"
-	CmdReject           = "reject"
-	CmdSendHeaders      = "sendheaders"
-	CmdFeeFilter        = "feefilter"
-	CmdGetCFilters      = "getcfilters"
-	CmdGetCFHeaders     = "getcfheaders"
-	CmdGetCFCheckpt     = "getcfcheckpt"
-	CmdCFilter          = "cfilter"
-	CmdCFHeaders        = "cfheaders"
-	CmdCFCheckpt        = "cfcheckpt"
-	CmdSendAddrV2       = "sendaddrv2"
-	CmdUtreexoProof     = "uproof"
-	CmdGetUtreexoProof  = "getuproof"
-	CmdUtreexoRoot      = "uroot"
-	CmdGetUtreexoRoot   = "geturoot"
+	CmdVersion             = "version"
+	CmdVerAck              = "verack"
+	CmdGetAddr             = "getaddr"
+	CmdAddr                = "addr"
+	CmdGetBlocks           = "getblocks"
+	CmdInv                 = "inv"
+	CmdGetData             = "getdata"
+	CmdNotFound            = "notfound"
+	CmdBlock               = "block"
+	CmdTx                  = "tx"
+	CmdUtreexoTx           = "utreexotx"
+	CmdGetHeaders          = "getheaders"
+	CmdGetUtreexoSummaries = "gusummaries"
+	CmdHeaders             = "headers"
+	CmdUtreexoSummaries    = "usummaries"
+	CmdPing                = "ping"
+	CmdPong                = "pong"
+	CmdAlert               = "alert"
+	CmdMemPool             = "mempool"
+	CmdFilterAdd           = "filteradd"
+	CmdFilterClear         = "filterclear"
+	CmdFilterLoad          = "filterload"
+	CmdMerkleBlock         = "merkleblock"
+	CmdReject              = "reject"
+	CmdSendHeaders         = "sendheaders"
+	CmdFeeFilter           = "feefilter"
+	CmdGetCFilters         = "getcfilters"
+	CmdGetCFHeaders        = "getcfheaders"
+	CmdGetCFCheckpt        = "getcfcheckpt"
+	CmdCFilter             = "cfilter"
+	CmdCFHeaders           = "cfheaders"
+	CmdCFCheckpt           = "cfcheckpt"
+	CmdSendAddrV2          = "sendaddrv2"
+	CmdUtreexoProof        = "uproof"
+	CmdGetUtreexoProof     = "getuproof"
+	CmdUtreexoRoot         = "uroot"
+	CmdGetUtreexoRoot      = "geturoot"
 )
 
 // MessageEncoding represents the wire message encoding format to be used.
@@ -150,8 +150,8 @@ func makeEmptyMessage(command string) (Message, error) {
 	case CmdGetHeaders:
 		msg = &MsgGetHeaders{}
 
-	case CmdGetUtreexoHeader:
-		msg = &MsgGetUtreexoHeader{}
+	case CmdGetUtreexoSummaries:
+		msg = &MsgGetUtreexoSummaries{}
 
 	case CmdHeaders:
 		msg = &MsgHeaders{}
