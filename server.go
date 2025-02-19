@@ -892,8 +892,8 @@ func (sp *serverPeer) OnGetHeaders(_ *peer.Peer, msg *wire.MsgGetHeaders) {
 	sp.QueueMessage(&wire.MsgHeaders{Headers: blockHeaders}, nil)
 }
 
-// OnGetUtreexoHeader is invoked when a peer receives a getutreexoheader bitcoin message.
-func (sp *serverPeer) OnGetUtreexoHeader(_ *peer.Peer, msg *wire.MsgGetUtreexoHeader) {
+// OnGetUtreexoSummaries is invoked when a peer receives a getutreexosummaries bitcoin message.
+func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreexoSummaries) {
 	// Ignore getutreexoheaders requests if not in sync.
 	if !sp.server.syncManager.IsCurrent() {
 		return
@@ -2647,34 +2647,34 @@ func disconnectPeer(peerList map[int32]*serverPeer, compareFunc func(*serverPeer
 func newPeerConfig(sp *serverPeer) *peer.Config {
 	return &peer.Config{
 		Listeners: peer.MessageListeners{
-			OnVersion:          sp.OnVersion,
-			OnVerAck:           sp.OnVerAck,
-			OnMemPool:          sp.OnMemPool,
-			OnTx:               sp.OnTx,
-			OnUtreexoTx:        sp.OnUtreexoTx,
-			OnBlock:            sp.OnBlock,
-			OnInv:              sp.OnInv,
-			OnHeaders:          sp.OnHeaders,
-			OnUtreexoSummaries: sp.OnUtreexoSummaries,
-			OnUtreexoProof:     sp.OnUtreexoProof,
-			OnGetUtreexoProof:  sp.OnGetUtreexoProof,
-			OnGetUtreexoRoot:   sp.OnGetUtreexoRoot,
-			OnGetData:          sp.OnGetData,
-			OnGetBlocks:        sp.OnGetBlocks,
-			OnGetHeaders:       sp.OnGetHeaders,
-			OnGetUtreexoHeader: sp.OnGetUtreexoHeader,
-			OnGetCFilters:      sp.OnGetCFilters,
-			OnGetCFHeaders:     sp.OnGetCFHeaders,
-			OnGetCFCheckpt:     sp.OnGetCFCheckpt,
-			OnFeeFilter:        sp.OnFeeFilter,
-			OnFilterAdd:        sp.OnFilterAdd,
-			OnFilterClear:      sp.OnFilterClear,
-			OnFilterLoad:       sp.OnFilterLoad,
-			OnGetAddr:          sp.OnGetAddr,
-			OnAddr:             sp.OnAddr,
-			OnRead:             sp.OnRead,
-			OnWrite:            sp.OnWrite,
-			OnNotFound:         sp.OnNotFound,
+			OnVersion:             sp.OnVersion,
+			OnVerAck:              sp.OnVerAck,
+			OnMemPool:             sp.OnMemPool,
+			OnTx:                  sp.OnTx,
+			OnUtreexoTx:           sp.OnUtreexoTx,
+			OnBlock:               sp.OnBlock,
+			OnInv:                 sp.OnInv,
+			OnHeaders:             sp.OnHeaders,
+			OnUtreexoSummaries:    sp.OnUtreexoSummaries,
+			OnUtreexoProof:        sp.OnUtreexoProof,
+			OnGetUtreexoProof:     sp.OnGetUtreexoProof,
+			OnGetUtreexoRoot:      sp.OnGetUtreexoRoot,
+			OnGetData:             sp.OnGetData,
+			OnGetBlocks:           sp.OnGetBlocks,
+			OnGetHeaders:          sp.OnGetHeaders,
+			OnGetUtreexoSummaries: sp.OnGetUtreexoSummaries,
+			OnGetCFilters:         sp.OnGetCFilters,
+			OnGetCFHeaders:        sp.OnGetCFHeaders,
+			OnGetCFCheckpt:        sp.OnGetCFCheckpt,
+			OnFeeFilter:           sp.OnFeeFilter,
+			OnFilterAdd:           sp.OnFilterAdd,
+			OnFilterClear:         sp.OnFilterClear,
+			OnFilterLoad:          sp.OnFilterLoad,
+			OnGetAddr:             sp.OnGetAddr,
+			OnAddr:                sp.OnAddr,
+			OnRead:                sp.OnRead,
+			OnWrite:               sp.OnWrite,
+			OnNotFound:            sp.OnNotFound,
 
 			// Note: The reference client currently bans peers that send alerts
 			// not signed with its key.  We could verify against their key, but
