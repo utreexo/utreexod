@@ -15,7 +15,7 @@ import (
 
 // MaxUtreexoBlockSummaryPerMsg is the maximum number of utreexo headers that can be in a single
 // bitcoin headers message.
-const MaxUtreexoBlockSummaryPerMsg = 100
+const MaxUtreexoBlockSummaryPerMsg = 128
 
 // MsgUtreexoSummaries implements the Message interface and represents a bitcoin
 // utreexoblocksummaries message. It's has the block summaries which is used as a
