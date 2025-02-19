@@ -3,52 +3,29 @@ package wire
 import (
 	"bytes"
 	"testing"
-
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 func TestMsgGetUtreexoHeaderEncode(t *testing.T) {
-	testCases := []struct {
-		hash         chainhash.Hash
-		includeProof bool
-	}{
-		{
-			hash:         genesisHash,
-			includeProof: false,
-		},
-		{
-			hash:         genesisHash,
-			includeProof: true,
-		},
+	beforeMsg := NewMsgGetUtreexoSummaries(5)
+
+	// Encode.
+	var buf bytes.Buffer
+	err := beforeMsg.BtcEncode(&buf, 0, LatestEncoding)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	for _, testCase := range testCases {
-		beforeMsg := NewMsgGetUtreexoSummaries(testCase.hash, testCase.includeProof)
+	serialized := buf.Bytes()
 
-		// Encode.
-		var buf bytes.Buffer
-		err := beforeMsg.BtcEncode(&buf, 0, LatestEncoding)
-		if err != nil {
-			t.Fatal(err)
-		}
+	afterMsg := MsgGetUtreexoSummaries{}
+	r := bytes.NewReader(serialized)
+	err = afterMsg.BtcDecode(r, 0, LatestEncoding)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		serialized := buf.Bytes()
-
-		afterMsg := MsgGetUtreexoSummaries{}
-		r := bytes.NewReader(serialized)
-		err = afterMsg.BtcDecode(r, 0, LatestEncoding)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !afterMsg.BlockHash.IsEqual(&testCase.hash) {
-			t.Fatalf("expected %v but got %v",
-				testCase.hash, afterMsg.BlockHash)
-		}
-
-		if afterMsg.IncludeProof != testCase.includeProof {
-			t.Fatalf("expected %v but got %v",
-				testCase.includeProof, afterMsg.IncludeProof)
-		}
+	if beforeMsg.BlockPosition != afterMsg.BlockPosition {
+		t.Fatalf("expected %v but got %v",
+			beforeMsg.BlockPosition, afterMsg.BlockPosition)
 	}
 }
