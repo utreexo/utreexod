@@ -99,6 +99,11 @@ type FlatUtreexoProofIndex struct {
 	// roots at a block is correct.
 	utreexoRootsState utreexo.Pollard
 
+	// blockSummaryState is the accumulator for all the block summaries at each
+	// of the blocks. This is so that we can serve to peers the proof that the given
+	// block summaries of a block is correct.
+	blockSummaryState utreexo.Pollard
+
 	// pStats are the proof size statistics that are kept for research purposes.
 	pStats proofStats
 
@@ -199,6 +204,55 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 	return nil
 }
 
+// initBlockSummaryState creates and accumulator from the block summaries of each
+// block and holds it in memory so that the proofs for them can be generated.
+func (idx *FlatUtreexoProofIndex) initBlockSummaryState() error {
+	idx.blockSummaryState = utreexo.NewAccumulator()
+
+	var prevNumLeaves uint64
+	bestHeight := idx.proofState.BestHeight()
+	for h := int32(1); h <= bestHeight; h++ {
+		blockHash, err := idx.chain.BlockHashByHeight(h)
+		if err != nil {
+			return err
+		}
+
+		stump, err := idx.fetchRoots(h)
+		if err != nil {
+			return err
+		}
+		numAdds := uint16(stump.NumLeaves - prevNumLeaves)
+		prevNumLeaves = stump.NumLeaves
+
+		proof, err := idx.FetchUtreexoProof(h)
+		if err != nil {
+			return err
+		}
+
+		blockHeader := wire.UtreexoBlockSummary{
+			BlockHash:    *blockHash,
+			NumAdds:      numAdds,
+			BlockTargets: make([]uint64, len(proof.AccProof.Targets)),
+		}
+		copy(blockHeader.BlockTargets, proof.AccProof.Targets)
+
+		buf := bytes.NewBuffer(make([]byte, 0, blockHeader.SerializeSize()))
+		err = blockHeader.Serialize(buf)
+		if err != nil {
+			return err
+		}
+		rootHash := sha256.Sum256(buf.Bytes())
+
+		err = idx.blockSummaryState.Modify(
+			[]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Init initializes the flat utreexo proof index. This is part of the Indexer
 // interface.
 func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
@@ -224,14 +278,20 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		return err
 	}
 
-	// Nothing to do if the node is not pruned.
-	//
-	// If the node is pruned, then we need to check if it started off as
-	// a pruned node or if the user switch to being a pruned node.
 	if !idx.config.Pruned {
+		// Only build the block summary state if we're not pruned.
+		err = idx.initBlockSummaryState()
+		if err != nil {
+			return err
+		}
+
 		return nil
 	}
 
+	// We're here because the node is pruned.
+	//
+	// If the node is pruned, then we need to check if it started off as
+	// a pruned node or if the user switch to being a pruned node.
 	proofPath := flatFilePath(idx.config.DataDir, flatUtreexoProofName)
 	_, err = os.Stat(proofPath)
 	if err != nil {
@@ -445,7 +505,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	return nil
+	return idx.updateBlockSummaryState(uint16(len(adds)), block.Hash(), ud.AccProof)
 }
 
 // calcProofOverhead calculates the overhead of the current utreexo accumulator proof
@@ -600,6 +660,13 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 	// pruned as we don't keep the historical proofs as a pruned node.
 	if !idx.config.Pruned {
 		err = idx.proofState.DisconnectBlock(block.Height())
+		if err != nil {
+			return err
+		}
+
+		// Re-initializes to the current accumulator roots, effectively
+		// disconnecting a block.
+		err = idx.initBlockSummaryState()
 		if err != nil {
 			return err
 		}
@@ -921,6 +988,88 @@ func (idx *FlatUtreexoProofIndex) updateRootsState() error {
 
 	rootHash := sha256.Sum256(bytes)
 	return idx.utreexoRootsState.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+}
+
+// updateBlockSummaryState updates the block summary accumulator state with the given inputs.
+func (idx *FlatUtreexoProofIndex) updateBlockSummaryState(numAdds uint16, blockHash *chainhash.Hash, proof utreexo.Proof) error {
+	summary := wire.UtreexoBlockSummary{
+		BlockHash:    *blockHash,
+		NumAdds:      numAdds,
+		BlockTargets: make([]uint64, len(proof.Targets)),
+	}
+	copy(summary.BlockTargets, proof.Targets)
+
+	buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
+	err := summary.Serialize(buf)
+	if err != nil {
+		return err
+	}
+	hash := sha256.Sum256(buf.Bytes())
+
+	return idx.blockSummaryState.Modify([]utreexo.Leaf{{Hash: hash}}, nil, utreexo.Proof{})
+}
+
+// FetchUtreexoSummaries fetches all the summaries and attaches a proof for those summaries.
+func (idx *FlatUtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash) (*wire.MsgUtreexoSummaries, error) {
+	msg := wire.MsgUtreexoSummaries{
+		Summaries: make([]*wire.UtreexoBlockSummary, 0, len(blockHashes)),
+	}
+
+	leafHashes := make([]utreexo.Hash, 0, len(blockHashes))
+	for _, blockHash := range blockHashes {
+		summary, err := idx.fetchBlockSummary(blockHash)
+		if err != nil {
+			return nil, err
+		}
+		msg.Summaries = append(msg.Summaries, summary)
+
+		buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
+		err = summary.Serialize(buf)
+		if err != nil {
+			return nil, err
+		}
+		leafHashes = append(leafHashes, sha256.Sum256(buf.Bytes()))
+	}
+
+	proof, err := idx.blockSummaryState.Prove(leafHashes)
+	if err != nil {
+		return nil, err
+	}
+
+	msg.ProofHashes = proof.Proof
+
+	return &msg, nil
+}
+
+func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (*wire.UtreexoBlockSummary, error) {
+	height, err := idx.chain.BlockHeightByHash(blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	ud, err := idx.FetchUtreexoProof(height)
+	if err != nil {
+		return nil, err
+	}
+
+	stump, err := idx.fetchRoots(height)
+	if err != nil {
+		return nil, err
+	}
+	var prevStump utreexo.Stump
+	if height-1 != 0 {
+		prevStump, err = idx.fetchRoots(height - 1)
+		if err != nil {
+			return nil, err
+		}
+	}
+	numAdds := uint16(stump.NumLeaves - prevStump.NumLeaves)
+
+	return &wire.UtreexoBlockSummary{
+		BlockHash:    *blockHash,
+		NumAdds:      numAdds,
+		BlockTargets: ud.AccProof.Targets,
+	}, nil
 }
 
 // FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.

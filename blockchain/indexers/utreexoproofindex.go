@@ -72,6 +72,11 @@ type UtreexoProofIndex struct {
 	// roots at a block is correct.
 	utreexoRootsState utreexo.Pollard
 
+	// blockSummaryState is the accumulator for all the block summaries at each
+	// of the blocks. This is so that we can serve to peers the proof that the given
+	// block summaries of a block is correct.
+	blockSummaryState utreexo.Pollard
+
 	// The time of when the utreexo state was last flushed.
 	lastFlushTime time.Time
 }
@@ -119,6 +124,57 @@ func (idx *UtreexoProofIndex) initUtreexoRootsState(bestHeight int32) error {
 	return nil
 }
 
+// initBlockSummaryState creates an accumulator from all the existing roots and
+// holds it in memory so that the proofs for them can be generated.
+func (idx *UtreexoProofIndex) initBlockSummaryState(bestHeight int32) error {
+	idx.blockSummaryState = utreexo.NewAccumulator()
+
+	var prevNumLeaves uint64
+	for h := int32(1); h <= bestHeight; h++ {
+		blockHash, err := idx.chain.BlockHashByHeight(h)
+		if err != nil {
+			return err
+		}
+
+		var numLeaves uint64
+		err = idx.db.View(func(dbTx database.Tx) error {
+			stump, err := dbFetchUtreexoState(dbTx, blockHash)
+			numLeaves = stump.NumLeaves
+			return err
+		})
+
+		numAdds := uint16(numLeaves - prevNumLeaves)
+		prevNumLeaves = numLeaves
+
+		proof, err := idx.FetchUtreexoProof(blockHash)
+		if err != nil {
+			return err
+		}
+
+		blockHeader := wire.UtreexoBlockSummary{
+			BlockHash:    *blockHash,
+			NumAdds:      numAdds,
+			BlockTargets: make([]uint64, len(proof.AccProof.Targets)),
+		}
+		copy(blockHeader.BlockTargets, proof.AccProof.Targets)
+
+		buf := bytes.NewBuffer(make([]byte, 0, blockHeader.SerializeSize()))
+		err = blockHeader.Serialize(buf)
+		if err != nil {
+			return err
+		}
+		rootHash := sha256.Sum256(buf.Bytes())
+
+		err = idx.blockSummaryState.Modify(
+			[]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Init initializes the utreexo proof index. This is part of the Indexer
 // interface.
 func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
@@ -139,9 +195,10 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		return err
 	}
 
-	// Nothing else to do if the node is an archive node.
 	if !idx.config.Pruned {
-		return nil
+		// Only build the block summary state as it's useless anyways
+		// if we can't serve the proofs.
+		return idx.initBlockSummaryState(tipHeight)
 	}
 
 	// Check if the utreexo undo bucket exists.
@@ -323,14 +380,6 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
-	// Only store the proofs if the node is not pruned.
-	if !idx.config.Pruned {
-		err = dbStoreUtreexoProof(dbTx, block.Hash(), ud)
-		if err != nil {
-			return err
-		}
-	}
-
 	delHashes := make([]utreexo.Hash, len(ud.LeafDatas))
 	for i := range delHashes {
 		delHashes[i] = ud.LeafDatas[i].LeafHash()
@@ -352,7 +401,22 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
+	// Don't store proofs if the node is pruned.
+	if idx.config.Pruned {
+		return nil
+	}
+
+	err = dbStoreUtreexoProof(dbTx, block.Hash(), ud)
+	if err != nil {
+		return err
+	}
+
 	err = dbStoreUtreexoState(dbTx, block.Hash(), idx.utreexoState.state)
+	if err != nil {
+		return err
+	}
+
+	err = idx.updateBlockSummaryState(uint16(len(adds)), block.Hash(), ud.AccProof)
 	if err != nil {
 		return err
 	}
@@ -446,6 +510,11 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		}
 	} else {
 		err = dbDeleteUtreexoProofEntry(dbTx, block.Hash())
+		if err != nil {
+			return err
+		}
+
+		err = idx.initBlockSummaryState(block.Height() - 1)
 		if err != nil {
 			return err
 		}
@@ -643,6 +712,25 @@ func (idx *UtreexoProofIndex) updateRootsState() error {
 	return idx.utreexoRootsState.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
 }
 
+// updateBlockSummaryState updates the block summary accumulator state with the given inputs.
+func (idx *UtreexoProofIndex) updateBlockSummaryState(numAdds uint16, blockHash *chainhash.Hash, proof utreexo.Proof) error {
+	summary := wire.UtreexoBlockSummary{
+		BlockHash:    *blockHash,
+		NumAdds:      numAdds,
+		BlockTargets: make([]uint64, len(proof.Targets)),
+	}
+	copy(summary.BlockTargets, proof.Targets)
+
+	buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
+	err := summary.Serialize(buf)
+	if err != nil {
+		return err
+	}
+	hash := sha256.Sum256(buf.Bytes())
+
+	return idx.blockSummaryState.Modify([]utreexo.Leaf{{Hash: hash}}, nil, utreexo.Proof{})
+}
+
 // PruneBlock is invoked when an older block is deleted after it's been
 // processed.
 //
@@ -672,6 +760,95 @@ func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastK
 	return idx.Flush(&bestHash, blockchain.FlushRequired, true)
 }
 
+// FetchUtreexoSummaries fetches all the summaries and attaches a proof for those summaries.
+func (idx *UtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash) (*wire.MsgUtreexoSummaries, error) {
+	msg := wire.MsgUtreexoSummaries{
+		Summaries: make([]*wire.UtreexoBlockSummary, 0, len(blockHashes)),
+	}
+
+	leafHashes := make([]utreexo.Hash, 0, len(blockHashes))
+	for i := range blockHashes {
+		var prevHash *chainhash.Hash
+		if i == 0 {
+			height, err := idx.chain.BlockHeightByHash(blockHashes[i])
+			if err != nil {
+				return nil, err
+			}
+
+			prevHash, err = idx.chain.BlockHashByHeight(height - 1)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			prevHash = blockHashes[i-1]
+		}
+
+		summary, err := idx.fetchBlockSummary(blockHashes[i], prevHash)
+		if err != nil {
+			return nil, err
+		}
+		msg.Summaries = append(msg.Summaries, summary)
+
+		buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
+		err = summary.Serialize(buf)
+		if err != nil {
+			return nil, err
+		}
+		hash := sha256.Sum256(buf.Bytes())
+		leafHashes = append(leafHashes, hash)
+	}
+
+	proof, err := idx.blockSummaryState.Prove(leafHashes)
+	if err != nil {
+		return nil, err
+	}
+
+	msg.ProofHashes = proof.Proof
+
+	return &msg, nil
+}
+
+func (idx *UtreexoProofIndex) fetchBlockSummary(blockHash, prevHash *chainhash.Hash) (*wire.UtreexoBlockSummary, error) {
+	ud, err := idx.FetchUtreexoProof(blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	var stump utreexo.Stump
+	err = idx.db.View(func(dbTx database.Tx) error {
+		var err error
+		stump, err = dbFetchUtreexoState(dbTx, blockHash)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var prevStump utreexo.Stump
+	err = idx.db.View(func(dbTx database.Tx) error {
+		var err error
+		prevStump, err = dbFetchUtreexoState(dbTx, prevHash)
+		return err
+	})
+	if err != nil {
+		height, heighterr := idx.chain.BlockHeightByHash(prevHash)
+		if heighterr != nil {
+			return nil, err
+		}
+		if height != 0 {
+			return nil, err
+		}
+	}
+
+	numAdds := uint16(stump.NumLeaves - prevStump.NumLeaves)
+
+	return &wire.UtreexoBlockSummary{
+		BlockHash:    *blockHash,
+		NumAdds:      numAdds,
+		BlockTargets: ud.AccProof.Targets,
+	}, nil
+}
+
 // FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.
 func (idx *UtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*wire.MsgUtreexoRoot, error) {
 	var stump utreexo.Stump
@@ -680,6 +857,9 @@ func (idx *UtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*w
 		stump, err = dbFetchUtreexoState(dbTx, blockHash)
 		return err
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	bytes, err := blockchain.SerializeUtreexoRoots(stump.NumLeaves, stump.Roots)
 	if err != nil {

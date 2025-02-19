@@ -982,6 +982,113 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 	}
 }
 
+func compareBlockSummaries(indexes []Indexer, blockHashes []*chainhash.Hash) error {
+	var err error
+	var flatMsg *wire.MsgUtreexoSummaries
+	var msg *wire.MsgUtreexoSummaries
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			flatMsg, err = idxType.FetchUtreexoSummaries(blockHashes)
+			if err != nil {
+				return err
+			}
+
+		case *UtreexoProofIndex:
+			msg, err = idxType.FetchUtreexoSummaries(blockHashes)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	for i, flatSummary := range flatMsg.Summaries {
+		err = compareSummary(flatSummary, msg.Summaries[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	if !reflect.DeepEqual(flatMsg.ProofHashes, msg.ProofHashes) {
+		return fmt.Errorf("expected %v, got %v", flatMsg.ProofHashes, msg.ProofHashes)
+	}
+
+	return nil
+}
+
+func compareSummary(this, other *wire.UtreexoBlockSummary) error {
+	if !this.BlockHash.IsEqual(&other.BlockHash) {
+		return fmt.Errorf("expected %v, got %v", this.BlockHash, other.BlockHash)
+	}
+
+	if this.NumAdds != other.NumAdds {
+		return fmt.Errorf("expected numadds of %v, got %v", this.NumAdds, other.NumAdds)
+	}
+
+	if len(this.BlockTargets) != len(other.BlockTargets) {
+		return fmt.Errorf("expected %v, got %v", len(this.BlockTargets), len(other.BlockTargets))
+	}
+	for i := range this.BlockTargets {
+		if this.BlockTargets[i] != other.BlockTargets[i] {
+			return fmt.Errorf("expected %v, got %v", this.BlockTargets, other.BlockTargets)
+		}
+	}
+
+	return nil
+}
+
+func compareBlockSummaryState(indexes []Indexer, blockHash *chainhash.Hash) error {
+	var err error
+	var flatMsg *wire.UtreexoBlockSummary
+	var msg *wire.UtreexoBlockSummary
+
+	var flatSummaries *wire.MsgUtreexoSummaries
+	var summaries *wire.MsgUtreexoSummaries
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			flatMsg, err = idxType.fetchBlockSummary(blockHash)
+			if err != nil {
+				return err
+			}
+
+			flatSummaries, err = idxType.FetchUtreexoSummaries([]*chainhash.Hash{blockHash})
+			if err != nil {
+				return err
+			}
+
+		case *UtreexoProofIndex:
+			height, err := idxType.chain.BlockHeightByHash(blockHash)
+			if err != nil {
+				return err
+			}
+			prevHash, err := idxType.chain.BlockHashByHeight(height - 1)
+			if err != nil {
+				return err
+			}
+
+			msg, err = idxType.fetchBlockSummary(blockHash, prevHash)
+			if err != nil {
+				return err
+			}
+
+			summaries, err = idxType.FetchUtreexoSummaries([]*chainhash.Hash{blockHash})
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	for i, summary := range summaries.Summaries {
+		err = compareSummary(summary, flatSummaries.Summaries[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	return compareSummary(flatMsg, msg)
+}
+
 func compareUtreexoRootsState(indexes []Indexer, blockHash *chainhash.Hash) error {
 	var err error
 	var flatMsg *wire.MsgUtreexoRoot
@@ -1035,7 +1142,7 @@ func compareUtreexoRootsState(indexes []Indexer, blockHash *chainhash.Hash) erro
 	return nil
 }
 
-func TestUtreexoRootsState(t *testing.T) {
+func TestUtreexoRootsAndSummaryState(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
 
@@ -1072,6 +1179,11 @@ func TestUtreexoRootsState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
+		err = compareBlockSummaryState(indexes, newBlock.Hash())
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	bestHash := chain.BestSnapshot().Hash
@@ -1082,6 +1194,27 @@ func TestUtreexoRootsState(t *testing.T) {
 
 	bestHash = chain.BestSnapshot().Hash
 	err = compareUtreexoRootsState(indexes, &bestHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = compareBlockSummaryState(indexes, &bestHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blockHeights := []int32{1, 2, 3, 4}
+	blockHashes := make([]*chainhash.Hash, 0, len(blockHeights))
+	for _, height := range blockHeights {
+		hash, err := chain.BlockHashByHeight(height)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		blockHashes = append(blockHashes, hash)
+	}
+
+	err = compareBlockSummaries(indexes, blockHashes)
 	if err != nil {
 		t.Fatal(err)
 	}
