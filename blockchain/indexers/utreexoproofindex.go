@@ -94,7 +94,12 @@ func (idx *UtreexoProofIndex) NeedsInputs() bool {
 func (idx *UtreexoProofIndex) initUtreexoRootsState(bestHeight int32) error {
 	idx.utreexoRootsState = utreexo.NewAccumulator()
 
-	for h := int32(1); h <= bestHeight; h++ {
+	// The bestHeight is always -1 during initialization. We change this
+	// to 0 so that the genesis block gets connected.
+	if bestHeight == -1 {
+		bestHeight = 0
+	}
+	for h := int32(0); h <= bestHeight; h++ {
 		hash, err := idx.chain.BlockHashByHeight(h)
 		if err != nil {
 			return err
@@ -130,7 +135,7 @@ func (idx *UtreexoProofIndex) initBlockSummaryState(bestHeight int32) error {
 	idx.blockSummaryState = utreexo.NewAccumulator()
 
 	var prevNumLeaves uint64
-	for h := int32(1); h <= bestHeight; h++ {
+	for h := int32(0); h <= bestHeight; h++ {
 		blockHash, err := idx.chain.BlockHashByHeight(h)
 		if err != nil {
 			return err
@@ -536,6 +541,9 @@ func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UDa
 		proofBytes, err := dbFetchUtreexoProofEntry(dbTx, hash)
 		if err != nil {
 			return err
+		}
+		if proofBytes == nil {
+			return nil
 		}
 		r := bytes.NewReader(proofBytes)
 
@@ -965,6 +973,9 @@ func dbStoreUtreexoState(dbTx database.Tx, hash *chainhash.Hash, p utreexo.Utree
 func dbFetchUtreexoState(dbTx database.Tx, hash *chainhash.Hash) (utreexo.Stump, error) {
 	stateBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoStateKey)
 	serialized := stateBucket.Get(hash[:])
+	if serialized == nil {
+		return utreexo.Stump{}, nil
+	}
 
 	numLeaves, roots, err := blockchain.DeserializeUtreexoRoots(serialized)
 	if err != nil {

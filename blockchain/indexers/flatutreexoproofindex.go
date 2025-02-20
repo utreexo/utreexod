@@ -183,7 +183,7 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 	idx.utreexoRootsState = utreexo.NewAccumulator()
 
 	bestHeight := idx.rootsState.BestHeight()
-	for h := int32(1); h <= bestHeight; h++ {
+	for h := int32(0); h <= bestHeight; h++ {
 		stump, err := idx.fetchRoots(h)
 		if err != nil {
 			return err
@@ -211,7 +211,7 @@ func (idx *FlatUtreexoProofIndex) initBlockSummaryState() error {
 
 	var prevNumLeaves uint64
 	bestHeight := idx.proofState.BestHeight()
-	for h := int32(1); h <= bestHeight; h++ {
+	for h := int32(0); h <= bestHeight; h++ {
 		blockHash, err := idx.chain.BlockHashByHeight(h)
 		if err != nil {
 			return err
@@ -721,7 +721,7 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (
 	*wire.UData, error) {
 
 	if height == 0 {
-		return nil, fmt.Errorf("No Utreexo Proof for height %d", height)
+		return &wire.UData{}, nil
 	}
 
 	if idx.config.Pruned {
