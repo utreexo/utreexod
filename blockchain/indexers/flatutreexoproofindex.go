@@ -183,7 +183,7 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 	idx.utreexoRootsState = utreexo.NewAccumulator()
 
 	bestHeight := idx.rootsState.BestHeight()
-	for h := int32(1); h <= bestHeight; h++ {
+	for h := int32(0); h <= bestHeight; h++ {
 		stump, err := idx.fetchRoots(h)
 		if err != nil {
 			return err
