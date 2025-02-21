@@ -904,10 +904,10 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 		return
 	}
 
-	height, err := sp.server.chain.BlockHeightByHash(&msg.BlockHash)
+	height, err := sp.server.chain.BlockHeightByHash(&msg.StartHash)
 	if err != nil {
 		chanLog.Debugf("Unable to fetch height for block hash %v: %v",
-			msg.BlockHash, err)
+			msg.StartHash, err)
 		return
 	}
 
@@ -918,16 +918,16 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 	}
 
 	// Fetch adds.
-	block, err := sp.server.chain.BlockByHash(&msg.BlockHash)
+	block, err := sp.server.chain.BlockByHash(&msg.StartHash)
 	if err != nil {
 		chanLog.Debugf("Unable to fetch block for block hash %v: %v",
-			msg.BlockHash, err)
+			msg.StartHash, err)
 		return
 	}
 	adds, err := blockchain.ExtractAccumulatorAdds(block, []uint32{})
 	if err != nil {
 		chanLog.Debugf("Unable to extract adds for block hash %v: %v",
-			msg.BlockHash, err)
+			msg.StartHash, err)
 		return
 	}
 
@@ -937,10 +937,10 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 		targets = block.MsgBlock().UData.AccProof.Targets
 	}
 	if sp.server.utreexoProofIndex != nil {
-		udata, err := sp.server.utreexoProofIndex.FetchUtreexoProof(&msg.BlockHash)
+		udata, err := sp.server.utreexoProofIndex.FetchUtreexoProof(&msg.StartHash)
 		if err != nil {
 			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
-				msg.BlockHash, err)
+				msg.StartHash, err)
 			return
 		}
 		targets = udata.AccProof.Targets
@@ -949,7 +949,7 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 		udata, err := sp.server.flatUtreexoProofIndex.FetchUtreexoProof(height)
 		if err != nil {
 			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
-				msg.BlockHash, err)
+				msg.StartHash, err)
 			return
 		}
 		targets = udata.AccProof.Targets
@@ -957,7 +957,7 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 
 	// Construct the utreexo summaries.
 	summary := wire.UtreexoBlockSummary{
-		BlockHash:    msg.BlockHash,
+		BlockHash:    msg.StartHash,
 		NumAdds:      uint16(len(adds)),
 		BlockTargets: make([]uint64, len(targets)),
 	}
