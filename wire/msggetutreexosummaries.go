@@ -4,29 +4,36 @@
 package wire
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // MsgGetUtreexoSummaries implements the Message interface and represents a bitcoin
-// getutreexoheader message. It's used to request the utreexo header at the given
-// block.
+// getutreexosummaries message. It's used to request the utreexo summaries from the given
+// start hash.
 type MsgGetUtreexoSummaries struct {
-	BlockHash    chainhash.Hash
-	IncludeProof bool
+	StartHash        chainhash.Hash
+	MaxReceiveBlocks uint8
 }
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
 // This is part of the Message interface implementation.
 func (msg *MsgGetUtreexoSummaries) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
-	_, err := io.ReadFull(r, msg.BlockHash[:])
+	_, err := io.ReadFull(r, msg.StartHash[:])
 	if err != nil {
 		return err
 	}
 
-	msg.IncludeProof = msg.BlockHash[31] == 2
-	msg.BlockHash[31] = 0
+	msg.MaxReceiveBlocks = msg.StartHash[31]
+	msg.StartHash[31] = 0
+
+	if msg.MaxReceiveBlocks > MaxUtreexoBlockSummaryPerMsg {
+		str := fmt.Sprintf("too many summaries in message [max %v]",
+			MaxUtreexoBlockSummaryPerMsg)
+		return messageError("MsgGetUtreexoSummaries.BtcDecode", str)
+	}
 
 	return nil
 }
@@ -34,13 +41,15 @@ func (msg *MsgGetUtreexoSummaries) BtcDecode(r io.Reader, pver uint32, enc Messa
 // BtcEncode encodes the receiver to w using the bitcoin protocol encoding.
 // This is part of the Message interface implementation.
 func (msg *MsgGetUtreexoSummaries) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
-	if !msg.IncludeProof {
-		msg.BlockHash[31] = 1
-	} else {
-		msg.BlockHash[31] = 2
+	if msg.MaxReceiveBlocks > MaxUtreexoBlockSummaryPerMsg {
+		str := fmt.Sprintf("too many summaries in message [max %v]",
+			MaxUtreexoBlockSummaryPerMsg)
+		return messageError("MsgGetUtreexoSummaries.BtcEncode", str)
 	}
 
-	_, err := w.Write(msg.BlockHash[:])
+	msg.StartHash[31] = msg.MaxReceiveBlocks
+
+	_, err := w.Write(msg.StartHash[:])
 	if err != nil {
 		return err
 	}
@@ -60,8 +69,8 @@ func (msg *MsgGetUtreexoSummaries) MaxPayloadLength(pver uint32) uint32 {
 	return chainhash.HashSize
 }
 
-// NewMsgGetUtreexoSummaries returns a new bitcoin getheaders message that conforms to
+// NewMsgGetUtreexoSummaries returns a new bitcoin getutreexosummaries message that conforms to
 // the Message interface.  See MsgGetUtreexoSummaries for details.
-func NewMsgGetUtreexoSummaries(blockHash chainhash.Hash, includeProof bool) *MsgGetUtreexoSummaries {
-	return &MsgGetUtreexoSummaries{BlockHash: blockHash, IncludeProof: includeProof}
+func NewMsgGetUtreexoSummaries(blockHash chainhash.Hash, maxReceiveBlocks uint8) *MsgGetUtreexoSummaries {
+	return &MsgGetUtreexoSummaries{StartHash: blockHash, MaxReceiveBlocks: maxReceiveBlocks}
 }
