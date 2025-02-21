@@ -1041,7 +1041,7 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 		_, have := sm.utreexoSummaries[*hash]
 		if !requested && !have {
 			state.requestedUtreexoSummaries[*hash] = struct{}{}
-			ghmsg := wire.NewMsgGetUtreexoSummaries(*hash, true)
+			ghmsg := wire.NewMsgGetUtreexoSummaries(*hash, 1)
 			reqPeer.QueueMessage(ghmsg, nil)
 		}
 
@@ -1773,7 +1773,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
 				amUtreexoNode := sm.chain.IsUtreexoViewActive()
 				if amUtreexoNode {
-					ghmsg := wire.NewMsgGetUtreexoSummaries(iv.Hash, true)
+					ghmsg := wire.NewMsgGetUtreexoSummaries(iv.Hash, 1)
 					peer.QueueMessage(ghmsg, nil)
 					continue
 				}
