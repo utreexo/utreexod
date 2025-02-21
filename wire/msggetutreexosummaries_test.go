@@ -7,29 +7,54 @@ import (
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
-func TestMsgGetUtreexoHeaderEncode(t *testing.T) {
+func TestMsgGetUtreexoSummariesEncode(t *testing.T) {
 	testCases := []struct {
 		hash         chainhash.Hash
-		includeProof bool
+		maxRecBlocks uint8
+		shouldErr    bool
 	}{
 		{
 			hash:         genesisHash,
-			includeProof: false,
+			maxRecBlocks: 1,
+			shouldErr:    false,
 		},
 		{
 			hash:         genesisHash,
-			includeProof: true,
+			maxRecBlocks: 0,
+			shouldErr:    false,
+		},
+		{
+			hash:         genesisHash,
+			maxRecBlocks: 100,
+			shouldErr:    false,
+		},
+		{
+			hash:         genesisHash,
+			maxRecBlocks: 128,
+			shouldErr:    true,
+		},
+		{
+			hash:         genesisHash,
+			maxRecBlocks: 255,
+			shouldErr:    true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		beforeMsg := NewMsgGetUtreexoSummaries(testCase.hash, testCase.includeProof)
+		beforeMsg := NewMsgGetUtreexoSummaries(testCase.hash, testCase.maxRecBlocks)
 
 		// Encode.
 		var buf bytes.Buffer
 		err := beforeMsg.BtcEncode(&buf, 0, LatestEncoding)
 		if err != nil {
-			t.Fatal(err)
+			if !testCase.shouldErr {
+				t.Fatal(err)
+			}
+			continue
+		} else {
+			if testCase.shouldErr {
+				t.Fatal("expected to error but didn't")
+			}
 		}
 
 		serialized := buf.Bytes()
@@ -41,14 +66,14 @@ func TestMsgGetUtreexoHeaderEncode(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if !afterMsg.BlockHash.IsEqual(&testCase.hash) {
+		if !afterMsg.StartHash.IsEqual(&testCase.hash) {
 			t.Fatalf("expected %v but got %v",
-				testCase.hash, afterMsg.BlockHash)
+				testCase.hash, afterMsg.StartHash)
 		}
 
-		if afterMsg.IncludeProof != testCase.includeProof {
+		if afterMsg.MaxReceiveBlocks != testCase.maxRecBlocks {
 			t.Fatalf("expected %v but got %v",
-				testCase.includeProof, afterMsg.IncludeProof)
+				testCase.maxRecBlocks, afterMsg.MaxReceiveBlocks)
 		}
 	}
 }
