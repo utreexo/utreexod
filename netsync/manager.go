@@ -1073,6 +1073,12 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		reqPeer = peer
 	}
 
+	peerState, exists := sm.peerStates[reqPeer]
+	if !exists {
+		log.Warnf("Don't have peer state for request peer %s", reqPeer.String())
+		return
+	}
+
 	bestHeaderHash, bestHeaderHeight := sm.chain.BestHeader()
 	bestState := sm.chain.BestSnapshot()
 	length := bestHeaderHeight - bestState.Height
@@ -1107,12 +1113,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			sm.numLeaves[h] = numLeaves
 		}
 
-		requested := false
-		if !sm.headersFirstMode {
-			if _, exists := sm.requestedBlocks[*hash]; exists {
-				requested = true
-			}
-		}
+		_, requested := peerState.requestedBlocks[*hash]
 
 		iv := wire.NewInvVect(wire.InvTypeBlock, hash)
 		haveInv, err := sm.haveInventory(iv)
@@ -1122,11 +1123,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				"fetch: %v", err)
 		}
 		if !haveInv && !requested {
-			syncPeerState := sm.peerStates[reqPeer]
-			syncPeerState.requestedBlocks[*hash] = struct{}{}
-			if !sm.headersFirstMode {
-				sm.requestedBlocks[*hash] = struct{}{}
-			}
+			peerState.requestedBlocks[*hash] = struct{}{}
 
 			// If we're fetching from a witness enabled peer
 			// post-fork, then ensure that we receive all the
@@ -1158,7 +1155,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 					log.Warnf("Missing utreexo summary for %v", hash)
 					return
 				}
-				syncPeerState.requestedUtreexoProofs[*hash] = struct{}{}
+				peerState.requestedUtreexoProofs[*hash] = struct{}{}
 
 				msg := wire.ConstructGetProofMsg(
 					hash, sm.numLeaves[h-1], utreexoSummary.BlockTargets)
