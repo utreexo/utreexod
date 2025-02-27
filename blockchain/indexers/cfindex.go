@@ -33,7 +33,7 @@ var (
 	// cfIndexKeys is an array of db bucket names used to house indexes of
 	// block hashes to cfilters.
 	cfIndexKeys = [][]byte{
-		[]byte("cf0byhashidx"),
+		[]byte("cf0byhashidx"), // bucket for basic filter indexes
 	}
 
 	// cfHeaderKeys is an array of db bucket names used to house indexes of
