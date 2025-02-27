@@ -1312,7 +1312,7 @@ func (tx *MempoolTx) UnmarshalJSON(data []byte) error {
 // coins spent/received.
 type StatusUpdate struct {
 	// ScriptHash is the hash of an address. Refer to the electrum protocol doc
-	// for more info: electrumx-spesmilo.readthedocs.io/en/latest/protocol-methods.html
+	// for more info: https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html
 	ScriptHash chainhash.Hash
 
 	// Status is the hash of all the txs. This is what's needed for
