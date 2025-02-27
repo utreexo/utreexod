@@ -199,7 +199,6 @@ type config struct {
 	// Indexing options.
 	AddrIndex                  bool  `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
 	TxIndex                    bool  `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
-	TTLIndex                   bool  `long:"ttlindex" description:"Maintain a full time to live index for all stxos available via the getttl RPC"`
 	UtreexoProofIndex          bool  `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
 	FlatUtreexoProofIndex      bool  `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
 	UtreexoProofIndexMaxMemory int64 `long:"utreexoproofindexmaxmemory" description:"The maxmimum memory in mebibytes (MiB) that the utreexo proof indexes will use up. Default of 500MiB. Minimum of 250MiB"`
@@ -208,7 +207,6 @@ type config struct {
 	DropAddrIndex              bool  `long:"dropaddrindex" description:"Deletes the address-based transaction index from the database on start up and then exits."`
 	DropCfIndex                bool  `long:"dropcfindex" description:"Deletes the index used for committed filtering (CF) support from the database on start up and then exits."`
 	DropTxIndex                bool  `long:"droptxindex" description:"Deletes the hash-based transaction index from the database on start up and then exits."`
-	DropTTLIndex               bool  `long:"dropttlindex" description:"Deletes the time to live index from the database on start up and then exits."`
 	DropUtreexoProofIndex      bool  `long:"droputreexoproofindex" description:"Deletes the utreexo proof index from the database on start up and then exits."`
 	DropFlatUtreexoProofIndex  bool  `long:"dropflatutreexoproofindex" description:"Deletes the flat utreexo proof index from the database on start up and then exits."`
 
@@ -493,7 +491,6 @@ func loadConfig() (*config, []string, error) {
 		UtreexoProofIndexMaxMemory: defaultUtxoCacheMaxSizeMiB * 2,
 		Generate:                   defaultGenerate,
 		TxIndex:                    defaultTxIndex,
-		TTLIndex:                   defaultTTLIndex,
 		AddrIndex:                  defaultAddrIndex,
 		Prune:                      pruneMinSize,
 	}
@@ -962,16 +959,6 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
-	// --ttlindex and --dropttlindex do not mix.
-	if cfg.TTLIndex && cfg.DropTTLIndex {
-		err := fmt.Errorf("%s: the --ttlindex and --dropttlindex "+
-			"options may not be activated at the same time ",
-			funcName)
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, usageMessage)
-		return nil, nil, err
-	}
-
 	// --utreexoproofindex and --droputreexoproofindex do not mix.
 	if cfg.UtreexoProofIndex && cfg.DropUtreexoProofIndex {
 		err := fmt.Errorf("%s: the --utreexoproofindex and --droputreexoproofindex"+
@@ -1309,14 +1296,6 @@ func loadConfig() (*config, []string, error) {
 
 	if cfg.Prune != 0 && cfg.AddrIndex {
 		err := fmt.Errorf("%s: the --prune and --addrindex options may "+
-			"not be activated at the same time. Set --prune=0 to disable pruning.", funcName)
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, usageMessage)
-		return nil, nil, err
-	}
-
-	if cfg.Prune != 0 && cfg.TTLIndex {
-		err := fmt.Errorf("%s: the --prune and --ttlindex options may "+
 			"not be activated at the same time. Set --prune=0 to disable pruning.", funcName)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)

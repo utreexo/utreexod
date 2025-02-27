@@ -253,7 +253,6 @@ type server struct {
 	txIndex               *indexers.TxIndex
 	addrIndex             *indexers.AddrIndex
 	cfIndex               *indexers.CfIndex
-	ttlIndex              *indexers.TTLIndex
 	utreexoProofIndex     *indexers.UtreexoProofIndex
 	flatUtreexoProofIndex *indexers.FlatUtreexoProofIndex
 
@@ -3448,11 +3447,6 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		s.cfIndex = indexers.NewCfIndex(db, chainParams)
 		indexes = append(indexes, s.cfIndex)
 	}
-	if cfg.TTLIndex {
-		indxLog.Info("TTL index is enabled")
-		s.ttlIndex = indexers.NewTTLIndex(db, chainParams)
-		indexes = append(indexes, s.ttlIndex)
-	}
 	if cfg.UtreexoProofIndex {
 		indxLog.Info("Utreexo Proof index is enabled")
 
@@ -3824,7 +3818,6 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			TxIndex:               s.txIndex,
 			AddrIndex:             s.addrIndex,
 			CfIndex:               s.cfIndex,
-			TTLIndex:              s.ttlIndex,
 			UtreexoProofIndex:     s.utreexoProofIndex,
 			FlatUtreexoProofIndex: s.flatUtreexoProofIndex,
 			FeeEstimator:          s.feeEstimator,
