@@ -13,9 +13,13 @@ import (
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
+// MaxUtreexoExponent is the maximum exponent you can ask for in a bitcoin getutreexosummaries
+// message.
+const MaxUtreexoExponent = 8
+
 // MaxUtreexoBlockSummaryPerMsg is the maximum number of utreexo headers that can be in a single
 // bitcoin headers message.
-const MaxUtreexoBlockSummaryPerMsg = 100
+const MaxUtreexoBlockSummaryPerMsg = 1 << MaxUtreexoExponent
 
 // MsgUtreexoSummaries implements the Message interface and represents a bitcoin
 // utreexoblocksummaries message. It's has the block summaries which is used as a
