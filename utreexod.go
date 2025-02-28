@@ -287,14 +287,6 @@ func btcdMain(serverChan chan<- *server) error {
 
 		return nil
 	}
-	if cfg.DropTTLIndex {
-		if err := indexers.DropTTLIndex(db, interrupt); err != nil {
-			btcdLog.Errorf("%v", err)
-			return err
-		}
-
-		return nil
-	}
 	if cfg.DropUtreexoProofIndex {
 		if err := indexers.DropUtreexoProofIndex(db, cfg.DataDir, interrupt); err != nil {
 			btcdLog.Errorf("%v", err)
