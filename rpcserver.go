@@ -32,6 +32,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/websocket"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
@@ -182,6 +183,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"gettxout":                           handleGetTxOut,
 	"getutreexoproof":                    handleGetUtreexoProof,
 	"getutreexoroots":                    handleGetUtreexoRoots,
+	"getutreexoblocksummaryroots":        handleGetUtreexoBlockSummaryRoots,
 	"getwatchonlybalance":                handleGetWatchOnlyBalance,
 	"invalidateblock":                    handleInvalidateBlock,
 	"help":                               handleHelp,
@@ -284,42 +286,43 @@ var rpcLimited = map[string]struct{}{
 	"help": {},
 
 	// HTTP/S-only commands
-	"createrawtransaction":       {},
-	"decoderawtransaction":       {},
-	"decodescript":               {},
-	"estimatefee":                {},
-	"getbestblock":               {},
-	"getbestblockhash":           {},
-	"getbeststate":               {},
-	"getblock":                   {},
-	"getblockcount":              {},
-	"getblockhash":               {},
-	"getblockheader":             {},
-	"getchaintips":               {},
-	"getcfilter":                 {},
-	"getcfilterheader":           {},
-	"getcurrentnet":              {},
-	"getdifficulty":              {},
-	"getheaders":                 {},
-	"getinfo":                    {},
-	"getnettotals":               {},
-	"gettxtotals":                {},
-	"getnetworkhashps":           {},
-	"getrawmempool":              {},
-	"getrawtransaction":          {},
-	"gettxout":                   {},
-	"getutreexoproof":            {},
-	"getutreexoroots":            {},
-	"invalidateblock":            {},
-	"proveutxochaintipinclusion": {},
-	"reconsiderblock":            {},
-	"searchrawtransactions":      {},
-	"sendrawtransaction":         {},
-	"submitblock":                {},
-	"uptime":                     {},
-	"validateaddress":            {},
-	"verifymessage":              {},
-	"version":                    {},
+	"createrawtransaction":        {},
+	"decoderawtransaction":        {},
+	"decodescript":                {},
+	"estimatefee":                 {},
+	"getbestblock":                {},
+	"getbestblockhash":            {},
+	"getbeststate":                {},
+	"getblock":                    {},
+	"getblockcount":               {},
+	"getblockhash":                {},
+	"getblockheader":              {},
+	"getchaintips":                {},
+	"getcfilter":                  {},
+	"getcfilterheader":            {},
+	"getcurrentnet":               {},
+	"getdifficulty":               {},
+	"getheaders":                  {},
+	"getinfo":                     {},
+	"getnettotals":                {},
+	"gettxtotals":                 {},
+	"getnetworkhashps":            {},
+	"getrawmempool":               {},
+	"getrawtransaction":           {},
+	"gettxout":                    {},
+	"getutreexoproof":             {},
+	"getutreexoroots":             {},
+	"getutreexoblocksummaryroots": {},
+	"invalidateblock":             {},
+	"proveutxochaintipinclusion":  {},
+	"reconsiderblock":             {},
+	"searchrawtransactions":       {},
+	"sendrawtransaction":          {},
+	"submitblock":                 {},
+	"uptime":                      {},
+	"validateaddress":             {},
+	"verifymessage":               {},
+	"version":                     {},
 }
 
 // builderScript is a convenience function which is used for hard-coded scripts
@@ -3517,6 +3520,32 @@ func handleGetUtreexoRoots(s *rpcServer, cmd interface{}, closeChan <-chan struc
 	}
 
 	return getReply, nil
+}
+
+// handleGetUtreexoBlockSummaryRoots implements the getutreexoblocksummaryroots command.
+func handleGetUtreexoBlockSummaryRoots(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (
+	interface{}, error) {
+
+	var stump utreexo.Stump
+	var blockHash chainhash.Hash
+	if s.cfg.UtreexoProofIndex != nil {
+		stump, blockHash = s.cfg.UtreexoProofIndex.FetchSummariesRoots()
+	} else {
+		stump, blockHash = s.cfg.FlatUtreexoProofIndex.FetchSummariesRoots()
+	}
+
+	rootsStr := make([]string, 0, len(stump.Roots))
+	for _, root := range stump.Roots {
+		rootsStr = append(rootsStr, hex.EncodeToString(root[:]))
+	}
+
+	utreexoSummaryRootsReply := &btcjson.GetUtreexoBlockSummaryRootsResult{
+		Roots:     rootsStr,
+		NumLeaves: stump.NumLeaves,
+		BlockHash: blockHash.String(),
+	}
+
+	return utreexoSummaryRootsReply, nil
 }
 
 // handleProveWatchOnlyChainTipInclusion implements the handleprovewatchonly command.
