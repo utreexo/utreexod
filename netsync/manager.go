@@ -231,6 +231,7 @@ type SyncManager struct {
 	startHeader         *headerNode
 	nextCheckpoint      *chaincfg.Checkpoint
 	utreexoSummaries    map[chainhash.Hash]*wire.UtreexoBlockSummary
+	bestSummariesHash   chainhash.Hash
 	numLeaves           map[int32]uint64
 	queuedBlocks        map[chainhash.Hash]*blockMsg
 	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
@@ -1021,34 +1022,27 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 		reqPeer = peer
 	}
 
-	state, exists := sm.peerStates[reqPeer]
+	_, exists := sm.peerStates[reqPeer]
 	if !exists {
 		log.Warnf("Don't have peer state for request peer %s", reqPeer.String())
 		return
 	}
-
-	_, bestHeaderHeight := sm.chain.BestHeader()
-	bestState := sm.chain.BestSnapshot()
-	for h := bestState.Height + 1; h <= bestHeaderHeight; h++ {
-		hash, err := sm.chain.HeaderHashByHeight(h)
-		if err != nil {
-			log.Warnf("error while fetching the block hash for height %v -- %v",
-				h, err)
-			return
-		}
-
-		_, requested := state.requestedUtreexoSummaries[*hash]
-		_, have := sm.utreexoSummaries[*hash]
-		if !requested && !have {
-			state.requestedUtreexoSummaries[*hash] = struct{}{}
-			ghmsg := wire.NewMsgGetUtreexoSummaries(*hash, 1)
-			reqPeer.QueueMessage(ghmsg, nil)
-		}
-
-		if len(state.requestedUtreexoSummaries) > minInFlightBlocks {
-			break
-		}
+	height, err := sm.chain.HeaderHeightByHash(sm.bestSummariesHash)
+	if err != nil {
+		log.Warnf("error while fetching the block height for hash %v -- %v",
+			sm.bestSummariesHash, err)
+		return
 	}
+
+	startHash, err := sm.chain.HeaderHashByHeight(height + 1)
+	if err != nil {
+		log.Warnf("error while fetching the block hash for height %v -- %v",
+			height+1, err)
+		return
+	}
+
+	ghmsg := wire.NewMsgGetUtreexoSummaries(*startHash, wire.MaxUtreexoExponent)
+	reqPeer.QueueMessage(ghmsg, nil)
 }
 
 // fetchHeaderBlocks creates and sends a request to the syncPeer for the next
@@ -1334,7 +1328,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 // each summary was asked for and is from a known peer.
 func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 	peer := hmsg.peer
-	peerState, exists := sm.peerStates[peer]
+	_, exists := sm.peerStates[peer]
 	if !exists {
 		log.Warnf("Received utreexo summary message from unknown peer %s", peer)
 		return
@@ -1352,17 +1346,6 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 	// ask for more utreexo block summaries.
 	if sm.headersFirstMode {
 		for _, summary := range msg.Summaries {
-			_, found := peerState.requestedUtreexoSummaries[summary.BlockHash]
-			if !found {
-				log.Warnf("Got unrequested utreexo block summary from %s -- "+
-					"disconnecting", peer.Addr())
-				peer.Disconnect()
-				return
-			}
-
-			// Since we received it, it's no longer requested.
-			delete(peerState.requestedUtreexoSummaries, summary.BlockHash)
-
 			sm.utreexoSummaries[summary.BlockHash] = summary
 			log.Debugf("accepted utreexo summary for block %v. have %v summaries",
 				summary.BlockHash, len(sm.utreexoSummaries))
@@ -1372,6 +1355,7 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 		sm.lastProgressTime = time.Now()
 
 		lastSummary := msg.Summaries[len(msg.Summaries)-1]
+		sm.bestSummariesHash = lastSummary.BlockHash
 		height, err := sm.chain.HeaderHeightByHash(lastSummary.BlockHash)
 		if err != nil {
 			log.Warnf("error while fetching the block height for hash %v -- %v",
@@ -1386,9 +1370,7 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 				height, lastSummary.BlockHash)
 			sm.fetchHeaderBlocks(nil)
 			return
-		}
-
-		if len(peerState.requestedUtreexoSummaries) < minInFlightBlocks {
+		} else {
 			sm.fetchUtreexoSummaries(nil)
 		}
 
@@ -1396,17 +1378,10 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 	}
 
 	for _, summary := range msg.Summaries {
-		_, found := peerState.requestedUtreexoSummaries[summary.BlockHash]
-		if !found {
-			log.Warnf("Got unrequested utreexo block summary from %s -- "+
-				"disconnecting", peer.Addr())
-			peer.Disconnect()
-			return
-		}
-		delete(peerState.requestedUtreexoSummaries, summary.BlockHash)
 		sm.utreexoSummaries[summary.BlockHash] = summary
 		log.Debugf("accepted utreexo summary for block %v. have %v headers",
 			summary.BlockHash, len(sm.utreexoSummaries))
+		sm.bestSummariesHash = summary.BlockHash
 	}
 
 	// We're not in headers-first mode. When we receive a utreexo summary,
@@ -2299,6 +2274,7 @@ func New(config *Config) (*SyncManager, error) {
 	if sm.chain.IsUtreexoViewActive() && sm.chain.IsAssumeUtreexo() {
 		log.Info("Assumed Utreexo is enabled. Downloading headers...")
 		sm.headersBuildMode = true
+		sm.bestSummariesHash = best.Hash
 	}
 
 	// The utreexo summary contains the number of added leaves in the block. This
@@ -2311,6 +2287,7 @@ func New(config *Config) (*SyncManager, error) {
 			return nil, err
 		}
 		sm.numLeaves[best.Height] = utreexoView.NumLeaves()
+		sm.bestSummariesHash = best.Hash
 	}
 
 	sm.chain.Subscribe(sm.handleBlockchainNotification)

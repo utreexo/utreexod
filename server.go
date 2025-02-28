@@ -898,8 +898,7 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 		return
 	}
 
-	// Check if we're a utreexo node. Ignore if we're not.
-	if sp.server.utreexoProofIndex == nil && sp.server.flatUtreexoProofIndex == nil && cfg.NoUtreexo {
+	if sp.server.utreexoProofIndex == nil && sp.server.flatUtreexoProofIndex == nil {
 		return
 	}
 
@@ -916,53 +915,47 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 		return
 	}
 
-	// Fetch adds.
-	block, err := sp.server.chain.BlockByHash(&msg.StartHash)
+	heights, err := wire.GetUtreexoSummaryHeights(height, msg.MaxReceiveExponent)
 	if err != nil {
-		chanLog.Debugf("Unable to fetch block for block hash %v: %v",
-			msg.StartHash, err)
-		return
-	}
-	adds, err := blockchain.ExtractAccumulatorAdds(block, []uint32{})
-	if err != nil {
-		chanLog.Debugf("Unable to extract adds for block hash %v: %v",
+		chanLog.Debugf("Unable to fetch required heights for msg %v: %v",
 			msg.StartHash, err)
 		return
 	}
 
-	// Fetch targets.
-	var targets []uint64
-	if !cfg.NoUtreexo {
-		targets = block.MsgBlock().UData.AccProof.Targets
-	}
-	if sp.server.utreexoProofIndex != nil {
-		udata, err := sp.server.utreexoProofIndex.FetchUtreexoProof(&msg.StartHash)
+	bestState := sp.server.chain.BestSnapshot()
+	blockHashes := make([]*chainhash.Hash, 0, len(heights))
+	for _, height := range heights {
+		// We can only serve blocks to our best block.
+		if height > bestState.Height {
+			break
+		}
+		hash, err := sp.server.chain.BlockHashByHeight(height)
 		if err != nil {
-			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
+			chanLog.Debugf("Unable to fetch height for block hash %v: %v",
 				msg.StartHash, err)
 			return
 		}
-		targets = udata.AccProof.Targets
+		blockHashes = append(blockHashes, hash)
+	}
+
+	var usmsg *wire.MsgUtreexoSummaries
+	if sp.server.utreexoProofIndex != nil {
+		usmsg, err = sp.server.utreexoProofIndex.FetchUtreexoSummaries(blockHashes)
+		if err != nil {
+			chanLog.Debugf("Unable to fetch summaries for start hash %v and max receive exponent of %v: %v",
+				msg.StartHash, msg.MaxReceiveExponent, err)
+			return
+		}
 	}
 	if sp.server.flatUtreexoProofIndex != nil {
-		udata, err := sp.server.flatUtreexoProofIndex.FetchUtreexoProof(height)
+		usmsg, err = sp.server.flatUtreexoProofIndex.FetchUtreexoSummaries(blockHashes)
 		if err != nil {
-			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
-				msg.StartHash, err)
+			chanLog.Debugf("Unable to fetch summaries for start hash %v and max receive exponent of %v: %v",
+				msg.StartHash, msg.MaxReceiveExponent, err)
 			return
 		}
-		targets = udata.AccProof.Targets
 	}
 
-	// Construct the utreexo summaries.
-	summary := wire.UtreexoBlockSummary{
-		BlockHash:    msg.StartHash,
-		NumAdds:      uint16(len(adds)),
-		BlockTargets: make([]uint64, len(targets)),
-	}
-	copy(summary.BlockTargets, targets)
-	usmsg := wire.NewMsgUtreexoSummaries()
-	usmsg.AddSummary(&summary)
 	sp.QueueMessage(usmsg, nil)
 }
 
