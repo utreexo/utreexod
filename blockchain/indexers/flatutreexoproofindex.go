@@ -1072,6 +1072,18 @@ func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (
 	}, nil
 }
 
+// FetchSummariesRoots returns the roots of the block summary state and the blockhash they were
+// at when the roots were fetched.
+func (idx *FlatUtreexoProofIndex) FetchSummariesRoots() (utreexo.Stump, chainhash.Hash) {
+	stump := utreexo.Stump{
+		Roots:     idx.blockSummaryState.GetRoots(),
+		NumLeaves: idx.blockSummaryState.GetNumLeaves(),
+	}
+	besthash := idx.chain.BestSnapshot().Hash
+
+	return stump, besthash
+}
+
 // FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.
 func (idx *FlatUtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*wire.MsgUtreexoRoot, error) {
 	height, err := idx.chain.BlockHeightByHash(blockHash)

@@ -622,6 +622,14 @@ var helpDescsEnUS = map[string]string{
 	"getutreexorootsresult-numleaves": "The number of leaves committed in the accumulator at the given block",
 	"getutreexorootsresult-roots":     "The roots of the accumulator at the given block",
 
+	// GetUtreexoBlockSummaryRoots help.
+	"getutreexoblocksummaryroots--synopsis": "Returns the utreexo roots, number of leaves, and the blockhash of the utreexo block summary accumulator",
+
+	// GetUtreexoBlockSummaryRootsResult help.
+	"getutreexoblocksummaryrootsresult-roots":     "The roots of the block summary accumulator",
+	"getutreexoblocksummaryrootsresult-numleaves": "The number of leaves committed in the roots of the block summary accumulator",
+	"getutreexoblocksummaryrootsresult-blockhash": "The block hash for the roots and the numleaves",
+
 	// GetWatchOnlyBalanceCmd help.
 	"getwatchonlybalance--synopsis": "Returns the total balance of the watch only wallet",
 	"getwatchonlybalance--result0":  "The total balance of the watch only wallet in satoshis",
@@ -937,6 +945,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getmnemonicwords":                   {(*[]string)(nil)},
 	"getnettotals":                       {(*btcjson.GetNetTotalsResult)(nil)},
 	"gettxtotals":                        {(*btcjson.GetTxTotalsResult)(nil)},
+	"getutreexoblocksummaryroots":        {(*btcjson.GetUtreexoBlockSummaryRootsResult)(nil)},
 	"getutreexoproof":                    {(*btcjson.GetUtreexoProofVerboseResult)(nil)},
 	"getutreexoroots":                    {(*btcjson.GetUtreexoRootsResult)(nil)},
 	"getwatchonlybalance":                {(*int64)(nil)},

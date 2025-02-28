@@ -941,6 +941,13 @@ type GetUtreexoRootsResult struct {
 	NumLeaves uint64   `json:"numleaves"`
 }
 
+// GetUtreexoBlockSummaryRootsResult models the data from the getutreexoblocksummaryroots command.
+type GetUtreexoBlockSummaryRootsResult struct {
+	Roots     []string `json:"roots"`
+	NumLeaves uint64   `json:"numleaves"`
+	BlockHash string   `json:"blockhash"`
+}
+
 // ProveWatchOnlyChainTipInclusionVerboseResult models the data from the
 // provewatchonlychaintipinclusion command when the verbose flag is set.  When the
 // verbose flag is not set, just the hex-encoded string of the entire proof
