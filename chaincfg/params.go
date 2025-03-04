@@ -961,6 +961,25 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 
 		AssumeUtreexoPoint: assumeUtreexoPoint,
 
+		BlockSummary: BlockSummaryState{
+			Stump: utreexo.Stump{
+				Roots: []utreexo.Hash{
+					newUtreexoHashFromStr("9f3cf6680295898e482aafa0c272e0cddbb02d6c85ffe8779af7a83a98f0bfcf"),
+					newUtreexoHashFromStr("5322929519c3e0f4019abcf7fde63a38c1fa453f6770ddddb8aa5023b3bd3e04"),
+					newUtreexoHashFromStr("a5bd7902c7e1d0a6f38feda71fabf253c048418ec6954fc315ce447dd398b7bb"),
+					newUtreexoHashFromStr("ca79fd34a91f64095d7425e15676c09f56066e53d863ea9142c23f352c058d17"),
+					newUtreexoHashFromStr("c319d0c400fc13b2b87cef8a69b6e998261b57c4dfd0decd12139ae8b07e8a21"),
+					newUtreexoHashFromStr("48a30aae6dbc363543bf57daa2f976595293aa95de91ab1954bdc722c39ab578"),
+					newUtreexoHashFromStr("c9c19f0d20db613e5b0892feee4235539aa9192e78a1bf9b4b29f98d96630bec"),
+					newUtreexoHashFromStr("6152bc4b7e1d6cf5bb6d77ee41e44bd16c2f3597d8b6768d159193cc4cbe6382"),
+					newUtreexoHashFromStr("e3a2ff83faf47bf917ff2dbcf095bd023ec67eeee7ad7e69770ffc47f9487063"),
+					newUtreexoHashFromStr("b91b638da8fca806ce88d5276f766cd2cb2c11e5764fffe34ddac459c70557ad"),
+				},
+				NumLeaves: 237_799,
+			},
+			BlockHash: newHashFromStr("0000005c1627c2b4f818f43a8e7b03fb580e562d7e44eb66b0e43293fcb7a073"),
+		},
+
 		// Consensus rule change deployments.
 		//
 		// The miner confirmation window is defined as:
