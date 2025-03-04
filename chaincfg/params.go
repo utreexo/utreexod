@@ -97,6 +97,13 @@ type AssumeUtreexo struct {
 	MedianTime  time.Time       // Median time as per CalcPastMedianTime.
 }
 
+// BlockSummaryState is the pre-committed summary roots that allows nodes during ibd
+// to verifies the received summaries.
+type BlockSummaryState struct {
+	Stump     utreexo.Stump
+	BlockHash *chainhash.Hash
+}
+
 // DNSSeed identifies a DNS seed.
 type DNSSeed struct {
 	// Host defines the hostname of the seed.
@@ -253,6 +260,10 @@ type Params struct {
 	// AssumeUtreexoPoint is the utreexo roots that a utreexo node can
 	// start off of.
 	AssumeUtreexoPoint AssumeUtreexo
+
+	// BlockSummary is committed so that nodes during ibd are able to check
+	// the received block summaries from other peers.
+	BlockSummary BlockSummaryState
 
 	// These fields are related to voting on consensus rule changes as
 	// defined by BIP0009.
