@@ -5,6 +5,8 @@
 package netsync
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"math/rand"
 	"net"
 	"os"
@@ -1349,6 +1351,42 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 	if len(msg.Summaries) == 0 {
 		log.Warnf("Received empty utreexo summary message from peer %s "+
 			"-- disconnecting", peer)
+		peer.Disconnect()
+		return
+	}
+
+	// Put together a proof.
+	delHashes := make([]utreexo.Hash, 0, len(msg.Summaries))
+	targets := make([]uint64, 0, len(msg.Summaries))
+	for _, summary := range msg.Summaries {
+		height, _ := sm.chain.HeaderHeightByHash(summary.BlockHash)
+
+		// Skip trying to prove this if the our committed accumulator cannot be used.
+		if height >= int32(sm.chainParams.BlockSummary.Stump.NumLeaves) {
+			break
+		}
+		targets = append(targets, uint64(height))
+
+		buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
+		err := summary.Serialize(buf)
+		if err != nil {
+			log.Warnf("failed to serialize block summary from %s %v -- "+
+				"disconnecting", peer.Addr(), err)
+			peer.Disconnect()
+			return
+		}
+		delHashes = append(delHashes, sha256.Sum256(buf.Bytes()))
+	}
+	proof := utreexo.Proof{
+		Targets: targets,
+		Proof:   msg.ProofHashes,
+	}
+
+	// Verify the block summary.
+	_, err := utreexo.Verify(sm.chainParams.BlockSummary.Stump, delHashes, proof)
+	if err != nil {
+		log.Warnf("Got utreexo block summary from %s failed validation %v -- "+
+			"disconnecting", peer.Addr(), err)
 		peer.Disconnect()
 		return
 	}
