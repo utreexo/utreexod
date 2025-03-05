@@ -103,3 +103,23 @@ func GetUtreexoSummaryHeights(startBlock, bestHeight int32, exponent uint8) ([]i
 	return heights, nil
 }
 
+// GetUtreexoExponent returns the ideal value to request as much as possible while also not
+// going over the endHeight.
+func GetUtreexoExponent(startBlock, endHeight, bestHeight int32) uint8 {
+	numLeaves := uint64(bestHeight + 1)
+	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves)
+
+	exponent := uint8(0)
+	for ; exponent < MaxUtreexoExponent; exponent++ {
+		height := uint64(startBlock + (1 << exponent))
+		if height > uint64(endHeight) {
+			break
+		}
+		gotSubTree, _, _, _ := utreexo.DetectOffset(height, numLeaves)
+		if subtree != gotSubTree {
+			break
+		}
+	}
+
+	return exponent
+}
