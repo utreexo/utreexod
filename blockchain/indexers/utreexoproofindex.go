@@ -768,13 +768,17 @@ func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastK
 	return idx.Flush(&bestHash, blockchain.FlushRequired, true)
 }
 
-// FetchUtreexoSummaries fetches all the summaries and attaches a proof for those summaries.
-func (idx *UtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash) (*wire.MsgUtreexoSummaries, error) {
+// FetchUtreexoSummaries fetches all the summaries and attaches a proof for those summaries if requsted with the includeProof boolean.
+func (idx *UtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash, includeProof bool) (*wire.MsgUtreexoSummaries, error) {
 	msg := wire.MsgUtreexoSummaries{
 		Summaries: make([]*wire.UtreexoBlockSummary, 0, len(blockHashes)),
 	}
 
-	leafHashes := make([]utreexo.Hash, 0, len(blockHashes))
+	var leafHashes []utreexo.Hash
+	if includeProof {
+		leafHashes = make([]utreexo.Hash, 0, len(blockHashes))
+	}
+
 	for i := range blockHashes {
 		var prevHash *chainhash.Hash
 		if i == 0 {
@@ -797,21 +801,25 @@ func (idx *UtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Has
 		}
 		msg.Summaries = append(msg.Summaries, summary)
 
-		buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
-		err = summary.Serialize(buf)
+		if includeProof {
+			buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
+			err = summary.Serialize(buf)
+			if err != nil {
+				return nil, err
+			}
+			hash := sha256.Sum256(buf.Bytes())
+			leafHashes = append(leafHashes, hash)
+		}
+	}
+
+	if includeProof {
+		proof, err := idx.blockSummaryState.Prove(leafHashes)
 		if err != nil {
 			return nil, err
 		}
-		hash := sha256.Sum256(buf.Bytes())
-		leafHashes = append(leafHashes, hash)
-	}
 
-	proof, err := idx.blockSummaryState.Prove(leafHashes)
-	if err != nil {
-		return nil, err
+		msg.ProofHashes = proof.Proof
 	}
-
-	msg.ProofHashes = proof.Proof
 
 	return &msg, nil
 }
