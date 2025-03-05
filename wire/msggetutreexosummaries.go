@@ -92,19 +92,18 @@ func GetUtreexoSummaryHeights(startBlock, bestHeight int32, exponent uint8) ([]i
 	count := int32(1 << exponent)
 	numLeaves := uint64(bestHeight + 1)
 
-	endPos := startBlock + count
-	if endPos > bestHeight {
-		endPos = bestHeight
-	}
-
 	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves)
 	heights := make([]int32, 0, count)
-	for i := startBlock; i <= endPos; i++ {
-		got, _, _, _ := utreexo.DetectOffset(uint64(i), numLeaves)
+	for i := int32(0); i < count; i++ {
+		position := i + startBlock
+		if position > bestHeight {
+			break
+		}
+		got, _, _, _ := utreexo.DetectOffset(uint64(position), numLeaves)
 		if got != subtree {
 			break
 		}
-		heights = append(heights, i)
+		heights = append(heights, position)
 	}
 
 	return heights, nil
