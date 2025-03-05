@@ -1283,11 +1283,11 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	}
 
 	if sm.headersFirstMode {
-		if bestHeight < sm.syncPeer.LastBlock() {
+		if bestHeight < peer.LastBlock() {
 			shouldFetchHeaders = true
 		}
 
-		if bestHeight >= sm.syncPeer.LastBlock() {
+		if bestHeight >= peer.LastBlock() {
 			shouldFetchBlocks = true
 		}
 	}
@@ -1332,7 +1332,11 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			stopHash = *sm.nextCheckpoint.Hash
 		}
 
-		hmsg.peer.PushGetHeadersMsg(locator, &stopHash)
+		err := hmsg.peer.PushGetHeadersMsg(locator, &stopHash)
+		if err != nil {
+			log.Debugf("error while pushing getheaders with stophash of %v to peer %v",
+				stopHash, peer.String())
+		}
 		return
 	}
 }
