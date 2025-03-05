@@ -1034,14 +1034,25 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 		return
 	}
 
-	startHash, err := sm.chain.HeaderHashByHeight(height + 1)
+	startHeight := height + 1
+	startHash, err := sm.chain.HeaderHashByHeight(startHeight)
 	if err != nil {
 		log.Warnf("error while fetching the block hash for height %v -- %v",
-			height+1, err)
+			startHeight, err)
 		return
 	}
 
-	ghmsg := wire.NewMsgGetUtreexoSummaries(*startHash, wire.MaxUtreexoExponent)
+	_, bestHeaderHeight := sm.chain.BestHeader()
+	var exponent uint8
+	if startHeight < int32(sm.chainParams.BlockSummary.Stump.NumLeaves) {
+		exponent = wire.GetUtreexoExponent(startHeight, int32(sm.chainParams.BlockSummary.Stump.NumLeaves), bestHeaderHeight)
+	} else {
+		exponent = wire.GetUtreexoExponent(startHeight, bestHeaderHeight, bestHeaderHeight)
+	}
+
+	log.Debugf("fetching blocksummaries from %v - %v", startHeight, startHeight+(1<<exponent))
+
+	ghmsg := wire.NewMsgGetUtreexoSummaries(*startHash, exponent)
 	reqPeer.QueueMessage(ghmsg, nil)
 }
 
