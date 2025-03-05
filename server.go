@@ -911,11 +911,12 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 
 	// If we're pruned and the requested block is beyond the point where pruned blocks
 	// are able to serve blocks, just ignore the message.
-	if cfg.Prune != 0 && height >= sp.server.chain.BestSnapshot().Height-288 {
+	bestHeight := sp.server.chain.BestSnapshot().Height
+	if cfg.Prune != 0 && height >= bestHeight-288 {
 		return
 	}
 
-	heights, err := wire.GetUtreexoSummaryHeights(height, msg.MaxReceiveExponent)
+	heights, err := wire.GetUtreexoSummaryHeights(height, bestHeight, msg.MaxReceiveExponent)
 	if err != nil {
 		chanLog.Debugf("Unable to fetch required heights for msg %v: %v",
 			msg.StartHash, err)
