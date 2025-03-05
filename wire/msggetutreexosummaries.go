@@ -20,6 +20,7 @@ const AccumulatorRows = 63
 type MsgGetUtreexoSummaries struct {
 	StartHash          chainhash.Hash
 	MaxReceiveExponent uint8
+	IncludeProof       bool
 }
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
@@ -32,6 +33,9 @@ func (msg *MsgGetUtreexoSummaries) BtcDecode(r io.Reader, pver uint32, enc Messa
 
 	msg.MaxReceiveExponent = msg.StartHash[31]
 	msg.StartHash[31] = 0
+
+	msg.IncludeProof = msg.StartHash[30] == 1
+	msg.StartHash[30] = 0
 
 	if msg.MaxReceiveExponent > MaxUtreexoExponent {
 		str := fmt.Sprintf("exponent too high in message [max %v, got %v]",
@@ -52,6 +56,9 @@ func (msg *MsgGetUtreexoSummaries) BtcEncode(w io.Writer, pver uint32, enc Messa
 	}
 
 	msg.StartHash[31] = msg.MaxReceiveExponent
+	if msg.IncludeProof {
+		msg.StartHash[30] = 1
+	}
 
 	_, err := w.Write(msg.StartHash[:])
 	if err != nil {
@@ -75,8 +82,8 @@ func (msg *MsgGetUtreexoSummaries) MaxPayloadLength(pver uint32) uint32 {
 
 // NewMsgGetUtreexoSummaries returns a new bitcoin getutreexosummaries message that conforms to
 // the Message interface.  See MsgGetUtreexoSummaries for details.
-func NewMsgGetUtreexoSummaries(blockHash chainhash.Hash, maxReceiveExponent uint8) *MsgGetUtreexoSummaries {
-	return &MsgGetUtreexoSummaries{StartHash: blockHash, MaxReceiveExponent: maxReceiveExponent}
+func NewMsgGetUtreexoSummaries(blockHash chainhash.Hash, maxReceiveExponent uint8, includeProof bool) *MsgGetUtreexoSummaries {
+	return &MsgGetUtreexoSummaries{StartHash: blockHash, MaxReceiveExponent: maxReceiveExponent, IncludeProof: includeProof}
 }
 
 // GetUtreexoSummaryHeights returns the heights of the blocks that we can serve based on the startBlock
