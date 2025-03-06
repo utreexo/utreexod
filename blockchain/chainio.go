@@ -1386,6 +1386,9 @@ func (b *BlockChain) initChainState() error {
 		}
 		log.Debug("Done loading block index")
 
+		// Set the lastNode in the blockindex as the bestheader.
+		b.bestHeader.SetTip(lastNode)
+
 		// Set the best chain view to the stored best state.
 		tip := b.index.LookupNode(&state.hash)
 		if tip == nil {
@@ -1393,7 +1396,6 @@ func (b *BlockChain) initChainState() error {
 				"chain tip %s in block index", state.hash))
 		}
 		b.bestChain.SetTip(tip)
-		b.bestHeader.SetTip(tip)
 
 		// Load the raw block bytes for the best block.
 		blockBytes, err := dbTx.FetchBlock(&state.hash)
