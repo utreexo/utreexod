@@ -349,6 +349,8 @@ func (sm *SyncManager) startSync() {
 		return
 	}
 
+	sm.headersFirstMode = true
+
 	// This means that there's extra headers that we need to download.
 	if len(higherHeaderPeers) > 0 {
 		var bestPeer *peerpkg.Peer
@@ -363,7 +365,6 @@ func (sm *SyncManager) startSync() {
 		// syncPeer to avoid instantly detecting it as stalled in the
 		// event the progress time hasn't been updated recently.
 		sm.lastProgressTime = time.Now()
-		sm.headersFirstMode = true
 
 		locator, err := sm.chain.LatestBlockLocatorByHeader()
 		if err != nil {
@@ -416,6 +417,10 @@ func (sm *SyncManager) startSync() {
 		// event the progress time hasn't been updated recently.
 		sm.lastProgressTime = time.Now()
 
+		if sm.startHeader == nil {
+			sm.startHeader = &headerNode{bestHeaderHeight + 1, &bestHeaderHash}
+		}
+
 		if utreexoViewActive {
 			// If we have the last utreexo summary, then we
 			// should have all the previous summaries as well.
@@ -424,9 +429,6 @@ func (sm *SyncManager) startSync() {
 				sm.fetchUtreexoSummaries(nil)
 				return
 			}
-		}
-		if sm.startHeader == nil {
-			sm.startHeader = &headerNode{bestHeaderHeight + 1, &bestHeaderHash}
 		}
 		sm.fetchHeaderBlocks(nil)
 	} else {
