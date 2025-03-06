@@ -126,12 +126,17 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, flags Beha
 	// However, it might have since been marked invalid either due to the
 	// associated block, or an ancestor, later failing validation.
 	hash := header.BlockHash()
-	if node := b.index.LookupNode(&hash); node != nil {
+	node := b.index.LookupNode(&hash)
+	if node != nil {
 		if err := b.checkKnownInvalidBlock(node); err != nil {
 			return false, err
 		}
 
-		return false, nil
+		// If the node is in the bestHeaders chainview, it's in the main chain.
+		// If it isn't, then we'll go through the verification process below.
+		if b.bestHeader.Contains(node) {
+			return true, nil
+		}
 	}
 
 	// Perform context-free sanity checks on the block header.
@@ -169,8 +174,10 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, flags Beha
 	// Note that the additional information for the actual transactions and
 	// witnesses in the block can't be populated until the full block data is
 	// known since that information is not available in the header.
-	newNode := newBlockNode(header, prevNode)
-	b.index.AddNode(newNode)
+	if node == nil {
+		node = newBlockNode(header, prevNode)
+		b.index.AddNode(node)
+	}
 
 	err = b.index.flushToDB()
 	if err != nil {
@@ -181,25 +188,27 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, flags Beha
 	isMainChain := false
 	parentHash := &header.PrevBlock
 	if parentHash.IsEqual(&b.bestHeader.Tip().hash) {
+		log.Debugf("accepted header %v as the new header tip", node.hash)
+
 		// This header is now the end of the best headers.
-		b.bestHeader.SetTip(newNode)
+		b.bestHeader.SetTip(node)
 		isMainChain = true
 		return isMainChain, nil
 	}
 
 	// We're extending (or creating) a side chain, but the cumulative
 	// work for this new side chain is not enough to make it the new chain.
-	if newNode.workSum.Cmp(b.bestHeader.Tip().workSum) <= 0 {
+	if node.workSum.Cmp(b.bestHeader.Tip().workSum) <= 0 {
 		// Log information about how the header is forking the chain.
-		fork := b.bestHeader.FindFork(newNode)
+		fork := b.bestHeader.FindFork(node)
 		if fork.hash.IsEqual(parentHash) {
 			log.Infof("FORK: BlockHeader %v(%v) forks the chain at block %v(%v) "+
 				"but did not have enough work to be the "+
-				"main chain", newNode.hash, newNode.height, fork.hash, fork.height)
+				"main chain", node.hash, node.height, fork.hash, fork.height)
 		} else {
 			log.Infof("EXTEND FORK: BlockHeader %v(%v) extends a side chain "+
 				"which forks the chain at block %v(%v)",
-				newNode.hash, newNode.height, fork.hash, fork.height)
+				node.hash, node.height, fork.hash, fork.height)
 		}
 
 		return false, nil
@@ -208,10 +217,10 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, flags Beha
 	prevTip := b.bestHeader.Tip()
 	log.Infof("NEW BEST HEADER CHAIN: BlockHeader %v(%v) is now a longer "+
 		"PoW chain than the previous header tip of %v(%v).",
-		newNode.hash, newNode.height,
+		node.hash, node.height,
 		prevTip.hash, prevTip.height)
 
-	b.bestHeader.SetTip(newNode)
+	b.bestHeader.SetTip(node)
 	isMainChain = true
 
 	return isMainChain, nil
