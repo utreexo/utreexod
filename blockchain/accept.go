@@ -172,6 +172,11 @@ func (b *BlockChain) maybeAcceptBlockHeader(header *wire.BlockHeader, flags Beha
 	newNode := newBlockNode(header, prevNode)
 	b.index.AddNode(newNode)
 
+	err = b.index.flushToDB()
+	if err != nil {
+		return false, err
+	}
+
 	// Check if the header extends the best header tip.
 	isMainChain := false
 	parentHash := &header.PrevBlock
