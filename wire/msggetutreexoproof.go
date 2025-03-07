@@ -18,11 +18,13 @@ type MsgGetUtreexoProof struct {
 	// BlockHash is the hash of the block we want the utreexo proof for.
 	BlockHash chainhash.Hash
 
-	// ProofIndexes are the indexes from the utreexo proof hashes that we want.
-	ProofIndexes []uint64
+	// ProofIndexBitMap is a bitmap of the proof indexes. The bits that are
+	// turned on indicate the proofs that the requester wants.
+	ProofIndexBitMap []byte
 
-	// LeafIndexes are the indexes from the leaf datas we want.
-	LeafIndexes []uint64
+	// LeafIndexBitMap is a bitmap of the leafdata indexes. The bits that are
+	// turned on indicate the leafdata that the requester wants.
+	LeafIndexBitMap []byte
 }
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
@@ -40,12 +42,10 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEn
 		return err
 	}
 
-	msg.ProofIndexes = make([]uint64, proofCount)
-	for i := range msg.ProofIndexes {
-		msg.ProofIndexes[i], err = ReadVarInt(r, pver)
-		if err != nil {
-			return err
-		}
+	msg.ProofIndexBitMap = make([]byte, proofCount)
+	_, err = r.Read(msg.ProofIndexBitMap[:])
+	if err != nil {
+		return err
 	}
 
 	leafCount, err := ReadVarInt(r, 0)
@@ -53,12 +53,10 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEn
 		return err
 	}
 
-	msg.LeafIndexes = make([]uint64, leafCount)
-	for i := range msg.LeafIndexes {
-		msg.LeafIndexes[i], err = ReadVarInt(r, pver)
-		if err != nil {
-			return err
-		}
+	msg.LeafIndexBitMap = make([]byte, leafCount)
+	_, err = r.Read(msg.LeafIndexBitMap[:])
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -74,29 +72,26 @@ func (msg *MsgGetUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEn
 		return err
 	}
 
-	err = WriteVarInt(w, pver, uint64(len(msg.ProofIndexes)))
+	err = WriteVarInt(w, pver, uint64(len(msg.ProofIndexBitMap)))
 	if err != nil {
 		return err
 	}
 
-	for i := range msg.ProofIndexes {
-		err = WriteVarInt(w, pver, msg.ProofIndexes[i])
-		if err != nil {
-			return err
-		}
-	}
-
-	err = WriteVarInt(w, pver, uint64(len(msg.LeafIndexes)))
+	_, err = w.Write(msg.ProofIndexBitMap[:])
 	if err != nil {
 		return err
 	}
 
-	for i := range msg.LeafIndexes {
-		err = WriteVarInt(w, pver, msg.LeafIndexes[i])
-		if err != nil {
-			return err
-		}
+	err = WriteVarInt(w, pver, uint64(len(msg.LeafIndexBitMap)))
+	if err != nil {
+		return err
 	}
+
+	_, err = w.Write(msg.LeafIndexBitMap[:])
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -112,15 +107,56 @@ func (msg *MsgGetUtreexoProof) MaxPayloadLength(pver uint32) uint32 {
 	return MaxBlockPayload
 }
 
+// IsLeafDataRequested returns if the leafdata at the given index is requested or not.
+func (msg *MsgGetUtreexoProof) IsLeafDataRequested(idx int) bool {
+	return isBitSet(msg.LeafIndexBitMap, idx)
+}
+
+// IsProofRequested returns if the proof hash at the given index is requested or not.
+func (msg *MsgGetUtreexoProof) IsProofRequested(idx int) bool {
+	return isBitSet(msg.ProofIndexBitMap, idx)
+}
+
+// Returns true if the bit at the given index is set.
+func isBitSet(slice []byte, idx int) bool {
+	bytesIdx := idx / 8
+	if len(slice) <= bytesIdx {
+		return false
+	}
+
+	bit := idx % 8
+	b := slice[bytesIdx]
+	return b&(1<<bit) != 0
+}
+
+// createBitmap returns a bitmap from the given slice of bools.
+func createBitmap(includes []bool) []byte {
+	count := len(includes) / 8
+	if len(includes)%8 != 0 {
+		count++
+	}
+
+	bitMap := make([]byte, count)
+
+	bitMapIdx := 0
+	for idx, include := range includes {
+		bitPlace := idx % 8
+		if idx != 0 && bitPlace == 0 {
+			bitMapIdx++
+		}
+
+		if include {
+			bitMap[bitMapIdx] |= (1 << bitPlace)
+		}
+	}
+
+	return bitMap
+}
+
 // ConstructGetProofMsg returns a constructed MsgGetUtreexoProof message from the
 // given data.
 func ConstructGetProofMsg(blockHash *chainhash.Hash, numLeaves uint64,
 	targets []uint64) *MsgGetUtreexoProof {
-
-	targetIndexes := make([]uint64, len(targets))
-	for i := range targets {
-		targetIndexes[i] = uint64(i)
-	}
 
 	// The targets must be sorted in order for ProofPositions to work correctly.
 	sortedTargets := make([]uint64, len(targets))
@@ -134,14 +170,21 @@ func ConstructGetProofMsg(blockHash *chainhash.Hash, numLeaves uint64,
 	)
 
 	// Grab all the indexes.
-	proofIndexes := make([]uint64, len(proofPositions))
-	for i := range proofPositions {
-		proofIndexes[i] = uint64(i)
+	proofIndexes := make([]bool, len(proofPositions))
+	for i := range proofIndexes {
+		proofIndexes[i] = true
 	}
+	proofBytes := createBitmap(proofIndexes)
+
+	targetIndexes := make([]bool, len(targets))
+	for i := range targets {
+		targetIndexes[i] = true
+	}
+	targetBytes := createBitmap(targetIndexes)
 
 	return &MsgGetUtreexoProof{
-		BlockHash:    *blockHash,
-		ProofIndexes: proofIndexes,
-		LeafIndexes:  targetIndexes,
+		BlockHash:        *blockHash,
+		ProofIndexBitMap: proofBytes,
+		LeafIndexBitMap:  targetBytes,
 	}
 }

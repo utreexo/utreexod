@@ -1346,23 +1346,18 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 	}
 
 	// Construct utreexo proof to send.
-	leafDatas := make([]wire.LeafData, 0, len(msg.LeafIndexes))
-	for _, idx := range msg.LeafIndexes {
-		if int(idx) > len(udata.LeafDatas) {
-			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
-				msg.BlockHash, err)
-			return
+	leafDatas := make([]wire.LeafData, 0, len(udata.LeafDatas))
+	for i := 0; i < len(udata.LeafDatas); i++ {
+		if msg.IsLeafDataRequested(i) {
+			leafDatas = append(leafDatas, udata.LeafDatas[i])
 		}
-		leafDatas = append(leafDatas, udata.LeafDatas[idx])
 	}
-	proofHashes := make([]utreexo.Hash, 0, len(msg.ProofIndexes))
-	for _, idx := range msg.ProofIndexes {
-		if int(idx) >= len(udata.AccProof.Proof) {
-			chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
-				msg.BlockHash, err)
-			return
+
+	proofHashes := make([]utreexo.Hash, 0, len(udata.AccProof.Proof))
+	for i := 0; i < len(udata.AccProof.Proof); i++ {
+		if msg.IsProofRequested(i) {
+			proofHashes = append(proofHashes, udata.AccProof.Proof[i])
 		}
-		proofHashes = append(proofHashes, udata.AccProof.Proof[idx])
 	}
 	utreexoProof := wire.MsgUtreexoProof{
 		BlockHash:   msg.BlockHash,
