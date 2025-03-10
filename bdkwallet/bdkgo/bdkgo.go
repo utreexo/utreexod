@@ -14,7 +14,9 @@ import (
 	"unsafe"
 )
 
-type RustBuffer = C.RustBuffer
+type CRustBuffer struct {
+	rustBuffer C.RustBuffer
+}
 
 type RustBufferI interface {
 	AsReader() *bytes.Reader
@@ -25,49 +27,49 @@ type RustBufferI interface {
 	Capacity() int
 }
 
-func RustBufferFromExternal(b RustBufferI) RustBuffer {
-	return RustBuffer{
-		capacity: C.int(b.Capacity()),
-		len:      C.int(b.Len()),
-		data:     (*C.uchar)(b.Data()),
+func RustBufferFromExternal(b RustBufferI) CRustBuffer {
+	return CRustBuffer{
+		rustBuffer: C.RustBuffer{
+			capacity: C.int(b.Capacity()),
+			len:      C.int(b.Len()),
+			data:     (*C.uchar)(b.Data()),
+		},
 	}
 }
 
-func (cb RustBuffer) Capacity() int {
-	return int(cb.capacity)
+func (cb CRustBuffer) Capacity() int {
+	return int(cb.rustBuffer.capacity)
+}
+func (cb CRustBuffer) Len() int {
+	return int(cb.rustBuffer.len)
 }
 
-func (cb RustBuffer) Len() int {
-	return int(cb.len)
+func (cb CRustBuffer) Data() unsafe.Pointer {
+	return unsafe.Pointer(cb.rustBuffer.data)
 }
 
-func (cb RustBuffer) Data() unsafe.Pointer {
-	return unsafe.Pointer(cb.data)
-}
-
-func (cb RustBuffer) AsReader() *bytes.Reader {
-	b := unsafe.Slice((*byte)(cb.data), C.int(cb.len))
+func (cb CRustBuffer) AsReader() *bytes.Reader {
+	b := unsafe.Slice((*byte)(cb.rustBuffer.data), C.int(cb.rustBuffer.len))
 	return bytes.NewReader(b)
 }
-
-func (cb RustBuffer) Free() {
+func (cb CRustBuffer) Free() {
 	rustCall(func(status *C.RustCallStatus) bool {
-		C.ffi_bdkgo_rustbuffer_free(cb, status)
+		C.ffi_bdkgo_rustbuffer_free(cb.rustBuffer, status)
 		return false
 	})
 }
 
-func (cb RustBuffer) ToGoBytes() []byte {
-	return C.GoBytes(unsafe.Pointer(cb.data), C.int(cb.len))
+func (cb CRustBuffer) ToGoBytes() []byte {
+	return C.GoBytes(unsafe.Pointer(cb.rustBuffer.data), C.int(cb.rustBuffer.len))
 }
 
-func stringToRustBuffer(str string) RustBuffer {
+func stringToRustBuffer(str string) CRustBuffer {
 	return bytesToRustBuffer([]byte(str))
 }
 
-func bytesToRustBuffer(b []byte) RustBuffer {
+func bytesToRustBuffer(b []byte) CRustBuffer {
 	if len(b) == 0 {
-		return RustBuffer{}
+		return CRustBuffer{}
 	}
 	// We can pass the pointer along here, as it is pinned
 	// for the duration of this call
@@ -76,8 +78,10 @@ func bytesToRustBuffer(b []byte) RustBuffer {
 		data: (*C.uchar)(unsafe.Pointer(&b[0])),
 	}
 
-	return rustCall(func(status *C.RustCallStatus) RustBuffer {
-		return C.ffi_bdkgo_rustbuffer_from_bytes(foreign, status)
+	return rustCall(func(status *C.RustCallStatus) CRustBuffer {
+		return CRustBuffer{
+			rustBuffer: C.ffi_bdkgo_rustbuffer_from_bytes(foreign, status),
+		}
 	})
 }
 
@@ -86,7 +90,7 @@ type BufLifter[GoType any] interface {
 }
 
 type BufLowerer[GoType any] interface {
-	Lower(value GoType) RustBuffer
+	Lower(value GoType) CRustBuffer
 }
 
 type FfiConverter[GoType any, FfiType any] interface {
@@ -107,7 +111,7 @@ type FfiRustBufConverter[GoType any, FfiType any] interface {
 	BufReader[GoType]
 }
 
-func LowerIntoRustBuffer[GoType any](bufWriter BufWriter[GoType], value GoType) RustBuffer {
+func LowerIntoRustBuffer[GoType any](bufWriter BufWriter[GoType], value GoType) CRustBuffer {
 	// This might be not the most efficient way but it does not require knowing allocation size
 	// beforehand
 	var buffer bytes.Buffer
@@ -145,13 +149,13 @@ func checkCallStatus(converter BufLifter[error], status C.RustCallStatus) error 
 	case 0:
 		return nil
 	case 1:
-		return converter.Lift(status.errorBuf)
+		return converter.Lift(CRustBuffer{rustBuffer: status.errorBuf})
 	case 2:
 		// when the rust code sees a panic, it tries to construct a rustbuffer
 		// with the message.  but if that code panics, then it just sends back
 		// an empty buffer.
 		if status.errorBuf.len > 0 {
-			panic(fmt.Errorf("%s", FfiConverterStringINSTANCE.Lift(status.errorBuf)))
+			panic(fmt.Errorf("%s", FfiConverterStringINSTANCE.Lift(CRustBuffer{rustBuffer: status.errorBuf})))
 		} else {
 			panic(fmt.Errorf("Rust panicked while handling Rust panic"))
 		}
@@ -171,7 +175,7 @@ func checkCallStatusUnknown(status C.RustCallStatus) error {
 		// with the message.  but if that code panics, then it just sends back
 		// an empty buffer.
 		if status.errorBuf.len > 0 {
-			panic(fmt.Errorf("%s", FfiConverterStringINSTANCE.Lift(status.errorBuf)))
+			panic(fmt.Errorf("%s", FfiConverterStringINSTANCE.Lift(CRustBuffer{rustBuffer: status.errorBuf})))
 		} else {
 			panic(fmt.Errorf("Rust panicked while handling Rust panic"))
 		}
@@ -611,7 +615,7 @@ func (FfiConverterString) Read(reader io.Reader) string {
 	return string(buffer)
 }
 
-func (FfiConverterString) Lower(value string) RustBuffer {
+func (FfiConverterString) Lower(value string) CRustBuffer {
 	return stringToRustBuffer(value)
 }
 
@@ -638,7 +642,7 @@ type FfiConverterBytes struct{}
 
 var FfiConverterBytesINSTANCE = FfiConverterBytes{}
 
-func (c FfiConverterBytes) Lower(value []byte) RustBuffer {
+func (c FfiConverterBytes) Lower(value []byte) CRustBuffer {
 	return LowerIntoRustBuffer[[]byte](c, value)
 }
 
@@ -739,7 +743,12 @@ type Wallet struct {
 
 func WalletCreateNew(dbPath string, network string, genesisHash []byte) (*Wallet, error) {
 	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeCreateNewError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_bdkgo_fn_constructor_wallet_create_new(FfiConverterStringINSTANCE.Lower(dbPath), FfiConverterStringINSTANCE.Lower(network), FfiConverterBytesINSTANCE.Lower(genesisHash), _uniffiStatus)
+		return C.uniffi_bdkgo_fn_constructor_wallet_create_new(
+			FfiConverterStringINSTANCE.Lower(dbPath).rustBuffer,     // Extract C.RustBuffer
+			FfiConverterStringINSTANCE.Lower(network).rustBuffer,    // Extract C.RustBuffer
+			FfiConverterBytesINSTANCE.Lower(genesisHash).rustBuffer, // Extract C.RustBuffer
+			_uniffiStatus,
+		)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *Wallet
@@ -750,7 +759,7 @@ func WalletCreateNew(dbPath string, network string, genesisHash []byte) (*Wallet
 }
 func WalletLoad(dbPath string) (*Wallet, error) {
 	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeLoadError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_bdkgo_fn_constructor_wallet_load(FfiConverterStringINSTANCE.Lower(dbPath), _uniffiStatus)
+		return C.uniffi_bdkgo_fn_constructor_wallet_load(FfiConverterStringINSTANCE.Lower(dbPath).rustBuffer, _uniffiStatus)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *Wallet
@@ -764,8 +773,11 @@ func (_self *Wallet) ApplyBlock(height uint32, blockBytes []byte) (ApplyResult, 
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeApplyBlockError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_apply_block(
-			_pointer, FfiConverterUint32INSTANCE.Lower(height), FfiConverterBytesINSTANCE.Lower(blockBytes), _uniffiStatus)
+		rustBuffer := FfiConverterBytesINSTANCE.Lower(blockBytes).rustBuffer
+		return CRustBuffer{
+			rustBuffer: C.uniffi_bdkgo_fn_method_wallet_apply_block(
+				_pointer, FfiConverterUint32INSTANCE.Lower(height), rustBuffer, _uniffiStatus),
+		}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue ApplyResult
@@ -779,8 +791,11 @@ func (_self *Wallet) ApplyMempool(txs []MempoolTx) (ApplyResult, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeApplyMempoolError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_apply_mempool(
-			_pointer, FfiConverterSequenceTypeMempoolTxINSTANCE.Lower(txs), _uniffiStatus)
+		rustBuffer := FfiConverterSequenceTypeMempoolTxINSTANCE.Lower(txs).rustBuffer
+		return CRustBuffer{
+			rustBuffer: C.uniffi_bdkgo_fn_method_wallet_apply_mempool(
+				_pointer, rustBuffer, _uniffiStatus),
+		}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue ApplyResult
@@ -794,8 +809,9 @@ func (_self *Wallet) Balance() Balance {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterTypeBalanceINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_balance(
-			_pointer, _uniffiStatus)
+		return CRustBuffer{
+			rustBuffer: C.uniffi_bdkgo_fn_method_wallet_balance(
+				_pointer, _uniffiStatus)}
 	}))
 }
 
@@ -803,8 +819,8 @@ func (_self *Wallet) CreateTx(feerate float32, recipients []Recipient) ([]byte, 
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeCreateTxError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_create_tx(
-			_pointer, FfiConverterFloat32INSTANCE.Lower(feerate), FfiConverterSequenceTypeRecipientINSTANCE.Lower(recipients), _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_create_tx(
+			_pointer, FfiConverterFloat32INSTANCE.Lower(feerate), FfiConverterSequenceTypeRecipientINSTANCE.Lower(recipients).rustBuffer, _uniffiStatus)}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue []byte
@@ -818,8 +834,8 @@ func (_self *Wallet) FreshAddress() (AddressInfo, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_fresh_address(
-			_pointer, _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_fresh_address(
+			_pointer, _uniffiStatus)}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue AddressInfo
@@ -833,8 +849,8 @@ func (_self *Wallet) GenesisHash() []byte {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterBytesINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_genesis_hash(
-			_pointer, _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_genesis_hash(
+			_pointer, _uniffiStatus)}
 	}))
 }
 
@@ -852,8 +868,8 @@ func (_self *Wallet) LastUnusedAddress() (AddressInfo, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_last_unused_address(
-			_pointer, _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_last_unused_address(
+			_pointer, _uniffiStatus)}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue AddressInfo
@@ -867,8 +883,8 @@ func (_self *Wallet) MnemonicWords() []string {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterSequenceStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_mnemonic_words(
-			_pointer, _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_mnemonic_words(
+			_pointer, _uniffiStatus)}
 	}))
 }
 
@@ -876,8 +892,8 @@ func (_self *Wallet) PeekAddress(index uint32) (AddressInfo, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_peek_address(
-			_pointer, FfiConverterUint32INSTANCE.Lower(index), _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_peek_address(
+			_pointer, FfiConverterUint32INSTANCE.Lower(index), _uniffiStatus)}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue AddressInfo
@@ -891,8 +907,8 @@ func (_self *Wallet) RecentBlocks(count uint32) []BlockId {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterSequenceTypeBlockIdINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_recent_blocks(
-			_pointer, FfiConverterUint32INSTANCE.Lower(count), _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_recent_blocks(
+			_pointer, FfiConverterUint32INSTANCE.Lower(count), _uniffiStatus)}
 	}))
 }
 
@@ -900,8 +916,8 @@ func (_self *Wallet) Transactions() []TxInfo {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterSequenceTypeTxInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_transactions(
-			_pointer, _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_transactions(
+			_pointer, _uniffiStatus)}
 	}))
 }
 
@@ -909,8 +925,8 @@ func (_self *Wallet) Utxos() []UtxoInfo {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterSequenceTypeUtxoInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_utxos(
-			_pointer, _uniffiStatus)
+		return CRustBuffer{rustBuffer: C.uniffi_bdkgo_fn_method_wallet_utxos(
+			_pointer, _uniffiStatus)}
 	}))
 }
 
@@ -983,7 +999,7 @@ func (c FfiConverterTypeAddressInfo) Read(reader io.Reader) AddressInfo {
 	}
 }
 
-func (c FfiConverterTypeAddressInfo) Lower(value AddressInfo) RustBuffer {
+func (c FfiConverterTypeAddressInfo) Lower(value AddressInfo) CRustBuffer {
 	return LowerIntoRustBuffer[AddressInfo](c, value)
 }
 
@@ -1020,7 +1036,7 @@ func (c FfiConverterTypeApplyResult) Read(reader io.Reader) ApplyResult {
 	}
 }
 
-func (c FfiConverterTypeApplyResult) Lower(value ApplyResult) RustBuffer {
+func (c FfiConverterTypeApplyResult) Lower(value ApplyResult) CRustBuffer {
 	return LowerIntoRustBuffer[ApplyResult](c, value)
 }
 
@@ -1065,7 +1081,7 @@ func (c FfiConverterTypeBalance) Read(reader io.Reader) Balance {
 	}
 }
 
-func (c FfiConverterTypeBalance) Lower(value Balance) RustBuffer {
+func (c FfiConverterTypeBalance) Lower(value Balance) CRustBuffer {
 	return LowerIntoRustBuffer[Balance](c, value)
 }
 
@@ -1107,7 +1123,7 @@ func (c FfiConverterTypeBlockId) Read(reader io.Reader) BlockId {
 	}
 }
 
-func (c FfiConverterTypeBlockId) Lower(value BlockId) RustBuffer {
+func (c FfiConverterTypeBlockId) Lower(value BlockId) CRustBuffer {
 	return LowerIntoRustBuffer[BlockId](c, value)
 }
 
@@ -1147,7 +1163,7 @@ func (c FfiConverterTypeMempoolTx) Read(reader io.Reader) MempoolTx {
 	}
 }
 
-func (c FfiConverterTypeMempoolTx) Lower(value MempoolTx) RustBuffer {
+func (c FfiConverterTypeMempoolTx) Lower(value MempoolTx) CRustBuffer {
 	return LowerIntoRustBuffer[MempoolTx](c, value)
 }
 
@@ -1187,7 +1203,7 @@ func (c FfiConverterTypeRecipient) Read(reader io.Reader) Recipient {
 	}
 }
 
-func (c FfiConverterTypeRecipient) Lower(value Recipient) RustBuffer {
+func (c FfiConverterTypeRecipient) Lower(value Recipient) CRustBuffer {
 	return LowerIntoRustBuffer[Recipient](c, value)
 }
 
@@ -1236,7 +1252,7 @@ func (c FfiConverterTypeTxInfo) Read(reader io.Reader) TxInfo {
 	}
 }
 
-func (c FfiConverterTypeTxInfo) Lower(value TxInfo) RustBuffer {
+func (c FfiConverterTypeTxInfo) Lower(value TxInfo) CRustBuffer {
 	return LowerIntoRustBuffer[TxInfo](c, value)
 }
 
@@ -1294,7 +1310,7 @@ func (c FfiConverterTypeUtxoInfo) Read(reader io.Reader) UtxoInfo {
 	}
 }
 
-func (c FfiConverterTypeUtxoInfo) Lower(value UtxoInfo) RustBuffer {
+func (c FfiConverterTypeUtxoInfo) Lower(value UtxoInfo) CRustBuffer {
 	return LowerIntoRustBuffer[UtxoInfo](c, value)
 }
 
@@ -1394,7 +1410,7 @@ func (c FfiConverterTypeApplyBlockError) Lift(eb RustBufferI) error {
 	return LiftFromRustBuffer[error](c, eb)
 }
 
-func (c FfiConverterTypeApplyBlockError) Lower(value *ApplyBlockError) RustBuffer {
+func (c FfiConverterTypeApplyBlockError) Lower(value *ApplyBlockError) CRustBuffer {
 	return LowerIntoRustBuffer[*ApplyBlockError](c, value)
 }
 
@@ -1471,7 +1487,7 @@ func (c FfiConverterTypeApplyMempoolError) Lift(eb RustBufferI) error {
 	return LiftFromRustBuffer[error](c, eb)
 }
 
-func (c FfiConverterTypeApplyMempoolError) Lower(value *ApplyMempoolError) RustBuffer {
+func (c FfiConverterTypeApplyMempoolError) Lower(value *ApplyMempoolError) CRustBuffer {
 	return LowerIntoRustBuffer[*ApplyMempoolError](c, value)
 }
 
@@ -1597,7 +1613,7 @@ func (c FfiConverterTypeCreateNewError) Lift(eb RustBufferI) error {
 	return LiftFromRustBuffer[error](c, eb)
 }
 
-func (c FfiConverterTypeCreateNewError) Lower(value *CreateNewError) RustBuffer {
+func (c FfiConverterTypeCreateNewError) Lower(value *CreateNewError) CRustBuffer {
 	return LowerIntoRustBuffer[*CreateNewError](c, value)
 }
 
@@ -1716,7 +1732,7 @@ func (c FfiConverterTypeCreateTxError) Lift(eb RustBufferI) error {
 	return LiftFromRustBuffer[error](c, eb)
 }
 
-func (c FfiConverterTypeCreateTxError) Lower(value *CreateTxError) RustBuffer {
+func (c FfiConverterTypeCreateTxError) Lower(value *CreateTxError) CRustBuffer {
 	return LowerIntoRustBuffer[*CreateTxError](c, value)
 }
 
@@ -1793,7 +1809,7 @@ func (c FfiConverterTypeDatabaseError) Lift(eb RustBufferI) error {
 	return LiftFromRustBuffer[error](c, eb)
 }
 
-func (c FfiConverterTypeDatabaseError) Lower(value *DatabaseError) RustBuffer {
+func (c FfiConverterTypeDatabaseError) Lower(value *DatabaseError) CRustBuffer {
 	return LowerIntoRustBuffer[*DatabaseError](c, value)
 }
 
@@ -1919,7 +1935,7 @@ func (c FfiConverterTypeLoadError) Lift(eb RustBufferI) error {
 	return LiftFromRustBuffer[error](c, eb)
 }
 
-func (c FfiConverterTypeLoadError) Lower(value *LoadError) RustBuffer {
+func (c FfiConverterTypeLoadError) Lower(value *LoadError) CRustBuffer {
 	return LowerIntoRustBuffer[*LoadError](c, value)
 }
 
@@ -1978,7 +1994,7 @@ func (c FfiConverterSequenceString) Read(reader io.Reader) []string {
 	return result
 }
 
-func (c FfiConverterSequenceString) Lower(value []string) RustBuffer {
+func (c FfiConverterSequenceString) Lower(value []string) CRustBuffer {
 	return LowerIntoRustBuffer[[]string](c, value)
 }
 
@@ -2021,7 +2037,7 @@ func (c FfiConverterSequenceBytes) Read(reader io.Reader) [][]byte {
 	return result
 }
 
-func (c FfiConverterSequenceBytes) Lower(value [][]byte) RustBuffer {
+func (c FfiConverterSequenceBytes) Lower(value [][]byte) CRustBuffer {
 	return LowerIntoRustBuffer[[][]byte](c, value)
 }
 
@@ -2064,7 +2080,7 @@ func (c FfiConverterSequenceTypeBlockId) Read(reader io.Reader) []BlockId {
 	return result
 }
 
-func (c FfiConverterSequenceTypeBlockId) Lower(value []BlockId) RustBuffer {
+func (c FfiConverterSequenceTypeBlockId) Lower(value []BlockId) CRustBuffer {
 	return LowerIntoRustBuffer[[]BlockId](c, value)
 }
 
@@ -2107,7 +2123,7 @@ func (c FfiConverterSequenceTypeMempoolTx) Read(reader io.Reader) []MempoolTx {
 	return result
 }
 
-func (c FfiConverterSequenceTypeMempoolTx) Lower(value []MempoolTx) RustBuffer {
+func (c FfiConverterSequenceTypeMempoolTx) Lower(value []MempoolTx) CRustBuffer {
 	return LowerIntoRustBuffer[[]MempoolTx](c, value)
 }
 
@@ -2150,7 +2166,7 @@ func (c FfiConverterSequenceTypeRecipient) Read(reader io.Reader) []Recipient {
 	return result
 }
 
-func (c FfiConverterSequenceTypeRecipient) Lower(value []Recipient) RustBuffer {
+func (c FfiConverterSequenceTypeRecipient) Lower(value []Recipient) CRustBuffer {
 	return LowerIntoRustBuffer[[]Recipient](c, value)
 }
 
@@ -2193,7 +2209,7 @@ func (c FfiConverterSequenceTypeTxInfo) Read(reader io.Reader) []TxInfo {
 	return result
 }
 
-func (c FfiConverterSequenceTypeTxInfo) Lower(value []TxInfo) RustBuffer {
+func (c FfiConverterSequenceTypeTxInfo) Lower(value []TxInfo) CRustBuffer {
 	return LowerIntoRustBuffer[[]TxInfo](c, value)
 }
 
@@ -2236,7 +2252,7 @@ func (c FfiConverterSequenceTypeUtxoInfo) Read(reader io.Reader) []UtxoInfo {
 	return result
 }
 
-func (c FfiConverterSequenceTypeUtxoInfo) Lower(value []UtxoInfo) RustBuffer {
+func (c FfiConverterSequenceTypeUtxoInfo) Lower(value []UtxoInfo) CRustBuffer {
 	return LowerIntoRustBuffer[[]UtxoInfo](c, value)
 }
 
