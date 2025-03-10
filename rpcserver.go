@@ -1426,6 +1426,9 @@ func handleGetBlockChainInfo(s *rpcServer, cmd interface{}, closeChan <-chan str
 		case chaincfg.DeploymentTestDummyMinActivation:
 			forkName = "dummy-min-activation"
 
+		case chaincfg.DeploymentTestDummyAlwaysActive:
+			forkName = "dummy-always-active"
+
 		case chaincfg.DeploymentCSV:
 			forkName = "csv"
 

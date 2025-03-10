@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"math"
 	"math/big"
 	"strings"
 	"time"
@@ -83,6 +84,16 @@ type Checkpoint struct {
 	Hash   *chainhash.Hash
 }
 
+// EffectiveAlwaysActiveHeight returns the effective activation height for the
+// deployment. If AlwaysActiveHeight is unset (i.e. zero), it returns
+// the maximum uint32 value to indicate that it does not force activation.
+func (d *ConsensusDeployment) EffectiveAlwaysActiveHeight() uint32 {
+	if d.AlwaysActiveHeight == 0 {
+		return math.MaxUint32
+	}
+	return d.AlwaysActiveHeight
+}
+
 // AssumeUtreexo is all the information that's needed for a node to start off from
 // a given hardcoded block.
 type AssumeUtreexo struct {
@@ -134,6 +145,11 @@ type ConsensusDeployment struct {
 	// activation. A value of 1815 block denotes a 90% threshold.
 	CustomActivationThreshold uint32
 
+	// AlwaysActiveHeight defines an optional block threshold at which the
+	// deployment is forced to be active. If unset (0), it defaults to
+	// math.MaxUint32, meaning the deployment does not force activation.
+	AlwaysActiveHeight uint32
+
 	// DeploymentStarter is used to determine if the given
 	// ConsensusDeployment has started or not.
 	DeploymentStarter ConsensusDeploymentStarter
@@ -171,6 +187,10 @@ const (
 	// Taproot (+Schnorr) soft-fork package. The taproot package includes
 	// the deployment of BIPS 340, 341 and 342.
 	DeploymentTaproot
+
+	// DeploymentTestDummyAlwaysActive is a dummy deployment that is meant
+	// to always be active.
+	DeploymentTestDummyAlwaysActive
 
 	// NOTE: DefinedDeployments must always come last since it is used to
 	// determine how many defined deployments there currently are.
@@ -484,6 +504,16 @@ var MainNetParams = Params{
 				time.Time{}, // Never expires
 			),
 		},
+		DeploymentTestDummyAlwaysActive: {
+			BitNumber: 30,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
+		},
 		DeploymentCSV: {
 			BitNumber: 0,
 			DeploymentStarter: NewMedianTimeDeploymentStarter(
@@ -594,6 +624,16 @@ var RegressionNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires
 			),
+		},
+		DeploymentTestDummyAlwaysActive: {
+			BitNumber: 30,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
 		},
 		DeploymentCSV: {
 			BitNumber: 0,
@@ -788,6 +828,16 @@ var TestNet3Params = Params{
 				time.Time{}, // Never expires
 			),
 		},
+		DeploymentTestDummyAlwaysActive: {
+			BitNumber: 30,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
+		},
 		DeploymentCSV: {
 			BitNumber: 0,
 			DeploymentStarter: NewMedianTimeDeploymentStarter(
@@ -928,6 +978,16 @@ var SimNetParams = Params{
 				time.Time{}, // Never expires.
 			),
 			CustomActivationThreshold: 75, // Only needs 75% hash rate.
+		},
+		DeploymentTestDummyAlwaysActive: {
+			BitNumber: 29,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
 		},
 	},
 
@@ -1097,6 +1157,16 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 				DeploymentEnder: NewMedianTimeDeploymentEnder(
 					time.Time{}, // Never expires
 				),
+			},
+			DeploymentTestDummyAlwaysActive: {
+				BitNumber: 30,
+				DeploymentStarter: NewMedianTimeDeploymentStarter(
+					time.Time{}, // Always available for vote
+				),
+				DeploymentEnder: NewMedianTimeDeploymentEnder(
+					time.Time{}, // Never expires
+				),
+				AlwaysActiveHeight: 1,
 			},
 			DeploymentCSV: {
 				BitNumber: 29,
