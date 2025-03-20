@@ -825,7 +825,7 @@ func payToWitnessTaprootScript(rawKey []byte) ([]byte, error) {
 	return NewScriptBuilder().AddOp(OP_1).AddData(rawKey).Script()
 }
 
-// payToPubkeyScript creates a new script to pay a transaction output to a
+// payToPubKeyScript creates a new script to pay a transaction output to a
 // public key. It is expected that the input is a valid pubkey.
 func payToPubKeyScript(serializedPubKey []byte) ([]byte, error) {
 	return NewScriptBuilder().AddData(serializedPubKey).
