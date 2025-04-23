@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 )
@@ -38,14 +39,14 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 		defer os.RemoveAll(test.tmpDir)
 
 		count := uint64(1000)
-		compareMap := make(map[utreexo.Hash]uint64)
+		compareMap := make(map[utreexo.Hash]utreexo.LeafInfo)
 		for i := uint64(0); i < count/2; i++ {
 			var buf [8]byte
 			binary.LittleEndian.PutUint64(buf[:], i)
 			hash := sha256.Sum256(buf[:])
 
-			compareMap[hash] = i
-			cachedLeavesBackEnd.Put(hash, i)
+			compareMap[hash] = utreexo.LeafInfo{Position: i, AddHeight: uint32(i), AddIndex: uint32(i) + 1}
+			cachedLeavesBackEnd.Add(hash, i, uint32(i), uint32(i)+1)
 		}
 
 		batch := db.NewBatch()
@@ -99,7 +100,7 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 				binary.LittleEndian.PutUint64(buf[:], i)
 				hash := sha256.Sum256(buf[:])
 
-				cachedLeavesBackEnd.Put(hash, i)
+				cachedLeavesBackEnd.Add(hash, i, uint32(i), uint32(i)+1)
 			}
 			wg.Done()
 		}()
@@ -123,7 +124,7 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 			binary.LittleEndian.PutUint64(buf[:], i)
 			hash := sha256.Sum256(buf[:])
 
-			compareMap[hash] = i
+			compareMap[hash] = utreexo.LeafInfo{Position: i, AddHeight: uint32(i), AddIndex: uint32(i) + 1}
 		}
 
 		if cachedLeavesBackEnd.Length() != len(compareMap) {
@@ -135,21 +136,10 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 		for k, v := range compareMap {
 			got, found := cachedLeavesBackEnd.Get(k)
 			if !found {
-				t.Fatalf("expected %v but it wasn't found", v)
+				t.Fatalf("expected %v %v but it wasn't found", k, v)
 			}
 
-			if got != v {
-				var buf [8]byte
-				binary.LittleEndian.PutUint64(buf[:], got)
-				gotHash := sha256.Sum256(buf[:])
-
-				binary.LittleEndian.PutUint64(buf[:], v)
-				expectHash := sha256.Sum256(buf[:])
-
-				if gotHash != expectHash {
-					t.Fatalf("for key %v, expected %v but got %v", k.String(), v, got)
-				}
-			}
+			require.Equal(t, v, got)
 		}
 	}
 }
