@@ -18,7 +18,7 @@ jobs:
             clippy: true
           - version: 1.78.0 # As specified in rust-toolchain
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Go
       uses: actions/setup-go@v4
