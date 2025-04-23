@@ -291,6 +291,8 @@ github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5Cc
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
+github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOfJA=
+github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 h1:epCh84lMvA70Z7CTTCmYQn2CKbY8j86K7/FAIr141uY=
 github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7/go.mod h1:q4W45IWZaF22tdD+VEXcAWRA037jwmWEB5VWYORlTpc=
 github.com/utreexo/utreexo v0.2.1 h1:xycdaHK+HhDZO5MY6Clq7YeXEDguzar1GrAYqIJ1gvs=
@@ -307,6 +309,8 @@ github.com/utreexo/utreexo v0.3.3 h1:Gutt6YEUq0DiTJNbveIVuVNW6pp3aYgobwKviJfbRUs
 github.com/utreexo/utreexo v0.3.3/go.mod h1:xIu3cTtT0jNdntc1qJhVyQV/RX03Sk9gFD3UAzALvuU=
 github.com/utreexo/utreexo v0.4.0 h1:mZS8EVb11lPYNHYp9UfhCJVtOvu1B44NAD8OaCmJrvI=
 github.com/utreexo/utreexo v0.4.0/go.mod h1:xIu3cTtT0jNdntc1qJhVyQV/RX03Sk9gFD3UAzALvuU=
+github.com/utreexo/utreexo v0.5.0 h1:ity0iFkHZvTa4n1ZuIkCBjZS3AA6tIk0oomp7kTo028=
+github.com/utreexo/utreexo v0.5.0/go.mod h1:KmtWvRFEvgmpFXvamn24Kr0ecsmuSCqgVdYHKQvnnJ0=
 github.com/yuin/goldmark v1.1.25/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.1.32/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
