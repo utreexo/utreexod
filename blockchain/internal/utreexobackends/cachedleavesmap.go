@@ -9,13 +9,16 @@ import (
 )
 
 const (
+	// Output from unsafe.Sizeof(CachedPosition{})
+	cachedPositionSize = 24
+
 	// Bucket size for the cached leaves map.
-	cachedLeavesMapBucketSize = 16 + sizehelper.Uint64Size*chainhash.HashSize + sizehelper.Uint64Size*sizehelper.Uint64Size
+	cachedLeavesMapBucketSize = 16 + sizehelper.Uint64Size*chainhash.HashSize + sizehelper.Uint64Size*cachedPositionSize
 )
 
 // CachedPosition has the leaf and a flag for the status in the cache.
 type CachedPosition struct {
-	Position uint64
+	LeafInfo utreexo.LeafInfo
 	Flags    CachedFlag
 }
 

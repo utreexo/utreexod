@@ -66,7 +66,7 @@ type UtreexoConfig struct {
 // information.  It contains the entire, non-pruned accumulator.
 type UtreexoState struct {
 	config         *UtreexoConfig
-	state          utreexo.Utreexo
+	state          *utreexo.MapPollard
 	utreexoStateDB *pebble.DB
 
 	isFlushNeeded       func() bool
