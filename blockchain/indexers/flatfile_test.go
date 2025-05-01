@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"testing"
 	"testing/quick"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestInit(t *testing.T) {
@@ -843,6 +846,116 @@ func TestRecover(t *testing.T) {
 					hex.EncodeToString(test.datas[i-1]),
 					hex.EncodeToString(fetched))
 			}
+		}
+	}
+}
+
+func TestOverWrite(t *testing.T) {
+	tests := []struct {
+		name         string
+		adds         []int32
+		spends       [][][2]uint32
+		expectedTTLs [][]int32
+	}{
+		{
+			name: "first",
+			adds: []int32{5, 1, 7},
+			spends: [][][2]uint32{
+				{},
+				{
+					{1, 0}, {1, 4},
+				},
+				{
+					{1, 3}, {2, 0},
+				},
+			},
+			expectedTTLs: [][]int32{
+				{1, -1, -1, 2, 1},
+				{1},
+				{-1, -1, -1, -1, -1, -1, -1},
+			},
+		},
+		{
+			name: "second",
+			adds: []int32{5, 1, 7, 8, 1, 2},
+			spends: [][][2]uint32{
+				{},
+				{},
+				{},
+				{{3, 0}, {3, 6}},
+				{},
+				{{1, 0}, {1, 1}, {1, 2}, {1, 4}},
+			},
+			expectedTTLs: [][]int32{
+				{5, 5, 5, -1, 5},
+				{-1},
+				{1, -1, -1, -1, -1, -1, 1},
+				{-1, -1, -1, -1, -1, -1, -1, -1},
+				{-1},
+				{-1, -1},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "dir_"+test.name)
+		defer deleteFlatFile(dir)
+
+		// Create and store data in the flat file state to test it.
+		ff := NewFlatFileState()
+		err := ff.Init(dir, test.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		b := [4]byte{0xff, 0xff, 0xff, 0xff}
+		for i, add := range test.adds {
+			buf := make([]byte, 0, add*4)
+			for i := 0; i < int(add); i++ {
+				buf = append(buf, b[:]...)
+			}
+
+			err = ff.StoreData(int32(i)+1, buf)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			spends := test.spends[i]
+			for _, spend := range spends {
+				ttl := uint32(i+1) - spend[0]
+				offset := int32(spend[1]) * 4
+
+				buf := make([]byte, 4)
+				byteOrder.PutUint32(buf, ttl)
+				err = ff.OverWrite(int32(spend[0]), offset, buf)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+
+		for i := 0; i < len(test.adds); i++ {
+			data, err := ff.FetchData(int32(i + 1))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(data)%4 != 0 {
+				t.Fatalf("data corrupted")
+			}
+
+			ttls := make([]int32, len(data)/4)
+			for j := range ttls {
+				start := j * 4
+				ttl := byteOrder.Uint32(data[start : start+4])
+				if ttl == math.MaxUint32 {
+					ttls[j] = -1
+				}
+				ttls[j] = int32(ttl)
+			}
+
+			require.Equal(t, test.expectedTTLs[i], ttls)
 		}
 	}
 }
