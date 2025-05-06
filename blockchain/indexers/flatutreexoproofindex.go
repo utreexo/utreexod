@@ -50,6 +50,10 @@ const (
 	// files.
 	flatUtreexoRootsName = "roots"
 
+	// flatTTLsName is the name given to the ttl data of the flat utreexo proof index.
+	// This name is used as the dataFile in the flat files.
+	flatTTLsName = "ttls"
+
 	// defaultProofGenInterval is the default value used to determine how often
 	// a utreexo accumulator proof should be generated.  An interval of 10 will
 	// make the proof be generated on blocks 10, 20, 30 and so on.
@@ -80,6 +84,7 @@ type FlatUtreexoProofIndex struct {
 	undoState       FlatFileState
 	proofStatsState FlatFileState
 	rootsState      FlatFileState
+	ttlState        FlatFileState
 
 	// All the configurable metadata.
 	config *UtreexoConfig
@@ -131,6 +136,18 @@ func (idx *FlatUtreexoProofIndex) consistentFlatFileState(tipHeight int32) error
 			bestHeight := idx.proofState.BestHeight()
 			for tipHeight != bestHeight && bestHeight > 0 {
 				err := idx.proofState.DisconnectBlock(bestHeight)
+				if err != nil {
+					return err
+				}
+				bestHeight--
+			}
+		}
+
+		if idx.ttlState.BestHeight() != 0 &&
+			tipHeight < idx.ttlState.BestHeight() {
+			bestHeight := idx.ttlState.BestHeight()
+			for tipHeight != bestHeight && bestHeight > 0 {
+				err := idx.ttlState.DisconnectBlock(bestHeight)
 				if err != nil {
 					return err
 				}
@@ -1176,6 +1193,13 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 			return nil, err
 		}
 		idx.proofState = *proofState
+
+		ttlsState, err := loadFlatFileState(dataDir, flatTTLsName)
+		if err != nil {
+			return nil, err
+		}
+		idx.ttlState = *ttlsState
+
 	}
 
 	// Init the undo block state.
@@ -1233,6 +1257,12 @@ func DropFlatUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan 
 
 	rootsPath := flatFilePath(dataDir, flatUtreexoRootsName)
 	err = deleteFlatFile(rootsPath)
+	if err != nil {
+		return err
+	}
+
+	ttlsPath := flatFilePath(dataDir, flatTTLsName)
+	err = deleteFlatFile(ttlsPath)
 	if err != nil {
 		return err
 	}
