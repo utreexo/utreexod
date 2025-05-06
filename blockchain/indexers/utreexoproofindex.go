@@ -188,7 +188,7 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	idx.chain = chain
 
 	// Init Utreexo State.
-	uState, err := InitUtreexoState(idx.config, chain, tipHash, tipHeight)
+	uState, err := InitUtreexoState(idx.config, chain, nil, tipHash, tipHeight)
 	if err != nil {
 		return err
 	}
