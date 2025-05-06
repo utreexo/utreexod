@@ -275,6 +275,25 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 	return nil
 }
 
+// OverWrite overwrites the given data at the height and offset.
+func (ff *FlatFileState) OverWrite(height, offset int32, data []byte) error {
+	ff.mtx.Lock()
+	defer ff.mtx.Unlock()
+
+	// If the height requsted is greater than the best height, return an error.
+	if height > ff.currentHeight || height <= 0 {
+		return fmt.Errorf("Best height is %v, can't overwrite at height %v",
+			ff.currentHeight, height)
+	}
+
+	// Grab the offset for where the data is in the dataFile.
+	fOffset := ff.offsets[height]
+	writeOffset := fOffset + 8 + int64(offset)
+
+	_, err := ff.dataFile.WriteAt(data, writeOffset)
+	return err
+}
+
 // FetchData fetches the data stored for the given block height.  Returns
 // nil if the requested height is greater than the one it stored.  Also
 // returns nil if asked to fetch height 0.
