@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
@@ -1217,5 +1218,107 @@ func TestUtreexoRootsAndSummaryState(t *testing.T) {
 	err = compareBlockSummaries(indexes, blockHashes)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTTLs(t *testing.T) {
+	// Always remove the root on return.
+	defer os.RemoveAll(testDbRoot)
+
+	chain, indexes, params, _, tearDown := indexersTestChain("TestTTLs")
+	defer tearDown()
+
+	var allSpends []*blockchain.SpendableOut
+	var nextSpends []*blockchain.SpendableOut
+
+	// Number of blocks we'll generate for the test.
+	maxHeight := int32(300)
+
+	expectAfterUndoTTLs := make([][]uint32, 0, maxHeight)
+	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	for i := int32(1); i <= maxHeight; i++ {
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextBlock = newBlock
+
+		allSpends = append(allSpends, newSpendableOuts...)
+
+		var nextSpendsTmp []*blockchain.SpendableOut
+		for j := 0; j < len(allSpends); j++ {
+			randIdx := rand.Intn(len(allSpends))
+
+			spend := allSpends[randIdx]                                       // get
+			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+			nextSpendsTmp = append(nextSpendsTmp, spend)
+		}
+		nextSpends = nextSpendsTmp
+
+		if i == maxHeight-1 {
+			for _, indexer := range indexes {
+				switch idxType := indexer.(type) {
+				case *FlatUtreexoProofIndex:
+					for i := int32(1); i <= maxHeight-1; i++ {
+						ttl, err := idxType.fetchTTLs(i)
+						if err != nil {
+							t.Fatal(err)
+						}
+						expectAfterUndoTTLs = append(expectAfterUndoTTLs, ttl)
+					}
+				}
+			}
+		}
+	}
+
+	ttls := make([][]uint32, 0, maxHeight)
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			for i := int32(1); i <= maxHeight; i++ {
+				ttl, err := idxType.fetchTTLs(i)
+				if err != nil {
+					t.Fatal(err)
+				}
+				ttls = append(ttls, ttl)
+			}
+		}
+	}
+
+	bestHash := chain.BestSnapshot().Hash
+	err := chain.InvalidateBlock(&bestHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			for i := int32(1); i <= maxHeight-1; i++ {
+				ttl, err := idxType.fetchTTLs(i)
+				if err != nil {
+					t.Fatal(err)
+				}
+				require.Equal(t, expectAfterUndoTTLs[i-1], ttl)
+			}
+		}
+	}
+
+	err = chain.ReconsiderBlock(&bestHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			for i := int32(1); i <= maxHeight; i++ {
+				ttl, err := idxType.fetchTTLs(i)
+				if err != nil {
+					t.Fatal(err)
+				}
+				require.Equal(t, ttls[i-1], ttl)
+			}
+		}
 	}
 }

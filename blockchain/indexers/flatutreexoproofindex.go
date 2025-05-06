@@ -487,7 +487,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof)
+	createdHeights, createdIndexes, err := idx.utreexoState.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -518,6 +518,16 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	err = idx.storeProof(block.Height(), ud)
+	if err != nil {
+		return err
+	}
+
+	err = idx.addEmptyTTLs(block.Height(), int32(len(adds)))
+	if err != nil {
+		return err
+	}
+
+	err = idx.writeTTLs(block.Height(), createdHeights, createdIndexes, ud)
 	if err != nil {
 		return err
 	}
@@ -690,16 +700,36 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 		return err
 	}
 
-	numAdds, targets, delHashes, _, err := idx.getUndoData(block)
+	numAdds, targets, delHashes, ud, err := idx.getUndoData(block)
 	if err != nil {
 		return err
 	}
 
-	idx.mtx.Lock()
-	err = idx.utreexoState.state.Undo(numAdds, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
-	idx.mtx.Unlock()
-	if err != nil {
-		return err
+	if !idx.config.Pruned {
+		createHeights := idx.getCreateHeights(ud)
+		createIndexes, err := idx.getCreateIndexes(createHeights, delHashes)
+		if err != nil {
+			return err
+		}
+
+		err = idx.resetTTLs(createHeights, createIndexes)
+		if err != nil {
+			return err
+		}
+
+		idx.mtx.Lock()
+		err = idx.utreexoState.state.UndoWithTTLs(numAdds, createHeights, createIndexes, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
+		idx.mtx.Unlock()
+		if err != nil {
+			return err
+		}
+	} else {
+		idx.mtx.Lock()
+		err = idx.utreexoState.state.Undo(numAdds, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
+		idx.mtx.Unlock()
+		if err != nil {
+			return err
+		}
 	}
 
 	// Always flush the utreexo state on flushes to never leave the utreexoState
@@ -713,6 +743,11 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 	// pruned as we don't keep the historical proofs as a pruned node.
 	if !idx.config.Pruned {
 		err = idx.proofState.DisconnectBlock(block.Height())
+		if err != nil {
+			return err
+		}
+
+		err = idx.ttlState.DisconnectBlock(block.Height())
 		if err != nil {
 			return err
 		}
