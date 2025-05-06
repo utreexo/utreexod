@@ -642,6 +642,38 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (uint64, []u
 	return numAdds, targets, delHashes, nil
 }
 
+// getCreateHeights returns the heights that the delHashes where created at.
+func (idx *FlatUtreexoProofIndex) getCreateHeights(ud *wire.UData) []uint32 {
+	createHeights := make([]uint32, 0, len(ud.LeafDatas))
+	for _, leaf := range ud.LeafDatas {
+		createHeights = append(createHeights, uint32(leaf.Height))
+	}
+
+	return createHeights
+}
+
+// getCreateIndexes returns the indexes within the newly created leaves that the delhashes were at.
+func (idx *FlatUtreexoProofIndex) getCreateIndexes(createHeights []uint32, delHashes []utreexo.Hash) ([]uint32, error) {
+	createIndexes := make([]uint32, 0, len(createHeights))
+	for i, height := range createHeights {
+		stxoBlock, err := idx.chain.BlockByHeight(int32(height))
+		if err != nil {
+			return nil, err
+		}
+
+		_, outCount, _, outskip := blockchain.DedupeBlock(stxoBlock)
+		adds := blockchain.BlockToAddLeaves(stxoBlock, outskip, nil, outCount)
+		for j, add := range adds {
+			if add.Hash == delHashes[i] {
+				createIndexes = append(createIndexes, uint32(j))
+				break
+			}
+		}
+	}
+
+	return createIndexes, nil
+}
+
 // DisconnectBlock is invoked by the index manager when a new block has been
 // disconnected to the main chain.
 //
@@ -814,6 +846,94 @@ func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, pos
 	}
 
 	return ud, nil
+}
+
+// fetchTTLs fetches the ttls at the given height.
+func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
+	[]uint32, error) {
+
+	if height == 0 {
+		return nil, nil
+	}
+
+	if idx.config.Pruned {
+		return nil, fmt.Errorf("Cannot fetch ttl data as the node is pruned")
+	}
+
+	ttlBytes, err := idx.ttlState.FetchData(height)
+	if err != nil {
+		return nil, err
+	}
+	if ttlBytes == nil {
+		return nil, fmt.Errorf("Couldn't fetch ttl data for height %d", height)
+	}
+
+	ttls := make([]uint32, len(ttlBytes)/4)
+	for i := range ttls {
+		start := i * 4
+		ttls[i] = byteOrder.Uint32(ttlBytes[start : start+4])
+	}
+
+	return ttls, nil
+}
+
+// resetTTLs is used during reorganizations when stxos are turned about into utxos. The ttls
+// at the given heights and indexes are marked as unspent.
+func (idx *FlatUtreexoProofIndex) resetTTLs(createdHeights, createdIndexes []uint32) error {
+	if len(createdHeights) == 0 {
+		return nil
+	}
+
+	buf := [4]byte{}
+	for i, createdHeight := range createdHeights {
+		cIndex := createdIndexes[i]
+		offset := int32(cIndex) * 4
+		err := idx.ttlState.OverWrite(int32(createdHeight), offset, buf[:])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// writeTTLs writes the ttls at the given heights and indexes.
+func writeTTLs(curHeight int32, createdHeights, createdIndexes []uint32, ttlIdx *FlatFileState) error {
+	// Nothing to do.
+	if ttlIdx == nil || len(createdHeights) == 0 {
+		return nil
+	}
+	buf := [4]byte{}
+
+	for i, createdHeight := range createdHeights {
+		ttl := curHeight - int32(createdHeight)
+		byteOrder.PutUint32(buf[:], uint32(ttl))
+
+		cIndex := createdIndexes[i]
+		offset := int32(cIndex) * 4
+		err := ttlIdx.OverWrite(int32(createdHeight), offset, buf[:])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// writeTTLs is a wrapper on raw writeTTLs.
+func (idx *FlatUtreexoProofIndex) writeTTLs(curHeight int32, createdHeights, createdIndexes []uint32, _ *wire.UData) error {
+	return writeTTLs(curHeight, createdHeights, createdIndexes, &idx.ttlState)
+}
+
+// addEmptyTTLs adds slots for every newly created leaf so that they may be marked in the future when they're spent.
+func (idx *FlatUtreexoProofIndex) addEmptyTTLs(height, numAdds int32) error {
+	buf := make([]byte, numAdds*4)
+	err := idx.ttlState.StoreData(height, buf)
+	if err != nil {
+		return fmt.Errorf("store ttl err. %v", err)
+	}
+
+	return nil
 }
 
 // storeProof serializes and stores the utreexo data in the proof state.
