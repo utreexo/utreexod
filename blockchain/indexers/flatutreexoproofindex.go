@@ -606,17 +606,21 @@ func printHashes(hashes []utreexo.Hash) string {
 
 // getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from the undo block.
 // For archive nodes, we generate the data from the proof.
-func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (uint64, []uint64, []utreexo.Hash, error) {
+func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (
+	uint64, []uint64, []utreexo.Hash, *wire.UData, error) {
+
 	var (
 		numAdds   uint64
 		targets   []uint64
 		delHashes []utreexo.Hash
+		ud        *wire.UData
 	)
 
 	if !idx.config.Pruned {
-		ud, err := idx.FetchUtreexoProof(block.Height())
+		var err error
+		ud, err = idx.FetchUtreexoProof(block.Height())
 		if err != nil {
-			return 0, nil, nil, err
+			return 0, nil, nil, nil, err
 		}
 
 		targets = ud.AccProof.Targets
@@ -624,7 +628,7 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (uint64, []u
 		// Need to call reconstruct since the saved utreexo data is in the compact form.
 		delHashes, err = idx.chain.ReconstructUData(ud, *block.Hash())
 		if err != nil {
-			return 0, nil, nil, err
+			return 0, nil, nil, nil, err
 		}
 
 		_, outCount, _, outskip := blockchain.DedupeBlock(block)
@@ -635,11 +639,11 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (uint64, []u
 		var err error
 		numAdds, targets, delHashes, err = idx.fetchUndoBlock(block.Height())
 		if err != nil {
-			return 0, nil, nil, err
+			return 0, nil, nil, nil, err
 		}
 	}
 
-	return numAdds, targets, delHashes, nil
+	return numAdds, targets, delHashes, ud, nil
 }
 
 // getCreateHeights returns the heights that the delHashes where created at.
@@ -686,7 +690,7 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 		return err
 	}
 
-	numAdds, targets, delHashes, err := idx.getUndoData(block)
+	numAdds, targets, delHashes, _, err := idx.getUndoData(block)
 	if err != nil {
 		return err
 	}
