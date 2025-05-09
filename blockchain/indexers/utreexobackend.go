@@ -508,12 +508,12 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 				return err
 			}
 		} else {
-			createHeights, createIndexes, err := us.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
+			_, createIndexes, err := us.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
 			if err != nil {
 				return err
 			}
 
-			err = writeTTLs(block.Height(), createHeights, createIndexes, ttlIdx)
+			err = writeTTLs(block.Height(), createIndexes, ud.LeafDatas, ttlIdx)
 			if err != nil {
 				return err
 			}
