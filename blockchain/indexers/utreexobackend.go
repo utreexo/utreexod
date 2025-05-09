@@ -431,7 +431,7 @@ func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, 
 }
 
 // initConsistentUtreexoState makes the utreexo state consistent with the given tipHash.
-func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
+func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain, ttlIdx *FlatFileState,
 	savedHash, tipHash *chainhash.Hash, tipHeight int32) error {
 
 	// This is a new accumulator state that we're working with.
@@ -502,9 +502,21 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 			delHashes[i] = ud.LeafDatas[i].LeafHash()
 		}
 
-		err = us.state.Modify(adds, delHashes, ud.AccProof)
-		if err != nil {
-			return err
+		if us.config.Pruned {
+			err := us.state.Modify(adds, delHashes, ud.AccProof)
+			if err != nil {
+				return err
+			}
+		} else {
+			createHeights, createIndexes, err := us.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
+			if err != nil {
+				return err
+			}
+
+			err = writeTTLs(block.Height(), createHeights, createIndexes, ttlIdx)
+			if err != nil {
+				return err
+			}
 		}
 
 		if us.isFlushNeeded() {
@@ -523,7 +535,7 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 // existing state on disk, it creates one and returns it.
 // maxMemoryUsage of 0 will keep every element on disk. A negaive maxMemoryUsage will
 // load every element to the memory.
-func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
+func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *FlatFileState,
 	tipHash *chainhash.Hash, tipHeight int32) (*UtreexoState, error) {
 
 	log.Infof("Initializing Utreexo state from '%s'", utreexoBasePath(cfg))
@@ -598,7 +610,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain,
 	}
 
 	// Make sure that the utreexo state is consistent before returning it.
-	err = uState.initConsistentUtreexoState(chain, savedHash, tipHash, tipHeight)
+	err = uState.initConsistentUtreexoState(chain, ttlIdx, savedHash, tipHash, tipHeight)
 	if err != nil {
 		return nil, err
 	}
