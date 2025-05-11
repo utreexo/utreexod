@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -656,16 +657,6 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (
 	return numAdds, targets, delHashes, ud, nil
 }
 
-// getCreateHeights returns the heights that the delHashes where created at.
-func (idx *FlatUtreexoProofIndex) getCreateHeights(ud *wire.UData) []uint32 {
-	createHeights := make([]uint32, 0, len(ud.LeafDatas))
-	for _, leaf := range ud.LeafDatas {
-		createHeights = append(createHeights, uint32(leaf.Height))
-	}
-
-	return createHeights
-}
-
 // getCreateIndexes returns the indexes within the newly created leaves that the delhashes were at.
 func (idx *FlatUtreexoProofIndex) getCreateIndexes(lds []wire.LeafData, delHashes []utreexo.Hash) ([]uint32, error) {
 	createIndexes := make([]uint32, 0, len(lds))
@@ -888,7 +879,7 @@ func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, pos
 
 // fetchTTLs fetches the ttls at the given height.
 func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
-	[]uint32, error) {
+	[]uint16, error) {
 
 	if height == 0 {
 		return nil, nil
@@ -906,10 +897,10 @@ func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
 		return nil, fmt.Errorf("Couldn't fetch ttl data for height %d", height)
 	}
 
-	ttls := make([]uint32, len(ttlBytes)/4)
+	ttls := make([]uint16, len(ttlBytes)/2)
 	for i := range ttls {
-		start := i * 4
-		ttls[i] = byteOrder.Uint32(ttlBytes[start : start+4])
+		start := i * 2
+		ttls[i] = byteOrder.Uint16(ttlBytes[start : start+2])
 	}
 
 	return ttls, nil
@@ -922,10 +913,10 @@ func (idx *FlatUtreexoProofIndex) resetTTLs(ud *wire.UData, createdIndexes []uin
 		return nil
 	}
 
-	buf := [4]byte{}
+	buf := [2]byte{}
 	for i, ld := range ud.LeafDatas {
 		cIndex := createdIndexes[i]
-		offset := int32(cIndex) * 4
+		offset := int32(cIndex) * 2
 		err := idx.ttlState.OverWrite(ld.Height, offset, buf[:])
 		if err != nil {
 			return err
@@ -941,14 +932,17 @@ func writeTTLs(curHeight int32, createdIndexes []uint32, lds []wire.LeafData, tt
 	if ttlIdx == nil || len(lds) == 0 {
 		return nil
 	}
-	buf := [4]byte{}
+	buf := [2]byte{}
 
 	for i, ld := range lds {
 		ttl := curHeight - ld.Height
-		byteOrder.PutUint32(buf[:], uint32(ttl))
+		if ttl > math.MaxUint16 {
+			continue
+		}
+		byteOrder.PutUint16(buf[:], uint16(ttl))
 
 		cIndex := createdIndexes[i]
-		offset := int32(cIndex) * 4
+		offset := int32(cIndex) * 2
 		err := ttlIdx.OverWrite(ld.Height, offset, buf[:])
 		if err != nil {
 			return err
@@ -965,7 +959,7 @@ func (idx *FlatUtreexoProofIndex) writeTTLs(curHeight int32, createdIndexes []ui
 
 // addEmptyTTLs adds slots for every newly created leaf so that they may be marked in the future when they're spent.
 func (idx *FlatUtreexoProofIndex) addEmptyTTLs(height, numAdds int32) error {
-	buf := make([]byte, numAdds*4)
+	buf := make([]byte, numAdds*2)
 	err := idx.ttlState.StoreData(height, buf)
 	if err != nil {
 		return fmt.Errorf("store ttl err. %v", err)
