@@ -487,7 +487,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	idx.mtx.Lock()
-	createdHeights, createdIndexes, err := idx.utreexoState.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
+	_, createdIndexes, err := idx.utreexoState.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -527,7 +527,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	err = idx.writeTTLs(block.Height(), createdHeights, createdIndexes, ud)
+	err = idx.writeTTLs(block.Height(), createdIndexes, ud.LeafDatas)
 	if err != nil {
 		return err
 	}
@@ -667,10 +667,10 @@ func (idx *FlatUtreexoProofIndex) getCreateHeights(ud *wire.UData) []uint32 {
 }
 
 // getCreateIndexes returns the indexes within the newly created leaves that the delhashes were at.
-func (idx *FlatUtreexoProofIndex) getCreateIndexes(createHeights []uint32, delHashes []utreexo.Hash) ([]uint32, error) {
-	createIndexes := make([]uint32, 0, len(createHeights))
-	for i, height := range createHeights {
-		stxoBlock, err := idx.chain.BlockByHeight(int32(height))
+func (idx *FlatUtreexoProofIndex) getCreateIndexes(lds []wire.LeafData, delHashes []utreexo.Hash) ([]uint32, error) {
+	createIndexes := make([]uint32, 0, len(lds))
+	for i, ld := range lds {
+		stxoBlock, err := idx.chain.BlockByHeight(ld.Height)
 		if err != nil {
 			return nil, err
 		}
@@ -706,19 +706,18 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 	}
 
 	if !idx.config.Pruned {
-		createHeights := idx.getCreateHeights(ud)
-		createIndexes, err := idx.getCreateIndexes(createHeights, delHashes)
+		createIndexes, err := idx.getCreateIndexes(ud.LeafDatas, delHashes)
 		if err != nil {
 			return err
 		}
 
-		err = idx.resetTTLs(createHeights, createIndexes)
+		err = idx.resetTTLs(ud, createIndexes)
 		if err != nil {
 			return err
 		}
 
 		idx.mtx.Lock()
-		err = idx.utreexoState.state.UndoWithTTLs(numAdds, createHeights, createIndexes, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
+		err = idx.utreexoState.state.UndoWithTTLs(numAdds, idx.getCreateHeights(ud), createIndexes, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
 		idx.mtx.Unlock()
 		if err != nil {
 			return err
@@ -918,16 +917,16 @@ func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
 
 // resetTTLs is used during reorganizations when stxos are turned about into utxos. The ttls
 // at the given heights and indexes are marked as unspent.
-func (idx *FlatUtreexoProofIndex) resetTTLs(createdHeights, createdIndexes []uint32) error {
-	if len(createdHeights) == 0 {
+func (idx *FlatUtreexoProofIndex) resetTTLs(ud *wire.UData, createdIndexes []uint32) error {
+	if len(ud.LeafDatas) == 0 {
 		return nil
 	}
 
 	buf := [4]byte{}
-	for i, createdHeight := range createdHeights {
+	for i, ld := range ud.LeafDatas {
 		cIndex := createdIndexes[i]
 		offset := int32(cIndex) * 4
-		err := idx.ttlState.OverWrite(int32(createdHeight), offset, buf[:])
+		err := idx.ttlState.OverWrite(ld.Height, offset, buf[:])
 		if err != nil {
 			return err
 		}
@@ -937,20 +936,20 @@ func (idx *FlatUtreexoProofIndex) resetTTLs(createdHeights, createdIndexes []uin
 }
 
 // writeTTLs writes the ttls at the given heights and indexes.
-func writeTTLs(curHeight int32, createdHeights, createdIndexes []uint32, ttlIdx *FlatFileState) error {
+func writeTTLs(curHeight int32, createdIndexes []uint32, lds []wire.LeafData, ttlIdx *FlatFileState) error {
 	// Nothing to do.
-	if ttlIdx == nil || len(createdHeights) == 0 {
+	if ttlIdx == nil || len(lds) == 0 {
 		return nil
 	}
 	buf := [4]byte{}
 
-	for i, createdHeight := range createdHeights {
-		ttl := curHeight - int32(createdHeight)
+	for i, ld := range lds {
+		ttl := curHeight - ld.Height
 		byteOrder.PutUint32(buf[:], uint32(ttl))
 
 		cIndex := createdIndexes[i]
 		offset := int32(cIndex) * 4
-		err := ttlIdx.OverWrite(int32(createdHeight), offset, buf[:])
+		err := ttlIdx.OverWrite(ld.Height, offset, buf[:])
 		if err != nil {
 			return err
 		}
@@ -960,8 +959,8 @@ func writeTTLs(curHeight int32, createdHeights, createdIndexes []uint32, ttlIdx 
 }
 
 // writeTTLs is a wrapper on raw writeTTLs.
-func (idx *FlatUtreexoProofIndex) writeTTLs(curHeight int32, createdHeights, createdIndexes []uint32, _ *wire.UData) error {
-	return writeTTLs(curHeight, createdHeights, createdIndexes, &idx.ttlState)
+func (idx *FlatUtreexoProofIndex) writeTTLs(curHeight int32, createdIndexes []uint32, lds []wire.LeafData) error {
+	return writeTTLs(curHeight, createdIndexes, lds, &idx.ttlState)
 }
 
 // addEmptyTTLs adds slots for every newly created leaf so that they may be marked in the future when they're spent.
