@@ -45,8 +45,8 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 			binary.LittleEndian.PutUint64(buf[:], i)
 			hash := sha256.Sum256(buf[:])
 
-			compareMap[hash] = utreexo.LeafInfo{Position: i, AddHeight: uint32(i), AddIndex: uint32(i) + 1}
-			cachedLeavesBackEnd.Add(hash, i, uint32(i), uint32(i)+1)
+			compareMap[hash] = utreexo.LeafInfo{Position: i, AddIndex: uint32(i) + 1}
+			cachedLeavesBackEnd.Add(hash, i, uint32(i)+1)
 		}
 
 		batch := db.NewBatch()
@@ -100,7 +100,7 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 				binary.LittleEndian.PutUint64(buf[:], i)
 				hash := sha256.Sum256(buf[:])
 
-				cachedLeavesBackEnd.Add(hash, i, uint32(i), uint32(i)+1)
+				cachedLeavesBackEnd.Add(hash, i, uint32(i)+1)
 			}
 			wg.Done()
 		}()
@@ -124,7 +124,7 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 			binary.LittleEndian.PutUint64(buf[:], i)
 			hash := sha256.Sum256(buf[:])
 
-			compareMap[hash] = utreexo.LeafInfo{Position: i, AddHeight: uint32(i), AddIndex: uint32(i) + 1}
+			compareMap[hash] = utreexo.LeafInfo{Position: i, AddIndex: uint32(i) + 1}
 		}
 
 		if cachedLeavesBackEnd.Length() != len(compareMap) {

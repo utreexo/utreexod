@@ -291,22 +291,20 @@ func (m *NodesBackEnd) Flush(batch *pebble.Batch) error {
 	return nil
 }
 
-// serializeLeafInfo serializes the given LeafInfo into a [16]byte array.
-func serializeLeafInfo(leafInfo utreexo.LeafInfo) [16]byte {
-	var buf [16]byte
+// serializeLeafInfo serializes the given LeafInfo into a [12]byte array.
+func serializeLeafInfo(leafInfo utreexo.LeafInfo) [12]byte {
+	var buf [12]byte
 	byteOrder.PutUint64(buf[:8], leafInfo.Position)
-	byteOrder.PutUint32(buf[8:12], leafInfo.AddHeight)
-	byteOrder.PutUint32(buf[12:16], leafInfo.AddIndex)
+	byteOrder.PutUint32(buf[8:12], leafInfo.AddIndex)
 
 	return buf
 }
 
-// deserializeLeafInfo returns a LeafInfo from a [16]byte array.
-func deserializeLeafInfo(buf [16]byte) utreexo.LeafInfo {
+// deserializeLeafInfo returns a LeafInfo from a [12]byte array.
+func deserializeLeafInfo(buf [12]byte) utreexo.LeafInfo {
 	return utreexo.LeafInfo{
-		Position:  byteOrder.Uint64(buf[:8]),
-		AddHeight: byteOrder.Uint32(buf[8:12]),
-		AddIndex:  byteOrder.Uint32(buf[12:16]),
+		Position: byteOrder.Uint64(buf[:8]),
+		AddIndex: byteOrder.Uint32(buf[8:12]),
 	}
 }
 
@@ -323,12 +321,12 @@ type CachedLeavesBackEnd struct {
 // dbGet fetches and deserializes the value from the database.
 func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (utreexo.LeafInfo, bool) {
 	val, closer, err := m.db.Get(k[:])
-	if err != nil || len(val) != 16 {
+	if err != nil || len(val) != 12 {
 		return utreexo.LeafInfo{}, false
 	}
 	defer closer.Close()
 
-	return deserializeLeafInfo(([16]byte)(val)), true
+	return deserializeLeafInfo(([12]byte)(val)), true
 }
 
 // InitCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
@@ -360,12 +358,11 @@ func CachedLeavesBackendPut(tx *pebble.Batch, k utreexo.Hash, v utreexo.LeafInfo
 }
 
 // Add adds the given hash and the data that makes up the LeafInfo into the backend.
-func (m *CachedLeavesBackEnd) Add(k utreexo.Hash, v uint64, height, index uint32) {
+func (m *CachedLeavesBackEnd) Add(k utreexo.Hash, v uint64, index uint32) {
 	m.cache.Put(k, utreexobackends.CachedPosition{
 		LeafInfo: utreexo.LeafInfo{
-			Position:  v,
-			AddHeight: height,
-			AddIndex:  index,
+			Position: v,
+			AddIndex: index,
 		},
 		Flags: utreexobackends.Fresh,
 	})
@@ -470,10 +467,10 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, utreexo.LeafInfo) er
 			continue
 		}
 		serialized := iter.Value()
-		if len(serialized) != 16 {
+		if len(serialized) != 12 {
 			continue
 		}
-		leafInfo := deserializeLeafInfo(([16]byte)(serialized))
+		leafInfo := deserializeLeafInfo(([12]byte)(serialized))
 
 		err := fn(*(*[chainhash.HashSize]byte)(k), leafInfo)
 		if err != nil {

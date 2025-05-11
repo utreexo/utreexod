@@ -487,7 +487,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	idx.mtx.Lock()
-	_, createdIndexes, err := idx.utreexoState.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
+	createdIndexes, err := idx.utreexoState.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -717,7 +717,7 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 		}
 
 		idx.mtx.Lock()
-		err = idx.utreexoState.state.UndoWithTTLs(numAdds, idx.getCreateHeights(ud), createIndexes, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
+		err = idx.utreexoState.state.UndoWithTTLs(numAdds, createIndexes, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
 		idx.mtx.Unlock()
 		if err != nil {
 			return err
