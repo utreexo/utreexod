@@ -508,7 +508,7 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 				return err
 			}
 		} else {
-			_, createIndexes, err := us.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
+			createIndexes, err := us.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
 			if err != nil {
 				return err
 			}
