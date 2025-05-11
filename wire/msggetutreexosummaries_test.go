@@ -10,63 +10,54 @@ import (
 
 func TestMsgGetUtreexoSummariesEncode(t *testing.T) {
 	testCases := []struct {
-		hash         chainhash.Hash
-		maxExponent  uint8
-		includeProof bool
-		shouldErr    bool
+		hash        chainhash.Hash
+		maxExponent uint8
+		shouldErr   bool
 	}{
 		{
-			hash:         genesisHash,
-			maxExponent:  1,
-			includeProof: true,
-			shouldErr:    false,
+			hash:        genesisHash,
+			maxExponent: 1,
+			shouldErr:   false,
 		},
 		{
-			hash:         genesisHash,
-			maxExponent:  1,
-			includeProof: false,
-			shouldErr:    false,
+			hash:        genesisHash,
+			maxExponent: 1,
+			shouldErr:   false,
 		},
 		{
-			hash:         genesisHash,
-			maxExponent:  0,
-			includeProof: false,
-			shouldErr:    false,
+			hash:        genesisHash,
+			maxExponent: 0,
+			shouldErr:   false,
 		},
 		{
-			hash:         genesisHash,
-			maxExponent:  0,
-			includeProof: true,
-			shouldErr:    false,
+			hash:        genesisHash,
+			maxExponent: 0,
+			shouldErr:   false,
 		},
 		{
-			hash:         genesisHash,
-			maxExponent:  8,
-			includeProof: true,
-			shouldErr:    false,
+			hash:        genesisHash,
+			maxExponent: 8,
+			shouldErr:   false,
 		},
 		{
-			hash:         genesisHash,
-			maxExponent:  8,
-			includeProof: false,
-			shouldErr:    false,
+			hash:        genesisHash,
+			maxExponent: 8,
+			shouldErr:   false,
 		},
 		{
-			hash:         genesisHash,
-			maxExponent:  9,
-			includeProof: true,
-			shouldErr:    true,
+			hash:        genesisHash,
+			maxExponent: 9,
+			shouldErr:   true,
 		},
 		{
-			hash:         genesisHash,
-			maxExponent:  255,
-			includeProof: true,
-			shouldErr:    true,
+			hash:        genesisHash,
+			maxExponent: 255,
+			shouldErr:   true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		beforeMsg := NewMsgGetUtreexoSummaries(testCase.hash, testCase.maxExponent, testCase.includeProof)
+		beforeMsg := NewMsgGetUtreexoSummaries(testCase.hash, testCase.maxExponent)
 
 		// Encode.
 		var buf bytes.Buffer
@@ -99,11 +90,6 @@ func TestMsgGetUtreexoSummariesEncode(t *testing.T) {
 		if afterMsg.MaxReceiveExponent != testCase.maxExponent {
 			t.Fatalf("expected %v but got %v",
 				testCase.maxExponent, afterMsg.MaxReceiveExponent)
-		}
-
-		if afterMsg.IncludeProof != testCase.includeProof {
-			t.Fatalf("expected %v but got %v",
-				testCase.includeProof, afterMsg.IncludeProof)
 		}
 	}
 }

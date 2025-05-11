@@ -1179,14 +1179,9 @@ func (idx *FlatUtreexoProofIndex) updateBlockSummaryState(numAdds uint16, blockH
 }
 
 // FetchUtreexoSummaries fetches all the summaries and attaches a proof for those summaries if requsted with the includeProof boolean.
-func (idx *FlatUtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash, includeProof bool) (*wire.MsgUtreexoSummaries, error) {
+func (idx *FlatUtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash) (*wire.MsgUtreexoSummaries, error) {
 	msg := wire.MsgUtreexoSummaries{
 		Summaries: make([]*wire.UtreexoBlockSummary, 0, len(blockHashes)),
-	}
-
-	var leafHashes []utreexo.Hash
-	if includeProof {
-		leafHashes = make([]utreexo.Hash, 0, len(blockHashes))
 	}
 
 	for _, blockHash := range blockHashes {
@@ -1195,24 +1190,6 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash
 			return nil, err
 		}
 		msg.Summaries = append(msg.Summaries, summary)
-
-		if includeProof {
-			buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
-			err = summary.Serialize(buf)
-			if err != nil {
-				return nil, err
-			}
-			leafHashes = append(leafHashes, sha256.Sum256(buf.Bytes()))
-		}
-	}
-
-	if includeProof {
-		proof, err := idx.blockSummaryState.Prove(leafHashes)
-		if err != nil {
-			return nil, err
-		}
-
-		msg.ProofHashes = proof.Proof
 	}
 
 	return &msg, nil

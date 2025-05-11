@@ -1056,7 +1056,7 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 
 	log.Debugf("fetching blocksummaries from %v - %v", startHeight, startHeight+(1<<exponent))
 
-	ghmsg := wire.NewMsgGetUtreexoSummaries(*startHash, exponent, true)
+	ghmsg := wire.NewMsgGetUtreexoSummaries(*startHash, exponent)
 	reqPeer.QueueMessage(ghmsg, nil)
 }
 
@@ -1378,19 +1378,6 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 			return
 		}
 		delHashes = append(delHashes, sha256.Sum256(buf.Bytes()))
-	}
-	proof := utreexo.Proof{
-		Targets: targets,
-		Proof:   msg.ProofHashes,
-	}
-
-	// Verify the block summary.
-	_, err := utreexo.Verify(sm.chainParams.BlockSummary.Stump, delHashes, proof)
-	if err != nil {
-		log.Warnf("Got utreexo block summary from %s failed validation %v -- "+
-			"disconnecting", peer.Addr(), err)
-		peer.Disconnect()
-		return
 	}
 
 	// If we're in headers first, check if we have the final utreexo block summary. If not,
@@ -1796,7 +1783,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
 				amUtreexoNode := sm.chain.IsUtreexoViewActive()
 				if amUtreexoNode {
-					ghmsg := wire.NewMsgGetUtreexoSummaries(iv.Hash, 1, false)
+					ghmsg := wire.NewMsgGetUtreexoSummaries(iv.Hash, 1)
 					peer.QueueMessage(ghmsg, nil)
 					continue
 				}
