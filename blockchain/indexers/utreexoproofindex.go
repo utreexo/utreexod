@@ -148,7 +148,7 @@ func (idx *UtreexoProofIndex) initBlockSummaryState(bestHeight int32) error {
 			return err
 		})
 
-		numAdds := uint16(numLeaves - prevNumLeaves)
+		numAdds := numLeaves - prevNumLeaves
 		prevNumLeaves = numLeaves
 
 		proof, err := idx.FetchUtreexoProof(blockHash)
@@ -421,7 +421,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 		return err
 	}
 
-	err = idx.updateBlockSummaryState(uint16(len(adds)), block.Hash(), ud.AccProof)
+	err = idx.updateBlockSummaryState(uint64(len(adds)), block.Hash(), ud.AccProof)
 	if err != nil {
 		return err
 	}
@@ -721,7 +721,7 @@ func (idx *UtreexoProofIndex) updateRootsState() error {
 }
 
 // updateBlockSummaryState updates the block summary accumulator state with the given inputs.
-func (idx *UtreexoProofIndex) updateBlockSummaryState(numAdds uint16, blockHash *chainhash.Hash, proof utreexo.Proof) error {
+func (idx *UtreexoProofIndex) updateBlockSummaryState(numAdds uint64, blockHash *chainhash.Hash, proof utreexo.Proof) error {
 	summary := wire.UtreexoBlockSummary{
 		BlockHash:    *blockHash,
 		NumAdds:      numAdds,
@@ -832,7 +832,7 @@ func (idx *UtreexoProofIndex) fetchBlockSummary(blockHash, prevHash *chainhash.H
 		}
 	}
 
-	numAdds := uint16(stump.NumLeaves - prevStump.NumLeaves)
+	numAdds := stump.NumLeaves - prevStump.NumLeaves
 
 	return &wire.UtreexoBlockSummary{
 		BlockHash:    *blockHash,

@@ -10,26 +10,33 @@ import (
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
+// MaxPossibleInputsPerBlock is the maximum possible inputs you can have per block.
+// The smallest block you can have is 145 instead of 146 as stated in the stackexchange answer
+// but that doesn't change the max possible input value.
+//
+// https://bitcoin.stackexchange.com/questions/85752/maximum-number-of-inputs-per-transaction
+const MaxPossibleInputsPerBlock = 24_386
+
 // MaxUtreexoBlockSummaryPayload the amount of inputs a block can possibly have multiplied by the size
 // of a max varint.
-const MaxUtreexoBlockSummaryPayload = (28_000 * MaxVarIntPayload)
+const MaxUtreexoBlockSummaryPayload = (MaxPossibleInputsPerBlock * MaxVarIntPayload)
 
 // BlockHash + numadds + length of block targets + MaxUtreexoBlockSummarySize.
-const MaxUtreexoBlockSummarySize = chainhash.HashSize + 2 + MaxVarIntPayload + MaxUtreexoBlockSummaryPayload
+const MaxUtreexoBlockSummarySize = chainhash.HashSize + MaxVarIntPayload + MaxVarIntPayload + MaxUtreexoBlockSummaryPayload
 
 // UtreexoBlockSummary implements the Message interface and represents a bitcoin
 // utreexo block header message. It's used to provide the positions of the inputs
 // that are being spent in the given block.
 type UtreexoBlockSummary struct {
 	BlockHash    chainhash.Hash
-	NumAdds      uint16
+	NumAdds      uint64
 	BlockTargets []uint64
 }
 
 // SerializeSize returns the number of bytes it would take to serialize the
 // utreexo block summary.
 func (h *UtreexoBlockSummary) SerializeSize() int {
-	n := chainhash.HashSize + 2 + VarIntSerializeSize(uint64(len(h.BlockTargets)))
+	n := chainhash.HashSize + VarIntSerializeSize(h.NumAdds) + VarIntSerializeSize(uint64(len(h.BlockTargets)))
 	for _, target := range h.BlockTargets {
 		n += VarIntSerializeSize(target)
 	}
@@ -49,7 +56,7 @@ func (h *UtreexoBlockSummary) Serialize(w io.Writer) error {
 
 // NewUtreexoBlockSummary returns a new UtreexoBlockSummary using the provided arguments.
 func NewUtreexoBlockSummary(blockHash chainhash.Hash,
-	numAdds uint16, targets []uint64) *UtreexoBlockSummary {
+	numAdds uint64, targets []uint64) *UtreexoBlockSummary {
 
 	return &UtreexoBlockSummary{
 		BlockHash:    blockHash,
@@ -65,10 +72,7 @@ func readUtreexoBlockSummary(r io.Reader, _ uint32, bh *UtreexoBlockSummary) err
 		return err
 	}
 
-	bs := newSerializer()
-	defer bs.free()
-
-	bh.NumAdds, err = bs.Uint16(r, littleEndian)
+	bh.NumAdds, err = ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
@@ -96,10 +100,7 @@ func writeUtreexoBlockSummary(w io.Writer, _ uint32, bh *UtreexoBlockSummary) er
 		return err
 	}
 
-	bs := newSerializer()
-	defer bs.free()
-
-	err = bs.PutUint16(w, littleEndian, bh.NumAdds)
+	err = WriteVarInt(w, 0, bh.NumAdds)
 	if err != nil {
 		return err
 	}

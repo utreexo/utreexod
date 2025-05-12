@@ -239,7 +239,7 @@ func (idx *FlatUtreexoProofIndex) initBlockSummaryState() error {
 		if err != nil {
 			return err
 		}
-		numAdds := uint16(stump.NumLeaves - prevNumLeaves)
+		numAdds := stump.NumLeaves - prevNumLeaves
 		prevNumLeaves = stump.NumLeaves
 
 		proof, err := idx.FetchUtreexoProof(h)
@@ -533,7 +533,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	return idx.updateBlockSummaryState(uint16(len(adds)), block.Hash(), ud.AccProof)
+	return idx.updateBlockSummaryState(uint64(len(adds)), block.Hash(), ud.AccProof)
 }
 
 // calcProofOverhead calculates the overhead of the current utreexo accumulator proof
@@ -1160,7 +1160,7 @@ func (idx *FlatUtreexoProofIndex) updateRootsState() error {
 }
 
 // updateBlockSummaryState updates the block summary accumulator state with the given inputs.
-func (idx *FlatUtreexoProofIndex) updateBlockSummaryState(numAdds uint16, blockHash *chainhash.Hash, proof utreexo.Proof) error {
+func (idx *FlatUtreexoProofIndex) updateBlockSummaryState(numAdds uint64, blockHash *chainhash.Hash, proof utreexo.Proof) error {
 	summary := wire.UtreexoBlockSummary{
 		BlockHash:    *blockHash,
 		NumAdds:      numAdds,
@@ -1217,7 +1217,7 @@ func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (
 			return nil, err
 		}
 	}
-	numAdds := uint16(stump.NumLeaves - prevStump.NumLeaves)
+	numAdds := stump.NumLeaves - prevStump.NumLeaves
 
 	return &wire.UtreexoBlockSummary{
 		BlockHash:    *blockHash,
