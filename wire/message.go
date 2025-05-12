@@ -43,6 +43,7 @@ const (
 	CmdGetUtreexoSummaries = "gusummaries"
 	CmdHeaders             = "headers"
 	CmdUtreexoSummaries    = "usummaries"
+	CmdUtreexoTTLs         = "uttls"
 	CmdPing                = "ping"
 	CmdPong                = "pong"
 	CmdAlert               = "alert"
@@ -158,6 +159,9 @@ func makeEmptyMessage(command string) (Message, error) {
 
 	case CmdUtreexoSummaries:
 		msg = &MsgUtreexoSummaries{}
+
+	case CmdUtreexoTTLs:
+		msg = &MsgUtreexoTTLs{}
 
 	case CmdUtreexoProof:
 		msg = &MsgUtreexoProof{}
