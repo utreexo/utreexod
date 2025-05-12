@@ -941,7 +941,7 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 
 	var usmsg *wire.MsgUtreexoSummaries
 	if sp.server.utreexoProofIndex != nil {
-		usmsg, err = sp.server.utreexoProofIndex.FetchUtreexoSummaries(blockHashes, msg.IncludeProof)
+		usmsg, err = sp.server.utreexoProofIndex.FetchUtreexoSummaries(blockHashes)
 		if err != nil {
 			chanLog.Debugf("Unable to fetch summaries for start hash %v and max receive exponent of %v: %v",
 				msg.StartHash, msg.MaxReceiveExponent, err)
@@ -949,7 +949,7 @@ func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreex
 		}
 	}
 	if sp.server.flatUtreexoProofIndex != nil {
-		usmsg, err = sp.server.flatUtreexoProofIndex.FetchUtreexoSummaries(blockHashes, msg.IncludeProof)
+		usmsg, err = sp.server.flatUtreexoProofIndex.FetchUtreexoSummaries(blockHashes)
 		if err != nil {
 			chanLog.Debugf("Unable to fetch summaries for start hash %v and max receive exponent of %v: %v",
 				msg.StartHash, msg.MaxReceiveExponent, err)

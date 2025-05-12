@@ -990,13 +990,13 @@ func compareBlockSummaries(indexes []Indexer, blockHashes []*chainhash.Hash) err
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
-			flatMsg, err = idxType.FetchUtreexoSummaries(blockHashes, true)
+			flatMsg, err = idxType.FetchUtreexoSummaries(blockHashes)
 			if err != nil {
 				return err
 			}
 
 		case *UtreexoProofIndex:
-			msg, err = idxType.FetchUtreexoSummaries(blockHashes, true)
+			msg, err = idxType.FetchUtreexoSummaries(blockHashes)
 			if err != nil {
 				return err
 			}
@@ -1008,10 +1008,6 @@ func compareBlockSummaries(indexes []Indexer, blockHashes []*chainhash.Hash) err
 		if err != nil {
 			return err
 		}
-	}
-
-	if !reflect.DeepEqual(flatMsg.ProofHashes, msg.ProofHashes) {
-		return fmt.Errorf("expected %v, got %v", flatMsg.ProofHashes, msg.ProofHashes)
 	}
 
 	return nil
@@ -1053,7 +1049,7 @@ func compareBlockSummaryState(indexes []Indexer, blockHash *chainhash.Hash) erro
 				return err
 			}
 
-			flatSummaries, err = idxType.FetchUtreexoSummaries([]*chainhash.Hash{blockHash}, true)
+			flatSummaries, err = idxType.FetchUtreexoSummaries([]*chainhash.Hash{blockHash})
 			if err != nil {
 				return err
 			}
@@ -1073,7 +1069,7 @@ func compareBlockSummaryState(indexes []Indexer, blockHash *chainhash.Hash) erro
 				return err
 			}
 
-			summaries, err = idxType.FetchUtreexoSummaries([]*chainhash.Hash{blockHash}, true)
+			summaries, err = idxType.FetchUtreexoSummaries([]*chainhash.Hash{blockHash})
 			if err != nil {
 				return err
 			}

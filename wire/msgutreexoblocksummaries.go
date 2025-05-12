@@ -7,10 +7,6 @@ package wire
 import (
 	"fmt"
 	"io"
-	"math"
-
-	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // MaxUtreexoExponent is the maximum exponent you can ask for in a bitcoin getutreexosummaries
@@ -26,8 +22,7 @@ const MaxUtreexoBlockSummaryPerMsg = 1 << MaxUtreexoExponent
 // response to a getutreexoblocksummaries message. There can only be a maximum of a
 // 100 block summaries in one message.
 type MsgUtreexoSummaries struct {
-	Summaries   []*UtreexoBlockSummary
-	ProofHashes []utreexo.Hash
+	Summaries []*UtreexoBlockSummary
 }
 
 // AddSummary adds a new utreexo block summary to the message. It checks that the
@@ -67,19 +62,6 @@ func (msg *MsgUtreexoSummaries) BtcDecode(r io.Reader, pver uint32, enc MessageE
 		msg.AddSummary(&summaries[i])
 	}
 
-	proofHashCount, err := ReadVarInt(r, pver)
-	if err != nil {
-		return err
-	}
-
-	msg.ProofHashes = make([]utreexo.Hash, proofHashCount)
-	for i := range msg.ProofHashes {
-		_, err = io.ReadFull(r, msg.ProofHashes[i][:])
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -106,18 +88,6 @@ func (msg *MsgUtreexoSummaries) BtcEncode(w io.Writer, pver uint32, enc MessageE
 		}
 	}
 
-	err = WriteVarInt(w, pver, uint64(len(msg.ProofHashes)))
-	if err != nil {
-		return err
-	}
-
-	for _, proofHash := range msg.ProofHashes {
-		_, err := w.Write(proofHash[:])
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -130,16 +100,14 @@ func (msg *MsgUtreexoSummaries) Command() string {
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver. This is part of the Message interface implementation.
 func (msg *MsgUtreexoSummaries) MaxPayloadLength(pver uint32) uint32 {
-	return (MaxVarIntPayload * 2) +
-		(MaxUtreexoBlockSummaryPerMsg * MaxUtreexoBlockSummarySize) +
-		(math.MaxUint8 * chainhash.HashSize)
+	return MaxVarIntPayload +
+		(MaxUtreexoBlockSummaryPerMsg * MaxUtreexoBlockSummarySize)
 }
 
 // NewMsgUtreexoSummaries returns a new bitcoin utreexo summaries message that conforms to the
 // Message interface.  See MsgUtreexoSummaries for details.
 func NewMsgUtreexoSummaries() *MsgUtreexoSummaries {
 	return &MsgUtreexoSummaries{
-		Summaries:   make([]*UtreexoBlockSummary, 0, MaxUtreexoBlockSummaryPerMsg),
-		ProofHashes: make([]utreexo.Hash, 0, math.MaxUint8),
+		Summaries: make([]*UtreexoBlockSummary, 0, MaxUtreexoBlockSummaryPerMsg),
 	}
 }
