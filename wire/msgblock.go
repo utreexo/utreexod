@@ -24,11 +24,7 @@ const MaxBlocksPerMsg = 500
 
 // MaxBlockPayload is the maximum bytes a block message can be in bytes.
 // After Segregated Witness, the max block payload has been raised to 4MB.
-//
-// NOTE Utreexo proof adds additional data.  Max block payload has been raised
-// to 12MB to account for the proof data.  This is experimental and is subject
-// to change in the future.
-const MaxBlockPayload = 12000000
+const MaxBlockPayload = 4_000_000
 
 // maxTxPerBlock is the maximum number of transactions that could
 // possibly fit into a block.
@@ -47,11 +43,6 @@ type TxLoc struct {
 type MsgBlock struct {
 	Header       BlockHeader
 	Transactions []*MsgTx
-
-	// UData is an optional field that contains all the data needed to prove
-	// the validity of a block with only the utreexo accmulator state of the
-	// previous block.
-	UData *UData
 }
 
 // Copy creates a deep copy of MsgBlock.
@@ -104,41 +95,14 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 		return messageError("MsgBlock.BtcDecode", str)
 	}
 
-	// Unset UtreexoEncoding for the encoding that we'll pass off to the
-	// tx.BtcDecode().  This is done as tx.BtcDecode() expects Utreexo
-	// Proofs to be appended to each tx if UtreexoEncoding bit is turned on.
-	// However, this only applies to mempool txs and there are no separate
-	// Utreexo Proofs for individual txs as the MsgBlock contains a proof
-	// for all the txs.
-	txEncoding := enc &^ UtreexoEncoding
-
 	msg.Transactions = make([]*MsgTx, 0, txCount)
 	for i := uint64(0); i < txCount; i++ {
 		tx := MsgTx{}
-		err := tx.BtcDecode(r, pver, txEncoding)
+		err := tx.BtcDecode(r, pver, enc)
 		if err != nil {
 			return err
 		}
 		msg.Transactions = append(msg.Transactions, &tx)
-	}
-
-	// Try to decode as a utreexo block.  If we get EOF, it means
-	// it's not a utreexo block.
-	//
-	// TODO Since the reader we received in this function is already
-	// checked for length, this probably is ok. But do think of
-	// a better solution.
-	msg.UData = new(UData)
-	err = msg.UData.Deserialize(r)
-	if err != nil {
-		if enc&UtreexoEncoding == UtreexoEncoding {
-			return err
-		}
-		if err == io.EOF {
-			msg.UData = nil
-			return nil
-		}
-		return err
 	}
 
 	return nil
@@ -233,27 +197,8 @@ func (msg *MsgBlock) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) er
 	if err != nil {
 		return err
 	}
-
-	// Unset UtreexoEncoding for the encoding that we'll pass off to the
-	// tx.BtcDecode().  This is done as tx.BtcDecode() expects Utreexo
-	// Proofs to be appended to each tx if UtreexoEncoding bit is turned on.
-	// However, this only applies to mempool txs and there are no separate
-	// Utreexo Proofs for individual txs as the MsgBlock contains a proof
-	// for all the txs.
-	txEncoding := enc &^ UtreexoEncoding
 	for _, tx := range msg.Transactions {
-		err = tx.BtcEncode(w, pver, txEncoding)
-		if err != nil {
-			return err
-		}
-	}
-
-	if enc&UtreexoEncoding == UtreexoEncoding {
-		if msg.UData == nil {
-			str := "utreexo encoding specified but MsgBlock.UData field is nil"
-			return messageError("MsgBlock.BtcEncode", str)
-		}
-		err = msg.UData.Serialize(w)
+		err = tx.BtcEncode(w, pver, enc)
 		if err != nil {
 			return err
 		}
@@ -280,9 +225,6 @@ func (msg *MsgBlock) Serialize(w io.Writer) error {
 	// each of the transactions should be serialized using the witness
 	// serialization structure defined in BIP0141.
 	enc := WitnessEncoding
-	if msg.UData != nil {
-		enc |= UtreexoEncoding
-	}
 	return msg.BtcEncode(w, 0, enc)
 }
 
