@@ -1118,7 +1118,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				sm.fetchUtreexoSummaries(reqPeer)
 				return
 			}
-			numLeaves := sm.numLeaves[h-1] + uint64(summary.NumAdds)
+			numLeaves := sm.numLeaves[h-1] + summary.NumAdds
 			sm.numLeaves[h] = numLeaves
 		}
 
