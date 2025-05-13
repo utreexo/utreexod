@@ -6,10 +6,21 @@ package wire
 
 import (
 	"io"
+	"math"
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
+
+// MaxUtreexoProofSize is blockhash + len proofhashes + proofhashes + len targets + targets + len leafdatas +  pkscript size + Leafdata overhead of 12 bytes.
+const MaxUtreexoProofSize = chainhash.HashSize +
+	MaxVarIntPayload +
+	math.MaxUint8*chainhash.HashSize +
+	MaxVarIntPayload +
+	MaxVarIntPayload*MaxPossibleInputsPerBlock +
+	MaxVarIntPayload +
+	MaxBlockPayload +
+	MaxPossibleInputsPerBlock*12
 
 // MsgUtreexoProof is a utreexo proof for a given block that includes the rest of the data not
 // communicated by the utreexo header. It may or may not include all the data needed to prove
@@ -140,5 +151,5 @@ func (msg *MsgUtreexoProof) Command() string {
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver.  This is part of the Message interface implementation.
 func (msg *MsgUtreexoProof) MaxPayloadLength(pver uint32) uint32 {
-	return MaxBlockPayload
+	return MaxUtreexoProofSize
 }
