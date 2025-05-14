@@ -6,10 +6,21 @@ package wire
 
 import (
 	"io"
+	"math"
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
+
+// MaxUtreexoProofSize is blockhash + len proofhashes + proofhashes + len targets + targets + len leafdatas +  pkscript size + Leafdata overhead of 12 bytes.
+const MaxUtreexoProofSize = chainhash.HashSize +
+	MaxVarIntPayload +
+	math.MaxUint8*chainhash.HashSize +
+	MaxVarIntPayload +
+	MaxVarIntPayload*MaxPossibleInputsPerBlock +
+	MaxVarIntPayload +
+	MaxBlockPayload +
+	MaxPossibleInputsPerBlock*12
 
 // MsgUtreexoProof is a utreexo proof for a given block that includes the rest of the data not
 // communicated by the utreexo header. It may or may not include all the data needed to prove
@@ -20,6 +31,9 @@ type MsgUtreexoProof struct {
 
 	// ProofHashes is the hashes needed to hash up to the utreexo roots.
 	ProofHashes []utreexo.Hash
+
+	// Targets are the list of leaf locations to delete.
+	Targets []uint64
 
 	// LeafDatas are the tx validation data for every input.
 	LeafDatas []LeafData
@@ -43,6 +57,19 @@ func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEncod
 	msg.ProofHashes = make([]utreexo.Hash, proofCount)
 	for i := range msg.ProofHashes {
 		_, err = io.ReadFull(r, msg.ProofHashes[i][:])
+		if err != nil {
+			return err
+		}
+	}
+
+	targetCount, err := ReadVarInt(r, 0)
+	if err != nil {
+		return err
+	}
+
+	msg.Targets = make([]uint64, targetCount)
+	for i := range msg.Targets {
+		msg.Targets[i], err = ReadVarInt(r, 0)
 		if err != nil {
 			return err
 		}
@@ -86,6 +113,18 @@ func (msg *MsgUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEncod
 		}
 	}
 
+	err = WriteVarInt(w, 0, uint64(len(msg.Targets)))
+	if err != nil {
+		return err
+	}
+
+	for _, target := range msg.Targets {
+		err = WriteVarInt(w, 0, target)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Write the size of the leaf datas.
 	err = WriteVarInt(w, 0, uint64(len(msg.LeafDatas)))
 	if err != nil {
@@ -99,6 +138,7 @@ func (msg *MsgUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEncod
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -111,5 +151,5 @@ func (msg *MsgUtreexoProof) Command() string {
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver.  This is part of the Message interface implementation.
 func (msg *MsgUtreexoProof) MaxPayloadLength(pver uint32) uint32 {
-	return MaxBlockPayload
+	return MaxUtreexoProofSize
 }
