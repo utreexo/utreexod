@@ -5,8 +5,6 @@
 package netsync
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"math/rand"
 	"net"
 	"os"
@@ -1047,12 +1045,7 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 	}
 
 	_, bestHeaderHeight := sm.chain.BestHeader()
-	var exponent uint8
-	if startHeight < int32(sm.chainParams.BlockSummary.Stump.NumLeaves) {
-		exponent = wire.GetUtreexoExponent(startHeight, int32(sm.chainParams.BlockSummary.Stump.NumLeaves), bestHeaderHeight)
-	} else {
-		exponent = wire.GetUtreexoExponent(startHeight, bestHeaderHeight, bestHeaderHeight)
-	}
+	exponent := wire.GetUtreexoExponent(startHeight, bestHeaderHeight, bestHeaderHeight)
 
 	log.Debugf("fetching blocksummaries from %v - %v", startHeight, startHeight+(1<<exponent))
 
@@ -1355,29 +1348,6 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 			"-- disconnecting", peer)
 		peer.Disconnect()
 		return
-	}
-
-	// Put together a proof.
-	delHashes := make([]utreexo.Hash, 0, len(msg.Summaries))
-	targets := make([]uint64, 0, len(msg.Summaries))
-	for _, summary := range msg.Summaries {
-		height, _ := sm.chain.HeaderHeightByHash(summary.BlockHash)
-
-		// Skip trying to prove this if the our committed accumulator cannot be used.
-		if height >= int32(sm.chainParams.BlockSummary.Stump.NumLeaves) {
-			break
-		}
-		targets = append(targets, uint64(height))
-
-		buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
-		err := summary.Serialize(buf)
-		if err != nil {
-			log.Warnf("failed to serialize block summary from %s %v -- "+
-				"disconnecting", peer.Addr(), err)
-			peer.Disconnect()
-			return
-		}
-		delHashes = append(delHashes, sha256.Sum256(buf.Bytes()))
 	}
 
 	// If we're in headers first, check if we have the final utreexo block summary. If not,

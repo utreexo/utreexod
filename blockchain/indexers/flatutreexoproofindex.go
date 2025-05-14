@@ -105,10 +105,10 @@ type FlatUtreexoProofIndex struct {
 	// roots at a block is correct.
 	utreexoRootsState utreexo.Pollard
 
-	// blockSummaryState is the accumulator for all the block summaries at each
-	// of the blocks. This is so that we can serve to peers the proof that the given
-	// block summaries of a block is correct.
-	blockSummaryState utreexo.Pollard
+	// blockTTLState is the accumulator for all the ttls at each of the blocks.
+	// This is so that we can serve to peers the proof that the given
+	// ttls of a block is correct.
+	blockTTLState utreexo.Pollard
 
 	// pStats are the proof size statistics that are kept for research purposes.
 	pStats proofStats
@@ -222,46 +222,32 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 	return nil
 }
 
-// initBlockSummaryState creates and accumulator from the block summaries of each
-// block and holds it in memory so that the proofs for them can be generated.
-func (idx *FlatUtreexoProofIndex) initBlockSummaryState() error {
-	idx.blockSummaryState = utreexo.NewAccumulator()
+// initBlockTTLState initializes the accumulator for the ttl states that are final.
+// The ttls where they're still subject to change are skipped.
+func (idx *FlatUtreexoProofIndex) initBlockTTLState() error {
+	idx.blockTTLState = utreexo.NewAccumulator()
 
-	var prevNumLeaves uint64
-	bestHeight := idx.proofState.BestHeight()
-	for h := int32(0); h <= bestHeight; h++ {
-		blockHash, err := idx.chain.BlockHashByHeight(h)
+	bestHeight := idx.ttlState.BestHeight()
+	lockedInHeight := bestHeight - (int32(math.MaxUint16) + 1)
+	for h := int32(1); h <= lockedInHeight; h++ {
+		ttls, err := idx.fetchTTLs(h)
 		if err != nil {
 			return err
 		}
 
-		stump, err := idx.fetchRoots(h)
-		if err != nil {
-			return err
-		}
-		numAdds := stump.NumLeaves - prevNumLeaves
-		prevNumLeaves = stump.NumLeaves
-
-		proof, err := idx.FetchUtreexoProof(h)
-		if err != nil {
-			return err
+		ttl := wire.UtreexoTTL{
+			BlockHeight: uint32(h),
+			TTLs:        ttls,
 		}
 
-		blockHeader := wire.UtreexoBlockSummary{
-			BlockHash:    *blockHash,
-			NumAdds:      numAdds,
-			BlockTargets: make([]uint64, len(proof.AccProof.Targets)),
-		}
-		copy(blockHeader.BlockTargets, proof.AccProof.Targets)
-
-		buf := bytes.NewBuffer(make([]byte, 0, blockHeader.SerializeSize()))
-		err = blockHeader.Serialize(buf)
+		buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
+		err = ttl.Serialize(buf)
 		if err != nil {
 			return err
 		}
 		rootHash := sha256.Sum256(buf.Bytes())
 
-		err = idx.blockSummaryState.Modify(
+		err = idx.blockTTLState.Modify(
 			[]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
 		if err != nil {
 			return err
@@ -297,8 +283,8 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	}
 
 	if !idx.config.Pruned {
-		// Only build the block summary state if we're not pruned.
-		err = idx.initBlockSummaryState()
+		// Only build the block ttl state if we're not pruned.
+		err = idx.initBlockTTLState()
 		if err != nil {
 			return err
 		}
@@ -533,7 +519,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	return idx.updateBlockSummaryState(uint64(len(adds)), block.Hash(), ud.AccProof)
+	return idx.updateBlockTTLState(block.Height())
 }
 
 // calcProofOverhead calculates the overhead of the current utreexo accumulator proof
@@ -744,7 +730,7 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 
 		// Re-initializes to the current accumulator roots, effectively
 		// disconnecting a block.
-		err = idx.initBlockSummaryState()
+		err = idx.initBlockTTLState()
 		if err != nil {
 			return err
 		}
@@ -1159,23 +1145,32 @@ func (idx *FlatUtreexoProofIndex) updateRootsState() error {
 	return idx.utreexoRootsState.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
 }
 
-// updateBlockSummaryState updates the block summary accumulator state with the given inputs.
-func (idx *FlatUtreexoProofIndex) updateBlockSummaryState(numAdds uint64, blockHash *chainhash.Hash, proof utreexo.Proof) error {
-	summary := wire.UtreexoBlockSummary{
-		BlockHash:    *blockHash,
-		NumAdds:      numAdds,
-		BlockTargets: make([]uint64, len(proof.Targets)),
+// updateBlockTTLState updates the latest ttls that have have became final.
+func (idx *FlatUtreexoProofIndex) updateBlockTTLState(height int32) error {
+	lockedInHeight := height - (int32(math.MaxUint16) + 1)
+	if lockedInHeight <= 0 {
+		return nil
 	}
-	copy(summary.BlockTargets, proof.Targets)
 
-	buf := bytes.NewBuffer(make([]byte, 0, summary.SerializeSize()))
-	err := summary.Serialize(buf)
+	ttls, err := idx.fetchTTLs(lockedInHeight)
 	if err != nil {
 		return err
 	}
-	hash := sha256.Sum256(buf.Bytes())
 
-	return idx.blockSummaryState.Modify([]utreexo.Leaf{{Hash: hash}}, nil, utreexo.Proof{})
+	ttl := wire.UtreexoTTL{
+		BlockHeight: uint32(lockedInHeight),
+		TTLs:        ttls,
+	}
+
+	buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
+	err = ttl.Serialize(buf)
+	if err != nil {
+		return err
+	}
+	rootHash := sha256.Sum256(buf.Bytes())
+
+	return idx.blockTTLState.Modify(
+		[]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
 }
 
 // FetchUtreexoSummaries fetches all the summaries and attaches a proof for those summaries if requsted with the includeProof boolean.
@@ -1226,16 +1221,12 @@ func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (
 	}, nil
 }
 
-// FetchSummariesRoots returns the roots of the block summary state and the blockhash they were
-// at when the roots were fetched.
-func (idx *FlatUtreexoProofIndex) FetchSummariesRoots() (utreexo.Stump, chainhash.Hash) {
-	stump := utreexo.Stump{
-		Roots:     idx.blockSummaryState.GetRoots(),
-		NumLeaves: idx.blockSummaryState.GetNumLeaves(),
+// FetchTTLRoots returns the roots of the ttl summary state.
+func (idx *FlatUtreexoProofIndex) FetchTTLRoots() utreexo.Stump {
+	return utreexo.Stump{
+		Roots:     idx.blockTTLState.GetRoots(),
+		NumLeaves: idx.blockTTLState.GetNumLeaves(),
 	}
-	besthash := idx.chain.BestSnapshot().Hash
-
-	return stump, besthash
 }
 
 // FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.

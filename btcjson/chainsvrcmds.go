@@ -824,13 +824,13 @@ func NewGetUtreexoRootsCmd(blockhash string) *GetUtreexoRootsCmd {
 	}
 }
 
-// GetUtreexoBlockSummaryRootsCmd defines the utreexoblocksummaryroots
-type GetUtreexoBlockSummaryRootsCmd struct{}
+// GetUtreexoTTLRootsCmd defines the utreexottlroots.
+type GetUtreexoTTLRootsCmd struct{}
 
-// NewGetUtreexoBlockSummaryRootsCmd returns a new instance which can be used
-// to issue a getutreexoblocksummaryroots JSON-RPC command.
-func NewGetUtreexoBlockSummaryRootsCmd() *GetUtreexoBlockSummaryRootsCmd {
-	return &GetUtreexoBlockSummaryRootsCmd{}
+// NewGetUtreexoTTLRootsCmd returns a new instance which can be used
+// to issue a getutreexottlroots JSON-RPC command.
+func NewGetUtreexoTTLRootsCmd() *GetUtreexoTTLRootsCmd {
+	return &GetUtreexoTTLRootsCmd{}
 }
 
 // GetWorkCmd defines the getwork JSON-RPC command.
@@ -1349,7 +1349,7 @@ func init() {
 	MustRegisterCmd("gettxoutsetinfo", (*GetTxOutSetInfoCmd)(nil), flags)
 	MustRegisterCmd("getutreexoproof", (*GetUtreexoProofCmd)(nil), flags)
 	MustRegisterCmd("getutreexoroots", (*GetUtreexoRootsCmd)(nil), flags)
-	MustRegisterCmd("getutreexoblocksummaryroots", (*GetUtreexoBlockSummaryRootsCmd)(nil), flags)
+	MustRegisterCmd("getutreexottlroots", (*GetUtreexoTTLRootsCmd)(nil), flags)
 	MustRegisterCmd("getwork", (*GetWorkCmd)(nil), flags)
 	MustRegisterCmd("getwatchonlybalance", (*GetWatchOnlyBalanceCmd)(nil), flags)
 	MustRegisterCmd("help", (*HelpCmd)(nil), flags)
