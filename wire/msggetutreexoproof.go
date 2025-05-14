@@ -18,6 +18,9 @@ type MsgGetUtreexoProof struct {
 	// BlockHash is the hash of the block we want the utreexo proof for.
 	BlockHash chainhash.Hash
 
+	// TargetBool indicates if the targets should be included in the proof message.
+	TargetBool bool
+
 	// ProofIndexBitMap is a bitmap of the proof indexes. The bits that are
 	// turned on indicate the proofs that the requester wants.
 	ProofIndexBitMap []byte
@@ -36,6 +39,13 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEn
 	if err != nil {
 		return err
 	}
+
+	var b [1]byte
+	_, err = r.Read(b[:])
+	if err != nil {
+		return err
+	}
+	msg.TargetBool = b[0] == 1
 
 	proofCount, err := ReadVarInt(r, 0)
 	if err != nil {
@@ -68,6 +78,15 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEn
 // database, as opposed to encoding transactions for the wire.
 func (msg *MsgGetUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
 	_, err := w.Write(msg.BlockHash[:])
+	if err != nil {
+		return err
+	}
+
+	var b [1]byte
+	if msg.TargetBool {
+		b[0] = 1
+	}
+	_, err = w.Write(b[:])
 	if err != nil {
 		return err
 	}
