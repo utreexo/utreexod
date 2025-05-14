@@ -941,11 +941,10 @@ type GetUtreexoRootsResult struct {
 	NumLeaves uint64   `json:"numleaves"`
 }
 
-// GetUtreexoBlockSummaryRootsResult models the data from the getutreexoblocksummaryroots command.
-type GetUtreexoBlockSummaryRootsResult struct {
+// GetUtreexoTTLRootsResult models the data from the getutreexottlroots command.
+type GetUtreexoTTLRootsResult struct {
 	Roots     []string `json:"roots"`
 	NumLeaves uint64   `json:"numleaves"`
-	BlockHash string   `json:"blockhash"`
 }
 
 // ProveWatchOnlyChainTipInclusionVerboseResult models the data from the

@@ -1221,14 +1221,6 @@ func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (
 	}, nil
 }
 
-// FetchSummariesRoots returns the roots of the block summary state and the blockhash they were
-// at when the roots were fetched.
-//
-// NOTE: Keeping it in this commit so that we don't break other parts of the codebase.
-func (idx *FlatUtreexoProofIndex) FetchSummariesRoots() (utreexo.Stump, chainhash.Hash) {
-	return utreexo.Stump{}, chainhash.Hash{}
-}
-
 // FetchTTLRoots returns the roots of the ttl summary state.
 func (idx *FlatUtreexoProofIndex) FetchTTLRoots() utreexo.Stump {
 	return utreexo.Stump{
