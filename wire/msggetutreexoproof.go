@@ -123,7 +123,9 @@ func (msg *MsgGetUtreexoProof) Command() string {
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver.  This is part of the Message interface implementation.
 func (msg *MsgGetUtreexoProof) MaxPayloadLength(pver uint32) uint32 {
-	return MaxBlockPayload
+	// hashsize + target bool + proofBitMap len + math.MaxUint8 in bitmaps +
+	// leafindex bitmap len + MaxPossibleInputsPerBlock in bitmaps.
+	return chainhash.HashSize + 1 + MaxVarIntPayload + 32 + MaxVarIntPayload + 3049
 }
 
 // IsLeafDataRequested returns if the leafdata at the given index is requested or not.
