@@ -97,11 +97,10 @@ type AssumeUtreexo struct {
 	MedianTime  time.Time       // Median time as per CalcPastMedianTime.
 }
 
-// BlockSummaryState is the pre-committed summary roots that allows nodes during ibd
-// to verifies the received summaries.
-type BlockSummaryState struct {
-	Stump     utreexo.Stump
-	BlockHash *chainhash.Hash
+// TTLState is the pre-committed ttl roots that allows nodes during ibd
+// to verifies the received ttls.
+type TTLState struct {
+	Stump utreexo.Stump
 }
 
 // DNSSeed identifies a DNS seed.
@@ -261,9 +260,9 @@ type Params struct {
 	// start off of.
 	AssumeUtreexoPoint AssumeUtreexo
 
-	// BlockSummary is committed so that nodes during ibd are able to check
-	// the received block summaries from other peers.
-	BlockSummary BlockSummaryState
+	// TTL is committed so that nodes during ibd are able to check
+	// the received ttls from other peers.
+	TTL TTLState
 
 	// These fields are related to voting on consensus rule changes as
 	// defined by BIP0009.
@@ -961,23 +960,20 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 
 		AssumeUtreexoPoint: assumeUtreexoPoint,
 
-		BlockSummary: BlockSummaryState{
+		TTL: TTLState{
 			Stump: utreexo.Stump{
 				Roots: []utreexo.Hash{
-					newUtreexoHashFromStr("9f3cf6680295898e482aafa0c272e0cddbb02d6c85ffe8779af7a83a98f0bfcf"),
-					newUtreexoHashFromStr("5322929519c3e0f4019abcf7fde63a38c1fa453f6770ddddb8aa5023b3bd3e04"),
-					newUtreexoHashFromStr("a5bd7902c7e1d0a6f38feda71fabf253c048418ec6954fc315ce447dd398b7bb"),
-					newUtreexoHashFromStr("ca79fd34a91f64095d7425e15676c09f56066e53d863ea9142c23f352c058d17"),
-					newUtreexoHashFromStr("c319d0c400fc13b2b87cef8a69b6e998261b57c4dfd0decd12139ae8b07e8a21"),
-					newUtreexoHashFromStr("48a30aae6dbc363543bf57daa2f976595293aa95de91ab1954bdc722c39ab578"),
-					newUtreexoHashFromStr("c9c19f0d20db613e5b0892feee4235539aa9192e78a1bf9b4b29f98d96630bec"),
-					newUtreexoHashFromStr("6152bc4b7e1d6cf5bb6d77ee41e44bd16c2f3597d8b6768d159193cc4cbe6382"),
-					newUtreexoHashFromStr("e3a2ff83faf47bf917ff2dbcf095bd023ec67eeee7ad7e69770ffc47f9487063"),
-					newUtreexoHashFromStr("b91b638da8fca806ce88d5276f766cd2cb2c11e5764fffe34ddac459c70557ad"),
+					newUtreexoHashFromStr("674d03a6282f648ad55ccc254c1fd7ddfd7f3db0230494f8744a35c53e6b8d91"),
+					newUtreexoHashFromStr("4b05887af8da15625a47fce0e02ec669afc5027136296f0bb7f85b9f3f32299f"),
+					newUtreexoHashFromStr("c083109bd39e1d6727cdaae0d4c9a08057f57188b06767042599e8d7932b6904"),
+					newUtreexoHashFromStr("30e4588217738701999b7aadaeba98d68ae3904bf76d81a0a89652723ca7e313"),
+					newUtreexoHashFromStr("a85ab544e3c1c384a1f95435cc7adffa257e55da2f5ffe2b89bc4311f1286b8a"),
+					newUtreexoHashFromStr("72e43f1ac1acec908422e001b122564525d8fdebdb6de78a786fbe8529f4195d"),
+					newUtreexoHashFromStr("f5101a7e6dfeb0119c378a476bb0b857b6c7db200f6ebc6f1cbe9c866d1435a1"),
+					newUtreexoHashFromStr("1ddcde7b5cb59dd722cd3b223838b138cc987c71c1ea3f691af856fc3bf48cb7"),
 				},
-				NumLeaves: 237_799,
+				NumLeaves: 186_381,
 			},
-			BlockHash: newHashFromStr("0000005c1627c2b4f818f43a8e7b03fb580e562d7e44eb66b0e43293fcb7a073"),
 		},
 
 		// Consensus rule change deployments.
