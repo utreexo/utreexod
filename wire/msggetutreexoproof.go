@@ -6,9 +6,7 @@ package wire
 
 import (
 	"io"
-	"sort"
 
-	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
@@ -172,40 +170,5 @@ func createBitmap(includes []bool) []byte {
 	}
 
 	return bitMap
-}
 
-// ConstructGetProofMsg returns a constructed MsgGetUtreexoProof message from the
-// given data.
-func ConstructGetProofMsg(blockHash *chainhash.Hash, numLeaves uint64,
-	targets []uint64) *MsgGetUtreexoProof {
-
-	// The targets must be sorted in order for ProofPositions to work correctly.
-	sortedTargets := make([]uint64, len(targets))
-	copy(sortedTargets, targets)
-	sort.Slice(sortedTargets, func(a, b int) bool { return sortedTargets[a] < sortedTargets[b] })
-
-	proofPositions, _ := utreexo.ProofPositions(
-		sortedTargets,
-		numLeaves,
-		utreexo.TreeRows(numLeaves),
-	)
-
-	// Grab all the indexes.
-	proofIndexes := make([]bool, len(proofPositions))
-	for i := range proofIndexes {
-		proofIndexes[i] = true
-	}
-	proofBytes := createBitmap(proofIndexes)
-
-	targetIndexes := make([]bool, len(targets))
-	for i := range targets {
-		targetIndexes[i] = true
-	}
-	targetBytes := createBitmap(targetIndexes)
-
-	return &MsgGetUtreexoProof{
-		BlockHash:        *blockHash,
-		ProofIndexBitMap: proofBytes,
-		LeafIndexBitMap:  targetBytes,
-	}
 }

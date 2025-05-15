@@ -1338,24 +1338,17 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 		}
 	}
 
-	_, err = sp.server.chain.ReconstructUData(udata, msg.BlockHash)
-	if err != nil {
-		chanLog.Debugf("Unable to fetch utreexo proof for block hash %v: %v",
-			msg.BlockHash, err)
-		return
-	}
-
 	// Construct utreexo proof to send.
 	leafDatas := make([]wire.LeafData, 0, len(udata.LeafDatas))
 	for i := 0; i < len(udata.LeafDatas); i++ {
-		if msg.IsLeafDataRequested(i) {
+		if msg.IsLeafDataRequested(i) || msg.TargetBool {
 			leafDatas = append(leafDatas, udata.LeafDatas[i])
 		}
 	}
 
 	proofHashes := make([]utreexo.Hash, 0, len(udata.AccProof.Proof))
 	for i := 0; i < len(udata.AccProof.Proof); i++ {
-		if msg.IsProofRequested(i) {
+		if msg.IsProofRequested(i) || msg.TargetBool {
 			proofHashes = append(proofHashes, udata.AccProof.Proof[i])
 		}
 	}
@@ -1363,6 +1356,10 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 		BlockHash:   msg.BlockHash,
 		ProofHashes: proofHashes,
 		LeafDatas:   leafDatas,
+	}
+
+	if msg.TargetBool {
+		utreexoProof.Targets = udata.AccProof.Targets
 	}
 
 	sp.QueueMessage(&utreexoProof, nil)
