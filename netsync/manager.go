@@ -419,15 +419,6 @@ func (sm *SyncManager) startSync() {
 			sm.startHeader = &headerNode{bestHeaderHeight + 1, &bestHeaderHash}
 		}
 
-		if utreexoViewActive {
-			// If we have the last utreexo summary, then we
-			// should have all the previous summaries as well.
-			_, have := sm.utreexoSummaries[bestHeaderHash]
-			if !have {
-				sm.fetchUtreexoSummaries(nil)
-				return
-			}
-		}
 		sm.fetchHeaderBlocks(nil)
 	} else {
 		log.Warnf("No sync peer candidates available")
@@ -812,14 +803,6 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 			return
 		}
 
-		utreexoSummary, found := sm.utreexoSummaries[*bmsg.block.Hash()]
-		if !found {
-			log.Warnf("got block %v but don't have the associated "+
-				"utreexo summary", bmsg.block.Hash())
-			sm.queuedBlocks[*blockHash] = bmsg
-			return
-		}
-
 		// We need the utreexo proof to be able to verify the block.
 		utreexoProofMsg, found := sm.queuedUtreexoProofs[*bmsg.block.Hash()]
 		if !found {
@@ -835,14 +818,13 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 
 		udata := wire.UData{
 			AccProof: utreexo.Proof{
-				Targets: utreexoSummary.BlockTargets,
+				Targets: utreexoProofMsg.proof.Targets,
 				Proof:   utreexoProofMsg.proof.ProofHashes,
 			},
 			LeafDatas: utreexoProofMsg.proof.LeafDatas,
 		}
 
 		bmsg.block.MsgBlock().UData = &udata
-		bmsg.block.MsgBlock().UData.AccProof.Targets = utreexoSummary.BlockTargets
 	}
 
 	// Process the block based off the headers if we're still in headers-first mode.
@@ -1102,19 +1084,6 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			return
 		}
 
-		// If we're a csn then keep track of the numleaves. We need this to construct
-		// the get proof message.
-		if sm.chain.IsUtreexoViewActive() {
-			summary, found := sm.utreexoSummaries[*hash]
-			if !found {
-				log.Debugf("couldn't find block summary for %v", hash)
-				sm.fetchUtreexoSummaries(reqPeer)
-				return
-			}
-			numLeaves := sm.numLeaves[h-1] + summary.NumAdds
-			sm.numLeaves[h] = numLeaves
-		}
-
 		_, requested := peerState.requestedBlocks[*hash]
 
 		iv := wire.NewInvVect(wire.InvTypeBlock, hash)
@@ -1152,16 +1121,13 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			// Immediately queue the utreexo proof for this block if we're a
 			// utreexo node.
 			if sm.chain.IsUtreexoViewActive() {
-				utreexoSummary, found := sm.utreexoSummaries[*hash]
-				if !found {
-					log.Warnf("Missing utreexo summary for %v", hash)
-					return
-				}
 				peerState.requestedUtreexoProofs[*hash] = struct{}{}
 
-				msg := wire.ConstructGetProofMsg(
-					hash, sm.numLeaves[h-1], utreexoSummary.BlockTargets)
-				reqPeer.QueueMessage(msg, nil)
+				msg := wire.MsgGetUtreexoProof{
+					BlockHash:  *hash,
+					TargetBool: true,
+				}
+				reqPeer.QueueMessage(&msg, nil)
 			}
 		}
 
@@ -1202,8 +1168,6 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	if numHeaders == 0 {
 		return
 	}
-
-	utreexoViewActive := sm.chain.IsUtreexoViewActive()
 
 	shouldFetchBlocks, shouldFetchHeaders := false, false
 	for _, blockHeader := range msg.Headers {
@@ -1303,15 +1267,9 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		}
 
 		bestHeaderHash, bestHeaderHeight := sm.chain.BestHeader()
-		if utreexoViewActive {
-			log.Infof("fetching utreexo summaries to %v(%v) from peer %v",
-				bestHeaderHash, bestHeaderHeight, hmsg.peer.String())
-			sm.fetchUtreexoSummaries(hmsg.peer)
-		} else {
-			log.Infof("fetching blocks to %v(%v) from peer %v",
-				bestHeaderHash, bestHeaderHeight, hmsg.peer.String())
-			sm.fetchHeaderBlocks(hmsg.peer)
-		}
+		log.Infof("fetching blocks to %v(%v) from peer %v",
+			bestHeaderHash, bestHeaderHeight, hmsg.peer.String())
+		sm.fetchHeaderBlocks(hmsg.peer)
 
 		return
 	}
@@ -1350,38 +1308,8 @@ func (sm *SyncManager) handleUtreexoSummariesMsg(hmsg *utreexoSummariesMsg) {
 		return
 	}
 
-	// If we're in headers first, check if we have the final utreexo block summary. If not,
-	// ask for more utreexo block summaries.
+	// Ignore if we're in headers first mode.
 	if sm.headersFirstMode {
-		for _, summary := range msg.Summaries {
-			sm.utreexoSummaries[summary.BlockHash] = summary
-			log.Debugf("accepted utreexo summary for block %v. have %v summaries",
-				summary.BlockHash, len(sm.utreexoSummaries))
-		}
-
-		sm.progressLogger.SetLastLogTime(time.Now())
-		sm.lastProgressTime = time.Now()
-
-		lastSummary := msg.Summaries[len(msg.Summaries)-1]
-		sm.bestSummariesHash = lastSummary.BlockHash
-		height, err := sm.chain.HeaderHeightByHash(lastSummary.BlockHash)
-		if err != nil {
-			log.Warnf("error while fetching the block height for hash %v -- %v",
-				lastSummary.BlockHash, err)
-			return
-		}
-
-		_, lastHeight := sm.chain.BestHeader()
-		if height == lastHeight {
-			log.Infof("Received utreexo summaries to block "+
-				"%d/hash %s. Fetching blocks",
-				height, lastSummary.BlockHash)
-			sm.fetchHeaderBlocks(nil)
-			return
-		} else {
-			sm.fetchUtreexoSummaries(nil)
-		}
-
 		return
 	}
 
