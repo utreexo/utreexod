@@ -318,12 +318,8 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	// Make undo blocks for blocks up to 288 block from the tip. 288 since
 	// that's the basis used for NODE_NETWORK_LIMITED. Reorgs that go past
 	// that are gonna be problematic anyways.
-	undoCount := int32(288)
-
 	// The bestHeight is less than 288, then just undo all the blocks we have.
-	if undoCount > bestHeight {
-		undoCount = bestHeight
-	}
+	undoCount := min(int32(288), bestHeight)
 
 	// Disconnect blocks.
 	for i := int32(0); i < undoCount; i++ {
