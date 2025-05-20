@@ -320,11 +320,6 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		// doesn't exist.
 		return nil
 	}
-	proofState, err := loadFlatFileState(idx.config.DataDir, flatUtreexoProofName)
-	if err != nil {
-		return err
-	}
-	idx.proofState = *proofState
 
 	// Nothing to do if the best height is 0.
 	bestHeight := chain.BestSnapshot().Height
