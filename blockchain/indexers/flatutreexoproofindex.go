@@ -735,6 +735,11 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 	// Check if we're at a height where proof was generated. Only check if we're not
 	// pruned as we don't keep the historical proofs as a pruned node.
 	if !idx.config.Pruned {
+		err = idx.targetState.DisconnectBlock(block.Height())
+		if err != nil {
+			return err
+		}
+
 		err = idx.proofState.DisconnectBlock(block.Height())
 		if err != nil {
 			return err
@@ -982,6 +987,18 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error
 	err = idx.proofState.StoreData(height, bytesBuf.Bytes())
 	if err != nil {
 		return fmt.Errorf("store proof err. %v", err)
+	}
+
+	targetsBuf := bytes.NewBuffer(
+		make([]byte, 0, wire.BatchProofSerializeTargetSize(&ud.AccProof)))
+	err = wire.ProofTargetsSerialize(targetsBuf, ud.AccProof.Targets)
+	if err != nil {
+		return err
+	}
+
+	err = idx.targetState.StoreData(height, targetsBuf.Bytes())
+	if err != nil {
+		return fmt.Errorf("store targets err. %v", err)
 	}
 
 	return nil
