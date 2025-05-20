@@ -33,6 +33,10 @@ const (
 	// directory.
 	flatUtreexoProofIndexType = "flat"
 
+	// flatUtreexoTargetName is the name given to the target data of the flat utreexo
+	// target index.  This name is used as the dataFile name in the flat files.
+	flatUtreexoTargetName = "target"
+
 	// flatUtreexoProofName is the name given to the proof data of the flat utreexo
 	// proof index.  This name is used as the dataFile name in the flat files.
 	flatUtreexoProofName = "proof"
@@ -81,6 +85,7 @@ var _ NeedsInputser = (*FlatUtreexoProofIndex)(nil)
 // FlatUtreexoProofIndex implements a utreexo accumulator proof index for all the blocks.
 // In a flat file.
 type FlatUtreexoProofIndex struct {
+	targetState     FlatFileState
 	proofState      FlatFileState
 	undoState       FlatFileState
 	proofStatsState FlatFileState
@@ -132,6 +137,18 @@ func (idx *FlatUtreexoProofIndex) NeedsInputs() bool {
 // keep ths entire indexer consistent.
 func (idx *FlatUtreexoProofIndex) consistentFlatFileState(tipHeight int32) error {
 	if !idx.config.Pruned {
+		if idx.targetState.BestHeight() != 0 &&
+			tipHeight < idx.targetState.BestHeight() {
+			bestHeight := idx.targetState.BestHeight()
+			for tipHeight != bestHeight && bestHeight > 0 {
+				err := idx.targetState.DisconnectBlock(bestHeight)
+				if err != nil {
+					return err
+				}
+				bestHeight--
+			}
+		}
+
 		if idx.proofState.BestHeight() != 0 &&
 			tipHeight < idx.proofState.BestHeight() {
 			bestHeight := idx.proofState.BestHeight()
@@ -1308,6 +1325,12 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 
 	// Init the utreexo proof state if the node isn't pruned.
 	if !idx.config.Pruned {
+		targetState, err := loadFlatFileState(dataDir, flatUtreexoTargetName)
+		if err != nil {
+			return nil, err
+		}
+		idx.targetState = *targetState
+
 		proofState, err := loadFlatFileState(dataDir, flatUtreexoProofName)
 		if err != nil {
 			return nil, err
@@ -1319,7 +1342,6 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 			return nil, err
 		}
 		idx.ttlState = *ttlsState
-
 	}
 
 	// Init the undo block state.
@@ -1353,6 +1375,12 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 // exists.
 func DropFlatUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan struct{}) error {
 	err := dropIndex(db, flatUtreexoBucketKey, flatUtreexoProofIndexName, interrupt)
+	if err != nil {
+		return err
+	}
+
+	targetPath := flatFilePath(dataDir, flatUtreexoTargetName)
+	err = deleteFlatFile(targetPath)
 	if err != nil {
 		return err
 	}
