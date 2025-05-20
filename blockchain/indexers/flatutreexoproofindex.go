@@ -362,6 +362,21 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 			return err
 		}
 
+		targetBytes, err := idx.targetState.FetchData(height)
+		if err != nil {
+			return err
+		}
+		if targetBytes == nil {
+			return fmt.Errorf("Couldn't fetch Utreexo targets for height %d", height)
+		}
+		targetBytes = append(targetBytes, proofBytes...)
+		targetR := bytes.NewReader(targetBytes)
+		targets, err := wire.ProofTargetsDeserialize(targetR)
+		if err != nil {
+			return err
+		}
+		ud.AccProof.Targets = targets
+
 		// Fetch block.
 		block, err := idx.chain.BlockByHeight(height)
 		if err != nil {
@@ -385,8 +400,13 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	}
 
 	// Remove all the proofs as we don't serve proofs as a
-	// pruned brigde node.
+	// pruned bridge node.
 	err = deleteFlatFile(proofPath)
+	if err != nil {
+		return err
+	}
+	targetPath := flatFilePath(idx.config.DataDir, flatUtreexoTargetName)
+	err = deleteFlatFile(targetPath)
 	if err != nil {
 		return err
 	}
