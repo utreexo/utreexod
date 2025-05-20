@@ -832,6 +832,28 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (
 	return ud, nil
 }
 
+// fetchTargets fetches the targets at the given height.
+func (idx *FlatUtreexoProofIndex) fetchTargets(height int32) ([]uint64, error) {
+	if height == 0 {
+		return []uint64{}, nil
+	}
+
+	if idx.config.Pruned {
+		return nil, fmt.Errorf("Cannot fetch targets as the node is pruned")
+	}
+
+	targetBytes, err := idx.targetState.FetchData(height)
+	if err != nil {
+		return nil, err
+	}
+	if targetBytes == nil {
+		return nil, fmt.Errorf("Couldn't fetch targets for height %d", height)
+	}
+	r := bytes.NewReader(targetBytes)
+
+	return wire.ProofTargetsDeserialize(r)
+}
+
 // GetLeafHashPositions returns the positions of the passed in hashes.
 func (idx *FlatUtreexoProofIndex) GetLeafHashPositions(delHashes []utreexo.Hash) []uint64 {
 	idx.mtx.RLock()
