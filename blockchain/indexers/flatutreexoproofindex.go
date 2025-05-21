@@ -782,6 +782,11 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 			return err
 		}
 
+		err = idx.leafDataState.DisconnectBlock(block.Height())
+		if err != nil {
+			return err
+		}
+
 		// Re-initializes to the current accumulator roots, effectively
 		// disconnecting a block.
 		err = idx.initBlockTTLState()
@@ -1051,6 +1056,17 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error
 	}
 
 	err = idx.targetState.StoreData(height, targetsBuf.Bytes())
+	if err != nil {
+		return fmt.Errorf("store targets err. %v", err)
+	}
+
+	leafBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeUtxoDataSize()))
+	err = wire.SerializeUtxoData(leafBuf, ud.LeafDatas)
+	if err != nil {
+		return err
+	}
+
+	err = idx.leafDataState.StoreData(height, leafBuf.Bytes())
 	if err != nil {
 		return fmt.Errorf("store targets err. %v", err)
 	}
