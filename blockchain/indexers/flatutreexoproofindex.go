@@ -41,6 +41,10 @@ const (
 	// proof index.  This name is used as the dataFile name in the flat files.
 	flatUtreexoProofName = "proof"
 
+	// flatUtreexoLeafDataName is the name given to the leafdata of the flat utreexo
+	// proof index.  This name is used as the dataFile name in the flat files.
+	flatUtreexoLeafDataName = "leafdata"
+
 	// flatUtreexoUndoName is the name given to the undo data of the flat utreexo
 	// proof index.  This name is used as the dataFile name in the flat files.
 	flatUtreexoUndoName = "undo"
@@ -87,6 +91,7 @@ var _ NeedsInputser = (*FlatUtreexoProofIndex)(nil)
 type FlatUtreexoProofIndex struct {
 	targetState     FlatFileState
 	proofState      FlatFileState
+	leafDataState   FlatFileState
 	undoState       FlatFileState
 	proofStatsState FlatFileState
 	rootsState      FlatFileState
@@ -154,6 +159,18 @@ func (idx *FlatUtreexoProofIndex) consistentFlatFileState(tipHeight int32) error
 			bestHeight := idx.proofState.BestHeight()
 			for tipHeight != bestHeight && bestHeight > 0 {
 				err := idx.proofState.DisconnectBlock(bestHeight)
+				if err != nil {
+					return err
+				}
+				bestHeight--
+			}
+		}
+
+		if idx.leafDataState.BestHeight() != 0 &&
+			tipHeight < idx.leafDataState.BestHeight() {
+			bestHeight := idx.leafDataState.BestHeight()
+			for tipHeight != bestHeight && bestHeight > 0 {
+				err := idx.leafDataState.DisconnectBlock(bestHeight)
 				if err != nil {
 					return err
 				}
@@ -1391,6 +1408,12 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 		}
 		idx.proofState = *proofState
 
+		leafDataState, err := loadFlatFileState(dataDir, flatUtreexoLeafDataName)
+		if err != nil {
+			return nil, err
+		}
+		idx.leafDataState = *leafDataState
+
 		ttlsState, err := loadFlatFileState(dataDir, flatTTLsName)
 		if err != nil {
 			return nil, err
@@ -1441,6 +1464,12 @@ func DropFlatUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan 
 
 	proofPath := flatFilePath(dataDir, flatUtreexoProofName)
 	err = deleteFlatFile(proofPath)
+	if err != nil {
+		return err
+	}
+
+	leafDataPath := flatFilePath(dataDir, flatUtreexoLeafDataName)
+	err = deleteFlatFile(leafDataPath)
 	if err != nil {
 		return err
 	}
