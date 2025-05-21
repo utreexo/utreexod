@@ -394,6 +394,12 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		}
 		ud.AccProof.Targets = targets
 
+		lds, err := idx.fetchLeafDatas(height)
+		if err != nil {
+			return err
+		}
+		ud.LeafDatas = lds
+
 		// Fetch block.
 		block, err := idx.chain.BlockByHeight(height)
 		if err != nil {
@@ -889,6 +895,21 @@ func (idx *FlatUtreexoProofIndex) fetchTargets(height int32) ([]uint64, error) {
 	r := bytes.NewReader(targetBytes)
 
 	return wire.ProofTargetsDeserialize(r)
+}
+
+// fetchLeafDatas fetches the leafdatas at the given height. Returns an error if it couldn't
+// fetch it.
+func (idx *FlatUtreexoProofIndex) fetchLeafDatas(height int32) ([]wire.LeafData, error) {
+	leafDataBytes, err := idx.leafDataState.FetchData(height)
+	if err != nil {
+		return nil, err
+	}
+	if leafDataBytes == nil {
+		return nil, fmt.Errorf("Couldn't fetch leafDatas for height %d", height)
+	}
+	r := bytes.NewReader(leafDataBytes)
+
+	return wire.DeserializeUtxoData(r)
 }
 
 // GetLeafHashPositions returns the positions of the passed in hashes.
