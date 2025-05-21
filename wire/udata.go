@@ -97,14 +97,20 @@ func (ud *UData) Serialize(w io.Writer) error {
 		return err
 	}
 
+	return SerializeUtxoData(w, ud.LeafDatas)
+}
+
+// SerializeUtxoData encodes the passed in leafdatas using the compact serialization
+// format.
+func SerializeUtxoData(w io.Writer, leafDatas []LeafData) error {
 	// Write the size of the leaf datas.
-	err = WriteVarInt(w, 0, uint64(len(ud.LeafDatas)))
+	err := WriteVarInt(w, 0, uint64(len(leafDatas)))
 	if err != nil {
 		return err
 	}
 
 	// Write the actual leaf datas.
-	for _, ld := range ud.LeafDatas {
+	for _, ld := range leafDatas {
 		err = ld.SerializeCompact(w)
 		if err != nil {
 			return err
@@ -122,30 +128,32 @@ func (ud *UData) Deserialize(r io.Reader) error {
 	}
 	ud.AccProof = *proof
 
+	ud.LeafDatas, err = DeserializeUtxoData(r)
+	return err
+}
+
+// DeserializeUtxoData decodes the leaf datas from the reader.
+func DeserializeUtxoData(r io.Reader) ([]LeafData, error) {
 	// Read the size of the leaf datas.
 	txInCount, err := ReadVarInt(r, 0)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if txInCount == 0 {
-		ud.LeafDatas = nil
-		return nil
+		return nil, nil
 	}
 
-	ud.LeafDatas = make([]LeafData, 0, txInCount)
+	lds := make([]LeafData, 0, txInCount)
 	for i := 0; i < int(txInCount); i++ {
 		ld := LeafData{}
 		err = ld.DeserializeCompact(r)
 		if err != nil {
-			str := fmt.Sprintf("targetCount:%d, Stxos[%d], err:%s\n",
-				len(ud.AccProof.Targets), i, err.Error())
-			returnErr := messageError("Deserialize stxos", str)
-			return returnErr
+			return nil, err
 		}
-		ud.LeafDatas = append(ud.LeafDatas, ld)
+		lds = append(lds, ld)
 	}
 
-	return nil
+	return lds, nil
 }
 
 // HashesFromLeafDatas hashes the passed in leaf datas. Returns an error if a
