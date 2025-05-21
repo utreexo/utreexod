@@ -364,41 +364,10 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	}
 
 	for height := bestHeight - (undoCount - 1); height <= bestHeight; height++ {
-		// Fetch and deserialize proof.
-		proofBytes, err := idx.proofState.FetchData(height)
+		ud, err := idx.fetchUtreexoProof(height)
 		if err != nil {
 			return err
 		}
-		if proofBytes == nil {
-			return fmt.Errorf("Couldn't fetch Utreexo proof for height %d", height)
-		}
-		r := bytes.NewReader(proofBytes)
-		ud := new(wire.UData)
-		err = ud.Deserialize(r)
-		if err != nil {
-			return err
-		}
-
-		targetBytes, err := idx.targetState.FetchData(height)
-		if err != nil {
-			return err
-		}
-		if targetBytes == nil {
-			return fmt.Errorf("Couldn't fetch Utreexo targets for height %d", height)
-		}
-		targetBytes = append(targetBytes, proofBytes...)
-		targetR := bytes.NewReader(targetBytes)
-		targets, err := wire.ProofTargetsDeserialize(targetR)
-		if err != nil {
-			return err
-		}
-		ud.AccProof.Targets = targets
-
-		lds, err := idx.fetchLeafDatas(height)
-		if err != nil {
-			return err
-		}
-		ud.LeafDatas = lds
 
 		// Fetch block.
 		block, err := idx.chain.BlockByHeight(height)
@@ -857,34 +826,43 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (
 		return nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
 	}
 
-	proofBytes, err := idx.proofState.FetchData(height)
-	if err != nil {
-		return nil, err
-	}
-	if proofBytes == nil {
-		return nil, fmt.Errorf("Couldn't fetch Utreexo proof for height %d", height)
-	}
-	r := bytes.NewReader(proofBytes)
-
-	ud := new(wire.UData)
-	err = ud.Deserialize(r)
-	if err != nil {
-		return nil, err
-	}
-
-	return ud, nil
+	return idx.fetchUtreexoProof(height)
 }
 
-// fetchTargets fetches the targets at the given height.
+// fetchUtreexoProof returns the Utreexo proof data for the given block height.
+// Returns an error if it couldn't fetch the proof.
+func (idx *FlatUtreexoProofIndex) fetchUtreexoProof(height int32) (
+	*wire.UData, error) {
+
+	targets, err := idx.fetchTargets(height)
+	if err != nil {
+		return nil, err
+	}
+
+	leafDatas, err := idx.fetchLeafDatas(height)
+	if err != nil {
+		return nil, err
+	}
+
+	proofHashes, err := idx.fetchProofHashes(height)
+	if err != nil {
+		return nil, err
+	}
+
+	ud := wire.UData{
+		AccProof: utreexo.Proof{
+			Targets: targets,
+			Proof:   proofHashes,
+		},
+		LeafDatas: leafDatas,
+	}
+
+	return &ud, nil
+}
+
+// fetchTargets fetches the targets at the given height. Returns an error if it couldn't
+// fetch it.
 func (idx *FlatUtreexoProofIndex) fetchTargets(height int32) ([]uint64, error) {
-	if height == 0 {
-		return []uint64{}, nil
-	}
-
-	if idx.config.Pruned {
-		return nil, fmt.Errorf("Cannot fetch targets as the node is pruned")
-	}
-
 	targetBytes, err := idx.targetState.FetchData(height)
 	if err != nil {
 		return nil, err
@@ -910,6 +888,21 @@ func (idx *FlatUtreexoProofIndex) fetchLeafDatas(height int32) ([]wire.LeafData,
 	r := bytes.NewReader(leafDataBytes)
 
 	return wire.DeserializeUtxoData(r)
+}
+
+// fetchProofHashes fetches the proof hashes at the given height. Returns an error if it
+// couldn't fetch it.
+func (idx *FlatUtreexoProofIndex) fetchProofHashes(height int32) ([]utreexo.Hash, error) {
+	proofHashesBytes, err := idx.proofState.FetchData(height)
+	if err != nil {
+		return nil, err
+	}
+	if proofHashesBytes == nil {
+		return nil, fmt.Errorf("Couldn't fetch proofHashess for height %d", height)
+	}
+	r := bytes.NewReader(proofHashesBytes)
+
+	return wire.ProofHashesDeserialize(r)
 }
 
 // GetLeafHashPositions returns the positions of the passed in hashes.
@@ -1058,13 +1051,14 @@ func (idx *FlatUtreexoProofIndex) addEmptyTTLs(height, numAdds int32) error {
 
 // storeProof serializes and stores the utreexo data in the proof state.
 func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error {
-	bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSize()))
-	err := ud.Serialize(bytesBuf)
+	proofBuf := bytes.NewBuffer(
+		make([]byte, 0, wire.BatchProofSerializeAccProofSize(&ud.AccProof)))
+	err := wire.ProofHashesSerialize(proofBuf, ud.AccProof.Proof)
 	if err != nil {
 		return err
 	}
 
-	err = idx.proofState.StoreData(height, bytesBuf.Bytes())
+	err = idx.proofState.StoreData(height, proofBuf.Bytes())
 	if err != nil {
 		return fmt.Errorf("store proof err. %v", err)
 	}
