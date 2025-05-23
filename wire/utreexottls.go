@@ -6,19 +6,24 @@ package wire
 
 import "io"
 
-// MaxUtreexoTTLSize is height 4 bytes, + varint len of ttls + uint16 size * max outputs per block.
-const MaxUtreexoTTLSize = 4 + MaxVarIntPayload + (99_984 * 2)
+// MaxUtreexoTTLSize is height 4 bytes, + varint len of ttls + varint size * max outputs per block.
+const MaxUtreexoTTLSize = 4 + MaxVarIntPayload + (99_984 * MaxVarIntPayload)
 
 // UtreexoTTL provides information about the time-to-live values of each added leaf to the
 // accumulator on a given block height. It's used for ibd optimization for utreexo nodes.
 type UtreexoTTL struct {
 	BlockHeight uint32
-	TTLs        []uint16
+	TTLs        []uint64
 }
 
 // SerializeSize returns how many bytes would be required to serialize the utreexo ttl.
 func (ut *UtreexoTTL) SerializeSize() int {
-	return 4 + VarIntSerializeSize(uint64(len(ut.TTLs))) + (2 * len(ut.TTLs))
+	size := 4 + VarIntSerializeSize(uint64(len(ut.TTLs)))
+	for _, ttl := range ut.TTLs {
+		size += VarIntSerializeSize(ttl)
+	}
+
+	return size
 }
 
 // Deserialize constructs a utreexo ttl from the given reader.
@@ -37,9 +42,9 @@ func (ut *UtreexoTTL) Deserialize(r io.Reader) error {
 		return err
 	}
 
-	ut.TTLs = make([]uint16, count)
+	ut.TTLs = make([]uint64, count)
 	for i := range ut.TTLs {
-		ut.TTLs[i], err = bs.Uint16(r, littleEndian)
+		ut.TTLs[i], err = ReadVarInt(r, 0)
 		if err != nil {
 			return err
 		}
@@ -64,7 +69,7 @@ func (ut *UtreexoTTL) Serialize(w io.Writer) error {
 	}
 
 	for _, ttl := range ut.TTLs {
-		err = bs.PutUint16(w, littleEndian, ttl)
+		err = WriteVarInt(w, 0, ttl)
 		if err != nil {
 			return err
 		}
