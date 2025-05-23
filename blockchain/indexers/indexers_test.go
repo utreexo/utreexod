@@ -1230,7 +1230,7 @@ func TestTTLs(t *testing.T) {
 	// Number of blocks we'll generate for the test.
 	maxHeight := int32(300)
 
-	expectAfterUndoTTLs := make([][]uint16, 0, maxHeight)
+	expectAfterUndoTTLs := make([][]uint64, 0, maxHeight)
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
 	for i := int32(1); i <= maxHeight; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
@@ -1267,7 +1267,7 @@ func TestTTLs(t *testing.T) {
 		}
 	}
 
-	ttls := make([][]uint16, 0, maxHeight)
+	ttls := make([][]uint64, 0, maxHeight)
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
