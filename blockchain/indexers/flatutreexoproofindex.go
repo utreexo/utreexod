@@ -115,9 +115,9 @@ type FlatUtreexoProofIndex struct {
 	utreexoRootsState utreexo.Pollard
 
 	// blockTTLState is the accumulator for all the ttls at each of the blocks.
-	// This is so that we can serve to peers the proof that the given
-	// ttls of a block is correct.
-	blockTTLState utreexo.Pollard
+	// Since their job is to provide proofs for the committed ttls, there's one
+	// for each block that there's a commitment for.
+	blockTTLState []utreexo.Pollard
 
 	// pStats are the proof size statistics that are kept for research purposes.
 	pStats proofStats
@@ -255,16 +255,24 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 	return nil
 }
 
-// initBlockTTLState initializes the accumulator for the ttl states that are final.
-// The ttls where they're still subject to change are skipped.
-func (idx *FlatUtreexoProofIndex) initBlockTTLState() error {
-	idx.blockTTLState = utreexo.NewAccumulator()
-
-	bestHeight := idx.ttlState.BestHeight()
-	for h := int32(1); h <= bestHeight; h++ {
+// initTTLState initializes an accumulator to the passed in height and returns it.
+// For each of the committed ttl, it checks that the ttl value is able to be calculated
+// at that height. If it's not, then the ttl is set to 0.
+func (idx *FlatUtreexoProofIndex) initTTLState(height int32) (*utreexo.Pollard, error) {
+	p := utreexo.NewAccumulator()
+	for h := int32(1); h <= height; h++ {
 		ttls, err := idx.fetchTTLs(h)
 		if err != nil {
-			return err
+			return nil, err
+		}
+
+		// If the leaf was spent after the given height, we reset it to 0
+		// as it's not spent at the height and thus doesn't have a ttl value
+		// we can use.
+		for i, ttl := range ttls {
+			if ttl+uint64(h) > uint64(height) {
+				ttls[i] = 0
+			}
 		}
 
 		ttl := wire.UtreexoTTL{
@@ -275,18 +283,17 @@ func (idx *FlatUtreexoProofIndex) initBlockTTLState() error {
 		buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
 		err = ttl.Serialize(buf)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		rootHash := sha256.Sum256(buf.Bytes())
 
-		err = idx.blockTTLState.Modify(
-			[]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+		err = p.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return &p, nil
 }
 
 // Init initializes the flat utreexo proof index. This is part of the Indexer
@@ -314,13 +321,8 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		return err
 	}
 
+	// Nothing to do if we're not pruned.
 	if !idx.config.Pruned {
-		// Only build the block ttl state if we're not pruned.
-		err = idx.initBlockTTLState()
-		if err != nil {
-			return err
-		}
-
 		return nil
 	}
 
@@ -756,13 +758,6 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 		}
 
 		err = idx.leafDataState.DisconnectBlock(block.Height())
-		if err != nil {
-			return err
-		}
-
-		// Re-initializes to the current accumulator roots, effectively
-		// disconnecting a block.
-		err = idx.initBlockTTLState()
 		if err != nil {
 			return err
 		}
@@ -1261,28 +1256,33 @@ func (idx *FlatUtreexoProofIndex) updateRootsState() error {
 
 // updateBlockTTLState updates the latest ttls that have have became final.
 func (idx *FlatUtreexoProofIndex) updateBlockTTLState(height int32) error {
-	ttls, err := idx.fetchTTLs(height)
-	if err != nil {
-		return err
+	// This means we've already initialized everything that we can.
+	if len(idx.blockTTLState) == len(idx.config.Params.TTL.Stump) {
+		return nil
 	}
 
-	ttl := wire.UtreexoTTL{
-		BlockHeight: uint32(height),
-		TTLs:        ttls,
+	for i, stump := range idx.config.Params.TTL.Stump {
+		if height < int32(stump.NumLeaves) {
+			continue
+		}
+
+		// Skip if we've already initialized this ttl state.
+		if i < len(idx.blockTTLState) {
+			continue
+		}
+
+		p, err := idx.initTTLState(height)
+		if err != nil {
+			return err
+		}
+
+		idx.blockTTLState = append(idx.blockTTLState, *p)
 	}
 
-	buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
-	err = ttl.Serialize(buf)
-	if err != nil {
-		return err
-	}
-	rootHash := sha256.Sum256(buf.Bytes())
-
-	return idx.blockTTLState.Modify(
-		[]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+	return nil
 }
 
-// FetchUtreexoSummaries fetches all the summaries and attaches a proof for those summaries if requsted with the includeProof boolean.
+// FetchUtreexoSummaries fetches all the summaries.
 func (idx *FlatUtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash) (*wire.MsgUtreexoSummaries, error) {
 	msg := wire.MsgUtreexoSummaries{
 		Summaries: make([]*wire.UtreexoBlockSummary, 0, len(blockHashes)),
@@ -1331,11 +1331,16 @@ func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (
 }
 
 // FetchTTLRoots returns the roots of the ttl summary state.
-func (idx *FlatUtreexoProofIndex) FetchTTLRoots() utreexo.Stump {
-	return utreexo.Stump{
-		Roots:     idx.blockTTLState.GetRoots(),
-		NumLeaves: idx.blockTTLState.GetNumLeaves(),
+func (idx *FlatUtreexoProofIndex) FetchTTLRoots() (utreexo.Stump, error) {
+	p, err := idx.initTTLState(idx.ttlState.BestHeight())
+	if err != nil {
+		return utreexo.Stump{}, err
 	}
+
+	return utreexo.Stump{
+		Roots:     p.GetRoots(),
+		NumLeaves: p.GetNumLeaves(),
+	}, nil
 }
 
 // FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.
