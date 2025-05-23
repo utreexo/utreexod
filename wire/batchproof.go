@@ -64,28 +64,32 @@ func BatchProofSerializeSize(bp *utreexo.Proof) int {
 //
 // -----------------------------------------------------------------------------
 
-// BatchProofSerialize encodes the BatchProof to w using the BatchProof
-// serialization format.
-func BatchProofSerialize(w io.Writer, bp *utreexo.Proof) error {
-	err := WriteVarInt(w, 0, uint64(len(bp.Targets)))
+// ProofTargetsSerialize serializes the targets to w.
+func ProofTargetsSerialize(w io.Writer, targets []uint64) error {
+	err := WriteVarInt(w, 0, uint64(len(targets)))
 	if err != nil {
 		return err
 	}
 
-	for _, t := range bp.Targets {
+	for _, t := range targets {
 		err = WriteVarInt(w, 0, t)
 		if err != nil {
 			return err
 		}
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(bp.Proof)))
+	return nil
+}
+
+// ProofHashesSerialize serializes the hashes to w.
+func ProofHashesSerialize(w io.Writer, hashes []utreexo.Hash) error {
+	err := WriteVarInt(w, 0, uint64(len(hashes)))
 	if err != nil {
 		return err
 	}
 
 	// then the rest is just hashes
-	for _, h := range bp.Proof {
+	for _, h := range hashes {
 		_, err = w.Write(h[:])
 		if err != nil {
 			return err
@@ -95,35 +99,50 @@ func BatchProofSerialize(w io.Writer, bp *utreexo.Proof) error {
 	return nil
 }
 
-// BatchProofSerialize decodes the BatchProof to r using the BatchProof
+// BatchProofSerialize encodes the BatchProof to w using the BatchProof
 // serialization format.
-func BatchProofDeserialize(r io.Reader) (*utreexo.Proof, error) {
+func BatchProofSerialize(w io.Writer, bp *utreexo.Proof) error {
+	err := ProofTargetsSerialize(w, bp.Targets)
+	if err != nil {
+		return err
+	}
+
+	return ProofHashesSerialize(w, bp.Proof)
+}
+
+// ProofTargetsDeserialize deserializes r to targets using the BatchProof
+// serialization format.
+func ProofTargetsDeserialize(r io.Reader) ([]uint64, error) {
 	targetCount, err := ReadVarInt(r, 0)
 	if err != nil {
 		return nil, err
 	}
-
-	proof := new(utreexo.Proof)
-
-	if targetCount > 0 {
-		targets := make([]uint64, 0, targetCount)
-		for i := 0; i < int(targetCount); i++ {
-			target, err := ReadVarInt(r, 0)
-			if err != nil {
-				return nil, err
-			}
-
-			targets = append(targets, target)
-		}
-		proof.Targets = targets
+	if targetCount == 0 {
+		return nil, nil
 	}
 
+	targets := make([]uint64, 0, targetCount)
+	for i := 0; i < int(targetCount); i++ {
+		target, err := ReadVarInt(r, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		targets = append(targets, target)
+	}
+
+	return targets, nil
+}
+
+// ProofHashesDeserialize deserializes r to proof hashes using the BatchProof
+// serialization format.
+func ProofHashesDeserialize(r io.Reader) ([]utreexo.Hash, error) {
 	proofCount, err := ReadVarInt(r, 0)
 	if err != nil {
 		return nil, err
 	}
 	if proofCount == 0 {
-		return proof, nil
+		return nil, nil
 	}
 
 	proofs := make([]utreexo.Hash, 0, proofCount)
@@ -135,7 +154,25 @@ func BatchProofDeserialize(r io.Reader) (*utreexo.Proof, error) {
 		}
 		proofs = append(proofs, hash)
 	}
-	proof.Proof = proofs
+
+	return proofs, nil
+}
+
+// BatchProofSerialize decodes the BatchProof to r using the BatchProof
+// serialization format.
+func BatchProofDeserialize(r io.Reader) (*utreexo.Proof, error) {
+	proof := new(utreexo.Proof)
+
+	var err error
+	proof.Targets, err = ProofTargetsDeserialize(r)
+	if err != nil {
+		return nil, err
+	}
+
+	proof.Proof, err = ProofHashesDeserialize(r)
+	if err != nil {
+		return nil, err
+	}
 
 	return proof, nil
 }

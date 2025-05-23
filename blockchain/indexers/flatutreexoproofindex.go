@@ -33,9 +33,17 @@ const (
 	// directory.
 	flatUtreexoProofIndexType = "flat"
 
+	// flatUtreexoTargetName is the name given to the target data of the flat utreexo
+	// target index.  This name is used as the dataFile name in the flat files.
+	flatUtreexoTargetName = "target"
+
 	// flatUtreexoProofName is the name given to the proof data of the flat utreexo
 	// proof index.  This name is used as the dataFile name in the flat files.
 	flatUtreexoProofName = "proof"
+
+	// flatUtreexoLeafDataName is the name given to the leafdata of the flat utreexo
+	// proof index.  This name is used as the dataFile name in the flat files.
+	flatUtreexoLeafDataName = "leafdata"
 
 	// flatUtreexoUndoName is the name given to the undo data of the flat utreexo
 	// proof index.  This name is used as the dataFile name in the flat files.
@@ -81,7 +89,9 @@ var _ NeedsInputser = (*FlatUtreexoProofIndex)(nil)
 // FlatUtreexoProofIndex implements a utreexo accumulator proof index for all the blocks.
 // In a flat file.
 type FlatUtreexoProofIndex struct {
+	targetState     FlatFileState
 	proofState      FlatFileState
+	leafDataState   FlatFileState
 	undoState       FlatFileState
 	proofStatsState FlatFileState
 	rootsState      FlatFileState
@@ -132,11 +142,35 @@ func (idx *FlatUtreexoProofIndex) NeedsInputs() bool {
 // keep ths entire indexer consistent.
 func (idx *FlatUtreexoProofIndex) consistentFlatFileState(tipHeight int32) error {
 	if !idx.config.Pruned {
+		if idx.targetState.BestHeight() != 0 &&
+			tipHeight < idx.targetState.BestHeight() {
+			bestHeight := idx.targetState.BestHeight()
+			for tipHeight != bestHeight && bestHeight > 0 {
+				err := idx.targetState.DisconnectBlock(bestHeight)
+				if err != nil {
+					return err
+				}
+				bestHeight--
+			}
+		}
+
 		if idx.proofState.BestHeight() != 0 &&
 			tipHeight < idx.proofState.BestHeight() {
 			bestHeight := idx.proofState.BestHeight()
 			for tipHeight != bestHeight && bestHeight > 0 {
 				err := idx.proofState.DisconnectBlock(bestHeight)
+				if err != nil {
+					return err
+				}
+				bestHeight--
+			}
+		}
+
+		if idx.leafDataState.BestHeight() != 0 &&
+			tipHeight < idx.leafDataState.BestHeight() {
+			bestHeight := idx.leafDataState.BestHeight()
+			for tipHeight != bestHeight && bestHeight > 0 {
+				err := idx.leafDataState.DisconnectBlock(bestHeight)
 				if err != nil {
 					return err
 				}
@@ -303,11 +337,6 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		// doesn't exist.
 		return nil
 	}
-	proofState, err := loadFlatFileState(idx.config.DataDir, flatUtreexoProofName)
-	if err != nil {
-		return err
-	}
-	idx.proofState = *proofState
 
 	// Nothing to do if the best height is 0.
 	bestHeight := chain.BestSnapshot().Height
@@ -335,17 +364,7 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	}
 
 	for height := bestHeight - (undoCount - 1); height <= bestHeight; height++ {
-		// Fetch and deserialize proof.
-		proofBytes, err := idx.proofState.FetchData(height)
-		if err != nil {
-			return err
-		}
-		if proofBytes == nil {
-			return fmt.Errorf("Couldn't fetch Utreexo proof for height %d", height)
-		}
-		r := bytes.NewReader(proofBytes)
-		ud := new(wire.UData)
-		err = ud.Deserialize(r)
+		ud, err := idx.fetchUtreexoProof(height)
 		if err != nil {
 			return err
 		}
@@ -373,8 +392,13 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	}
 
 	// Remove all the proofs as we don't serve proofs as a
-	// pruned brigde node.
+	// pruned bridge node.
 	err = deleteFlatFile(proofPath)
+	if err != nil {
+		return err
+	}
+	targetPath := flatFilePath(idx.config.DataDir, flatUtreexoTargetName)
+	err = deleteFlatFile(targetPath)
 	if err != nil {
 		return err
 	}
@@ -718,12 +742,22 @@ func (idx *FlatUtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcut
 	// Check if we're at a height where proof was generated. Only check if we're not
 	// pruned as we don't keep the historical proofs as a pruned node.
 	if !idx.config.Pruned {
+		err = idx.targetState.DisconnectBlock(block.Height())
+		if err != nil {
+			return err
+		}
+
 		err = idx.proofState.DisconnectBlock(block.Height())
 		if err != nil {
 			return err
 		}
 
 		err = idx.ttlState.DisconnectBlock(block.Height())
+		if err != nil {
+			return err
+		}
+
+		err = idx.leafDataState.DisconnectBlock(block.Height())
 		if err != nil {
 			return err
 		}
@@ -792,22 +826,83 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (
 		return nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
 	}
 
-	proofBytes, err := idx.proofState.FetchData(height)
-	if err != nil {
-		return nil, err
-	}
-	if proofBytes == nil {
-		return nil, fmt.Errorf("Couldn't fetch Utreexo proof for height %d", height)
-	}
-	r := bytes.NewReader(proofBytes)
+	return idx.fetchUtreexoProof(height)
+}
 
-	ud := new(wire.UData)
-	err = ud.Deserialize(r)
+// fetchUtreexoProof returns the Utreexo proof data for the given block height.
+// Returns an error if it couldn't fetch the proof.
+func (idx *FlatUtreexoProofIndex) fetchUtreexoProof(height int32) (
+	*wire.UData, error) {
+
+	targets, err := idx.fetchTargets(height)
 	if err != nil {
 		return nil, err
 	}
 
-	return ud, nil
+	leafDatas, err := idx.fetchLeafDatas(height)
+	if err != nil {
+		return nil, err
+	}
+
+	proofHashes, err := idx.fetchProofHashes(height)
+	if err != nil {
+		return nil, err
+	}
+
+	ud := wire.UData{
+		AccProof: utreexo.Proof{
+			Targets: targets,
+			Proof:   proofHashes,
+		},
+		LeafDatas: leafDatas,
+	}
+
+	return &ud, nil
+}
+
+// fetchTargets fetches the targets at the given height. Returns an error if it couldn't
+// fetch it.
+func (idx *FlatUtreexoProofIndex) fetchTargets(height int32) ([]uint64, error) {
+	targetBytes, err := idx.targetState.FetchData(height)
+	if err != nil {
+		return nil, err
+	}
+	if targetBytes == nil {
+		return nil, fmt.Errorf("Couldn't fetch targets for height %d", height)
+	}
+	r := bytes.NewReader(targetBytes)
+
+	return wire.ProofTargetsDeserialize(r)
+}
+
+// fetchLeafDatas fetches the leafdatas at the given height. Returns an error if it couldn't
+// fetch it.
+func (idx *FlatUtreexoProofIndex) fetchLeafDatas(height int32) ([]wire.LeafData, error) {
+	leafDataBytes, err := idx.leafDataState.FetchData(height)
+	if err != nil {
+		return nil, err
+	}
+	if leafDataBytes == nil {
+		return nil, fmt.Errorf("Couldn't fetch leafDatas for height %d", height)
+	}
+	r := bytes.NewReader(leafDataBytes)
+
+	return wire.DeserializeUtxoData(r)
+}
+
+// fetchProofHashes fetches the proof hashes at the given height. Returns an error if it
+// couldn't fetch it.
+func (idx *FlatUtreexoProofIndex) fetchProofHashes(height int32) ([]utreexo.Hash, error) {
+	proofHashesBytes, err := idx.proofState.FetchData(height)
+	if err != nil {
+		return nil, err
+	}
+	if proofHashesBytes == nil {
+		return nil, fmt.Errorf("Couldn't fetch proofHashess for height %d", height)
+	}
+	r := bytes.NewReader(proofHashesBytes)
+
+	return wire.ProofHashesDeserialize(r)
 }
 
 // GetLeafHashPositions returns the positions of the passed in hashes.
@@ -956,15 +1051,39 @@ func (idx *FlatUtreexoProofIndex) addEmptyTTLs(height, numAdds int32) error {
 
 // storeProof serializes and stores the utreexo data in the proof state.
 func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error {
-	bytesBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeSize()))
-	err := ud.Serialize(bytesBuf)
+	proofBuf := bytes.NewBuffer(
+		make([]byte, 0, wire.BatchProofSerializeAccProofSize(&ud.AccProof)))
+	err := wire.ProofHashesSerialize(proofBuf, ud.AccProof.Proof)
 	if err != nil {
 		return err
 	}
 
-	err = idx.proofState.StoreData(height, bytesBuf.Bytes())
+	err = idx.proofState.StoreData(height, proofBuf.Bytes())
 	if err != nil {
 		return fmt.Errorf("store proof err. %v", err)
+	}
+
+	targetsBuf := bytes.NewBuffer(
+		make([]byte, 0, wire.BatchProofSerializeTargetSize(&ud.AccProof)))
+	err = wire.ProofTargetsSerialize(targetsBuf, ud.AccProof.Targets)
+	if err != nil {
+		return err
+	}
+
+	err = idx.targetState.StoreData(height, targetsBuf.Bytes())
+	if err != nil {
+		return fmt.Errorf("store targets err. %v", err)
+	}
+
+	leafBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeUtxoDataSize()))
+	err = wire.SerializeUtxoData(leafBuf, ud.LeafDatas)
+	if err != nil {
+		return err
+	}
+
+	err = idx.leafDataState.StoreData(height, leafBuf.Bytes())
+	if err != nil {
+		return fmt.Errorf("store targets err. %v", err)
 	}
 
 	return nil
@@ -1308,18 +1427,29 @@ func NewFlatUtreexoProofIndex(pruned bool, chainParams *chaincfg.Params,
 
 	// Init the utreexo proof state if the node isn't pruned.
 	if !idx.config.Pruned {
+		targetState, err := loadFlatFileState(dataDir, flatUtreexoTargetName)
+		if err != nil {
+			return nil, err
+		}
+		idx.targetState = *targetState
+
 		proofState, err := loadFlatFileState(dataDir, flatUtreexoProofName)
 		if err != nil {
 			return nil, err
 		}
 		idx.proofState = *proofState
 
+		leafDataState, err := loadFlatFileState(dataDir, flatUtreexoLeafDataName)
+		if err != nil {
+			return nil, err
+		}
+		idx.leafDataState = *leafDataState
+
 		ttlsState, err := loadFlatFileState(dataDir, flatTTLsName)
 		if err != nil {
 			return nil, err
 		}
 		idx.ttlState = *ttlsState
-
 	}
 
 	// Init the undo block state.
@@ -1357,8 +1487,20 @@ func DropFlatUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan 
 		return err
 	}
 
+	targetPath := flatFilePath(dataDir, flatUtreexoTargetName)
+	err = deleteFlatFile(targetPath)
+	if err != nil {
+		return err
+	}
+
 	proofPath := flatFilePath(dataDir, flatUtreexoProofName)
 	err = deleteFlatFile(proofPath)
+	if err != nil {
+		return err
+	}
+
+	leafDataPath := flatFilePath(dataDir, flatUtreexoLeafDataName)
+	err = deleteFlatFile(leafDataPath)
 	if err != nil {
 		return err
 	}
