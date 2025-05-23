@@ -100,7 +100,7 @@ type AssumeUtreexo struct {
 // TTLState is the pre-committed ttl roots that allows nodes during ibd
 // to verifies the received ttls.
 type TTLState struct {
-	Stump utreexo.Stump
+	Stump []utreexo.Stump
 }
 
 // DNSSeed identifies a DNS seed.
@@ -961,23 +961,25 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		AssumeUtreexoPoint: assumeUtreexoPoint,
 
 		TTL: TTLState{
-			Stump: utreexo.Stump{
-				Roots: []utreexo.Hash{
-					newUtreexoHashFromStr("db8a4f9f26162e20895fb0a2cb121c77e5aeb3b7ff4b0fd544495e85f1ed9819"),
-					newUtreexoHashFromStr("c41fc426a66e3fc9f47921b9731d7c91892207a914449e3cb01b0f363f2cab90"),
-					newUtreexoHashFromStr("de3c9caf8d980eb83d27c6b5393c3729a01b5c148f88f37863f4bcd9a305d470"),
-					newUtreexoHashFromStr("c7633567dccf7f009136d6ce0ee3b81f630343e9192c02bc5e682b3acc62653d"),
-					newUtreexoHashFromStr("3accecf9f47dbf790868a7390690e1341d1f2c837a0fd38c4e58351cbc53fb09"),
-					newUtreexoHashFromStr("b529ee50bf97b5c7eb89018a04e48024fdf8ad5b4649ff24669d4b0bda292ce5"),
-					newUtreexoHashFromStr("bc08d4b6584c37a9d4f6b9354bcaa3a99850abdb40335b48bdfc5efeda88bfc9"),
-					newUtreexoHashFromStr("4d6e4040322dee7b986fd18c363bebf604304645f36fd6e028720212c8e5c38f"),
-					newUtreexoHashFromStr("36bff69940a71d4ac421ee94c3d7ef9051647d0cb8d1ba58eeaeea8a3a330f36"),
-					newUtreexoHashFromStr("2eeb7fddb6aec53b47006b78aed28a0764b557a30489f17783bd8e41946370dc"),
-					newUtreexoHashFromStr("86cf5e870a7d1bcdda49f0975d48477677013c787934c270f24284faeaf20c00"),
-					newUtreexoHashFromStr("aa848d204d4a746a9f17de1bc08eebd3d3ec8a4506dc08ee49f183c10ca768f5"),
-					newUtreexoHashFromStr("02852b43dde6cfbde1cf04571314f37cc381f260232c6755a2808fe148180db9"),
+			Stump: []utreexo.Stump{
+				{
+					Roots: []utreexo.Hash{
+						newUtreexoHashFromStr("db8a4f9f26162e20895fb0a2cb121c77e5aeb3b7ff4b0fd544495e85f1ed9819"),
+						newUtreexoHashFromStr("c41fc426a66e3fc9f47921b9731d7c91892207a914449e3cb01b0f363f2cab90"),
+						newUtreexoHashFromStr("de3c9caf8d980eb83d27c6b5393c3729a01b5c148f88f37863f4bcd9a305d470"),
+						newUtreexoHashFromStr("c7633567dccf7f009136d6ce0ee3b81f630343e9192c02bc5e682b3acc62653d"),
+						newUtreexoHashFromStr("3accecf9f47dbf790868a7390690e1341d1f2c837a0fd38c4e58351cbc53fb09"),
+						newUtreexoHashFromStr("b529ee50bf97b5c7eb89018a04e48024fdf8ad5b4649ff24669d4b0bda292ce5"),
+						newUtreexoHashFromStr("bc08d4b6584c37a9d4f6b9354bcaa3a99850abdb40335b48bdfc5efeda88bfc9"),
+						newUtreexoHashFromStr("4d6e4040322dee7b986fd18c363bebf604304645f36fd6e028720212c8e5c38f"),
+						newUtreexoHashFromStr("36bff69940a71d4ac421ee94c3d7ef9051647d0cb8d1ba58eeaeea8a3a330f36"),
+						newUtreexoHashFromStr("2eeb7fddb6aec53b47006b78aed28a0764b557a30489f17783bd8e41946370dc"),
+						newUtreexoHashFromStr("86cf5e870a7d1bcdda49f0975d48477677013c787934c270f24284faeaf20c00"),
+						newUtreexoHashFromStr("aa848d204d4a746a9f17de1bc08eebd3d3ec8a4506dc08ee49f183c10ca768f5"),
+						newUtreexoHashFromStr("02852b43dde6cfbde1cf04571314f37cc381f260232c6755a2808fe148180db9"),
+					},
+					NumLeaves: 253_166,
 				},
-				NumLeaves: 253_166,
 			},
 		},
 

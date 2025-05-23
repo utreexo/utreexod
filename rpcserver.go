@@ -3532,7 +3532,13 @@ func handleGetUtreexoTTLRoots(s *rpcServer, cmd interface{}, closeChan <-chan st
 		}
 	}
 
-	stump := s.cfg.FlatUtreexoProofIndex.FetchTTLRoots()
+	stump, err := s.cfg.FlatUtreexoProofIndex.FetchTTLRoots()
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCMisc,
+			Message: fmt.Sprintf("Couldn't fetch the ttl roots. Error: %v", err),
+		}
+	}
 
 	rootsStr := make([]string, 0, len(stump.Roots))
 	for _, root := range stump.Roots {

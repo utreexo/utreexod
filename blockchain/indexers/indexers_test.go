@@ -1,6 +1,8 @@
 package indexers
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"math/rand"
 	"os"
@@ -1217,6 +1219,26 @@ func TestUtreexoRootsAndSummaryState(t *testing.T) {
 	}
 }
 
+func checkTTLRoots(t *testing.T, maxHeight int32, expected []utreexo.Stump, indexes []Indexer) {
+	for i := int32(1); i <= maxHeight; i++ {
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				gotPollard, err := idxType.initTTLState(i)
+				if err != nil {
+					t.Fatal(err)
+				}
+				gotStump := utreexo.Stump{
+					Roots:     gotPollard.GetRoots(),
+					NumLeaves: gotPollard.GetNumLeaves(),
+				}
+
+				require.Equal(t, expected[i-1], gotStump)
+			}
+		}
+	}
+}
+
 func TestTTLs(t *testing.T) {
 	// Always remove the root on return.
 	defer os.RemoveAll(testDbRoot)
@@ -1228,7 +1250,9 @@ func TestTTLs(t *testing.T) {
 	var nextSpends []*blockchain.SpendableOut
 
 	// Number of blocks we'll generate for the test.
-	maxHeight := int32(300)
+	maxHeight := int32(500)
+
+	expectedStumps := make([]utreexo.Stump, 0, maxHeight)
 
 	expectAfterUndoTTLs := make([][]uint64, 0, maxHeight)
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
@@ -1265,7 +1289,41 @@ func TestTTLs(t *testing.T) {
 				}
 			}
 		}
+
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				stump := utreexo.Stump{}
+				for h := int32(1); h <= i; h++ {
+					ttls, err := idxType.fetchTTLs(h)
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					ttl := wire.UtreexoTTL{
+						BlockHeight: uint32(h),
+						TTLs:        ttls,
+					}
+
+					buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
+					err = ttl.Serialize(buf)
+					if err != nil {
+						t.Fatal(err)
+					}
+					rootHash := sha256.Sum256(buf.Bytes())
+
+					_, err = stump.Update(nil, []utreexo.Hash{rootHash}, utreexo.Proof{})
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				expectedStumps = append(expectedStumps, stump)
+			}
+		}
 	}
+
+	checkTTLRoots(t, maxHeight, expectedStumps, indexes)
 
 	ttls := make([][]uint64, 0, maxHeight)
 	for _, indexer := range indexes {
@@ -1281,12 +1339,14 @@ func TestTTLs(t *testing.T) {
 		}
 	}
 
+	// Undo a block.
 	bestHash := chain.BestSnapshot().Hash
 	err := chain.InvalidateBlock(&bestHash)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	// Check if the ttls match up to the previous block.
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
@@ -1300,11 +1360,13 @@ func TestTTLs(t *testing.T) {
 		}
 	}
 
+	// Re-do that block.
 	err = chain.ReconsiderBlock(&bestHash)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	// Check if the ttls still match up.
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
