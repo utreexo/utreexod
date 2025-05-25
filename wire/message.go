@@ -41,6 +41,7 @@ const (
 	CmdUtreexoTx           = "utreexotx"
 	CmdGetHeaders          = "getheaders"
 	CmdGetUtreexoSummaries = "gusummaries"
+	CmdGetUtreexoTTLs      = "getuttls"
 	CmdHeaders             = "headers"
 	CmdUtreexoSummaries    = "usummaries"
 	CmdUtreexoTTLs         = "uttls"
@@ -153,6 +154,9 @@ func makeEmptyMessage(command string) (Message, error) {
 
 	case CmdGetUtreexoSummaries:
 		msg = &MsgGetUtreexoSummaries{}
+
+	case CmdGetUtreexoTTLs:
+		msg = &MsgGetUtreexoTTLs{}
 
 	case CmdHeaders:
 		msg = &MsgHeaders{}
