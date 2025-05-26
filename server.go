@@ -2665,6 +2665,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 			OnUtreexoProof:        sp.OnUtreexoProof,
 			OnGetUtreexoProof:     sp.OnGetUtreexoProof,
 			OnGetUtreexoRoot:      sp.OnGetUtreexoRoot,
+			OnGetUtreexoTTLs:      sp.OnGetUtreexoTTLs,
 			OnGetData:             sp.OnGetData,
 			OnGetBlocks:           sp.OnGetBlocks,
 			OnGetHeaders:          sp.OnGetHeaders,
