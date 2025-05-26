@@ -1400,6 +1400,27 @@ func (sp *serverPeer) OnGetUtreexoRoot(_ *peer.Peer, msg *wire.MsgGetUtreexoRoot
 	sp.QueueMessage(utreexoRootMsg, nil)
 }
 
+// OnGetUtreexoTTLs is invoked when a peer receives a getutreexottls bitcoin message.
+func (sp *serverPeer) OnGetUtreexoTTLs(_ *peer.Peer, msg *wire.MsgGetUtreexoTTLs) {
+	// Ignore getutreexottls requests if not in sync.
+	if !sp.server.syncManager.IsCurrent() {
+		return
+	}
+
+	if sp.server.flatUtreexoProofIndex == nil {
+		return
+	}
+
+	ttlsMsg, err := sp.server.flatUtreexoProofIndex.FetchTTLs(
+		msg.Version, msg.StartHeight, msg.MaxReceiveExponent)
+	if err != nil {
+		peerLog.Errorf("Error retrieving ttls: %v", err)
+		return
+	}
+
+	sp.QueueMessage(&ttlsMsg, nil)
+}
+
 // OnUtreexoProof is invoked when a peer receives a utreexoproof bitcoin message.
 func (sp *serverPeer) OnUtreexoProof(_ *peer.Peer, msg *wire.MsgUtreexoProof) {
 	sp.server.syncManager.QueueUtreexoProof(msg, sp.Peer)
