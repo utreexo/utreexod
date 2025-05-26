@@ -260,6 +260,21 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 // at that height. If it's not, then the ttl is set to 0.
 func (idx *FlatUtreexoProofIndex) initTTLState(height int32) (*utreexo.Pollard, error) {
 	p := utreexo.NewAccumulator()
+
+	// Add ttl for block 0. This is so that the ttl on height 1 also has a target
+	// of 1.
+	emptyTTL := wire.UtreexoTTL{}
+	buf := bytes.NewBuffer(make([]byte, 0, emptyTTL.SerializeSize()))
+	err := emptyTTL.Serialize(buf)
+	if err != nil {
+		return nil, err
+	}
+	rootHash := sha256.Sum256(buf.Bytes())
+	err = p.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+	if err != nil {
+		return nil, err
+	}
+
 	for h := int32(1); h <= height; h++ {
 		ttls, err := idx.fetchTTLs(h)
 		if err != nil {

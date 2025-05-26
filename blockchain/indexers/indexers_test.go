@@ -1341,6 +1341,19 @@ func TestTTLs(t *testing.T) {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
 				stump := utreexo.Stump{}
+
+				// Add block 0 ttls.
+				emptyTTL := wire.UtreexoTTL{}
+				buf := bytes.NewBuffer(make([]byte, 0, emptyTTL.SerializeSize()))
+				err = emptyTTL.Serialize(buf)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = stump.Update(nil, []utreexo.Hash{sha256.Sum256(buf.Bytes())}, utreexo.Proof{})
+				if err != nil {
+					t.Fatal(err)
+				}
+
 				for h := int32(1); h <= i; h++ {
 					ttls, err := idxType.fetchTTLs(h)
 					if err != nil {
