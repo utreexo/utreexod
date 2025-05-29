@@ -66,6 +66,9 @@ const (
 	// a utreexo accumulator proof should be generated.  An interval of 10 will
 	// make the proof be generated on blocks 10, 20, 30 and so on.
 	defaultProofGenInterval = 10
+
+	// ttlSize denotes how big each ttl is. It's 16 because each ttl is 2 uint64s.
+	ttlSize = 16
 )
 
 var (
@@ -1060,10 +1063,10 @@ func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
 		return nil, fmt.Errorf("Couldn't fetch ttl data for height %d", height)
 	}
 
-	ttls := make([]uint64, len(ttlBytes)/8)
+	ttls := make([]uint64, len(ttlBytes)/ttlSize)
 	for i := range ttls {
-		start := i * 8
-		ttls[i] = byteOrder.Uint64(ttlBytes[start : start+8])
+		start := i * ttlSize
+		ttls[i] = byteOrder.Uint64(ttlBytes[start : start+ttlSize])
 	}
 
 	return ttls, nil
@@ -1076,10 +1079,10 @@ func (idx *FlatUtreexoProofIndex) resetTTLs(ud *wire.UData, createdIndexes []uin
 		return nil
 	}
 
-	buf := [8]byte{}
+	buf := [ttlSize]byte{}
 	for i, ld := range ud.LeafDatas {
 		cIndex := createdIndexes[i]
-		offset := int32(cIndex) * 8
+		offset := int32(cIndex) * ttlSize
 		err := idx.ttlState.OverWrite(ld.Height, offset, buf[:])
 		if err != nil {
 			return err
@@ -1095,14 +1098,14 @@ func writeTTLs(curHeight int32, createdIndexes []uint32, lds []wire.LeafData, tt
 	if ttlIdx == nil || len(lds) == 0 {
 		return nil
 	}
-	buf := [8]byte{}
+	buf := [ttlSize]byte{}
 
 	for i, ld := range lds {
 		ttl := uint64(curHeight - ld.Height)
 		byteOrder.PutUint64(buf[:], ttl)
 
 		cIndex := createdIndexes[i]
-		offset := int32(cIndex) * 8
+		offset := int32(cIndex) * ttlSize
 		err := ttlIdx.OverWrite(ld.Height, offset, buf[:])
 		if err != nil {
 			return err
@@ -1119,7 +1122,7 @@ func (idx *FlatUtreexoProofIndex) writeTTLs(curHeight int32, createdIndexes []ui
 
 // addEmptyTTLs adds slots for every newly created leaf so that they may be marked in the future when they're spent.
 func (idx *FlatUtreexoProofIndex) addEmptyTTLs(height, numAdds int32) error {
-	buf := make([]byte, numAdds*8)
+	buf := make([]byte, numAdds*ttlSize)
 	err := idx.ttlState.StoreData(height, buf)
 	if err != nil {
 		return fmt.Errorf("store ttl err. %v", err)
