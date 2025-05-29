@@ -69,6 +69,9 @@ const (
 
 	// ttlSize denotes how big each ttl is. It's 16 because each ttl is 2 uint64s.
 	ttlSize = 16
+
+	// size of a uint64. Shame go std lib doesn't provide it.
+	uint64Size = 8
 )
 
 var (
@@ -561,7 +564,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	err = idx.writeTTLs(block.Height(), createdIndexes, ud.LeafDatas)
+	err = idx.writeTTLs(block.Height(), createdIndexes, ud.AccProof.Targets, ud.LeafDatas)
 	if err != nil {
 		return err
 	}
@@ -1093,7 +1096,9 @@ func (idx *FlatUtreexoProofIndex) resetTTLs(ud *wire.UData, createdIndexes []uin
 }
 
 // writeTTLs writes the ttls at the given heights and indexes.
-func writeTTLs(curHeight int32, createdIndexes []uint32, lds []wire.LeafData, ttlIdx *FlatFileState) error {
+func writeTTLs(curHeight int32, createdIndexes []uint32, targets []uint64, lds []wire.LeafData,
+	ttlIdx *FlatFileState) error {
+
 	// Nothing to do.
 	if ttlIdx == nil || len(lds) == 0 {
 		return nil
@@ -1102,7 +1107,8 @@ func writeTTLs(curHeight int32, createdIndexes []uint32, lds []wire.LeafData, tt
 
 	for i, ld := range lds {
 		ttl := uint64(curHeight - ld.Height)
-		byteOrder.PutUint64(buf[:], ttl)
+		byteOrder.PutUint64(buf[:uint64Size], ttl)
+		byteOrder.PutUint64(buf[uint64Size:], targets[i])
 
 		cIndex := createdIndexes[i]
 		offset := int32(cIndex) * ttlSize
@@ -1116,8 +1122,10 @@ func writeTTLs(curHeight int32, createdIndexes []uint32, lds []wire.LeafData, tt
 }
 
 // writeTTLs is a wrapper on raw writeTTLs.
-func (idx *FlatUtreexoProofIndex) writeTTLs(curHeight int32, createdIndexes []uint32, lds []wire.LeafData) error {
-	return writeTTLs(curHeight, createdIndexes, lds, &idx.ttlState)
+func (idx *FlatUtreexoProofIndex) writeTTLs(
+	curHeight int32, createdIndexes []uint32, targets []uint64, lds []wire.LeafData) error {
+
+	return writeTTLs(curHeight, createdIndexes, targets, lds, &idx.ttlState)
 }
 
 // addEmptyTTLs adds slots for every newly created leaf so that they may be marked in the future when they're spent.

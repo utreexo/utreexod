@@ -513,7 +513,7 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 				return err
 			}
 
-			err = writeTTLs(block.Height(), createIndexes, ud.LeafDatas, ttlIdx)
+			err = writeTTLs(block.Height(), createIndexes, ud.AccProof.Targets, ud.LeafDatas, ttlIdx)
 			if err != nil {
 				return err
 			}
