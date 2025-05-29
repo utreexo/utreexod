@@ -1027,7 +1027,7 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 	}
 
 	_, bestHeaderHeight := sm.chain.BestHeader()
-	exponent := wire.GetUtreexoExponent(startHeight, bestHeaderHeight, bestHeaderHeight)
+	exponent := wire.GetUtreexoSummariesExponent(startHeight, bestHeaderHeight, bestHeaderHeight)
 
 	log.Debugf("fetching blocksummaries from %v - %v", startHeight, startHeight+(1<<exponent))
 
