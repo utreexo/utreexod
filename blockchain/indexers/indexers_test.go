@@ -1219,6 +1219,57 @@ func TestUtreexoRootsAndSummaryState(t *testing.T) {
 	}
 }
 
+// checkTTLsAfterUndo undoes 20 blocks and checks that the ttls match up against the expected values.
+func checkTTLsAfterUndo(t *testing.T, expected [][]uint64, indexes []Indexer, chain *blockchain.BlockChain) {
+	hashes := make([]chainhash.Hash, 0, len(expected))
+
+	bestSnapshot := chain.BestSnapshot()
+	for h := bestSnapshot.Height; h > bestSnapshot.Height-20; h-- {
+		// Check if the ttls match up to the previous block.
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				ttl, err := idxType.fetchTTLs(h)
+				if err != nil {
+					t.Fatal(err)
+				}
+				require.Equal(t, expected[h-1], ttl)
+			}
+		}
+
+		// Undo a block.
+		bestHash := chain.BestSnapshot().Hash
+		hashes = append(hashes, bestHash)
+		err := chain.InvalidateBlock(&bestHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for i := len(hashes) - 1; i >= 0; i-- {
+		hash := hashes[i]
+
+		// Re-do the block.
+		err := chain.ReconsiderBlock(&hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Check if the ttls still match up.
+		bestHeight := chain.BestSnapshot().Height
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				ttl, err := idxType.fetchTTLs(bestHeight)
+				if err != nil {
+					t.Fatal(err)
+				}
+				require.Equal(t, expected[bestHeight-1], ttl)
+			}
+		}
+	}
+}
+
 func checkTTLRoots(t *testing.T, maxHeight int32, expected []utreexo.Stump, indexes []Indexer) {
 	for i := int32(1); i <= maxHeight; i++ {
 		for _, indexer := range indexes {
@@ -1250,11 +1301,11 @@ func TestTTLs(t *testing.T) {
 	var nextSpends []*blockchain.SpendableOut
 
 	// Number of blocks we'll generate for the test.
-	maxHeight := int32(500)
+	maxHeight := int32(420)
 
 	expectedStumps := make([]utreexo.Stump, 0, maxHeight)
-
 	expectAfterUndoTTLs := make([][]uint64, 0, maxHeight)
+
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
 	for i := int32(1); i <= maxHeight; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
@@ -1275,18 +1326,14 @@ func TestTTLs(t *testing.T) {
 		}
 		nextSpends = nextSpendsTmp
 
-		if i == maxHeight-1 {
-			for _, indexer := range indexes {
-				switch idxType := indexer.(type) {
-				case *FlatUtreexoProofIndex:
-					for i := int32(1); i <= maxHeight-1; i++ {
-						ttl, err := idxType.fetchTTLs(i)
-						if err != nil {
-							t.Fatal(err)
-						}
-						expectAfterUndoTTLs = append(expectAfterUndoTTLs, ttl)
-					}
+		for _, indexer := range indexes {
+			switch idxType := indexer.(type) {
+			case *FlatUtreexoProofIndex:
+				ttl, err := idxType.fetchTTLs(i)
+				if err != nil {
+					t.Fatal(err)
 				}
+				expectAfterUndoTTLs = append(expectAfterUndoTTLs, ttl)
 			}
 		}
 
@@ -1294,6 +1341,19 @@ func TestTTLs(t *testing.T) {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
 				stump := utreexo.Stump{}
+
+				// Add block 0 ttls.
+				emptyTTL := wire.UtreexoTTL{}
+				buf := bytes.NewBuffer(make([]byte, 0, emptyTTL.SerializeSize()))
+				err = emptyTTL.Serialize(buf)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = stump.Update(nil, []utreexo.Hash{sha256.Sum256(buf.Bytes())}, utreexo.Proof{})
+				if err != nil {
+					t.Fatal(err)
+				}
+
 				for h := int32(1); h <= i; h++ {
 					ttls, err := idxType.fetchTTLs(h)
 					if err != nil {
@@ -1324,59 +1384,5 @@ func TestTTLs(t *testing.T) {
 	}
 
 	checkTTLRoots(t, maxHeight, expectedStumps, indexes)
-
-	ttls := make([][]uint64, 0, maxHeight)
-	for _, indexer := range indexes {
-		switch idxType := indexer.(type) {
-		case *FlatUtreexoProofIndex:
-			for i := int32(1); i <= maxHeight; i++ {
-				ttl, err := idxType.fetchTTLs(i)
-				if err != nil {
-					t.Fatal(err)
-				}
-				ttls = append(ttls, ttl)
-			}
-		}
-	}
-
-	// Undo a block.
-	bestHash := chain.BestSnapshot().Hash
-	err := chain.InvalidateBlock(&bestHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Check if the ttls match up to the previous block.
-	for _, indexer := range indexes {
-		switch idxType := indexer.(type) {
-		case *FlatUtreexoProofIndex:
-			for i := int32(1); i <= maxHeight-1; i++ {
-				ttl, err := idxType.fetchTTLs(i)
-				if err != nil {
-					t.Fatal(err)
-				}
-				require.Equal(t, expectAfterUndoTTLs[i-1], ttl)
-			}
-		}
-	}
-
-	// Re-do that block.
-	err = chain.ReconsiderBlock(&bestHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Check if the ttls still match up.
-	for _, indexer := range indexes {
-		switch idxType := indexer.(type) {
-		case *FlatUtreexoProofIndex:
-			for i := int32(1); i <= maxHeight; i++ {
-				ttl, err := idxType.fetchTTLs(i)
-				if err != nil {
-					t.Fatal(err)
-				}
-				require.Equal(t, ttls[i-1], ttl)
-			}
-		}
-	}
+	checkTTLsAfterUndo(t, expectAfterUndoTTLs, indexes, chain)
 }

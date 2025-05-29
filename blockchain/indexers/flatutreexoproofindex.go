@@ -260,6 +260,21 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 // at that height. If it's not, then the ttl is set to 0.
 func (idx *FlatUtreexoProofIndex) initTTLState(height int32) (*utreexo.Pollard, error) {
 	p := utreexo.NewAccumulator()
+
+	// Add ttl for block 0. This is so that the ttl on height 1 also has a target
+	// of 1.
+	emptyTTL := wire.UtreexoTTL{}
+	buf := bytes.NewBuffer(make([]byte, 0, emptyTTL.SerializeSize()))
+	err := emptyTTL.Serialize(buf)
+	if err != nil {
+		return nil, err
+	}
+	rootHash := sha256.Sum256(buf.Bytes())
+	err = p.Modify([]utreexo.Leaf{{Hash: rootHash}}, nil, utreexo.Proof{})
+	if err != nil {
+		return nil, err
+	}
+
 	for h := int32(1); h <= height; h++ {
 		ttls, err := idx.fetchTTLs(h)
 		if err != nil {
@@ -949,6 +964,75 @@ func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, pos
 	}
 
 	return ud, nil
+}
+
+// getPollard returns the pollard in the flatutreexoproofindex with the matching
+// version. Returns nil if the version is not there.
+func (idx *FlatUtreexoProofIndex) getPollard(version uint32) *utreexo.Pollard {
+	var p *utreexo.Pollard
+	for _, ttlState := range idx.blockTTLState {
+		if ttlState.NumLeaves == uint64(version) {
+			p = &ttlState
+		}
+	}
+
+	return p
+}
+
+// FetchTTLs fetches the ttls as a MsgUtreexoTTLs from the given data.
+func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponent uint8) (
+	wire.MsgUtreexoTTLs, error) {
+
+	p := idx.getPollard(version)
+	if p == nil {
+		return wire.MsgUtreexoTTLs{}, fmt.Errorf("version %v doesn't exist", version)
+	}
+
+	heights, err := wire.GetUtreexoSummaryHeights(
+		int32(startHeight), int32(version), exponent)
+	if err != nil {
+		return wire.MsgUtreexoTTLs{}, err
+	}
+
+	msg := wire.MsgUtreexoTTLs{
+		TTLs: make([]wire.UtreexoTTL, 0, len(heights)),
+	}
+
+	leafHashes := make([]utreexo.Hash, 0, len(heights))
+	for _, height := range heights {
+		ttls, err := idx.fetchTTLs(height)
+		if err != nil {
+			return wire.MsgUtreexoTTLs{}, err
+		}
+
+		// Remove the ttls that were added after the commitment.
+		for i, ttl := range ttls {
+			if ttl+uint64(height) > uint64(version) {
+				ttls[i] = 0
+			}
+		}
+
+		ttl := wire.UtreexoTTL{
+			BlockHeight: uint32(height),
+			TTLs:        ttls,
+		}
+		msg.TTLs = append(msg.TTLs, ttl)
+
+		buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
+		err = ttl.Serialize(buf)
+		if err != nil {
+			return wire.MsgUtreexoTTLs{}, err
+		}
+		leafHashes = append(leafHashes, sha256.Sum256(buf.Bytes()))
+	}
+
+	proof, err := p.Prove(leafHashes)
+	if err != nil {
+		return wire.MsgUtreexoTTLs{}, err
+	}
+	msg.ProofHashes = proof.Proof
+
+	return msg, nil
 }
 
 // fetchTTLs fetches the ttls at the given height.
