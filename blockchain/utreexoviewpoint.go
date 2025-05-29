@@ -53,7 +53,7 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 		return err
 	}
 
-	dels, err := ExtractAccumulatorDels(block, bestChain, []uint32{})
+	dels, err := ExtractAccumulatorDels(block, bestChain)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	dels, err := ExtractAccumulatorDels(block, bestChain, []uint32{})
+	dels, err := ExtractAccumulatorDels(block, bestChain)
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 }
 
 // ExtractAccumulatorDels extracts the deletions that will be used to modify the utreexo accumulator.
-func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView, remembers []uint32) (
+func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 	[]utreexo.Hash, error) {
 
 	// Check that UData field isn't nil before doing anything else.
