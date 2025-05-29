@@ -336,6 +336,11 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		return err
 	}
 
+	err = idx.updateBlockTTLState(tipHeight)
+	if err != nil {
+		return err
+	}
+
 	// Nothing to do if we're not pruned.
 	if !idx.config.Pruned {
 		return nil
@@ -1346,7 +1351,9 @@ func (idx *FlatUtreexoProofIndex) updateBlockTTLState(height int32) error {
 	}
 
 	for i, stump := range idx.config.Params.TTL.Stump {
-		if height < int32(stump.NumLeaves) {
+		// NumLeaves -1 as if we have 2 numleaves, it means the stump
+		// has heights 0 and 1.
+		if height < int32(stump.NumLeaves)-1 {
 			continue
 		}
 
@@ -1355,7 +1362,9 @@ func (idx *FlatUtreexoProofIndex) updateBlockTTLState(height int32) error {
 			continue
 		}
 
-		p, err := idx.initTTLState(height)
+		// NumLeaves -1 as if we have 2 numleaves, it means the stump
+		// has heights 0 and 1.
+		p, err := idx.initTTLState(int32(stump.NumLeaves) - 1)
 		if err != nil {
 			return err
 		}
