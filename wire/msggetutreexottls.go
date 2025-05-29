@@ -116,3 +116,25 @@ func NewMsgGetUtreexoTTLs(version, startHeight uint32, maxReceiveExponent uint8)
 		MaxReceiveExponent: maxReceiveExponent,
 	}
 }
+
+// GetUtreexoTTLsExponent returns the ideal exponent to minimize the proof size for the given arguments
+// while also not going over the endHeight for a get utreexo ttls message.
+func GetUtreexoTTLsExponent(startBlock, endHeight, bestHeight int32) uint8 {
+	return getUtreexoExponent(startBlock, endHeight, bestHeight, MaxUtreexoTTLExponent)
+}
+
+// CalculateGetUtreexoTTLMsgs returns the required get ttl messages needed to fetch the given
+// heights.
+//
+// NOTE: endHeight cannot be larger than the version. If it is, it'll just use the version as the
+// endHeight.
+func CalculateGetUtreexoTTLMsgs(version uint32, startHeight, endHeight int32) MsgGetUtreexoTTLs {
+	exp := GetUtreexoTTLsExponent(startHeight, endHeight, int32(version)-1)
+	msg := MsgGetUtreexoTTLs{
+		Version:            version,
+		StartHeight:        uint32(startHeight),
+		MaxReceiveExponent: exp,
+	}
+
+	return msg
+}

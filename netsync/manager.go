@@ -5,6 +5,8 @@
 package netsync
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"math/rand"
 	"net"
 	"os"
@@ -94,6 +96,13 @@ type utreexoProofMsg struct {
 	peer  *peerpkg.Peer
 }
 
+// utreexoTTLsMsg packages a bitcoin utreexo ttls message and the peer it came from
+// together so the block handler has access to that information.
+type utreexoTTLsMsg struct {
+	ttls *wire.MsgUtreexoTTLs
+	peer *peerpkg.Peer
+}
+
 // notFoundMsg packages a bitcoin notfound message and the peer it came from
 // together so the block handler has access to that information.
 type notFoundMsg struct {
@@ -177,6 +186,7 @@ type peerSyncState struct {
 	requestedBlocks           map[chainhash.Hash]struct{}
 	requestedUtreexoSummaries map[chainhash.Hash]struct{}
 	requestedUtreexoProofs    map[chainhash.Hash]struct{}
+	requestedUtreexoTTLs      map[wire.MsgGetUtreexoTTLs]struct{}
 }
 
 // limitAdd is a helper function for maps that require a maximum limit by
@@ -233,6 +243,7 @@ type SyncManager struct {
 	utreexoSummaries    map[chainhash.Hash]*wire.UtreexoBlockSummary
 	bestSummariesHash   chainhash.Hash
 	numLeaves           map[int32]uint64
+	queuedTTLs          map[int32]wire.UtreexoTTL
 	queuedBlocks        map[chainhash.Hash]*blockMsg
 	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
 
@@ -524,6 +535,7 @@ func (sm *SyncManager) handleNewPeerMsg(peer *peerpkg.Peer) {
 		requestedBlocks:           make(map[chainhash.Hash]struct{}),
 		requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
 		requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
+		requestedUtreexoTTLs:      make(map[wire.MsgGetUtreexoTTLs]struct{}),
 	}
 
 	// Start syncing by choosing the best candidate if needed.
@@ -984,6 +996,11 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	}
 }
 
+// lastestCommittedTTLAcc returns the latest committed accumulator.
+func (sm *SyncManager) lastestCommittedTTLAcc() utreexo.Stump {
+	return sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
+}
+
 // fetchUtreexoSummaries creates and sends a request to the syncPeer for the next
 // list of utreexo summaries to be downloaded based on the current list of headers.
 // Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
@@ -1027,7 +1044,7 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 	}
 
 	_, bestHeaderHeight := sm.chain.BestHeader()
-	exponent := wire.GetUtreexoExponent(startHeight, bestHeaderHeight, bestHeaderHeight)
+	exponent := wire.GetUtreexoSummariesExponent(startHeight, bestHeaderHeight, bestHeaderHeight)
 
 	log.Debugf("fetching blocksummaries from %v - %v", startHeight, startHeight+(1<<exponent))
 
@@ -1350,6 +1367,77 @@ func (sm *SyncManager) handleUtreexoProofMsg(hmsg *utreexoProofMsg) {
 		bmsg.reply = make(chan struct{}, 1)
 		sm.msgChan <- bmsg
 	}
+}
+
+// handleUtreexoTTLsMsg handles the utreexottl message from all peers. Rejects the ttl message
+// if the proof fails.
+func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
+	peer := tmsg.peer
+	state, exists := sm.peerStates[peer]
+	if !exists {
+		log.Warnf("Received utreexo ttl message from unknown peer %s", peer)
+		return
+	}
+
+	if sm.chain.GetUtreexoView() == nil {
+		log.Warnf("Received unrequested utreexo ttl message from unknown peer %s "+
+			"when the node isn't a utreexo node -- disconnecting", peer)
+		peer.Disconnect()
+		return
+	}
+
+	ttls := tmsg.ttls.TTLs
+	startHeight := int32(ttls[0].BlockHeight)
+	endHeight := int32(ttls[len(ttls)-1].BlockHeight)
+	stump := sm.lastestCommittedTTLAcc()
+
+	// Construct the get message that would've gave us this ttl message.
+	gotGtMsg := wire.CalculateGetUtreexoTTLMsgs(
+		uint32(stump.NumLeaves), startHeight, endHeight)
+
+	// Disconnect if we didn't request these.
+	if _, exists = state.requestedUtreexoTTLs[gotGtMsg]; !exists {
+		log.Warnf("Got unrequested utreexo ttls %v - %v from %s -- "+
+			"disconnecting", startHeight, endHeight, peer.Addr())
+		peer.Disconnect()
+		return
+	}
+
+	// We can remove the request queue as we got the ttl message.
+	delete(state.requestedUtreexoTTLs, gotGtMsg)
+
+	ttlHashes := make([]utreexo.Hash, 0, len(ttls))
+	ttlTargets := make([]uint64, 0, len(ttls))
+	for _, ttl := range ttls {
+		buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
+		err := ttl.Serialize(buf)
+		if err != nil {
+			log.Warnf("Failed to serialize utreexo ttl %v from %s. %v",
+				ttl.BlockHeight, peer.Addr(), err)
+			return
+		}
+
+		ttlTargets = append(ttlTargets, uint64(ttl.BlockHeight))
+		ttlHashes = append(ttlHashes, sha256.Sum256(buf.Bytes()))
+	}
+
+	proof := utreexo.Proof{Targets: ttlTargets, Proof: tmsg.ttls.ProofHashes}
+	_, err := utreexo.Verify(stump, ttlHashes, proof)
+	if err != nil {
+		log.Warnf("Utreexo ttl proof from %s failed verification -- "+
+			"disconnecting", peer.Addr())
+		peer.Disconnect()
+		return
+	}
+
+	log.Debugf("verified proof for ttls %v - %v", startHeight, endHeight)
+
+	// Accept the ttls.
+	for _, ttl := range ttls {
+		sm.queuedTTLs[int32(ttl.BlockHeight)] = ttl
+	}
+
+	sm.fetchHeaderBlocks(nil)
 }
 
 // handleNotFoundMsg handles notfound messages from all peers.
@@ -1840,6 +1928,9 @@ out:
 			case *utreexoProofMsg:
 				sm.handleUtreexoProofMsg(msg)
 
+			case *utreexoTTLsMsg:
+				sm.handleUtreexoTTLsMsg(msg)
+
 			case *notFoundMsg:
 				sm.handleNotFoundMsg(msg)
 
@@ -2093,6 +2184,17 @@ func (sm *SyncManager) QueueUtreexoProof(proof *wire.MsgUtreexoProof, peer *peer
 	sm.msgChan <- &utreexoProofMsg{proof: proof, peer: peer}
 }
 
+// QueueUtreexoTTLs adds the utreexo ttls to the block handling queue.
+func (sm *SyncManager) QueueUtreexoTTLs(ttls *wire.MsgUtreexoTTLs, peer *peerpkg.Peer) {
+	// No channel handling here because peers do not need to block on
+	// utreexo ttl messages.
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		return
+	}
+
+	sm.msgChan <- &utreexoTTLsMsg{ttls: ttls, peer: peer}
+}
+
 // QueueNotFound adds the passed notfound message and peer to the block handling
 // queue.
 func (sm *SyncManager) QueueNotFound(notFound *wire.MsgNotFound, peer *peerpkg.Peer) {
@@ -2189,6 +2291,7 @@ func New(config *Config) (*SyncManager, error) {
 		requestedBlocks:     make(map[chainhash.Hash]struct{}),
 		numLeaves:           make(map[int32]uint64),
 		utreexoSummaries:    make(map[chainhash.Hash]*wire.UtreexoBlockSummary),
+		queuedTTLs:          make(map[int32]wire.UtreexoTTL),
 		queuedBlocks:        make(map[chainhash.Hash]*blockMsg),
 		queuedUtreexoProofs: make(map[chainhash.Hash]*utreexoProofMsg),
 		peerStates:          make(map[*peerpkg.Peer]*peerSyncState),
