@@ -879,6 +879,11 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		return
 	}
 
+	// Remove the no longer needed ttl.
+	//
+	// TODO: actually make use of the ttl instead of just deleting it here.
+	delete(sm.queuedTTLs, bmsg.block.Height())
+
 	// Meta-data about the new block this peer is reporting. We use this
 	// below to update this peer's latest block height and the heights of
 	// other peers based on their last announced block hash. This allows us
@@ -1001,6 +1006,52 @@ func (sm *SyncManager) lastestCommittedTTLAcc() utreexo.Stump {
 	return sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
 }
 
+// fetchUtreexoTTLs constructs a request for ttls that fetches as much as we could
+// until we reach the end of the committed ttl accumulator state.
+func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
+	// Nothing to do if there is no start header.
+	if sm.startHeader == nil {
+		log.Warnf("fetchUtreexoTTLs called with no start header")
+		return
+	}
+
+	// Can't fetch if both are nil.
+	if peer == nil && sm.syncPeer == nil {
+		log.Warnf("fetchUtreexoTTLs called with syncPeer and peer as nil")
+		return
+	}
+
+	// Default to the syncPeer unless we're given a peer by the caller.
+	reqPeer := sm.syncPeer
+	if peer != nil {
+		reqPeer = peer
+	}
+
+	peerState, exists := sm.peerStates[reqPeer]
+	if !exists {
+		log.Warnf("Don't have peer state for request peer %s", reqPeer.String())
+		return
+	}
+
+	stump := sm.lastestCommittedTTLAcc()
+
+	bestState := sm.chain.BestSnapshot()
+	gtmsg := wire.CalculateGetUtreexoTTLMsgs(
+		uint32(stump.NumLeaves), bestState.Height+1,
+		bestState.Height+wire.MaxUtreexoTTLsPerMsg)
+
+	_, found := peerState.requestedUtreexoTTLs[gtmsg]
+	if !found {
+		peerState.requestedUtreexoTTLs[gtmsg] = struct{}{}
+
+		log.Debugf("fetching ttls %v - %v from peer %v",
+			gtmsg.StartHeight,
+			gtmsg.StartHeight+(1<<gtmsg.MaxReceiveExponent),
+			reqPeer.String())
+		reqPeer.QueueMessage(&gtmsg, nil)
+	}
+}
+
 // fetchUtreexoSummaries creates and sends a request to the syncPeer for the next
 // list of utreexo summaries to be downloaded based on the current list of headers.
 // Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
@@ -1084,6 +1135,17 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	bestState := sm.chain.BestSnapshot()
 	length := bestHeaderHeight - bestState.Height
 
+	// Check if we have the ttl for the next block lined up to be download.
+	if sm.chain.IsUtreexoViewActive() &&
+		bestState.Height+1 <= int32(sm.lastestCommittedTTLAcc().NumLeaves)-1 {
+
+		// If we have no ttls, fetch for more.
+		if len(sm.queuedTTLs) == 0 {
+			sm.fetchUtreexoTTLs(reqPeer)
+			return
+		}
+	}
+
 	// Build up a getdata request for the list of blocks the headers
 	// describe.  The size hint will be limited to wire.MaxInvPerMsg by
 	// the function, so no need to double check it here.
@@ -1094,6 +1156,14 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	log.Infof("fetching from %v(%v) to %v(%v) from %v", hash, bestState.Height+1,
 		bestHeaderHash, bestHeaderHeight, reqPeer.String())
 	for h := bestState.Height + 1; h <= bestHeaderHeight; h++ {
+		if sm.chain.IsUtreexoViewActive() {
+			// Break if we ran out of ttls.
+			if h <= int32(sm.lastestCommittedTTLAcc().NumLeaves)-1 &&
+				h > bestState.Height+int32(len(sm.queuedTTLs)) {
+				break
+			}
+		}
+
 		hash, err := sm.chain.HeaderHashByHeight(h)
 		if err != nil {
 			log.Warnf("error while fetching the block hash for height %v -- %v",
