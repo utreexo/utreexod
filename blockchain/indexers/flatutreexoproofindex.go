@@ -291,8 +291,9 @@ func (idx *FlatUtreexoProofIndex) initTTLState(height int32) (*utreexo.Pollard, 
 		// as it's not spent at the height and thus doesn't have a ttl value
 		// we can use.
 		for i, ttl := range ttls {
-			if ttl+uint64(h) > uint64(height) {
-				ttls[i] = 0
+			if ttl.TTL+uint64(h) > uint64(height) {
+				ttls[i].TTL = 0
+				ttls[i].DeathPos = 0
 			}
 		}
 
@@ -1018,8 +1019,9 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 
 		// Remove the ttls that were added after the commitment.
 		for i, ttl := range ttls {
-			if ttl+uint64(height) > uint64(version) {
-				ttls[i] = 0
+			if ttl.TTL+uint64(height) > uint64(version) {
+				ttls[i].TTL = 0
+				ttls[i].DeathPos = 0
 			}
 		}
 
@@ -1048,7 +1050,7 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 
 // fetchTTLs fetches the ttls at the given height.
 func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
-	[]uint64, error) {
+	[]wire.TTLInfo, error) {
 
 	if height == 0 {
 		return nil, nil
@@ -1066,10 +1068,11 @@ func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
 		return nil, fmt.Errorf("Couldn't fetch ttl data for height %d", height)
 	}
 
-	ttls := make([]uint64, len(ttlBytes)/ttlSize)
+	ttls := make([]wire.TTLInfo, len(ttlBytes)/ttlSize)
 	for i := range ttls {
 		start := i * ttlSize
-		ttls[i] = byteOrder.Uint64(ttlBytes[start : start+ttlSize])
+		ttls[i].TTL = byteOrder.Uint64(ttlBytes[start : start+uint64Size])
+		ttls[i].DeathPos = byteOrder.Uint64(ttlBytes[start+uint64Size : start+ttlSize])
 	}
 
 	return ttls, nil

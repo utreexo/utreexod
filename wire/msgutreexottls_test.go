@@ -17,13 +17,24 @@ func TestUtreexoTTLsSerialize(t *testing.T) {
 		{
 			data: UtreexoTTL{
 				BlockHeight: 1,
-				TTLs:        []uint64{0},
+				TTLs: []TTLInfo{
+					{0, 8},
+				},
 			},
 		},
 		{
 			data: UtreexoTTL{
 				BlockHeight: 4785,
-				TTLs:        []uint64{0, 1, 4, 5, 0, 0, 1, 522, 1},
+				TTLs: []TTLInfo{
+					{0, 8},
+					{1, 56},
+					{4, 141},
+					{5, 0},
+					{0, 0},
+					{1, 1841},
+					{522, 878418},
+					{1, 876},
+				},
 			},
 		},
 	}
