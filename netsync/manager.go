@@ -273,6 +273,7 @@ type SyncManager struct {
 	bestSummariesHash   chainhash.Hash
 	numLeaves           map[int32]uint64
 	queuedTTLs          map[int32]wire.UtreexoTTL
+	ttlTargets          TTLHeap
 	queuedBlocks        map[chainhash.Hash]*blockMsg
 	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
 
@@ -1260,6 +1261,10 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			if sm.chain.IsUtreexoViewActive() {
 				peerState.requestedUtreexoProofs[*hash] = struct{}{}
 
+				// We don't use the returned values yet.
+				// TODO: use them.
+				getTargetsAtHeight(&sm.ttlTargets, h)
+
 				msg := wire.MsgGetUtreexoProof{
 					BlockHash:  *hash,
 					TargetBool: true,
@@ -1553,9 +1558,23 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 	log.Debugf("verified proof for ttls %v - %v", startHeight, endHeight)
 
 	// Accept the ttls.
-	for _, ttl := range ttls {
-		sm.queuedTTLs[int32(ttl.BlockHeight)] = ttl
+	for _, ttlPerBlock := range ttls {
+		for _, ttlInfo := range ttlPerBlock.TTLs {
+			if ttlInfo.TTL == 0 {
+				continue
+			}
+
+			sm.ttlTargets.Push(
+				ttlTarget{
+					deathHeight: ttlInfo.TTL +
+						uint64(ttlPerBlock.BlockHeight),
+					pos: ttlInfo.DeathPos,
+				})
+		}
+
+		sm.queuedTTLs[int32(ttlPerBlock.BlockHeight)] = ttlPerBlock
 	}
+	heap.Init(&sm.ttlTargets)
 
 	sm.fetchHeaderBlocks(nil)
 }
