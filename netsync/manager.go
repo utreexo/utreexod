@@ -6,6 +6,7 @@ package netsync
 
 import (
 	"bytes"
+	"container/heap"
 	"crypto/sha256"
 	"math/rand"
 	"net"
@@ -206,6 +207,34 @@ func limitAdd(m map[chainhash.Hash]struct{}, hash chainhash.Hash, limit int) {
 		}
 	}
 	m[hash] = struct{}{}
+}
+
+// ttlTarget is a helper for the TTLHeap. Just the death height and the position when it's spent.
+type ttlTarget struct {
+	deathHeight uint64
+	pos         uint64
+}
+
+// TTLHeap is a priority queue for the ttlTargets. Used to grab all the targets at the next earliest
+// block height.
+type TTLHeap []ttlTarget
+
+func (h TTLHeap) Len() int           { return len(h) }
+func (h TTLHeap) Less(i, j int) bool { return h[i].deathHeight < h[j].deathHeight }
+func (h TTLHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h TTLHeap) View() any {
+	if len(h) == 0 {
+		return nil
+	}
+	return h[0]
+}
+func (h *TTLHeap) Push(x any) { *h = append(*h, x.(ttlTarget)) }
+func (h *TTLHeap) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
 }
 
 // SyncManager is used to communicate block related messages with peers. The
