@@ -1132,6 +1132,27 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 	reqPeer.QueueMessage(ghmsg, nil)
 }
 
+// getTargetsAtHeight returns all the targets at the passed in height.
+//
+// NOTE: if the height given is greater than the next ttlTarget's deathHeight,
+// the returned slice will be empty.
+func getTargetsAtHeight(h *TTLHeap, height int32) []uint64 {
+	targets := []uint64{}
+	for h.Len() > 0 {
+		item := h.View().(ttlTarget)
+		if item.deathHeight != uint64(height) {
+			break
+		}
+
+		if item.deathHeight == uint64(height) {
+			targets = append(targets, item.pos)
+			heap.Pop(h)
+		}
+	}
+
+	return targets
+}
+
 // fetchHeaderBlocks creates and sends a request to the syncPeer for the next
 // list of blocks to be downloaded based on the current list of headers.
 // Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
