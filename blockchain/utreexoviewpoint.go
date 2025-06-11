@@ -48,25 +48,27 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds, err := ExtractAccumulatorAdds(block, []uint32{})
-	if err != nil {
-		return err
-	}
+	adds := ExtractAccumulatorAdds(block)
 
 	dels, err := ExtractAccumulatorDels(block, bestChain)
 	if err != nil {
 		return err
 	}
 
+	addHashes := make([]utreexo.Leaf, len(adds))
+	for i, add := range adds {
+		addHashes[i] = utreexo.Leaf{Hash: add.LeafHash(), Remember: false}
+	}
+
 	// Update the underlying accumulator.
-	updateData, err := uview.Modify(ud, adds, dels)
+	updateData, err := uview.Modify(ud, addHashes, dels)
 	if err != nil {
 		return fmt.Errorf("ProcessUData fail. Error: %v", err)
 	}
 
 	// Add the utreexo data to the block.
 	block.SetUtreexoUpdateData(updateData)
-	block.SetUtreexoAdds(adds)
+	block.SetUtreexoAdds(addHashes)
 
 	return nil
 }
@@ -276,18 +278,14 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 }
 
 // ExtractAccumulatorAdds extracts the additions that will beused to modify the utreexo accumulator.
-func ExtractAccumulatorAdds(block *btcutil.Block, remembers []uint32) (
-	[]utreexo.Leaf, error) {
-
+func ExtractAccumulatorAdds(block *btcutil.Block) []wire.LeafData {
 	// outskip is all the txOuts that are referenced by a txIn in the same block
 	// outCount is the count of all outskips.
 	_, outCount, _, outskip := DedupeBlock(block)
 
-	// Make the now verified utxos into 32 byte leaves ready to be added into the
+	// Make the now verified utxos into the leaf preimages that will be added into the
 	// utreexo accumulator.
-	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
-
-	return leaves, nil
+	return BlockToAddLeaves(block, outskip, outCount)
 }
 
 // it'd be cool if you just had .sort() methods on slices of builtin types...
@@ -476,15 +474,10 @@ func IsUnspendable(o *wire.TxOut) bool {
 // included in the slice. For example, if [0, 3, 11] is given as the skiplist,
 // then utxos that appear in the 0th, 3rd, and 11th in the block will
 // be skipped over.
-func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, remembers []uint32,
-	outCount int) []utreexo.Leaf {
-
-	// Sort first as the below loop expects the remembers to be in order.
-	sortUint32s(remembers)
-
+func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []wire.LeafData {
 	// We're overallocating a little bit since all the unspendables
 	// won't be appended. It's ok though for the pre-allocation savings.
-	leaves := make([]utreexo.Leaf, 0, outCount-len(skiplist))
+	leaves := make([]wire.LeafData, 0, outCount-len(skiplist))
 
 	var txonum uint32
 	for coinbase, tx := range block.Transactions() {
@@ -515,20 +508,7 @@ func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, remembers []uint3
 				IsCoinBase: coinbase == 0,
 			}
 
-			// Set remember to be true if the current UTXO corresponds
-			// to an index that should be remembered.
-			remember := false
-			if len(remembers) > 0 && remembers[0] == txonum {
-				remembers = remembers[1:]
-				remember = true
-			}
-
-			uleaf := utreexo.Leaf{
-				Hash:     leaf.LeafHash(),
-				Remember: remember,
-			}
-
-			leaves = append(leaves, uleaf)
+			leaves = append(leaves, leaf)
 			txonum++
 		}
 	}
