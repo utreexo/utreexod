@@ -808,6 +808,14 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 		isCheckpointBlock = true
 	}
 
+	ttls, found := sm.queuedTTLs[height]
+	if found {
+		block.SetUtreexoTTLs(&ttls)
+
+		// Remove the no longer needed ttl.
+		delete(sm.queuedTTLs, height)
+	}
+
 	return isCheckpointBlock, behaviorFlags
 }
 
@@ -908,11 +916,6 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		peer.PushRejectMsg(wire.CmdBlock, code, reason, blockHash, false)
 		return
 	}
-
-	// Remove the no longer needed ttl.
-	//
-	// TODO: actually make use of the ttl instead of just deleting it here.
-	delete(sm.queuedTTLs, bmsg.block.Height())
 
 	// Meta-data about the new block this peer is reporting. We use this
 	// below to update this peer's latest block height and the heights of
