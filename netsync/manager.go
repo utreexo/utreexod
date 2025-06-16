@@ -272,6 +272,7 @@ type SyncManager struct {
 	utreexoSummaries    map[chainhash.Hash]*wire.UtreexoBlockSummary
 	bestSummariesHash   chainhash.Hash
 	numLeaves           map[int32]uint64
+	committedTTLAcc     *utreexo.Stump
 	queuedTTLs          map[int32]wire.UtreexoTTL
 	ttlTargets          TTLHeap
 	queuedBlocks        map[chainhash.Hash]*blockMsg
@@ -808,6 +809,14 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 		isCheckpointBlock = true
 	}
 
+	ttls, found := sm.queuedTTLs[height]
+	if found {
+		block.SetUtreexoTTLs(&ttls)
+
+		// Remove the no longer needed ttl.
+		delete(sm.queuedTTLs, height)
+	}
+
 	return isCheckpointBlock, behaviorFlags
 }
 
@@ -908,11 +917,6 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		peer.PushRejectMsg(wire.CmdBlock, code, reason, blockHash, false)
 		return
 	}
-
-	// Remove the no longer needed ttl.
-	//
-	// TODO: actually make use of the ttl instead of just deleting it here.
-	delete(sm.queuedTTLs, bmsg.block.Height())
 
 	// Meta-data about the new block this peer is reporting. We use this
 	// below to update this peer's latest block height and the heights of
@@ -1031,11 +1035,6 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	}
 }
 
-// lastestCommittedTTLAcc returns the latest committed accumulator.
-func (sm *SyncManager) lastestCommittedTTLAcc() utreexo.Stump {
-	return sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
-}
-
 // fetchUtreexoTTLs constructs a request for ttls that fetches as much as we could
 // until we reach the end of the committed ttl accumulator state.
 func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
@@ -1051,6 +1050,11 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 		return
 	}
 
+	if sm.committedTTLAcc == nil {
+		log.Warnf("fetchUtreexoTTLs called with nil sm.committedTTLAcc")
+		return
+	}
+
 	// Default to the syncPeer unless we're given a peer by the caller.
 	reqPeer := sm.syncPeer
 	if peer != nil {
@@ -1063,7 +1067,7 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 		return
 	}
 
-	stump := sm.lastestCommittedTTLAcc()
+	stump := *sm.committedTTLAcc
 
 	bestState := sm.chain.BestSnapshot()
 	gtmsg := wire.CalculateGetUtreexoTTLMsgs(
@@ -1187,8 +1191,8 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	length := bestHeaderHeight - bestState.Height
 
 	// Check if we have the ttl for the next block lined up to be download.
-	if sm.chain.IsUtreexoViewActive() &&
-		bestState.Height+1 <= int32(sm.lastestCommittedTTLAcc().NumLeaves)-1 {
+	if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil &&
+		bestState.Height+1 <= int32(sm.committedTTLAcc.NumLeaves)-1 {
 
 		// If we have no ttls, fetch for more.
 		if len(sm.queuedTTLs) == 0 {
@@ -1207,9 +1211,9 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	log.Infof("fetching from %v(%v) to %v(%v) from %v", hash, bestState.Height+1,
 		bestHeaderHash, bestHeaderHeight, reqPeer.String())
 	for h := bestState.Height + 1; h <= bestHeaderHeight; h++ {
-		if sm.chain.IsUtreexoViewActive() {
+		if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil {
 			// Break if we ran out of ttls.
-			if h <= int32(sm.lastestCommittedTTLAcc().NumLeaves)-1 &&
+			if h <= int32(sm.committedTTLAcc.NumLeaves)-1 &&
 				h > bestState.Height+int32(len(sm.queuedTTLs)) {
 				break
 			}
@@ -1511,10 +1515,17 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 		return
 	}
 
+	if sm.committedTTLAcc == nil {
+		log.Warnf("Received unrequested utreexo ttl message from unknown peer %s "+
+			"when the node has ttl messages disabled -- disconnecting", peer)
+		peer.Disconnect()
+		return
+	}
+
 	ttls := tmsg.ttls.TTLs
 	startHeight := int32(ttls[0].BlockHeight)
 	endHeight := int32(ttls[len(ttls)-1].BlockHeight)
-	stump := sm.lastestCommittedTTLAcc()
+	stump := *sm.committedTTLAcc
 
 	// Construct the get message that would've gave us this ttl message.
 	gotGtMsg := wire.CalculateGetUtreexoTTLMsgs(
@@ -2444,8 +2455,19 @@ func New(config *Config) (*SyncManager, error) {
 	if !config.DisableCheckpoints {
 		// Initialize the next checkpoint based on the current height.
 		sm.nextCheckpoint = sm.findNextHeaderCheckpoint(best.Height)
+
+		if sm.chain.IsUtreexoViewActive() {
+			if len(sm.chainParams.TTL.Stump) > 0 {
+				// Initialize the committed ttl state.
+				sm.committedTTLAcc = &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
+			}
+		}
 	} else {
 		log.Info("Checkpoints are disabled")
+
+		if sm.chain.IsUtreexoViewActive() {
+			log.Info("TTL downloading is disabled")
+		}
 	}
 
 	// If we're at assume utreexo mode, build headers first.

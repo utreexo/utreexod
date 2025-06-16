@@ -42,6 +42,7 @@ type Block struct {
 	txnsGenerated            bool                // ALL wrapped transactions generated
 	utreexoUpdateData        *utreexo.UpdateData // Utreexo update data for this block
 	utreexoAdds              []utreexo.Hash      // Hashes of the utreexo leaves being added
+	utreexoLeafTTLs          *wire.UtreexoTTL    // The ttls of the leaves created in this block.
 }
 
 // MsgBlock returns the underlying wire.MsgBlock for the Block.
@@ -241,6 +242,16 @@ func (b *Block) SetUtreexoAdds(adds []utreexo.Leaf) {
 // UtreexoAdds returns the hashes of the utreexo leaves added in this block.
 func (b *Block) UtreexoAdds() []utreexo.Hash {
 	return b.utreexoAdds
+}
+
+// SetUtreexoTTLs sets the ttls for this block.
+func (b *Block) SetUtreexoTTLs(ttls *wire.UtreexoTTL) {
+	b.utreexoLeafTTLs = ttls
+}
+
+// UtreexoTTLs returns the ttls for this block.
+func (b *Block) UtreexoTTLs() *wire.UtreexoTTL {
+	return b.utreexoLeafTTLs
 }
 
 // NewBlock returns a new instance of a bitcoin block given an underlying
