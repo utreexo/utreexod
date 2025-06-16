@@ -114,8 +114,8 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 	return leaf, true
 }
 
-// NodesBackendPut puts a key-value pair in the given pebbledb batch.
-func NodesBackendPut(batch *pebble.Batch, k uint64, v utreexo.Leaf) error {
+// NodesBatchPut puts a key-value pair in the given pebbledb batch.
+func NodesBatchPut(batch *pebble.Batch, k uint64, v utreexo.Leaf) error {
 	size := serializeSizeVLQ(k)
 	buf := make([]byte, size)
 	putVLQ(buf, k)
@@ -146,8 +146,8 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 	}
 }
 
-// NodesBackendDelete deletes the corresponding key-value pair from the given pebble tx.
-func NodesBackendDelete(batch *pebble.Batch, k uint64) error {
+// NodesBatchDelete deletes the corresponding key-value pair from the given pebble batch.
+func NodesBatchDelete(batch *pebble.Batch, k uint64) error {
 	size := serializeSizeVLQ(k)
 	buf := make([]byte, size)
 	putVLQ(buf, k)
@@ -257,24 +257,24 @@ func (m *NodesBackEnd) UsageStats() (int64, int64) {
 	return int64(m.cache.Length()), m.maxCacheElem
 }
 
-// flush saves all the cached entries to disk and resets the cache map.
-func (m *NodesBackEnd) Flush(batch *pebble.Batch) error {
+// FlushBatch saves all the cached entries to disk and resets the cache map using the Batch.
+func (m *NodesBackEnd) FlushBatch(batch *pebble.Batch) error {
 	err := m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) error {
 		if v.IsFresh() {
 			if !v.IsRemoved() {
-				err := NodesBackendPut(batch, k, v.Leaf)
+				err := NodesBatchPut(batch, k, v.Leaf)
 				if err != nil {
 					return err
 				}
 			}
 		} else {
 			if v.IsRemoved() {
-				err := NodesBackendDelete(batch, k)
+				err := NodesBatchDelete(batch, k)
 				if err != nil {
 					return err
 				}
-			} else if v.IsModified() {
-				err := NodesBackendPut(batch, k, v.Leaf)
+			} else {
+				err := NodesBatchPut(batch, k, v.Leaf)
 				if err != nil {
 					return err
 				}
@@ -351,8 +351,8 @@ func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (utreexo.LeafInfo, bool) {
 	return leafInfo.LeafInfo, found
 }
 
-// CachedLeavesBackendPut puts a key-value pair in the given pebbledb batch.
-func CachedLeavesBackendPut(tx *pebble.Batch, k utreexo.Hash, v utreexo.LeafInfo) error {
+// CachedLeavesBatchPut puts a key-value pair in the given pebbledb batch.
+func CachedLeavesBatchPut(tx *pebble.Batch, k utreexo.Hash, v utreexo.LeafInfo) error {
 	buf := serializeLeafInfo(v)
 	return tx.Set(k[:], buf[:], nil)
 }
@@ -491,8 +491,8 @@ func (m *CachedLeavesBackEnd) UsageStats() (int64, int64) {
 	return int64(m.cache.Length()), m.maxCacheElem
 }
 
-// Flush resets the cache and saves all the key values onto the database.
-func (m *CachedLeavesBackEnd) Flush(batch *pebble.Batch) error {
+// FlushBatch resets the cache and saves all the key values onto the given Batch.
+func (m *CachedLeavesBackEnd) FlushBatch(batch *pebble.Batch) error {
 	err := m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
 		if v.IsRemoved() {
 			err := batch.Delete(k[:], nil)
@@ -500,7 +500,7 @@ func (m *CachedLeavesBackEnd) Flush(batch *pebble.Batch) error {
 				return err
 			}
 		} else {
-			err := CachedLeavesBackendPut(batch, k, v.LeafInfo)
+			err := CachedLeavesBatchPut(batch, k, v.LeafInfo)
 			if err != nil {
 				return err
 			}

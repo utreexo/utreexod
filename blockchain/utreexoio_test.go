@@ -55,7 +55,7 @@ func TestCachedLeavesBackEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Close and reopen the backend.
-		cachedLeavesBackEnd.Flush(batch)
+		cachedLeavesBackEnd.FlushBatch(batch)
 		err = batch.Commit(nil)
 		if err != nil {
 			t.Fatal(err)
@@ -185,7 +185,7 @@ func TestNodesBackEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Close and reopen the backend.
-		nodesBackEnd.Flush(batch)
+		nodesBackEnd.FlushBatch(batch)
 		err = batch.Commit(nil)
 		if err != nil {
 			t.Fatal(err)

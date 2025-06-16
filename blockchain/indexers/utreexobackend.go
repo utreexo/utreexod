@@ -589,11 +589,11 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 			cachedLeavesUsed, cachedLeavesCapacity,
 			float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
 
-		err = nodesDB.Flush(batch)
+		err = nodesDB.FlushBatch(batch)
 		if err != nil {
 			return err
 		}
-		err = cachedLeavesDB.Flush(batch)
+		err = cachedLeavesDB.FlushBatch(batch)
 		if err != nil {
 			return err
 		}
