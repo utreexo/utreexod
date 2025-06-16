@@ -6,6 +6,7 @@ package netsync
 
 import (
 	"bytes"
+	"container/heap"
 	"crypto/sha256"
 	"math/rand"
 	"net"
@@ -208,6 +209,34 @@ func limitAdd(m map[chainhash.Hash]struct{}, hash chainhash.Hash, limit int) {
 	m[hash] = struct{}{}
 }
 
+// ttlTarget is a helper for the TTLHeap. Just the death height and the position when it's spent.
+type ttlTarget struct {
+	deathHeight uint64
+	pos         uint64
+}
+
+// TTLHeap is a priority queue for the ttlTargets. Used to grab all the targets at the next earliest
+// block height.
+type TTLHeap []ttlTarget
+
+func (h TTLHeap) Len() int           { return len(h) }
+func (h TTLHeap) Less(i, j int) bool { return h[i].deathHeight < h[j].deathHeight }
+func (h TTLHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h TTLHeap) View() any {
+	if len(h) == 0 {
+		return nil
+	}
+	return h[0]
+}
+func (h *TTLHeap) Push(x any) { *h = append(*h, x.(ttlTarget)) }
+func (h *TTLHeap) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
+
 // SyncManager is used to communicate block related messages with peers. The
 // SyncManager is started as by executing Start() in a goroutine. Once started,
 // it selects peers to sync from and starts the initial block download. Once the
@@ -244,6 +273,7 @@ type SyncManager struct {
 	bestSummariesHash   chainhash.Hash
 	numLeaves           map[int32]uint64
 	queuedTTLs          map[int32]wire.UtreexoTTL
+	ttlTargets          TTLHeap
 	queuedBlocks        map[chainhash.Hash]*blockMsg
 	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
 
@@ -1103,6 +1133,27 @@ func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
 	reqPeer.QueueMessage(ghmsg, nil)
 }
 
+// getTargetsAtHeight returns all the targets at the passed in height.
+//
+// NOTE: if the height given is greater than the next ttlTarget's deathHeight,
+// the returned slice will be empty.
+func getTargetsAtHeight(h *TTLHeap, height int32) []uint64 {
+	targets := []uint64{}
+	for h.Len() > 0 {
+		item := h.View().(ttlTarget)
+		if item.deathHeight != uint64(height) {
+			break
+		}
+
+		if item.deathHeight == uint64(height) {
+			targets = append(targets, item.pos)
+			heap.Pop(h)
+		}
+	}
+
+	return targets
+}
+
 // fetchHeaderBlocks creates and sends a request to the syncPeer for the next
 // list of blocks to be downloaded based on the current list of headers.
 // Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
@@ -1209,6 +1260,10 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			// utreexo node.
 			if sm.chain.IsUtreexoViewActive() {
 				peerState.requestedUtreexoProofs[*hash] = struct{}{}
+
+				// We don't use the returned values yet.
+				// TODO: use them.
+				getTargetsAtHeight(&sm.ttlTargets, h)
 
 				msg := wire.MsgGetUtreexoProof{
 					BlockHash:  *hash,
@@ -1503,9 +1558,23 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 	log.Debugf("verified proof for ttls %v - %v", startHeight, endHeight)
 
 	// Accept the ttls.
-	for _, ttl := range ttls {
-		sm.queuedTTLs[int32(ttl.BlockHeight)] = ttl
+	for _, ttlPerBlock := range ttls {
+		for _, ttlInfo := range ttlPerBlock.TTLs {
+			if ttlInfo.TTL == 0 {
+				continue
+			}
+
+			sm.ttlTargets.Push(
+				ttlTarget{
+					deathHeight: ttlInfo.TTL +
+						uint64(ttlPerBlock.BlockHeight),
+					pos: ttlInfo.DeathPos,
+				})
+		}
+
+		sm.queuedTTLs[int32(ttlPerBlock.BlockHeight)] = ttlPerBlock
 	}
+	heap.Init(&sm.ttlTargets)
 
 	sm.fetchHeaderBlocks(nil)
 }
