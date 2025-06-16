@@ -1220,7 +1220,7 @@ func TestUtreexoRootsAndSummaryState(t *testing.T) {
 }
 
 // checkTTLsAfterUndo undoes 20 blocks and checks that the ttls match up against the expected values.
-func checkTTLsAfterUndo(t *testing.T, expected [][]uint64, indexes []Indexer, chain *blockchain.BlockChain) {
+func checkTTLsAfterUndo(t *testing.T, expected [][]wire.TTLInfo, indexes []Indexer, chain *blockchain.BlockChain) {
 	hashes := make([]chainhash.Hash, 0, len(expected))
 
 	bestSnapshot := chain.BestSnapshot()
@@ -1304,7 +1304,7 @@ func TestTTLs(t *testing.T) {
 	maxHeight := int32(420)
 
 	expectedStumps := make([]utreexo.Stump, 0, maxHeight)
-	expectAfterUndoTTLs := make([][]uint64, 0, maxHeight)
+	expectAfterUndoTTLs := make([][]wire.TTLInfo, 0, maxHeight)
 
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
 	for i := int32(1); i <= maxHeight; i++ {
