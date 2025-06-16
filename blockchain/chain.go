@@ -1025,7 +1025,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 			}
 
 			// Generate the adds.
-			adds := BlockToAddLeaves(block, outskip, nil, outCount)
+			adds := BlockToAddLeaves(block, outskip, outCount)
 
 			// Undo the utreexoView.
 			// NOTE: Undoing instead of replacing the utreexoview with the roots in the database

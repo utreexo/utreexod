@@ -404,7 +404,7 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 
 		// Generate the data for the undo block.
 		_, outCount, _, outskip := blockchain.DedupeBlock(block)
-		adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 		delHashes, err := idx.chain.ReconstructUData(ud, *block.Hash())
 		if err != nil {
 			return err
@@ -489,7 +489,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	if err != nil {
 		return err
 	}
-	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 	idx.mtx.RLock()
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
@@ -519,13 +519,13 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		}
 	}
 
-	addHashes := make([]utreexo.Hash, 0, len(adds))
+	addHashes := make([]utreexo.Leaf, 0, len(adds))
 	for _, add := range adds {
-		addHashes = append(addHashes, add.Hash)
+		addHashes = append(addHashes, utreexo.Leaf{Hash: add.LeafHash(), Remember: false})
 	}
 
 	idx.mtx.Lock()
-	createdIndexes, err := idx.utreexoState.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
+	createdIndexes, err := idx.utreexoState.state.ModifyAndReturnTTLs(addHashes, delHashes, ud.AccProof)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -591,7 +591,7 @@ func (idx *FlatUtreexoProofIndex) attachBlock(blk *btcutil.Block, stxos []blockc
 		return err
 	}
 
-	adds := blockchain.BlockToAddLeaves(blk, outskip, nil, outCount)
+	adds := blockchain.BlockToAddLeaves(blk, outskip, outCount)
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
 	if err != nil {
 		return err
@@ -602,7 +602,11 @@ func (idx *FlatUtreexoProofIndex) attachBlock(blk *btcutil.Block, stxos []blockc
 		delHashes[i] = del.LeafHash()
 	}
 
-	err = idx.utreexoState.state.Modify(adds, delHashes, ud.AccProof)
+	addHashes := make([]utreexo.Leaf, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, utreexo.Leaf{Hash: add.LeafHash(), Remember: false})
+	}
+	err = idx.utreexoState.state.Modify(addHashes, delHashes, ud.AccProof)
 	if err != nil {
 		return err
 	}
@@ -680,7 +684,7 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (
 		}
 
 		_, outCount, _, outskip := blockchain.DedupeBlock(block)
-		adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 		numAdds = uint64(len(adds))
 	} else {
@@ -704,9 +708,9 @@ func (idx *FlatUtreexoProofIndex) getCreateIndexes(lds []wire.LeafData, delHashe
 		}
 
 		_, outCount, _, outskip := blockchain.DedupeBlock(stxoBlock)
-		adds := blockchain.BlockToAddLeaves(stxoBlock, outskip, nil, outCount)
+		adds := blockchain.BlockToAddLeaves(stxoBlock, outskip, outCount)
 		for j, add := range adds {
-			if add.Hash == delHashes[i] {
+			if add.LeafHash() == delHashes[i] {
 				createIndexes = append(createIndexes, uint32(j))
 				break
 			}

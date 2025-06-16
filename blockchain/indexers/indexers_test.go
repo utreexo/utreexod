@@ -382,7 +382,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	}
 
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-	adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 	dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip)
 	if err != nil {
@@ -394,6 +394,11 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 			continue
 		}
 		delHashes = append(delHashes, del.LeafHash())
+	}
+
+	addHashes := make([]utreexo.Leaf, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, utreexo.Leaf{Hash: add.LeafHash(), Remember: false})
 	}
 
 	// Verify the proof on the accumulator.
@@ -413,7 +418,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 				return err
 			}
 			// Go back to the original state.
-			err = idxType.utreexoState.state.Modify(adds, delHashes, utreexo.Proof{Targets: flatUD.AccProof.Targets})
+			err = idxType.utreexoState.state.Modify(addHashes, delHashes, utreexo.Proof{Targets: flatUD.AccProof.Targets})
 			if err != nil {
 				return err
 			}
@@ -437,7 +442,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 				return err
 			}
 			// Go back to the original state.
-			err = idxType.utreexoState.state.Modify(adds, delHashes, utreexo.Proof{Targets: ud.AccProof.Targets})
+			err = idxType.utreexoState.state.Modify(addHashes, delHashes, utreexo.Proof{Targets: ud.AccProof.Targets})
 			if err != nil {
 				return err
 			}

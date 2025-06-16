@@ -6,6 +6,7 @@ package blockchain
 
 import (
 	"bytes"
+	"container/heap"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -20,12 +21,48 @@ import (
 	"github.com/utreexo/utreexod/wire"
 )
 
+// maxCachedLeaves is the maximum number of leaves that we're going to cache.
+const maxCachedLeaves = 4000
+
+// cachedLeaf is the leafdata and its deathHeight.
+type cachedLeaf struct {
+	hash        utreexo.Hash
+	deathHeight int32
+}
+
+// LeafHeap is a priority queue of the leaves by their deathHeight.
+type LeafHeap []cachedLeaf
+
+func (h LeafHeap) Len() int           { return len(h) }
+func (h LeafHeap) Less(i, j int) bool { return h[i].deathHeight < h[j].deathHeight }
+func (h LeafHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h LeafHeap) View() any {
+	if len(h) == 0 {
+		return nil
+	}
+	return h[0]
+}
+func (h *LeafHeap) Push(x any) { *h = append(*h, x.(cachedLeaf)) }
+func (h *LeafHeap) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
+
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator
 type UtreexoViewpoint struct {
 	// accumulator is the bare-minimum accumulator for the utxo set.
 	// It only holds the root hashes and the number of elements in the
 	// accumulator.
 	accumulator utreexo.MapPollard
+
+	// cache holds the currently cached leaves.
+	cache map[utreexo.Hash]wire.LeafData
+
+	// cachedLeafHeap is a priority queue of the cached leaves ordered by their death heights.
+	cachedLeafHeap LeafHeap
 }
 
 // CopyWithRoots returns a new utreexo viewpoint with just the roots copied.
@@ -42,31 +79,140 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 	return newUview
 }
 
+// addLeafToCache adds a single leaf to the cache.
+func (uview *UtreexoViewpoint) addLeafToCache(cacheLeaf cachedLeaf, leaf wire.LeafData) {
+	// Add to the cache.
+	uview.cache[cacheLeaf.hash] = leaf
+
+	// Add to the heap.
+	uview.cachedLeafHeap.Push(cacheLeaf)
+	heap.Init(&uview.cachedLeafHeap)
+}
+
+// maybeReplace checks the next leaf in the priority queue and replaces it with the passed in leaf
+// if the newLeaf's deathHeight is earlier.
+func (uview *UtreexoViewpoint) maybeReplace(newLeaf cachedLeaf, leafData wire.LeafData) *utreexo.Hash {
+	// Check if the newLeaf's deathHeight is less than the next leaf in the
+	// priority queue.
+	item := uview.cachedLeafHeap.View().(cachedLeaf)
+	if item.deathHeight > newLeaf.deathHeight {
+		// Remove current.
+		delete(uview.cache, item.hash)
+		heap.Pop(&uview.cachedLeafHeap)
+
+		// Replace.
+		uview.addLeafToCache(newLeaf, leafData)
+
+		return &item.hash
+	}
+
+	return nil
+}
+
+// updateCaches looks into the cache and adds new leaves wherever possible.
+func (uview *UtreexoViewpoint) updateCaches(block *btcutil.Block, leaves []wire.LeafData) ([]utreexo.Leaf, []utreexo.Hash) {
+	ttls := block.UtreexoTTLs()
+	if ttls == nil {
+		return nil, nil
+	}
+
+	// Check the cache for spent positions.
+	for uview.cachedLeafHeap.Len() > 0 {
+		// If the leaf's deathheight is now, remove it.
+		item := uview.cachedLeafHeap.View().(cachedLeaf)
+		if item.deathHeight <= block.Height() {
+			delete(uview.cache, item.hash)
+			heap.Pop(&uview.cachedLeafHeap)
+		} else {
+			// Break if we don't have any more to pop.
+			break
+		}
+	}
+
+	addHashes := make([]utreexo.Leaf, len(leaves))
+	for i := range addHashes {
+		addHashes[i] = utreexo.Leaf{Hash: leaves[i].LeafHash()}
+	}
+
+	uncache := []utreexo.Hash{}
+
+	for i, ttl := range ttls.TTLs {
+		// Create the leaf to potentially cache.
+		leaf := cachedLeaf{
+			hash:        addHashes[i].Hash,
+			deathHeight: int32(ttl.TTL) + int32(ttls.BlockHeight),
+		}
+
+		// Simply add the leaf if we're under the maxCachedLeaves limit.
+		if len(uview.cache) < maxCachedLeaves {
+			// Add to the cache.
+			uview.addLeafToCache(leaf, leaves[i])
+
+			// Set the add to be remembered.
+			addHashes[i].Remember = true
+
+			continue
+		}
+
+		// If we're here, we must check if we can replace an existing
+		// leaf.
+		replaced := uview.maybeReplace(leaf, leaves[i])
+		if replaced != nil {
+			// Add it to be uncached.
+			uncache = append(uncache, *replaced)
+
+			// Set the add to be remembered.
+			addHashes[i].Remember = true
+		}
+	}
+
+	return addHashes, uncache
+}
+
 // ProcessUData updates the underlying accumulator. It does NOT check if the verification passes.
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	bestChain *chainView, ud *wire.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds, err := ExtractAccumulatorAdds(block, []uint32{})
-	if err != nil {
-		return err
-	}
+	adds := ExtractAccumulatorAdds(block)
 
 	dels, err := ExtractAccumulatorDels(block, bestChain)
 	if err != nil {
 		return err
 	}
 
+	var addHashes []utreexo.Leaf
+
+	ttls := block.UtreexoTTLs()
+	if ttls != nil {
+		var uncache []utreexo.Hash
+		addHashes, uncache = uview.updateCaches(block, adds)
+
+		// Uncache before modification.
+		// TODO: The order doesn't matter but check to see if either way is faster.
+		err = uview.accumulator.Prune(uncache)
+		if err != nil {
+			return err
+		}
+	} else {
+		// If the block didn't have any ttls, the returned addHashes are going to be nil.
+		// We therefore need to hash the leaves.
+		addHashes = make([]utreexo.Leaf, len(adds))
+		for i, add := range adds {
+			addHashes[i] = utreexo.Leaf{Hash: add.LeafHash(), Remember: false}
+		}
+	}
+
 	// Update the underlying accumulator.
-	updateData, err := uview.Modify(ud, adds, dels)
+	updateData, err := uview.Modify(ud, addHashes, dels)
 	if err != nil {
 		return fmt.Errorf("ProcessUData fail. Error: %v", err)
 	}
 
 	// Add the utreexo data to the block.
 	block.SetUtreexoUpdateData(updateData)
-	block.SetUtreexoAdds(adds)
+	block.SetUtreexoAdds(addHashes)
 
 	return nil
 }
@@ -276,18 +422,14 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 }
 
 // ExtractAccumulatorAdds extracts the additions that will beused to modify the utreexo accumulator.
-func ExtractAccumulatorAdds(block *btcutil.Block, remembers []uint32) (
-	[]utreexo.Leaf, error) {
-
+func ExtractAccumulatorAdds(block *btcutil.Block) []wire.LeafData {
 	// outskip is all the txOuts that are referenced by a txIn in the same block
 	// outCount is the count of all outskips.
 	_, outCount, _, outskip := DedupeBlock(block)
 
-	// Make the now verified utxos into 32 byte leaves ready to be added into the
+	// Make the now verified utxos into the leaf preimages that will be added into the
 	// utreexo accumulator.
-	leaves := BlockToAddLeaves(block, outskip, remembers, outCount)
-
-	return leaves, nil
+	return BlockToAddLeaves(block, outskip, outCount)
 }
 
 // it'd be cool if you just had .sort() methods on slices of builtin types...
@@ -476,15 +618,10 @@ func IsUnspendable(o *wire.TxOut) bool {
 // included in the slice. For example, if [0, 3, 11] is given as the skiplist,
 // then utxos that appear in the 0th, 3rd, and 11th in the block will
 // be skipped over.
-func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, remembers []uint32,
-	outCount int) []utreexo.Leaf {
-
-	// Sort first as the below loop expects the remembers to be in order.
-	sortUint32s(remembers)
-
+func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []wire.LeafData {
 	// We're overallocating a little bit since all the unspendables
 	// won't be appended. It's ok though for the pre-allocation savings.
-	leaves := make([]utreexo.Leaf, 0, outCount-len(skiplist))
+	leaves := make([]wire.LeafData, 0, outCount-len(skiplist))
 
 	var txonum uint32
 	for coinbase, tx := range block.Transactions() {
@@ -515,20 +652,7 @@ func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, remembers []uint3
 				IsCoinBase: coinbase == 0,
 			}
 
-			// Set remember to be true if the current UTXO corresponds
-			// to an index that should be remembered.
-			remember := false
-			if len(remembers) > 0 && remembers[0] == txonum {
-				remembers = remembers[1:]
-				remember = true
-			}
-
-			uleaf := utreexo.Leaf{
-				Hash:     leaf.LeafHash(),
-				Remember: remember,
-			}
-
-			leaves = append(leaves, uleaf)
+			leaves = append(leaves, leaf)
 			txonum++
 		}
 	}
@@ -838,7 +962,9 @@ func (uview *UtreexoViewpoint) PruneAll() {
 // NewUtreexoViewpoint returns an empty UtreexoViewpoint
 func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
-		accumulator: utreexo.NewMapPollard(false),
+		accumulator:    utreexo.NewMapPollard(false),
+		cache:          make(map[utreexo.Hash]wire.LeafData),
+		cachedLeafHeap: make([]cachedLeaf, 0, maxCachedLeaves),
 	}
 }
 

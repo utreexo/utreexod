@@ -491,7 +491,7 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 		if err != nil {
 			return err
 		}
-		adds := blockchain.BlockToAddLeaves(block, outskip, nil, outCount)
+		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 		ud, err := wire.GenerateUData(dels, us.state)
 		if err != nil {
@@ -502,13 +502,18 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 			delHashes[i] = ud.LeafDatas[i].LeafHash()
 		}
 
+		addHashes := make([]utreexo.Leaf, 0, len(adds))
+		for _, add := range adds {
+			addHashes = append(addHashes, utreexo.Leaf{Hash: add.LeafHash(), Remember: false})
+		}
+
 		if us.config.Pruned {
-			err := us.state.Modify(adds, delHashes, ud.AccProof)
+			err := us.state.Modify(addHashes, delHashes, ud.AccProof)
 			if err != nil {
 				return err
 			}
 		} else {
-			createIndexes, err := us.state.ModifyAndReturnTTLs(adds, delHashes, ud.AccProof)
+			createIndexes, err := us.state.ModifyAndReturnTTLs(addHashes, delHashes, ud.AccProof)
 			if err != nil {
 				return err
 			}
