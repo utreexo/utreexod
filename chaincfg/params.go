@@ -402,6 +402,26 @@ var MainNetParams = Params{
 		},
 	},
 
+	TTL: TTLState{
+		Stump: []utreexo.Stump{
+			{
+				Roots: []utreexo.Hash{
+					newUtreexoHashFromStr("235626f78eec6d4b6758bd1a4281bc9466eb6f4c237a016a6b877151a383ad79"),
+					newUtreexoHashFromStr("edd565c31eb5ccc49a349c144bfed1f4db2e6e6b308a1616bad36bdb160dd720"),
+					newUtreexoHashFromStr("0fd3ab9baaf27eac36316bb82f0080a1e194cdc8e5ced28a7c3c9c566f56bd01"),
+					newUtreexoHashFromStr("30b004f3ef18f94016022b458631f33b2d9f4ce25c00beed183b77d788c5cd88"),
+					newUtreexoHashFromStr("6c2a9c566e66cb5b12b877851428ce1a1eefac7ed79dd4d7d686ce49c5388796"),
+					newUtreexoHashFromStr("8c2e1f172b82c88bf8589d9d637e5a2e5fadf00f1e049902f5b80ecfef063ae9"),
+					newUtreexoHashFromStr("5ef854e6bec2d2ea5b26e776270f80db030c66bda7a468485d4fd031d3214ff6"),
+					newUtreexoHashFromStr("4a87e88e8249a2c2355a758031da7f3830c8125c761abb5f717733acef665167"),
+					newUtreexoHashFromStr("269ffb380ff2a9838fc9ff43485a4ccd2b606caca0f23a8dfea551eacfddf18a"),
+					newUtreexoHashFromStr("cbda0895ebc1beb38c0f8389dc610164ea0b169c01c74e38e60e02e847b6b988"),
+				},
+				NumLeaves: 901_337,
+			},
+		},
+	},
+
 	// Consensus rule change deployments.
 	//
 	// The miner confirmation window is defined as:
@@ -964,20 +984,21 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 			Stump: []utreexo.Stump{
 				{
 					Roots: []utreexo.Hash{
-						newUtreexoHashFromStr("6eab9e0188b9d6d5776901a2136175e8f49c052f670989ca81a6aadafe200cff"),
-						newUtreexoHashFromStr("cf1fa5b51f92e756f1c5fa638c1449516c0b2104a6298560e10224c41bdffbe5"),
-						newUtreexoHashFromStr("9bbc4ce77274f4b88f7d819ac1780fde7dcafe5f67465cae255c0c0d70ea0700"),
-						newUtreexoHashFromStr("14ff366e76e041ef4ebbd7f779c9aac1f6ffbe2363a5784097df77dbc0ef7fda"),
-						newUtreexoHashFromStr("e9fd43542f71b54ced1094676aea989dd9ad6eaf856076e28c4d535689ee02f8"),
-						newUtreexoHashFromStr("3ac48aca0822da50410a75770c5d5f1bad350b4502e0d0b5543d17847e61dfd8"),
-						newUtreexoHashFromStr("6bf2437b877d8456bd2e55676c22fd805c0acbaa6dae60cf784d5b508e8fb7de"),
-						newUtreexoHashFromStr("5d5684144d7c3caf98bb23ea17732ba54f2bcfefedb4ad99f45ca18ba5a93f59"),
-						newUtreexoHashFromStr("3222c1d291a99e2674a5c9b363e100df399bb5d452235471188c9a089474437d"),
-						newUtreexoHashFromStr("04ebb360b02b8a79fc0bd7f1856882abbc4de10ae2f16f215c17a40f185d0059"),
-						newUtreexoHashFromStr("9514665ff416f5b9f6550e947312d39539672e17cdaca4b56287b3e868b8707e"),
-						newUtreexoHashFromStr("4c48df4e27e6d8be97ecfcccf768baef17a447732c02fa423c6909342a46c6ae"),
+						newUtreexoHashFromStr("f7d61927ad11dab9ddf6696deee24e41527c0ecaacb64452f2d0efad46efeb50"),
+						newUtreexoHashFromStr("0e2424a1dfbae390d630db5ec18f731be7c82379cbbc461200da87d2e41b5f0d"),
+						newUtreexoHashFromStr("aeec06bb619ed8d1c7839b70d5603fa536aa5e97e0326d61adbc4dba1566d0b9"),
+						newUtreexoHashFromStr("d705915889fb97995dbb6d281fe87580781b275ec131aeb933c53be1820535c4"),
+						newUtreexoHashFromStr("a716fcf1ec9bd01831577187f39624643d674236530b0c69d78656184dbf2e0b"),
+						newUtreexoHashFromStr("9a22e35d07014961ba2d2b0685f9b1846e93242c768ab30b2300becb40e4de62"),
+						newUtreexoHashFromStr("2b546fe54d97994ccf0f9d271e170b07f973213e465013f5622362dba61f39be"),
+						newUtreexoHashFromStr("c718f3d804a01f3efe4f294976f571ffd6601edc76519b6568adc1d61f2016fe"),
+						newUtreexoHashFromStr("95b24cc4aed800cc1bd1d1bba147af9debcff6486af83144cfc339b12b738397"),
+						newUtreexoHashFromStr("b975b3f825ca0b9c5826a3787b446e3ffffa53b4858c7cdc27d4aee49305b238"),
+						newUtreexoHashFromStr("a14d61e39cafb2c46a2fe01d08cbaf5c4a574a48eba288f8cf22e24cde52cbc4"),
+						newUtreexoHashFromStr("4b10b40be92c6df2989ed7b1b9b5c0adaa4a8a5eba0db829150452f453feb953"),
+						newUtreexoHashFromStr("348b6a42bdc009537df892568864f906f4f26a375890671dd8e65ec76fd92ce0"),
 					},
-					NumLeaves: 253_841,
+					NumLeaves: 255_695,
 				},
 			},
 		},
