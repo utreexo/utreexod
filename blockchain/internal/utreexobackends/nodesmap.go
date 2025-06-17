@@ -242,6 +242,38 @@ func (ms *NodesMapSlice) ForEach(fn func(uint64, CachedLeaf) error) error {
 	return nil
 }
 
+// ForEachAndDelete loops through all the elements in the nodes map slice and calls fn with the key-value pairs and deletes that key.
+//
+// This function is safe for concurrent access.
+func (ms *NodesMapSlice) ForEachAndDelete(fn func(uint64, CachedLeaf) error) error {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	for _, m := range ms.maps {
+		for k, v := range m {
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
+
+			delete(m, k)
+		}
+	}
+
+	if len(ms.overflow) > 0 {
+		for k, v := range ms.overflow {
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
+
+			delete(ms.overflow, k)
+		}
+	}
+
+	return nil
+}
+
 // createMaps creates a slice of maps and returns the total count that the maps
 // can handle. maxEntries are also set along with the newly created maps.
 func (ms *NodesMapSlice) createMaps(maxMemoryUsage int64) int64 {

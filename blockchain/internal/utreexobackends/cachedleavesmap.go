@@ -229,6 +229,38 @@ func (ms *CachedLeavesMapSlice) ForEach(fn func(utreexo.Hash, CachedPosition) er
 	return nil
 }
 
+// ForEachAndDelete loops through all the elements in the cachedleaves map slice and calls fn with the key-value pairs and then deletes that key.
+//
+// This function is safe for concurrent access.
+func (ms *CachedLeavesMapSlice) ForEachAndDelete(fn func(utreexo.Hash, CachedPosition) error) error {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	for _, m := range ms.maps {
+		for k, v := range m {
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
+
+			delete(m, k)
+		}
+	}
+
+	if len(ms.overflow) > 0 {
+		for k, v := range ms.overflow {
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
+
+			delete(ms.overflow, k)
+		}
+	}
+
+	return nil
+}
+
 // createMaps creates a slice of maps and returns the total count that the maps
 // can handle. maxEntries are also set along with the newly created maps.
 func (ms *CachedLeavesMapSlice) createMaps(maxMemoryUsage int64) int64 {
