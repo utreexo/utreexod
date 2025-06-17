@@ -265,7 +265,7 @@ func (m *NodesBackEnd) RoughSize() uint64 {
 
 // FlushBatch saves all the cached entries to disk and resets the cache map using the Batch.
 func (m *NodesBackEnd) FlushBatch(batch *pebble.Batch) error {
-	err := m.cache.ForEach(func(k uint64, v utreexobackends.CachedLeaf) error {
+	err := m.cache.ForEachAndDelete(func(k uint64, v utreexobackends.CachedLeaf) error {
 		if v.IsFresh() {
 			if !v.IsRemoved() {
 				err := NodesBatchPut(batch, k, v.Leaf)
@@ -293,7 +293,6 @@ func (m *NodesBackEnd) FlushBatch(batch *pebble.Batch) error {
 		return fmt.Errorf("NodesBackEnd flush error. %v", err)
 	}
 
-	m.cache.ClearMaps()
 	return nil
 }
 
@@ -508,7 +507,7 @@ func (m *CachedLeavesBackEnd) RoughSize() uint64 {
 
 // FlushBatch resets the cache and saves all the key values onto the given Batch.
 func (m *CachedLeavesBackEnd) FlushBatch(batch *pebble.Batch) error {
-	err := m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
+	err := m.cache.ForEachAndDelete(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
 		if v.IsRemoved() {
 			err := batch.Delete(k[:], nil)
 			if err != nil {
@@ -527,7 +526,6 @@ func (m *CachedLeavesBackEnd) FlushBatch(batch *pebble.Batch) error {
 		return fmt.Errorf("CachedLeavesBackEnd flush error. %v", err)
 	}
 
-	m.cache.ClearMaps()
 	return nil
 }
 
