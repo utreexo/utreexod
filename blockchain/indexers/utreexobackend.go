@@ -545,6 +545,20 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 	return nil
 }
 
+// batchFlush is a helper function for flushing the given nodes and cached leaves backends to the batch.
+func batchFlush(batch *pebble.Batch, nDB *blockchain.NodesBackEnd, cDB *blockchain.CachedLeavesBackEnd) error {
+	err := nDB.FlushBatch(batch)
+	if err != nil {
+		return err
+	}
+	err = cDB.FlushBatch(batch)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // InitUtreexoState returns an initialized utreexo state. If there isn't an
 // existing state on disk, it creates one and returns it.
 // maxMemoryUsage of 0 will keep every element on disk. A negaive maxMemoryUsage will
@@ -598,16 +612,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 			cachedLeavesUsed, cachedLeavesCapacity,
 			float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
 
-		err = nodesDB.FlushBatch(batch)
-		if err != nil {
-			return err
-		}
-		err = cachedLeavesDB.FlushBatch(batch)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return batchFlush(batch, nodesDB, cachedLeavesDB)
 	}
 	isFlushNeeded := func() bool {
 		nodesNeedsFlush := nodesDB.IsFlushNeeded()
