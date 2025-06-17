@@ -8,11 +8,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/objstorage/objstorageprovider"
+	"github.com/cockroachdb/pebble/sstable"
+	"github.com/cockroachdb/pebble/vfs"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -29,6 +33,10 @@ const (
 	// oldDefaultUtreexoFileName is the file name of the utreexo state that the num leaves
 	// used to be stored in.
 	oldDefaultUtreexoFileName = "forest.dat"
+
+	// flushSSTableName is the file name of the sstable that we'll use to flush the utreexo state
+	// into.
+	flushSSTableName = "forestFlush.dat"
 )
 
 var (
@@ -119,6 +127,16 @@ func dbWriteUtreexoStateConsistency(batch *pebble.Batch, bestHash *chainhash.Has
 	copy(buf[8:], bestHash[:])
 
 	return batch.Set(utreexoStateConsistencyKeyName, buf[:], nil)
+}
+
+// utreexoStateConsistencyToKeyValue returns the given info as a serialized value.
+func utreexoStateConsistencyToKeyValue(bestHash *chainhash.Hash, numLeaves uint64) []byte {
+	// Create the byte slice to be written.
+	var buf [8 + chainhash.HashSize]byte
+	binary.LittleEndian.PutUint64(buf[:8], numLeaves)
+	copy(buf[8:], bestHash[:])
+
+	return buf[:]
 }
 
 // dbFetchUtreexoStateConsistency returns the stored besthash and the numleaves in the database.
@@ -461,6 +479,11 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 		savedHash = new(chainhash.Hash)
 	}
 
+	// Remove the unnecessary tmp sstable. It's ok if we error out here since getSStableWriter
+	// will always remove it before creating a new one.
+	path := filepath.Join(utreexoBasePath(us.config), flushSSTableName)
+	os.Remove(path)
+
 	log.Infof("Reconstructing the Utreexo state after an unclean shutdown. The Utreexo state is "+
 		"consistent at block %s (%d) but the index tip is at block %s (%d),  This may "+
 		"take a long time...", savedHash.String(), currentHeight, tipHash.String(), tipHeight)
@@ -540,6 +563,45 @@ func batchFlush(batch *pebble.Batch, nDB *blockchain.NodesBackEnd, cDB *blockcha
 	return nil
 }
 
+// getSStableWriter returns a new sstable.Writer. The returned path is always the same.
+func (us *UtreexoState) getSStableWriter() (*sstable.Writer, string, error) {
+	path := filepath.Join(utreexoBasePath(us.config), flushSSTableName)
+	flushFile, err := vfs.Default.Create(path)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return sstable.NewWriter(objstorageprovider.NewFileWritable(flushFile), sstable.WriterOptions{
+		TableFormat: us.utreexoStateDB.FormatMajorVersion().MaxTableFormat(),
+	}), path, nil
+}
+
+// sstableFlush first writes a sst to a file on disk and calls db.Ingest to ingest that sst.
+func (us *UtreexoState) sstableFlush(consistencyFlushValue []byte,
+	nDB *blockchain.NodesBackEnd, cDB *blockchain.CachedLeavesBackEnd) error {
+
+	writer, path, err := us.getSStableWriter()
+	if err != nil {
+		return err
+	}
+	writer.Set(utreexoStateConsistencyKeyName, consistencyFlushValue)
+
+	blockchain.FlushToSstable(writer, nDB, cDB)
+
+	err = writer.Close()
+	if err != nil {
+		return err
+	}
+
+	return us.utreexoStateDB.Ingest([]string{path})
+}
+
+// formatBytesToGB formats the bytes into a human readable GB format.
+func formatBytesToGB(bytes uint64) string {
+	const gb = 1024 * 1024 * 1024 // 1 GB in bytes
+	return fmt.Sprintf("%.2f GB", float64(bytes)/float64(gb))
+}
+
 // InitUtreexoState returns an initialized utreexo state. If there isn't an
 // existing state on disk, it creates one and returns it.
 // maxMemoryUsage of 0 will keep every element on disk. A negaive maxMemoryUsage will
@@ -600,6 +662,15 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 			cachedLeavesUsed, cachedLeavesCapacity,
 			float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
 
+		size := nodesDB.RoughSize()
+		size += cachedLeavesDB.RoughSize()
+		if size >= math.MaxUint32 {
+			log.Debugf("flushing with sstable. size ~%v", formatBytesToGB(size))
+			value := utreexoStateConsistencyToKeyValue(bestHash, numLeaves)
+			return uState.sstableFlush(value, nodesDB, cachedLeavesDB)
+		}
+
+		log.Debugf("flushing with batch. size ~%v", formatBytesToGB(size))
 		batch := uState.utreexoStateDB.NewBatch()
 		err = dbWriteUtreexoStateConsistency(batch, bestHash, numLeaves)
 		if err != nil {
