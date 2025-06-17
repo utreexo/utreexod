@@ -290,20 +290,23 @@ func (m *NodesBackEnd) FlushBatch(batch *pebble.Batch) error {
 	return nil
 }
 
-// serializeLeafInfo serializes the given LeafInfo into a [12]byte array.
-func serializeLeafInfo(leafInfo utreexo.LeafInfo) [12]byte {
-	var buf [12]byte
+// leafInfoSize is the size of a serialized utreexo.LeafInfo in bytes.
+const leafInfoSize = 12
+
+// serializeLeafInfo serializes the given LeafInfo into a [leafInfoSize]byte array.
+func serializeLeafInfo(leafInfo utreexo.LeafInfo) [leafInfoSize]byte {
+	var buf [leafInfoSize]byte
 	byteOrder.PutUint64(buf[:8], leafInfo.Position)
-	byteOrder.PutUint32(buf[8:12], leafInfo.AddIndex)
+	byteOrder.PutUint32(buf[8:], leafInfo.AddIndex)
 
 	return buf
 }
 
-// deserializeLeafInfo returns a LeafInfo from a [12]byte array.
-func deserializeLeafInfo(buf [12]byte) utreexo.LeafInfo {
+// deserializeLeafInfo returns a LeafInfo from a [leafInfoSize]byte array.
+func deserializeLeafInfo(buf [leafInfoSize]byte) utreexo.LeafInfo {
 	return utreexo.LeafInfo{
 		Position: byteOrder.Uint64(buf[:8]),
-		AddIndex: byteOrder.Uint32(buf[8:12]),
+		AddIndex: byteOrder.Uint32(buf[8:]),
 	}
 }
 
@@ -320,12 +323,12 @@ type CachedLeavesBackEnd struct {
 // dbGet fetches and deserializes the value from the database.
 func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (utreexo.LeafInfo, bool) {
 	val, closer, err := m.db.Get(k[:])
-	if err != nil || len(val) != 12 {
+	if err != nil || len(val) != leafInfoSize {
 		return utreexo.LeafInfo{}, false
 	}
 	defer closer.Close()
 
-	return deserializeLeafInfo(([12]byte)(val)), true
+	return deserializeLeafInfo(([leafInfoSize]byte)(val)), true
 }
 
 // InitCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
@@ -466,10 +469,10 @@ func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, utreexo.LeafInfo) er
 			continue
 		}
 		serialized := iter.Value()
-		if len(serialized) != 12 {
+		if len(serialized) != leafInfoSize {
 			continue
 		}
-		leafInfo := deserializeLeafInfo(([12]byte)(serialized))
+		leafInfo := deserializeLeafInfo(([leafInfoSize]byte)(serialized))
 
 		err := fn(*(*[chainhash.HashSize]byte)(k), leafInfo)
 		if err != nil {
