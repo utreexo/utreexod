@@ -78,27 +78,8 @@ type UtreexoState struct {
 	state          *utreexo.MapPollard
 	utreexoStateDB *pebble.DB
 
-	isFlushNeeded       func() bool
-	flushLeavesAndNodes func(batch *pebble.Batch) error
-}
-
-// flush flushes the utreexo state and all the data necessary for the utreexo state to be recoverable
-// on sudden crashes.
-func (us *UtreexoState) flush(bestHash *chainhash.Hash) error {
-	batch := us.utreexoStateDB.NewBatch()
-
-	// Write the best block hash and the numleaves for the utreexo state.
-	err := dbWriteUtreexoStateConsistency(batch, bestHash, us.state.GetNumLeaves())
-	if err != nil {
-		return err
-	}
-
-	err = us.flushLeavesAndNodes(batch)
-	if err != nil {
-		return err
-	}
-
-	return batch.Commit(nil)
+	isFlushNeeded func() bool
+	flush         func(uint64, *chainhash.Hash) error
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -245,7 +226,7 @@ func (idx *UtreexoProofIndex) flushUtreexoState(bestHash *chainhash.Hash) error 
 	defer idx.mtx.Unlock()
 
 	log.Infof("Flushing the utreexo state to disk...")
-	return idx.utreexoState.flush(bestHash)
+	return idx.utreexoState.flush(idx.utreexoState.state.NumLeaves, bestHash)
 }
 
 // CloseUtreexoState flushes and closes the utreexo database state.
@@ -312,7 +293,7 @@ func (idx *FlatUtreexoProofIndex) flushUtreexoState(bestHash *chainhash.Hash) er
 	defer idx.mtx.Unlock()
 
 	log.Infof("Flushing the utreexo state to disk...")
-	return idx.utreexoState.flush(bestHash)
+	return idx.utreexoState.flush(idx.utreexoState.state.NumLeaves, bestHash)
 }
 
 // CloseUtreexoState flushes and closes the utreexo database state.
@@ -535,7 +516,7 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 
 		if us.isFlushNeeded() {
 			log.Infof("Flushing the utreexo state to disk...")
-			err = us.flush(block.Hash())
+			err = us.flush(us.state.NumLeaves, block.Hash())
 			if err != nil {
 				return err
 			}
@@ -601,7 +582,14 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 
 	p.Nodes = nodesDB
 	p.CachedLeaves = cachedLeavesDB
-	flush := func(batch *pebble.Batch) error {
+
+	uState := &UtreexoState{
+		config:         cfg,
+		state:          &p,
+		utreexoStateDB: db,
+	}
+
+	flush := func(numLeaves uint64, bestHash *chainhash.Hash) error {
 		nodesUsed, nodesCapacity := nodesDB.UsageStats()
 		log.Debugf("Utreexo index nodesDB cache usage: %d/%d (%v%%)\n",
 			nodesUsed, nodesCapacity,
@@ -612,7 +600,18 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 			cachedLeavesUsed, cachedLeavesCapacity,
 			float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
 
-		return batchFlush(batch, nodesDB, cachedLeavesDB)
+		batch := uState.utreexoStateDB.NewBatch()
+		err = dbWriteUtreexoStateConsistency(batch, bestHash, numLeaves)
+		if err != nil {
+			return err
+		}
+
+		err = batchFlush(batch, nodesDB, cachedLeavesDB)
+		if err != nil {
+			return err
+		}
+
+		return batch.Commit(nil)
 	}
 	isFlushNeeded := func() bool {
 		nodesNeedsFlush := nodesDB.IsFlushNeeded()
@@ -620,13 +619,8 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 		return nodesNeedsFlush || leavesNeedsFlush
 	}
 
-	uState := &UtreexoState{
-		config:              cfg,
-		state:               &p,
-		utreexoStateDB:      db,
-		isFlushNeeded:       isFlushNeeded,
-		flushLeavesAndNodes: flush,
-	}
+	uState.flush = flush
+	uState.isFlushNeeded = isFlushNeeded
 
 	// Make sure that the utreexo state is consistent before returning it.
 	err = uState.initConsistentUtreexoState(chain, ttlIdx, savedHash, tipHash, tipHeight)
