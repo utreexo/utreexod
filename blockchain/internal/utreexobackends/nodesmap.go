@@ -278,39 +278,6 @@ func (ms *NodesMapSlice) delete(k uint64) {
 	delete(ms.overflow, k)
 }
 
-// DeleteMaps deletes all maps and allocate new ones with the maxEntries defined in
-// ms.maxEntries.
-//
-// This function is safe for concurrent access.
-func (ms *NodesMapSlice) DeleteMaps() {
-	ms.mtx.Lock()
-	defer ms.mtx.Unlock()
-
-	for i := range ms.maxEntries {
-		ms.maps[i] = make(map[uint64]CachedLeaf, ms.maxEntries[i])
-	}
-
-	ms.overflow = make(map[uint64]CachedLeaf)
-}
-
-// ClearMaps clears all maps
-//
-// This function is safe for concurrent access.
-func (ms *NodesMapSlice) ClearMaps() {
-	ms.mtx.Lock()
-	defer ms.mtx.Unlock()
-
-	for i := range ms.maps {
-		for key := range ms.maps[i] {
-			delete(ms.maps[i], key)
-		}
-	}
-
-	for key := range ms.overflow {
-		delete(ms.overflow, key)
-	}
-}
-
 // ForEach loops through all the elements in the nodes map slice and calls fn with the key-value pairs.
 //
 // This function is safe for concurrent access.
