@@ -42,6 +42,19 @@ func deserializeLeaf(serialized [leafLength]byte) utreexo.Leaf {
 	return leaf
 }
 
+// FlushKey represents a key-value info that should be written to the database. The keys
+// are serialized so that they're able to be sorted.
+type FlushKey struct {
+	// Key is the serialized key.
+	Key []byte
+
+	// Value is the serialized value. Can be nil if the key is being deleted.
+	Value []byte
+
+	// Delete indicates if the key is being deleted or being written.
+	Delete bool
+}
+
 var _ utreexo.NodesInterface = (*NodesBackEnd)(nil)
 
 // NodesBackEnd implements the NodesInterface interface.
@@ -291,6 +304,45 @@ func (m *NodesBackEnd) FlushBatch(batch *pebble.Batch) error {
 	return nil
 }
 
+// FlushKeys empties and returns all the cached items as a slice of FlushKeys.
+func (m *NodesBackEnd) FlushKeys() []FlushKey {
+	keys := make([]FlushKey, m.cache.Length())
+	m.cache.ForEachAndDelete(func(k uint64, v utreexobackends.CachedLeaf) error {
+		size := serializeSizeVLQ(k)
+		buf := make([]byte, size)
+		putVLQ(buf, k)
+
+		if v.IsFresh() {
+			if !v.IsRemoved() {
+				leaf := serializeLeaf(v.Leaf)
+				keys = append(keys, FlushKey{
+					Key:    buf,
+					Value:  leaf[:],
+					Delete: false,
+				})
+			}
+		} else {
+			if v.IsRemoved() {
+				keys = append(keys, FlushKey{
+					Key:    buf,
+					Delete: true,
+				})
+			} else {
+				leaf := serializeLeaf(v.Leaf)
+				keys = append(keys, FlushKey{
+					Key:    buf,
+					Value:  leaf[:],
+					Delete: false,
+				})
+			}
+		}
+
+		return nil
+	})
+
+	return keys
+}
+
 // serializeLeafInfo serializes the given LeafInfo into a [12]byte array.
 func serializeLeafInfo(leafInfo utreexo.LeafInfo) [12]byte {
 	var buf [12]byte
@@ -514,4 +566,29 @@ func (m *CachedLeavesBackEnd) FlushBatch(batch *pebble.Batch) error {
 
 	m.cache.ClearMaps()
 	return nil
+}
+
+// FlushKeys empties and returns all the cached items as a slice of FlushKeys.
+func (m *CachedLeavesBackEnd) FlushKeys() []FlushKey {
+	keys := make([]FlushKey, m.cache.Length())
+	m.cache.ForEachAndDelete(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
+		buf := serializeLeafInfo(v.LeafInfo)
+
+		if v.IsRemoved() {
+			keys = append(keys, FlushKey{
+				Key:    k[:],
+				Delete: true,
+			})
+		} else {
+			keys = append(keys, FlushKey{
+				Key:    k[:],
+				Value:  buf[:],
+				Delete: false,
+			})
+		}
+
+		return nil
+	})
+
+	return keys
 }
