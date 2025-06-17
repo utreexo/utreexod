@@ -11,6 +11,7 @@ import (
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // leafLength is the length of a seriailzed leaf.
@@ -268,6 +269,12 @@ func (m *NodesBackEnd) IsFlushNeeded() bool {
 // UsageStats returns the currently cached elements and the total amount the cache can hold.
 func (m *NodesBackEnd) UsageStats() (int64, int64) {
 	return int64(m.cache.Length()), m.maxCacheElem
+}
+
+// RoughSize is a quick calculation of the cached items. The returned value is simply the
+// length multiplied by the cache length.
+func (m *NodesBackEnd) RoughSize() uint64 {
+	return uint64(m.cache.Length()) * (wire.MaxVarIntPayload + leafLength)
 }
 
 // FlushBatch saves all the cached entries to disk and resets the cache map using the Batch.
@@ -544,6 +551,12 @@ func (m *CachedLeavesBackEnd) IsFlushNeeded() bool {
 // UsageStats returns the currently cached elements and the total amount the cache can hold.
 func (m *CachedLeavesBackEnd) UsageStats() (int64, int64) {
 	return int64(m.cache.Length()), m.maxCacheElem
+}
+
+// RoughSize is a quick calculation of the cached items. The returned value is simply the
+// length multiplied by the cache length.
+func (m *CachedLeavesBackEnd) RoughSize() uint64 {
+	return uint64(m.cache.Length()) * (chainhash.HashSize + leafInfoSize)
 }
 
 // FlushBatch resets the cache and saves all the key values onto the given Batch.
