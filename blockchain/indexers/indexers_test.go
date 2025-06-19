@@ -1391,3 +1391,96 @@ func TestTTLs(t *testing.T) {
 	checkTTLRoots(t, maxHeight, expectedStumps, indexes)
 	checkTTLsAfterUndo(t, expectAfterUndoTTLs, indexes, chain)
 }
+
+func TestBridgeNodeSSTableFlush(t *testing.T) {
+	// Always remove the root on return.
+	defer os.RemoveAll(testDbRoot)
+
+	chain, indexes, params, indexManager, tearDown := indexersTestChain("TestBridgeNodeSSTableFlush")
+	defer tearDown()
+
+	var allSpends []*blockchain.SpendableOut
+	var nextSpends []*blockchain.SpendableOut
+
+	// Number of blocks we'll generate for the test.
+	midHeight := int32(10)
+	maxHeight := int32(300)
+
+	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	for i := int32(1); i <= midHeight; i++ {
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextBlock = newBlock
+
+		allSpends = append(allSpends, newSpendableOuts...)
+
+		var nextSpendsTmp []*blockchain.SpendableOut
+		for j := 0; j < len(allSpends); j++ {
+			randIdx := rand.Intn(len(allSpends))
+
+			spend := allSpends[randIdx]                                       // get
+			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+			nextSpendsTmp = append(nextSpendsTmp, spend)
+		}
+		nextSpends = nextSpendsTmp
+
+		if i%10 == 0 {
+			// Commit the two base blocks to DB
+			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
+				t.Fatalf("TestBridgeNodeSSTableFlush fail. Unexpected error while flushing cache: %v", err)
+			}
+		}
+	}
+
+	// Close the databases so that they can be initialized again
+	// to generate the undo data.
+	for _, indexer := range indexes {
+		switch idxType := indexer.(type) {
+		case *FlatUtreexoProofIndex:
+			err := idxType.CloseUtreexoState()
+			if err != nil {
+				t.Fatal(err)
+			}
+		case *UtreexoProofIndex:
+			err := idxType.CloseUtreexoState()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// Here we generate the undo data and delete the proof files.
+	err := indexManager.Init(chain, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := midHeight + 1; i <= maxHeight; i++ {
+		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextBlock = newBlock
+
+		allSpends = append(allSpends, newSpendableOuts...)
+
+		var nextSpendsTmp []*blockchain.SpendableOut
+		for j := 0; j < len(allSpends); j++ {
+			randIdx := rand.Intn(len(allSpends))
+
+			spend := allSpends[randIdx]                                       // get
+			allSpends = append(allSpends[:randIdx], allSpends[randIdx+1:]...) // delete
+			nextSpendsTmp = append(nextSpendsTmp, spend)
+		}
+		nextSpends = nextSpendsTmp
+
+		if i%10 == 0 {
+			// Commit the two base blocks to DB
+			if err := chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
+				t.Fatalf("TestBridgeNodeSSTableFlush fail. Unexpected error while flushing cache: %v", err)
+			}
+		}
+	}
+}
