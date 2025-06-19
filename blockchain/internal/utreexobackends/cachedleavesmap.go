@@ -68,6 +68,13 @@ func (ms *CachedLeavesMapSlice) Length() int {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
+	return ms.length()
+}
+
+// length returns the length of all the maps in the map slice added together.
+//
+// This function is NOT safe for concurrent access.
+func (ms *CachedLeavesMapSlice) length() int {
 	var l int
 	for _, m := range ms.maps {
 		l += len(m)
