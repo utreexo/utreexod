@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/sstable"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -514,4 +515,9 @@ func (m *CachedLeavesBackEnd) FlushBatch(batch *pebble.Batch) error {
 
 	m.cache.ClearMaps()
 	return nil
+}
+
+// FlushToSstable writes all the cached items in the maps to the given writer.
+func FlushToSstable(writer *sstable.Writer, nDB *NodesBackEnd, cDB *CachedLeavesBackEnd) {
+	utreexobackends.FlushToSstable(writer, &nDB.cache, &cDB.cache, serializeLeaf, serializeLeafInfo)
 }
