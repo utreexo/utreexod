@@ -11,7 +11,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/cockroachdb/pebble"
@@ -130,18 +129,14 @@ func dbWriteUtreexoStateConsistency(batch *pebble.Batch, bestHash *chainhash.Has
 	return batch.Set(utreexoStateConsistencyKeyName, buf[:], nil)
 }
 
-// utreexoStateConsistencyToFlushKey returns the given into as a FlushKey.
-func utreexoStateConsistencyToFlushKey(bestHash *chainhash.Hash, numLeaves uint64) blockchain.FlushKey {
+// utreexoStateConsistencyToKeyValue returns the given info as a serialized value.
+func utreexoStateConsistencyToKeyValue(bestHash *chainhash.Hash, numLeaves uint64) []byte {
 	// Create the byte slice to be written.
 	var buf [8 + chainhash.HashSize]byte
 	binary.LittleEndian.PutUint64(buf[:8], numLeaves)
 	copy(buf[8:], bestHash[:])
 
-	return blockchain.FlushKey{
-		Key:    utreexoStateConsistencyKeyName,
-		Value:  buf[:],
-		Delete: false,
-	}
+	return buf[:]
 }
 
 // dbFetchUtreexoStateConsistency returns the stored besthash and the numleaves in the database.
@@ -582,31 +577,16 @@ func (us *UtreexoState) getSStableWriter() (*sstable.Writer, string, error) {
 }
 
 // sstableFlush first writes a sst to a file on disk and calls db.Ingest to ingest that sst.
-func (us *UtreexoState) sstableFlush(consistencyFlushKey *blockchain.FlushKey,
+func (us *UtreexoState) sstableFlush(consistencyFlushValue []byte,
 	nDB *blockchain.NodesBackEnd, cDB *blockchain.CachedLeavesBackEnd) error {
-
-	flushKeys := nDB.FlushKeys()
-	flushKeys = append(flushKeys, cDB.FlushKeys()...)
-	flushKeys = append(flushKeys, *consistencyFlushKey)
-
-	// They keys MUST be sorted.
-	sort.Slice(flushKeys, func(i, j int) bool {
-		return string(flushKeys[i].Key) < string(flushKeys[j].Key)
-	})
 
 	writer, path, err := us.getSStableWriter()
 	if err != nil {
 		return err
 	}
-	log.Infof("sstable path %v", path)
+	writer.Set(utreexoStateConsistencyKeyName, consistencyFlushValue)
 
-	for _, flushKey := range flushKeys {
-		if flushKey.Delete {
-			writer.Delete(flushKey.Key)
-		} else {
-			writer.Set(flushKey.Key, flushKey.Value)
-		}
-	}
+	blockchain.FlushToSstable(writer, nDB, cDB)
 
 	err = writer.Close()
 	if err != nil {
@@ -686,8 +666,8 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 		size += cachedLeavesDB.RoughSize()
 		if size >= math.MaxUint32 {
 			log.Debugf("flushing with sstable. size ~%v", formatBytesToGB(size))
-			key := utreexoStateConsistencyToFlushKey(bestHash, numLeaves)
-			return uState.sstableFlush(&key, nodesDB, cachedLeavesDB)
+			value := utreexoStateConsistencyToKeyValue(bestHash, numLeaves)
+			return uState.sstableFlush(value, nodesDB, cachedLeavesDB)
 		}
 
 		log.Debugf("flushing with batch. size ~%v", formatBytesToGB(size))
