@@ -1,6 +1,7 @@
 package utreexobackends
 
 import (
+	"container/heap"
 	"sync"
 
 	"github.com/utreexo/utreexo"
@@ -51,6 +52,27 @@ func (c *CachedLeaf) IsRemoved() bool {
 	return c.Flags&Removed == Removed
 }
 
+// intHeap is just the slice of the keys in the nodes map.
+type intHeap []uint64
+
+func (h intHeap) Len() int           { return len(h) }
+func (h intHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h intHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h intHeap) View() any {
+	if len(h) == 0 {
+		return nil
+	}
+	return h[0]
+}
+func (h *intHeap) Push(x any) { *h = append(*h, x.(uint64)) }
+func (h *intHeap) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
+
 // NodesMapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
 // guarantee that the map will only take up N amount of bytes.  As of v1.20, the
 // go runtime will allocate 2^N + few extra buckets, meaning that for large N, we'll
@@ -61,13 +83,17 @@ type NodesMapSlice struct {
 	// mtx protects against concurrent access for the map slice.
 	mtx *sync.Mutex
 
+	// keyPriorityQueue keeps all the keys in a priority queue so that we're able
+	// to support the Pop() functionality.
+	keyPriorityQueue intHeap
+
 	// maps are the underlying maps in the slice of maps.
 	maps []map[uint64]CachedLeaf
 
 	// overflow puts the overflowed entries.
 	overflow map[uint64]CachedLeaf
 
-	// maxEntries is the maximum amount of elemnts that the map is allocated for.
+	// maxEntries is the maximum amount of elements that the map is allocated for.
 	maxEntries []int
 
 	// maxTotalMemoryUsage is the maximum memory usage in bytes that the state
