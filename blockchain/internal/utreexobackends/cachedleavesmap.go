@@ -1,6 +1,7 @@
 package utreexobackends
 
 import (
+	"container/heap"
 	"sync"
 
 	"github.com/utreexo/utreexo"
@@ -37,6 +38,27 @@ func (c *CachedPosition) IsRemoved() bool {
 	return c.Flags&Removed == Removed
 }
 
+// hashHeap is just the slice of the keys in the cached leaves map.
+type hashHeap []utreexo.Hash
+
+func (h hashHeap) Len() int           { return len(h) }
+func (h hashHeap) Less(i, j int) bool { return string(h[i][:]) < string(h[j][:]) }
+func (h hashHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h hashHeap) View() any {
+	if len(h) == 0 {
+		return nil
+	}
+	return h[0]
+}
+func (h *hashHeap) Push(x any) { *h = append(*h, x.(utreexo.Hash)) }
+func (h *hashHeap) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
+
 // CachedLeavesMapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
 // guarantee that the map will only take up N amount of bytes.  As of v1.20, the
 // go runtime will allocate 2^N + few extra buckets, meaning that for large N, we'll
@@ -46,6 +68,10 @@ func (c *CachedPosition) IsRemoved() bool {
 type CachedLeavesMapSlice struct {
 	// mtx protects against concurrent access for the map slice.
 	mtx *sync.Mutex
+
+	// keyPriorityQueue keeps all the keys in a priority queue so that we're able
+	// to support the Pop() functionality.
+	keyPriorityQueue hashHeap
 
 	// maps are the underlying maps in the slice of maps.
 	maps []map[utreexo.Hash]CachedPosition
@@ -61,6 +87,58 @@ type CachedLeavesMapSlice struct {
 	maxTotalMemoryUsage uint64
 }
 
+// popForFlushing returns the key-value pairs in the cache starting from the
+// smallest key when serialized.
+//
+// NOTE: this function should not be used as a general pop() function as the
+// priority queue is only built again once all the key-value pairs have been popped.
+func (ms *CachedLeavesMapSlice) popForFlushing() (*utreexo.Hash, *CachedPosition) {
+	length := ms.length()
+	if length == 0 {
+		return nil, nil
+	}
+
+	// If the length is 0, it means this is the first time we've called this
+	// function and we need to build the priority queue.
+	if len(ms.keyPriorityQueue) == 0 {
+		ms.keyPriorityQueue = make([]utreexo.Hash, 0, length)
+
+		for _, m := range ms.maps {
+			for k := range m {
+				ms.keyPriorityQueue.Push(k)
+			}
+		}
+
+		if len(ms.overflow) > 0 {
+			for k := range ms.overflow {
+				ms.keyPriorityQueue.Push(k)
+			}
+		}
+
+		heap.Init(&ms.keyPriorityQueue)
+	}
+
+	key := heap.Pop(&ms.keyPriorityQueue).(utreexo.Hash)
+
+	for _, m := range ms.maps {
+		v, found := m[key]
+		if found {
+			delete(m, key)
+			return &key, &v
+		}
+	}
+
+	if len(ms.overflow) > 0 {
+		v, found := ms.overflow[key]
+		if found {
+			delete(ms.overflow, key)
+			return &key, &v
+		}
+	}
+
+	return nil, nil
+}
+
 // Length returns the length of all the maps in the map slice added together.
 //
 // This function is safe for concurrent access.
@@ -68,6 +146,13 @@ func (ms *CachedLeavesMapSlice) Length() int {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
+	return ms.length()
+}
+
+// length returns the length of all the maps in the map slice added together.
+//
+// This function is NOT safe for concurrent access.
+func (ms *CachedLeavesMapSlice) length() int {
 	var l int
 	for _, m := range ms.maps {
 		l += len(m)
@@ -167,40 +252,6 @@ func (ms *CachedLeavesMapSlice) Delete(k utreexo.Hash) {
 	delete(ms.overflow, k)
 }
 
-// DeleteMaps deletes all maps and allocate new ones with the maxEntries defined in
-// ms.maxEntries.
-//
-// This function is safe for concurrent access.
-func (ms *CachedLeavesMapSlice) DeleteMaps() {
-	ms.mtx.Lock()
-	defer ms.mtx.Unlock()
-
-	ms.maps = make([]map[utreexo.Hash]CachedPosition, len(ms.maxEntries))
-	for i := range ms.maxEntries {
-		ms.maps[i] = make(map[utreexo.Hash]CachedPosition, ms.maxEntries[i])
-	}
-
-	ms.overflow = make(map[utreexo.Hash]CachedPosition)
-}
-
-// ClearMaps clears all maps
-//
-// This function is safe for concurrent access.
-func (ms *CachedLeavesMapSlice) ClearMaps() {
-	ms.mtx.Lock()
-	defer ms.mtx.Unlock()
-
-	for i := range ms.maps {
-		for key := range ms.maps[i] {
-			delete(ms.maps[i], key)
-		}
-	}
-
-	for key := range ms.overflow {
-		delete(ms.overflow, key)
-	}
-}
-
 // ForEach loops through all the elements in the cachedleaves map slice and calls fn with the key-value pairs.
 //
 // This function is safe for concurrent access.
@@ -223,6 +274,38 @@ func (ms *CachedLeavesMapSlice) ForEach(fn func(utreexo.Hash, CachedPosition) er
 			if err != nil {
 				return err
 			}
+		}
+	}
+
+	return nil
+}
+
+// ForEachAndDelete loops through all the elements in the cachedleaves map slice and calls fn with the key-value pairs and then deletes that key.
+//
+// This function is safe for concurrent access.
+func (ms *CachedLeavesMapSlice) ForEachAndDelete(fn func(utreexo.Hash, CachedPosition) error) error {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+
+	for _, m := range ms.maps {
+		for k, v := range m {
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
+
+			delete(m, k)
+		}
+	}
+
+	if len(ms.overflow) > 0 {
+		for k, v := range ms.overflow {
+			err := fn(k, v)
+			if err != nil {
+				return err
+			}
+
+			delete(ms.overflow, k)
 		}
 	}
 
