@@ -5,6 +5,7 @@
 package blockchain
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
@@ -82,11 +83,10 @@ func InitNodesBackEnd(db *pebble.DB, maxTotalMemoryUsage int64) (*NodesBackEnd, 
 // dbGet fetches the value from the database and deserializes it and returns
 // the leaf value and a boolean for whether or not it was successful.
 func (m *NodesBackEnd) dbGet(k uint64) (utreexo.Leaf, bool) {
-	size := serializeSizeVLQ(k)
-	buf := make([]byte, size)
-	putVLQ(buf, k)
+	buf := [8]byte{}
+	binary.BigEndian.PutUint64(buf[:], k)
 
-	val, closer, err := m.db.Get(buf)
+	val, closer, err := m.db.Get(buf[:])
 	if err != nil {
 		return utreexo.Leaf{}, false
 	}
@@ -131,9 +131,8 @@ func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
 
 // NodesBatchPut puts a key-value pair in the given pebbledb batch.
 func NodesBatchPut(batch *pebble.Batch, k uint64, v utreexo.Leaf) error {
-	size := serializeSizeVLQ(k)
-	buf := make([]byte, size)
-	putVLQ(buf, k)
+	buf := [8]byte{}
+	binary.BigEndian.PutUint64(buf[:], k)
 
 	serialized := serializeLeaf(v)
 	return batch.Set(buf[:], serialized[:], nil)
@@ -163,10 +162,9 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 
 // NodesBatchDelete deletes the corresponding key-value pair from the given pebble batch.
 func NodesBatchDelete(batch *pebble.Batch, k uint64) error {
-	size := serializeSizeVLQ(k)
-	buf := make([]byte, size)
-	putVLQ(buf, k)
-	return batch.Delete(buf, nil)
+	buf := [8]byte{}
+	binary.BigEndian.PutUint64(buf[:], k)
+	return batch.Delete(buf[:], nil)
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
@@ -209,7 +207,7 @@ func (m *NodesBackEnd) Length() int {
 			continue
 		}
 
-		k, _ := deserializeVLQ(iter.Key())
+		k := binary.BigEndian.Uint64(iter.Key())
 		val, found := m.cache.Get(k)
 		if found && val.IsRemoved() {
 			// Skip if the key-value pair has already been removed in the cache.
@@ -245,7 +243,7 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
-		k, _ := deserializeVLQ(iter.Key())
+		k := binary.BigEndian.Uint64(iter.Key())
 		val, found := m.cache.Get(k)
 		if found && val.IsRemoved() {
 			// Skip if the key-value pair has already been removed in the cache.
