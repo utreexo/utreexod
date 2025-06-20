@@ -34,7 +34,16 @@ const (
 var (
 	// utreexoStateConsistencyKeyName is name of the db key used to store the consistency
 	// state for the utreexo accumulator state.
-	utreexoStateConsistencyKeyName = []byte("utreexostateconsistency")
+	//
+	// We pad with 32 bytes of 0xff so that it's always the first key in the database. This
+	// is because the largest key will be the hash -> position mapping.
+	utreexoStateConsistencyKeyName = []byte(
+		"" +
+			"\x00\x00\x00\x00\x00\x00\x00\x00" +
+			"\x00\x00\x00\x00\x00\x00\x00\x00" +
+			"\x00\x00\x00\x00\x00\x00\x00\x00" +
+			"\x00\x00\x00\x00\x00\x00\x00\x00" +
+			"utreexostateconsistency")
 )
 
 // UtreexoConfig is a descriptor which specifies the Utreexo state instance configuration.
