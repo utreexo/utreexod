@@ -101,6 +101,70 @@ type NodesMapSlice struct {
 	maxTotalMemoryUsage uint64
 }
 
+// popForFlushing returns the key-value pairs in the cache starting from the
+// smallest key when serialized.
+//
+// NOTE: this function should not be used as a general pop() function as the
+// priority queue is only built again once all the key-value pairs have been popped.
+func (ms *NodesMapSlice) popForFlushing() (uint64, *CachedLeaf) {
+	length := ms.length()
+	if length == 0 {
+		ms.keyPriorityQueue = nil
+		return 0, nil
+	}
+
+	// If the length is 0, it means this is the first time we've called this
+	// function and we need to build the priority queue.
+	if len(ms.keyPriorityQueue) == 0 {
+		ms.keyPriorityQueue = make([]uint64, 0, length)
+		for _, m := range ms.maps {
+			for k := range m {
+				ms.keyPriorityQueue.Push(k)
+			}
+		}
+
+		if len(ms.overflow) > 0 {
+			for k := range ms.overflow {
+				ms.keyPriorityQueue.Push(k)
+			}
+		}
+
+		heap.Init(&ms.keyPriorityQueue)
+	}
+
+	key := heap.Pop(&ms.keyPriorityQueue).(uint64)
+
+	for _, m := range ms.maps {
+		v, found := m[key]
+		if found {
+			delete(m, key)
+
+			// If the key is fresh and removed, we don't need to flush it
+			// to disk. Try popping another one.
+			if v.IsFresh() && v.IsRemoved() {
+				return ms.popForFlushing()
+			}
+			return key, &v
+		}
+	}
+
+	if len(ms.overflow) > 0 {
+		v, found := ms.overflow[key]
+		if found {
+			delete(ms.overflow, key)
+
+			// If the key is fresh and removed, we don't need to flush it
+			// to disk. Try popping another one.
+			if v.IsFresh() && v.IsRemoved() {
+				return ms.popForFlushing()
+			}
+			return key, &v
+		}
+	}
+
+	return 0, nil
+}
+
 // Length returns the length of all the maps in the map slice added together.
 //
 // This function is safe for concurrent access.

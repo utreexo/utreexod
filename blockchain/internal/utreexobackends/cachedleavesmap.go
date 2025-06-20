@@ -87,6 +87,58 @@ type CachedLeavesMapSlice struct {
 	maxTotalMemoryUsage uint64
 }
 
+// popForFlushing returns the key-value pairs in the cache starting from the
+// smallest key when serialized.
+//
+// NOTE: this function should not be used as a general pop() function as the
+// priority queue is only built again once all the key-value pairs have been popped.
+func (ms *CachedLeavesMapSlice) popForFlushing() (*utreexo.Hash, *CachedPosition) {
+	length := ms.length()
+	if length == 0 {
+		return nil, nil
+	}
+
+	// If the length is 0, it means this is the first time we've called this
+	// function and we need to build the priority queue.
+	if len(ms.keyPriorityQueue) == 0 {
+		ms.keyPriorityQueue = make([]utreexo.Hash, 0, length)
+
+		for _, m := range ms.maps {
+			for k := range m {
+				ms.keyPriorityQueue.Push(k)
+			}
+		}
+
+		if len(ms.overflow) > 0 {
+			for k := range ms.overflow {
+				ms.keyPriorityQueue.Push(k)
+			}
+		}
+
+		heap.Init(&ms.keyPriorityQueue)
+	}
+
+	key := heap.Pop(&ms.keyPriorityQueue).(utreexo.Hash)
+
+	for _, m := range ms.maps {
+		v, found := m[key]
+		if found {
+			delete(m, key)
+			return &key, &v
+		}
+	}
+
+	if len(ms.overflow) > 0 {
+		v, found := ms.overflow[key]
+		if found {
+			delete(ms.overflow, key)
+			return &key, &v
+		}
+	}
+
+	return nil, nil
+}
+
 // Length returns the length of all the maps in the map slice added together.
 //
 // This function is safe for concurrent access.
