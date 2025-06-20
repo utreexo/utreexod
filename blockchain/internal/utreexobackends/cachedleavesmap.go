@@ -1,6 +1,7 @@
 package utreexobackends
 
 import (
+	"container/heap"
 	"sync"
 
 	"github.com/utreexo/utreexo"
@@ -37,6 +38,27 @@ func (c *CachedPosition) IsRemoved() bool {
 	return c.Flags&Removed == Removed
 }
 
+// hashHeap is just the slice of the keys in the cached leaves map.
+type hashHeap []utreexo.Hash
+
+func (h hashHeap) Len() int           { return len(h) }
+func (h hashHeap) Less(i, j int) bool { return string(h[i][:]) < string(h[j][:]) }
+func (h hashHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h hashHeap) View() any {
+	if len(h) == 0 {
+		return nil
+	}
+	return h[0]
+}
+func (h *hashHeap) Push(x any) { *h = append(*h, x.(utreexo.Hash)) }
+func (h *hashHeap) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
+
 // CachedLeavesMapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
 // guarantee that the map will only take up N amount of bytes.  As of v1.20, the
 // go runtime will allocate 2^N + few extra buckets, meaning that for large N, we'll
@@ -46,6 +68,10 @@ func (c *CachedPosition) IsRemoved() bool {
 type CachedLeavesMapSlice struct {
 	// mtx protects against concurrent access for the map slice.
 	mtx *sync.Mutex
+
+	// keyPriorityQueue keeps all the keys in a priority queue so that we're able
+	// to support the Pop() functionality.
+	keyPriorityQueue hashHeap
 
 	// maps are the underlying maps in the slice of maps.
 	maps []map[utreexo.Hash]CachedPosition
