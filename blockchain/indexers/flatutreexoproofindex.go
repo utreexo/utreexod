@@ -1014,6 +1014,9 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 		TTLs: make([]wire.UtreexoTTL, 0, len(heights)),
 	}
 
+	// Version is the count of heights so we need to do -1 to get the endHeight.
+	endHeight := version - 1
+
 	leafHashes := make([]utreexo.Hash, 0, len(heights))
 	for _, height := range heights {
 		ttls, err := idx.fetchTTLs(height)
@@ -1023,7 +1026,7 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 
 		// Remove the ttls that were added after the commitment.
 		for i, ttl := range ttls {
-			if ttl.TTL+uint64(height) > uint64(version) {
+			if ttl.TTL+uint64(height) > uint64(endHeight) {
 				ttls[i].TTL = 0
 				ttls[i].DeathPos = 0
 			}
