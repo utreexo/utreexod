@@ -15,7 +15,7 @@ import (
 
 // MaxUtreexoTTLExponent is the maximum exponent you can ask for in a bitcoin getutreexosummaries
 // message.
-const MaxUtreexoTTLExponent = 10
+const MaxUtreexoTTLExponent = 4
 
 // MaxUtreexoTTLsPerMsg is the maximum amount of utreexo ttls there can be in a given MsgUtreexoTTLs.
 const MaxUtreexoTTLsPerMsg = 1 << MaxUtreexoTTLExponent
@@ -23,6 +23,9 @@ const MaxUtreexoTTLsPerMsg = 1 << MaxUtreexoTTLExponent
 // MaxUtreexoTTLsSize is the maximum size that the MsgUtreexoTTLs can be.
 const MaxUtreexoTTLsSize = (MaxUtreexoTTLsPerMsg * MaxUtreexoTTLSize) + (2 * MaxVarIntPayload) +
 	(chainhash.HashSize * math.MaxUint8)
+
+// Enforce that the MaxUtreexoTTLsSize is smaller than the max message payload.
+var _ [MaxMessagePayload - MaxUtreexoTTLsSize]struct{}
 
 // MsgUtreexoTTLs implements the Message interface and represents a bitcoin
 // utreexottls message. It has the utreexo ttls which is used as a

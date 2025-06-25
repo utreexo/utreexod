@@ -36,17 +36,17 @@ func TestMsgGetUtreexoSummariesEncode(t *testing.T) {
 		},
 		{
 			hash:        genesisHash,
-			maxExponent: 8,
+			maxExponent: 7,
+			shouldErr:   false,
+		},
+		{
+			hash:        genesisHash,
+			maxExponent: 7,
 			shouldErr:   false,
 		},
 		{
 			hash:        genesisHash,
 			maxExponent: 8,
-			shouldErr:   false,
-		},
-		{
-			hash:        genesisHash,
-			maxExponent: 9,
 			shouldErr:   true,
 		},
 		{
