@@ -1275,6 +1275,45 @@ func checkTTLsAfterUndo(t *testing.T, expected [][]wire.TTLInfo, indexes []Index
 	}
 }
 
+// checkTTLFetch checks that the FetchTTL method returns the correct ttls and proof for it.
+func checkTTLFetch(t *testing.T, idx *FlatUtreexoProofIndex, pollard *utreexo.Pollard, stump utreexo.Stump, height int32) {
+	// Set the block ttl state with the pollard.
+	idx.blockTTLState = append(idx.blockTTLState, *pollard)
+
+	for h := int32(1); h <= height; h++ {
+		// Fetch a single ttl.
+		msgTTL, err := idx.FetchTTLs(uint32(pollard.NumLeaves), uint32(h), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Grab the targets and hashes.
+		ttls := msgTTL.TTLs
+		ttlHashes := make([]utreexo.Hash, 0, len(ttls))
+		ttlTargets := make([]uint64, 0, len(ttls))
+		for _, ttl := range ttls {
+			buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
+			err := ttl.Serialize(buf)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			ttlTargets = append(ttlTargets, uint64(ttl.BlockHeight))
+			ttlHashes = append(ttlHashes, sha256.Sum256(buf.Bytes()))
+		}
+
+		// Prove against the stump.
+		proof := utreexo.Proof{Targets: ttlTargets, Proof: msgTTL.ProofHashes}
+		_, err = utreexo.Verify(stump, ttlHashes, proof)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// reset the block ttl state.
+	idx.blockTTLState = idx.blockTTLState[:0]
+}
+
 func checkTTLRoots(t *testing.T, maxHeight int32, expected []utreexo.Stump, indexes []Indexer) {
 	for i := int32(1); i <= maxHeight; i++ {
 		for _, indexer := range indexes {
@@ -1290,6 +1329,7 @@ func checkTTLRoots(t *testing.T, maxHeight int32, expected []utreexo.Stump, inde
 				}
 
 				require.Equal(t, expected[i-1], gotStump)
+				checkTTLFetch(t, idxType, gotPollard, gotStump, i)
 			}
 		}
 	}
