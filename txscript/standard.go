@@ -527,7 +527,7 @@ func isNullDataScript(scriptVersion uint16, script []byte) bool {
 		len(tokenizer.Data()) <= MaxDataCarrierSize
 }
 
-// scriptType returns the type of the script being inspected from the known
+// typeOfScript returns the type of the script being inspected from the known
 // standard types. The version version should be 0 if the script is segwit v0
 // or prior, and 1 for segwit v1 (taproot) scripts.
 func typeOfScript(scriptVersion uint16, script []byte) ScriptClass {

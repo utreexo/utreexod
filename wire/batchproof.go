@@ -158,7 +158,7 @@ func ProofHashesDeserialize(r io.Reader) ([]utreexo.Hash, error) {
 	return proofs, nil
 }
 
-// BatchProofSerialize decodes the BatchProof to r using the BatchProof
+// BatchProofDeserialize decodes the BatchProof to r using the BatchProof
 // serialization format.
 func BatchProofDeserialize(r io.Reader) (*utreexo.Proof, error) {
 	proof := new(utreexo.Proof)

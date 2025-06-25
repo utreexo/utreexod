@@ -618,7 +618,7 @@ func CalcTaprootSignatureHash(sigHashes *TxSigHashes, hType SigHashType,
 	)
 }
 
-// CalcTaprootSignatureHash is similar to CalcTaprootSignatureHash but for
+// CalcTapscriptSignaturehash is similar to CalcTaprootSignatureHash but for
 // _tapscript_ spends instead. A proper TapLeaf instance (the script leaf being
 // signed) must be passed in. The functional options can be used to specify an
 // annex if the signature was bound to that context.
