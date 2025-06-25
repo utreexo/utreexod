@@ -11,11 +11,18 @@ import (
 
 // MaxUtreexoExponent is the maximum exponent you can ask for in a bitcoin getutreexosummaries
 // message.
-const MaxUtreexoExponent = 8
+const MaxUtreexoExponent = 7
 
 // MaxUtreexoBlockSummaryPerMsg is the maximum number of utreexo headers that can be in a single
 // bitcoin headers message.
 const MaxUtreexoBlockSummaryPerMsg = 1 << MaxUtreexoExponent
+
+// MaxUtreexoBlockSummarySizePerMsg is the max size per a MsgUtreexoSummaries message.
+const MaxUtreexoBlockSummarySizePerMsg = MaxVarIntPayload +
+	(MaxUtreexoBlockSummaryPerMsg * MaxUtreexoBlockSummarySize)
+
+// Enforce that the MaxUtreexoBlockSummarySizePerMsg is smaller than the max message payload.
+var _ [MaxMessagePayload - MaxUtreexoBlockSummarySizePerMsg]struct{}
 
 // MsgUtreexoSummaries implements the Message interface and represents a bitcoin
 // utreexoblocksummaries message. It's has the block summaries which is used as a
@@ -100,8 +107,7 @@ func (msg *MsgUtreexoSummaries) Command() string {
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver. This is part of the Message interface implementation.
 func (msg *MsgUtreexoSummaries) MaxPayloadLength(pver uint32) uint32 {
-	return MaxVarIntPayload +
-		(MaxUtreexoBlockSummaryPerMsg * MaxUtreexoBlockSummarySize)
+	return MaxUtreexoBlockSummarySizePerMsg
 }
 
 // NewMsgUtreexoSummaries returns a new bitcoin utreexo summaries message that conforms to the

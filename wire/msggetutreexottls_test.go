@@ -39,19 +39,19 @@ func TestMsgGetUtreexoTTLsEncode(t *testing.T) {
 		{
 			version:     284_248,
 			startHeight: 112_878,
-			maxExponent: 8,
+			maxExponent: 4,
 			shouldErr:   false,
 		},
 		{
 			version:     904_248,
 			startHeight: 412_878,
-			maxExponent: 8,
+			maxExponent: 4,
 			shouldErr:   false,
 		},
 		{
 			version:     704_248,
 			startHeight: 212_878,
-			maxExponent: 11,
+			maxExponent: 5,
 			shouldErr:   true,
 		},
 		{
