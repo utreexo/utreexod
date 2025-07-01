@@ -227,7 +227,7 @@ func (w *BDKWallet) Transactions() ([]TxInfo, error) {
 	return out, nil
 }
 
-// Utxos returns the list of wallet UTXOs.
+// UTXOs returns the list of wallet UTXOs.
 func (w *BDKWallet) UTXOs() []UTXOInfo {
 	genOut := w.inner.Utxos()
 	out := make([]UTXOInfo, 0, len(genOut))

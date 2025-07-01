@@ -2426,7 +2426,7 @@ type IndexManager interface {
 	Flush(*chainhash.Hash, FlushMode, bool) error
 }
 
-// FlushUtxoCache flushes the indexes if a flush is needed with the given flush mode.
+// FlushIndexes flushes the indexes if a flush is needed with the given flush mode.
 // If the flush is on a block connect and not a reorg, the onConnect bool should be true.
 //
 // This function is safe for concurrent access.
