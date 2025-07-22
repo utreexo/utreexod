@@ -38,14 +38,19 @@ func TestNodesBackEnd(t *testing.T) {
 		defer os.RemoveAll(test.tmpDir)
 
 		count := uint64(1000)
-		compareMap := make(map[uint64]utreexobackends.CachedLeaf)
+		compareMap := make(map[utreexo.Hash]utreexobackends.CachedNode)
 		for i := uint64(0); i < count/2; i++ {
 			var buf [8]byte
 			binary.LittleEndian.PutUint64(buf[:], i)
 			hash := sha256.Sum256(buf[:])
 
-			compareMap[i] = utreexobackends.CachedLeaf{Leaf: utreexo.Leaf{Hash: hash}}
-			nodesBackEnd.Put(i, utreexo.Leaf{Hash: hash})
+			if i%5 == 0 {
+				compareMap[hash] = utreexobackends.CachedNode{Node: utreexo.Node{AddIndex: int32(-1)}}
+				nodesBackEnd.Put(hash, utreexo.Node{AddIndex: int32(-1)})
+			} else {
+				compareMap[hash] = utreexobackends.CachedNode{Node: utreexo.Node{AddIndex: int32(i)}}
+				nodesBackEnd.Put(hash, utreexo.Node{AddIndex: int32(i)})
+			}
 		}
 
 		batch := db.NewBatch()
@@ -82,7 +87,10 @@ func TestNodesBackEnd(t *testing.T) {
 					continue
 				}
 
-				nodesBackEnd.Delete(i)
+				var buf [8]byte
+				binary.LittleEndian.PutUint64(buf[:], i)
+				hash := sha256.Sum256(buf[:])
+				nodesBackEnd.Delete(hash)
 			}
 			wg.Done()
 		}()
@@ -95,7 +103,7 @@ func TestNodesBackEnd(t *testing.T) {
 				binary.LittleEndian.PutUint64(buf[:], i)
 				hash := sha256.Sum256(buf[:])
 
-				nodesBackEnd.Put(i, utreexo.Leaf{Hash: hash})
+				nodesBackEnd.Put(hash, utreexo.Node{AddIndex: int32(i)})
 			}
 			wg.Done()
 		}()
@@ -109,14 +117,17 @@ func TestNodesBackEnd(t *testing.T) {
 				continue
 			}
 
-			delete(compareMap, i)
+			var buf [8]byte
+			binary.LittleEndian.PutUint64(buf[:], i)
+			hash := sha256.Sum256(buf[:])
+			delete(compareMap, hash)
 		}
 		for i := count / 2; i < count; i++ {
 			var buf [8]byte
 			binary.LittleEndian.PutUint64(buf[:], i)
 			hash := sha256.Sum256(buf[:])
 
-			compareMap[i] = utreexobackends.CachedLeaf{Leaf: utreexo.Leaf{Hash: hash}}
+			compareMap[hash] = utreexobackends.CachedNode{Node: utreexo.Node{AddIndex: int32(i)}}
 		}
 
 		if nodesBackEnd.Length() != len(compareMap) {
@@ -131,10 +142,8 @@ func TestNodesBackEnd(t *testing.T) {
 				t.Fatalf("expected %v but it wasn't found", v)
 			}
 
-			if got.Hash != v.Leaf.Hash {
-				if got.Hash != v.Leaf.Hash {
-					t.Fatalf("for key %v, expected %v but got %v", k, v.Leaf.Hash, got.Hash)
-				}
+			if got.AddIndex != v.Node.AddIndex {
+				t.Fatalf("for key %v, expected %v but got %v", k, v.Node.AddIndex, got.AddIndex)
 			}
 		}
 	}
