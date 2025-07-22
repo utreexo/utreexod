@@ -22,6 +22,9 @@ const MaxUtreexoProofSize = chainhash.HashSize +
 	MaxBlockPayload +
 	MaxPossibleInputsPerBlock*12
 
+// Enforce that the MaxUtreexoProofSize is smaller than the max message payload.
+var _ [MaxMessagePayload - MaxUtreexoProofSize]struct{}
+
 // MsgUtreexoProof is a utreexo proof for a given block that includes the rest of the data not
 // communicated by the utreexo header. It may or may not include all the data needed to prove
 // the given block as a peer is able to ask for only the proof data it needs.
