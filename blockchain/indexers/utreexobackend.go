@@ -527,18 +527,9 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 	return nil
 }
 
-// batchFlush is a helper function for flushing the given nodes and cached leaves backends to the batch.
-func batchFlush(batch *pebble.Batch, nDB *blockchain.NodesBackEnd, cDB *blockchain.CachedLeavesBackEnd) error {
-	err := nDB.FlushBatch(batch)
-	if err != nil {
-		return err
-	}
-	err = cDB.FlushBatch(batch)
-	if err != nil {
-		return err
-	}
-
-	return nil
+// batchFlush is a helper function for flushing the given nodes backend to the batch.
+func batchFlush(batch *pebble.Batch, nDB *blockchain.NodesBackEnd) error {
+	return nDB.FlushBatch(batch)
 }
 
 // getSStableWriter returns a new sstable.Writer. The returned path is always the same.
@@ -556,7 +547,7 @@ func (us *UtreexoState) getSStableWriter() (*sstable.Writer, string, error) {
 
 // sstableFlush first writes a sst to a file on disk and calls db.Ingest to ingest that sst.
 func (us *UtreexoState) sstableFlush(consistencyFlushValue []byte,
-	nDB *blockchain.NodesBackEnd, cDB *blockchain.CachedLeavesBackEnd) error {
+	nDB *blockchain.NodesBackEnd) error {
 
 	writer, path, err := us.getSStableWriter()
 	if err != nil {
@@ -564,7 +555,7 @@ func (us *UtreexoState) sstableFlush(consistencyFlushValue []byte,
 	}
 	writer.Set(utreexoStateConsistencyKeyName, consistencyFlushValue)
 
-	blockchain.FlushToSstable(writer, nDB, cDB)
+	blockchain.FlushToSstable(writer, nDB)
 
 	err = writer.Close()
 	if err != nil {
@@ -592,9 +583,6 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 
 	p := utreexo.NewMapPollard(true)
 
-	maxNodesMem := cfg.MaxMemoryUsage * 7 / 10
-	maxCachedLeavesMem := cfg.MaxMemoryUsage - maxNodesMem
-
 	cache := pebble.NewCache(128 << 20) // 128MB cache
 	db, err := pebble.Open(utreexoBasePath(cfg), &pebble.Options{
 		Cache: cache,
@@ -604,12 +592,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 		return nil, err
 	}
 
-	nodesDB, err := blockchain.InitNodesBackEnd(db, maxNodesMem)
-	if err != nil {
-		return nil, err
-	}
-
-	cachedLeavesDB, err := blockchain.InitCachedLeavesBackEnd(db, maxCachedLeavesMem)
+	nodesDB, err := blockchain.InitNodesBackEnd(db, cfg.MaxMemoryUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -621,7 +604,6 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 	p.NumLeaves = numLeaves
 
 	p.Nodes = nodesDB
-	p.CachedLeaves = cachedLeavesDB
 
 	uState := &UtreexoState{
 		config:         cfg,
@@ -635,17 +617,11 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 			nodesUsed, nodesCapacity,
 			float64(nodesUsed)/float64(nodesCapacity))
 
-		cachedLeavesUsed, cachedLeavesCapacity := cachedLeavesDB.UsageStats()
-		log.Debugf("Utreexo index cachedLeavesDB cache usage: %d/%d (%v%%)\n",
-			cachedLeavesUsed, cachedLeavesCapacity,
-			float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
-
 		size := nodesDB.RoughSize()
-		size += cachedLeavesDB.RoughSize()
 		if size >= math.MaxUint32 {
 			log.Debugf("flushing with sstable. size ~%v", formatBytesToGB(size))
 			value := utreexoStateConsistencyToKeyValue(bestHash, numLeaves)
-			return uState.sstableFlush(value, nodesDB, cachedLeavesDB)
+			return uState.sstableFlush(value, nodesDB)
 		}
 
 		log.Debugf("flushing with batch. size ~%v", formatBytesToGB(size))
@@ -655,7 +631,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 			return err
 		}
 
-		err = batchFlush(batch, nodesDB, cachedLeavesDB)
+		err = batchFlush(batch, nodesDB)
 		if err != nil {
 			return err
 		}
@@ -663,9 +639,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 		return batch.Commit(nil)
 	}
 	isFlushNeeded := func() bool {
-		nodesNeedsFlush := nodesDB.IsFlushNeeded()
-		leavesNeedsFlush := cachedLeavesDB.IsFlushNeeded()
-		return nodesNeedsFlush || leavesNeedsFlush
+		return nodesDB.IsFlushNeeded()
 	}
 
 	uState.flush = flush
