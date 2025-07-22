@@ -749,7 +749,7 @@ func (idx *UtreexoProofIndex) updateBlockSummaryState(numAdds uint64, blockHash 
 //
 // This is part of the Indexer interface.
 func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastKeptHeight int32) error {
-	hash, _, err := dbFetchUtreexoStateConsistency(idx.utreexoState.utreexoStateDB)
+	hash, _, _, err := dbFetchUtreexoStateConsistency(idx.utreexoState.utreexoStateDB)
 	if err != nil {
 		return err
 	}

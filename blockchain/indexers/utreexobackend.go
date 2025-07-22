@@ -120,44 +120,68 @@ func checkUtreexoExists(cfg *UtreexoConfig, basePath string) bool {
 }
 
 // dbWriteUtreexoStateConsistency writes the consistency state to the database using the given transaction.
-func dbWriteUtreexoStateConsistency(batch *pebble.Batch, bestHash *chainhash.Hash, numLeaves uint64) error {
-	// Create the byte slice to be written.
-	var buf [8 + chainhash.HashSize]byte
-	binary.LittleEndian.PutUint64(buf[:8], numLeaves)
-	copy(buf[8:], bestHash[:])
+func dbWriteUtreexoStateConsistency(batch *pebble.Batch,
+	bestHash *chainhash.Hash, roots []utreexo.Hash, numLeaves uint64) error {
 
-	return batch.Set(utreexoStateConsistencyKeyName, buf[:], nil)
+	bytes := utreexoStateConsistencyToKeyValue(bestHash, roots, numLeaves)
+	return batch.Set(utreexoStateConsistencyKeyName, bytes, nil)
 }
 
 // utreexoStateConsistencyToKeyValue returns the given info as a serialized value.
-func utreexoStateConsistencyToKeyValue(bestHash *chainhash.Hash, numLeaves uint64) []byte {
-	// Create the byte slice to be written.
-	var buf [8 + chainhash.HashSize]byte
-	binary.LittleEndian.PutUint64(buf[:8], numLeaves)
-	copy(buf[8:], bestHash[:])
+func utreexoStateConsistencyToKeyValue(bestHash *chainhash.Hash, roots []utreexo.Hash, numLeaves uint64) []byte {
+	size := 8 + chainhash.HashSize + (chainhash.HashSize * len(roots))
+	buf := make([]byte, size)
+
+	start := 0
+	binary.LittleEndian.PutUint64(buf[start:8], numLeaves)
+	start += 8
+
+	copy(buf[start:start+chainhash.HashSize], bestHash[:])
+	start += chainhash.HashSize
+
+	for _, root := range roots {
+		copy(buf[start:start+chainhash.HashSize], root[:])
+		start += chainhash.HashSize
+	}
 
 	return buf[:]
 }
 
-// dbFetchUtreexoStateConsistency returns the stored besthash and the numleaves in the database.
-func dbFetchUtreexoStateConsistency(db *pebble.DB) (*chainhash.Hash, uint64, error) {
+// dbFetchUtreexoStateConsistency returns the stored besthash, numleaves and roots in the database.
+func dbFetchUtreexoStateConsistency(db *pebble.DB) (*chainhash.Hash, []utreexo.Hash, uint64, error) {
 	buf, closer, err := db.Get(utreexoStateConsistencyKeyName)
 	if err != nil && err != pebble.ErrNotFound {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	// Set error to nil as the error may have been ErrNotFound.
 	err = nil
 	if buf == nil {
-		return nil, 0, nil
+		return nil, nil, 0, err
 	}
 	defer closer.Close()
 
-	bestHash, err := chainhash.NewHash(buf[8:])
+	start := 0
+
+	// Read numLeaves.
+	numLeaves := binary.LittleEndian.Uint64(buf[start:8])
+	start += 8
+
+	// Read besthash.
+	bestHash, err := chainhash.NewHash(buf[start : start+chainhash.HashSize])
+	start += chainhash.HashSize
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 
-	return bestHash, binary.LittleEndian.Uint64(buf[:8]), nil
+	// Read roots. -40 since numLeaves are 8 and besthash is 32 bytes long.
+	rootCount := (len(buf) - 40) / chainhash.HashSize
+	roots := make([]utreexo.Hash, rootCount)
+	for i := range roots {
+		roots[i] = ([32]byte)(buf[start : start+chainhash.HashSize])
+		start += chainhash.HashSize
+	}
+
+	return bestHash, roots, numLeaves, nil
 }
 
 // FetchUtreexoState returns the utreexo state at the desired block.
