@@ -1,6 +1,12 @@
 package utreexobackends
 
-import "testing"
+import (
+	"encoding/binary"
+	"testing"
+
+	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
+)
 
 func TestNodesMapSliceMaxCacheElems(t *testing.T) {
 	_, maxCacheElems := NewNodesMapSlice(0)
@@ -23,7 +29,9 @@ func TestNodesMapSliceDuplicates(t *testing.T) {
 	m, maxElems := NewNodesMapSlice(8000)
 	for i := 0; i < 10; i++ {
 		for j := int64(0); j < maxElems; j++ {
-			if !m.Put(uint64(j), CachedLeaf{}) {
+			var buf [8]byte
+			binary.LittleEndian.PutUint64(buf[:], uint64(j))
+			if !m.Put(utreexo.Hash(chainhash.HashH(buf[:])), CachedNode{}) {
 				t.Fatalf("unexpected error on m.put")
 			}
 		}
@@ -37,15 +45,23 @@ func TestNodesMapSliceDuplicates(t *testing.T) {
 	// Try inserting x which should be unique. Should fail as the map is full.
 	x := uint64(0)
 	x -= 1
-	if m.Put(x, CachedLeaf{}) {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], x)
+	hash := utreexo.Hash(chainhash.HashH(buf[:]))
+	if m.Put(hash, CachedNode{}) {
 		t.Fatalf("expected error but successfully called put")
 	}
 
 	// Remove the first element in the first map and then try inserting
 	// a duplicate element.
-	m.delete(0)
+	binary.LittleEndian.PutUint64(buf[:], uint64(0))
+	firstHash := utreexo.Hash(chainhash.HashH(buf[:]))
+	m.Delete(firstHash)
+
 	x = uint64(maxElems) - 1
-	if !m.Put(x, CachedLeaf{}) {
+	binary.LittleEndian.PutUint64(buf[:], x)
+	dupHash := utreexo.Hash(chainhash.HashH(buf[:]))
+	if !m.Put(dupHash, CachedNode{}) {
 		t.Fatalf("unexpected failure on put")
 	}
 
@@ -56,7 +72,9 @@ func TestNodesMapSliceDuplicates(t *testing.T) {
 	}
 
 	// Put 0 back in and then compare the map.
-	if !m.Put(0, CachedLeaf{}) {
+	binary.LittleEndian.PutUint64(buf[:], uint64(0))
+	zeroHash := utreexo.Hash(chainhash.HashH(buf[:]))
+	if !m.Put(zeroHash, CachedNode{}) {
 		t.Fatalf("didn't expect error but unsuccessfully called put")
 	}
 	if m.Length()-len(m.overflow) != int(maxElems) {
