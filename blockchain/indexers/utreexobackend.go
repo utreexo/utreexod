@@ -326,46 +326,25 @@ func (idx *FlatUtreexoProofIndex) CloseUtreexoState() error {
 
 // serializeUndoBlock serializes all the data that's needed for undoing a full utreexo state
 // into a slice of bytes.
-func serializeUndoBlock(numAdds uint64, targets []uint64, delHashes []utreexo.Hash) ([]byte, error) {
-	numAddsSize := 8
-	targetCountSize := 4
-	targetsSize := len(targets) * 8
+func serializeUndoBlock(proof *utreexo.Proof, delHashes []utreexo.Hash) ([]byte, error) {
+	proofSize := wire.BatchProofSerializeSize(proof)
 	delHashesCountSize := 4
 	delHashesSize := len(delHashes) * chainhash.HashSize
 
-	w := bytes.NewBuffer(make([]byte, 0, numAddsSize+targetCountSize+targetsSize+delHashesCountSize+delHashesSize))
+	w := bytes.NewBuffer(make([]byte, 0, proofSize+delHashesCountSize+delHashesSize))
 
-	// Write numAdds.
-	buf := make([]byte, numAddsSize)
-	byteOrder.PutUint64(buf[:], numAdds)
-	_, err := w.Write(buf[:])
-	if err != nil {
-		return nil, err
-	}
-
-	// Write the targets.
+	// Write the proof.
 	//
-	// Targets are prefixed with the count in uint32.
-	buf = buf[:targetCountSize]
-	byteOrder.PutUint32(buf[:], uint32(len(targets)))
-	_, err = w.Write(buf[:])
+	// Proofs are prefixed with the count in uint32.
+	err := wire.BatchProofSerialize(w, proof)
 	if err != nil {
 		return nil, err
-	}
-	buf = buf[:8]
-	for _, targ := range targets {
-		byteOrder.PutUint64(buf[:], targ)
-
-		_, err = w.Write(buf[:])
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	// Write the delHashes.
 	//
 	// DelHashes are prefixed with the count in uint32.
-	buf = buf[:delHashesCountSize]
+	var buf [4]byte
 	byteOrder.PutUint32(buf[:], uint32(len(delHashes)))
 	_, err = w.Write(buf[:])
 	if err != nil {
@@ -383,59 +362,34 @@ func serializeUndoBlock(numAdds uint64, targets []uint64, delHashes []utreexo.Ha
 
 // deserializeUndoBlock deserializes all the data that's needed to undo a full utreexo
 // state from a slice of serialized bytes.
-func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, error) {
+func deserializeUndoBlock(serialized []byte) (*utreexo.Proof, []utreexo.Hash, error) {
 	r := bytes.NewReader(serialized)
 
-	// Read the numAdds.
-	buf := make([]byte, chainhash.HashSize)
-	buf = buf[:8]
-	_, err := r.Read(buf)
+	proof, err := wire.BatchProofDeserialize(r)
 	if err != nil {
-		return 0, nil, nil, err
-	}
-
-	numAdds := byteOrder.Uint64(buf)
-
-	// Read the targets.
-	buf = buf[:4]
-	_, err = r.Read(buf)
-	if err != nil {
-		return 0, nil, nil, err
-	}
-
-	targLen := byteOrder.Uint32(buf)
-	targets := make([]uint64, targLen)
-
-	buf = buf[:8]
-	for i := range targets {
-		_, err = r.Read(buf)
-		if err != nil {
-			return 0, nil, nil, err
-		}
-
-		targets[i] = byteOrder.Uint64(buf)
+		return nil, nil, err
 	}
 
 	// Read the delHashes.
-	buf = buf[:4]
-	_, err = r.Read(buf)
+	var buf [4]byte
+	_, err = r.Read(buf[:])
 	if err != nil {
-		return 0, nil, nil, err
+		return nil, nil, err
 	}
-	hashLen := byteOrder.Uint32(buf)
+	hashLen := byteOrder.Uint32(buf[:])
 	delHashes := make([]utreexo.Hash, hashLen)
 
-	buf = buf[:chainhash.HashSize]
+	var hashBuf utreexo.Hash
 	for i := range delHashes {
-		_, err = r.Read(buf)
+		_, err = r.Read(hashBuf[:])
 		if err != nil {
-			return 0, nil, nil, err
+			return nil, nil, err
 		}
 
-		delHashes[i] = *(*utreexo.Hash)(buf)
+		delHashes[i] = *(*utreexo.Hash)(hashBuf[:])
 	}
 
-	return numAdds, targets, delHashes, nil
+	return proof, delHashes, nil
 }
 
 // initConsistentUtreexoState makes the utreexo state consistent with the given tipHash.
