@@ -618,7 +618,8 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 			nodesUsed, nodesCapacity,
 			float64(nodesUsed)/float64(nodesCapacity))
 
-		size := nodesDB.RoughSize()
+		size := nodesDB.RoughSize() + chainhash.HashSize  // HashSize for bestHash.
+		size += uint64(len(roots)*chainhash.HashSize) + 8 // Roots + numLeaves.
 		if size >= math.MaxUint32 {
 			log.Debugf("flushing with sstable. size ~%v", formatBytesToGB(size))
 			value := utreexoStateConsistencyToKeyValue(bestHash, roots, numLeaves)
