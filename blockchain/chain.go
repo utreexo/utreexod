@@ -1026,11 +1026,15 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 			// Generate the adds.
 			adds := BlockToAddLeaves(block, outskip, outCount)
+			addHashes := make([]utreexo.Hash, len(adds))
+			for i := range addHashes {
+				addHashes[i] = adds[i].LeafHash()
+			}
 
 			// Undo the utreexoView.
 			// NOTE: Undoing instead of replacing the utreexoview with the roots in the database
 			// allows the cached leaves to stay cached.
-			err = b.utreexoView.accumulator.Undo(uint64(len(adds)),
+			err = b.utreexoView.accumulator.Undo(addHashes,
 				block.MsgBlock().UData.AccProof, delHashes, uView.accumulator.GetRoots())
 			if err != nil {
 				return err
@@ -1235,6 +1239,9 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 				}
 				return nil
 			})
+			if err != nil {
+				return nil, nil, nil, err
+			}
 			utreexoView = prevUView
 
 			// This adds the update data and the utreexo adds to the

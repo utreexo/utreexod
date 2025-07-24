@@ -13,36 +13,60 @@ import (
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
-	"github.com/utreexo/utreexod/wire"
 )
 
-// leafLength is the length of a seriailzed leaf.
-const leafLength = chainhash.HashSize + 1
+// nodeLength is the length of a seriailzed node. 4 because the remember bit is
+// stored with the addindex.
+const nodeLength = (chainhash.HashSize * 3) + 4
 
-// buffer size for VLQ serialization.  Double the size needed to serialize 2^64
-const vlqBufSize = 22
+// serializeNode serializes the node to [nodeLength]byte.
+func serializeNode(node utreexo.Node) [nodeLength]byte {
+	var buf [nodeLength]byte
 
-// serializeLeaf serializes the leaf to [leafLength]byte.
-func serializeLeaf(leaf utreexo.Leaf) [leafLength]byte {
-	var buf [leafLength]byte
-	copy(buf[:chainhash.HashSize], leaf.Hash[:])
-	if leaf.Remember {
-		buf[32] = 1
+	idx := 0
+
+	copy(buf[idx:idx+chainhash.HashSize], node.Above[:])
+	idx += chainhash.HashSize
+
+	copy(buf[idx:idx+chainhash.HashSize], node.LBelow[:])
+	idx += chainhash.HashSize
+
+	copy(buf[idx:idx+chainhash.HashSize], node.RBelow[:])
+	idx += chainhash.HashSize
+
+	addIndex := node.AddIndex << 1
+	if node.Remember {
+		addIndex |= 1
 	}
+	var indexBuf [4]byte
+	binary.LittleEndian.PutUint32(indexBuf[:], uint32(addIndex))
+	copy(buf[idx:idx+4], indexBuf[:])
 
 	return buf
 }
 
-// deserializeLeaf serializes the leaf to [leafLength]byte.
-func deserializeLeaf(serialized [leafLength]byte) utreexo.Leaf {
-	leaf := utreexo.Leaf{
-		Hash: *(*[chainhash.HashSize]byte)(serialized[:32]),
-	}
-	if serialized[32] == 1 {
-		leaf.Remember = true
-	}
+// deserializeNode serializes the node to [nodeLength]byte.
+func deserializeNode(serialized [nodeLength]byte) utreexo.Node {
+	node := utreexo.Node{}
 
-	return leaf
+	idx := 0
+	hash := serialized[idx : idx+chainhash.HashSize]
+	node.Above = ([32]byte)(hash)
+	idx += chainhash.HashSize
+
+	hash = serialized[idx : idx+chainhash.HashSize]
+	node.LBelow = ([32]byte)(hash)
+	idx += chainhash.HashSize
+
+	hash = serialized[idx : idx+chainhash.HashSize]
+	node.RBelow = ([32]byte)(hash)
+	idx += chainhash.HashSize
+
+	addIndex := binary.LittleEndian.Uint32(serialized[idx : idx+4])
+	node.Remember = addIndex&1 == 1
+	node.AddIndex = int32(addIndex) >> 1
+
+	return node
 }
 
 var _ utreexo.NodesInterface = (*NodesBackEnd)(nil)
@@ -69,77 +93,64 @@ func InitNodesBackEnd(db *pebble.DB, maxTotalMemoryUsage int64) (*NodesBackEnd, 
 
 // dbGet fetches the value from the database and deserializes it and returns
 // the leaf value and a boolean for whether or not it was successful.
-func (m *NodesBackEnd) dbGet(k uint64) (utreexo.Leaf, bool) {
-	buf := [8]byte{}
-	binary.BigEndian.PutUint64(buf[:], k)
-
-	val, closer, err := m.db.Get(buf[:])
+func (m *NodesBackEnd) dbGet(k utreexo.Hash) (utreexo.Node, bool) {
+	val, closer, err := m.db.Get(k[:])
 	if err != nil {
-		return utreexo.Leaf{}, false
+		return utreexo.Node{}, false
 	}
 	defer closer.Close()
 
 	// Must be leafLength bytes long.
-	if len(val) != leafLength {
-		return utreexo.Leaf{}, false
+	if len(val) != nodeLength {
+		return utreexo.Node{}, false
 	}
 
-	leaf := deserializeLeaf(*(*[leafLength]byte)(val))
-	return leaf, true
+	node := deserializeNode(*(*[nodeLength]byte)(val))
+	return node, true
 }
 
-// Get returns the leaf from the underlying map.
-func (m *NodesBackEnd) Get(k uint64) (utreexo.Leaf, bool) {
-	// Look it up on the cache first.
-	cLeaf, found := m.cache.Get(k)
-	if found {
-		// The leaf might not have been cleaned up yet.
-		if cLeaf.IsRemoved() {
-			return utreexo.Leaf{}, false
-		}
-
-		// If we found it, return here.
-		return cLeaf.Leaf, true
-	}
-
-	// Since it's not in the cache, look it up in the database.
-	leaf, found := m.dbGet(k)
+// Get returns the node from the underlying map.
+func (m *NodesBackEnd) Get(k utreexo.Hash) (utreexo.Node, bool) {
+	cachedNode, found := m.cache.Get(k)
 	if !found {
-		// If it's not in the database and the cache, it
-		// doesn't exist.
-		return utreexo.Leaf{}, false
+		node, found := m.dbGet(k)
+		if !found {
+			return utreexo.Node{}, false
+		}
+		// Cache the leaf before returning it.
+		m.cache.Put(k, utreexobackends.CachedNode{Node: node})
+
+		return node, found
+	}
+	// Even if the entry was found, don't return it if it's marked as removed.
+	if cachedNode.IsRemoved() {
+		return utreexo.Node{}, false
 	}
 
-	// Cache the leaf before returning it.
-	m.cache.Put(k, utreexobackends.CachedLeaf{Leaf: leaf})
-
-	return leaf, true
+	return cachedNode.Node, found
 }
 
 // NodesBatchPut puts a key-value pair in the given pebbledb batch.
-func NodesBatchPut(batch *pebble.Batch, k uint64, v utreexo.Leaf) error {
-	buf := [8]byte{}
-	binary.BigEndian.PutUint64(buf[:], k)
-
-	serialized := serializeLeaf(v)
-	return batch.Set(buf[:], serialized[:], nil)
+func NodesBatchPut(batch *pebble.Batch, k utreexo.Hash, v utreexo.Node) error {
+	serialized := serializeNode(v)
+	return batch.Set(k[:], serialized[:], nil)
 }
 
 // Put puts the given position and the leaf to the underlying map.
-func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
+func (m *NodesBackEnd) Put(k utreexo.Hash, v utreexo.Node) {
 	leaf, found := m.cache.Get(k)
 	if found {
 		leaf.Flags &^= utreexobackends.Removed
-		l := utreexobackends.CachedLeaf{
-			Leaf:  v,
+		l := utreexobackends.CachedNode{
+			Node:  v,
 			Flags: leaf.Flags | utreexobackends.Modified,
 		}
 
 		m.cache.Put(k, l)
 	} else {
 		// If the key isn't found, mark it as fresh.
-		l := utreexobackends.CachedLeaf{
-			Leaf:  v,
+		l := utreexobackends.CachedNode{
+			Node:  v,
 			Flags: utreexobackends.Fresh,
 		}
 
@@ -148,34 +159,33 @@ func (m *NodesBackEnd) Put(k uint64, v utreexo.Leaf) {
 }
 
 // NodesBatchDelete deletes the corresponding key-value pair from the given pebble batch.
-func NodesBatchDelete(batch *pebble.Batch, k uint64) error {
-	buf := [8]byte{}
-	binary.BigEndian.PutUint64(buf[:], k)
-	return batch.Delete(buf[:], nil)
+func NodesBatchDelete(batch *pebble.Batch, k utreexo.Hash) error {
+	return batch.Delete(k[:], nil)
 }
 
 // Delete removes the given key from the underlying map. No-op if the key
 // doesn't exist.
-func (m *NodesBackEnd) Delete(k uint64) {
-	// Don't delete as the same key may get called to be removed multiple times.
-	// Cache it as removed so that we don't call expensive flushes on keys that
-	// are not in the database.
-	leaf, _ := m.cache.Get(k)
-	l := utreexobackends.CachedLeaf{
-		Leaf:  leaf.Leaf,
-		Flags: leaf.Flags | utreexobackends.Removed,
+func (m *NodesBackEnd) Delete(k utreexo.Hash) {
+	cachedNode, found := m.cache.Get(k)
+	if found && cachedNode.IsFresh() {
+		m.cache.Delete(k)
+		return
+	}
+	p := utreexobackends.CachedNode{
+		Node:  cachedNode.Node,
+		Flags: cachedNode.Flags | utreexobackends.Removed,
 	}
 
-	m.cache.Put(k, l)
+	m.cache.Put(k, p)
 }
 
 // Length returns the amount of items in the underlying database.
 func (m *NodesBackEnd) Length() int {
 	length := 0
-	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) error {
+	m.cache.ForEach(func(_ utreexo.Hash, n utreexobackends.CachedNode) error {
 		// Only count the entry if it's not removed and it's not already
 		// in the database.
-		if !cl.IsRemoved() && cl.IsFresh() {
+		if !n.IsRemoved() && n.IsFresh() {
 			length++
 		}
 
@@ -187,15 +197,18 @@ func (m *NodesBackEnd) Length() int {
 	iter, _ := m.db.NewIter(nil)
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
-		// The relevant key-value pairs for nodesbackend are leafLength.
+		// The relevant key-value pairs for nodesbackend are nodeLength.
 		// Skip it since it's not relevant here.
 		value := iter.Value()
-		if len(value) != leafLength {
+		if len(value) != nodeLength {
 			continue
 		}
 
-		k := binary.BigEndian.Uint64(iter.Key())
-		val, found := m.cache.Get(k)
+		k := iter.Key()
+		if len(k) != chainhash.HashSize {
+			continue
+		}
+		val, found := m.cache.Get(([chainhash.HashSize]byte)(k))
 		if found && val.IsRemoved() {
 			// Skip if the key-value pair has already been removed in the cache.
 			continue
@@ -207,12 +220,12 @@ func (m *NodesBackEnd) Length() int {
 }
 
 // ForEach calls the given function for each of the elements in the underlying map.
-func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
-	m.cache.ForEach(func(u uint64, cl utreexobackends.CachedLeaf) error {
+func (m *NodesBackEnd) ForEach(fn func(utreexo.Hash, utreexo.Node) error) error {
+	m.cache.ForEach(func(k utreexo.Hash, n utreexobackends.CachedNode) error {
 		// Only operate on the entry if it's not removed and it's not already
 		// in the database.
-		if !cl.IsRemoved() && cl.IsFresh() {
-			fn(u, cl.Leaf)
+		if !n.IsRemoved() && n.IsFresh() {
+			fn(k, n.Node)
 		}
 
 		return nil
@@ -220,25 +233,30 @@ func (m *NodesBackEnd) ForEach(fn func(uint64, utreexo.Leaf) error) error {
 
 	iter, _ := m.db.NewIter(nil)
 	defer iter.Close()
-	for iter.Next() {
+	for iter.First(); iter.Valid(); iter.Next() {
 		// The relevant key-value pairs for nodesbackend are leafLength.
 		// Skip it since it's not relevant here.
 		value := iter.Value()
-		if len(value) != leafLength {
+		if len(value) != nodeLength {
+			continue
+		}
+
+		k := iter.Key()
+		if len(k) != chainhash.HashSize {
 			continue
 		}
 
 		// Remember that the contents of the returned slice should not be modified, and
 		// only valid until the next call to Next.
-		k := binary.BigEndian.Uint64(iter.Key())
-		val, found := m.cache.Get(k)
+		key := ([chainhash.HashSize]byte)(k)
+		val, found := m.cache.Get(key)
 		if found && val.IsRemoved() {
 			// Skip if the key-value pair has already been removed in the cache.
 			continue
 		}
 
-		v := deserializeLeaf(*(*[leafLength]byte)(value))
-		err := fn(k, v)
+		v := deserializeNode(*(*[nodeLength]byte)(value))
+		err := fn(key, v)
 		if err != nil {
 			return err
 		}
@@ -260,15 +278,15 @@ func (m *NodesBackEnd) UsageStats() (int64, int64) {
 // RoughSize is a quick calculation of the cached items. The returned value is simply the
 // length multiplied by the cache length.
 func (m *NodesBackEnd) RoughSize() uint64 {
-	return uint64(m.cache.Length()) * (wire.MaxVarIntPayload + leafLength)
+	return uint64(m.cache.Length()) * (chainhash.HashSize + nodeLength)
 }
 
 // FlushBatch saves all the cached entries to disk and resets the cache map using the Batch.
 func (m *NodesBackEnd) FlushBatch(batch *pebble.Batch) error {
-	err := m.cache.ForEachAndDelete(func(k uint64, v utreexobackends.CachedLeaf) error {
+	err := m.cache.ForEachAndDelete(func(k utreexo.Hash, v utreexobackends.CachedNode) error {
 		if v.IsFresh() {
 			if !v.IsRemoved() {
-				err := NodesBatchPut(batch, k, v.Leaf)
+				err := NodesBatchPut(batch, k, v.Node)
 				if err != nil {
 					return err
 				}
@@ -280,7 +298,7 @@ func (m *NodesBackEnd) FlushBatch(batch *pebble.Batch) error {
 					return err
 				}
 			} else {
-				err := NodesBatchPut(batch, k, v.Leaf)
+				err := NodesBatchPut(batch, k, v.Node)
 				if err != nil {
 					return err
 				}
@@ -296,240 +314,7 @@ func (m *NodesBackEnd) FlushBatch(batch *pebble.Batch) error {
 	return nil
 }
 
-// leafInfoSize is the size of a serialized utreexo.LeafInfo in bytes.
-const leafInfoSize = 12
-
-// serializeLeafInfo serializes the given LeafInfo into a [leafInfoSize]byte array.
-func serializeLeafInfo(leafInfo utreexo.LeafInfo) [leafInfoSize]byte {
-	var buf [leafInfoSize]byte
-	byteOrder.PutUint64(buf[:8], leafInfo.Position)
-	byteOrder.PutUint32(buf[8:], leafInfo.AddIndex)
-
-	return buf
-}
-
-// deserializeLeafInfo returns a LeafInfo from a [leafInfoSize]byte array.
-func deserializeLeafInfo(buf [leafInfoSize]byte) utreexo.LeafInfo {
-	return utreexo.LeafInfo{
-		Position: byteOrder.Uint64(buf[:8]),
-		AddIndex: byteOrder.Uint32(buf[8:]),
-	}
-}
-
-var _ utreexo.CachedLeavesInterface = (*CachedLeavesBackEnd)(nil)
-
-// CachedLeavesBackEnd implements the CachedLeavesInterface interface. The cache assumes
-// that anything in the cache doesn't exist in the db and vise-versa.
-type CachedLeavesBackEnd struct {
-	db           *pebble.DB
-	maxCacheElem int64
-	cache        utreexobackends.CachedLeavesMapSlice
-}
-
-// dbGet fetches and deserializes the value from the database.
-func (m *CachedLeavesBackEnd) dbGet(k utreexo.Hash) (utreexo.LeafInfo, bool) {
-	val, closer, err := m.db.Get(k[:])
-	if err != nil || len(val) != leafInfoSize {
-		return utreexo.LeafInfo{}, false
-	}
-	defer closer.Close()
-
-	return deserializeLeafInfo(([leafInfoSize]byte)(val)), true
-}
-
-// InitCachedLeavesBackEnd returns a newly initialized CachedLeavesBackEnd which implements
-// utreexo.CachedLeavesInterface.
-func InitCachedLeavesBackEnd(db *pebble.DB, maxMemoryUsage int64) (*CachedLeavesBackEnd, error) {
-	cache, maxCacheElem := utreexobackends.NewCachedLeavesMapSlice(maxMemoryUsage)
-	return &CachedLeavesBackEnd{maxCacheElem: maxCacheElem, db: db, cache: cache}, nil
-}
-
-// Get returns the data from the underlying cache or the database.
-func (m *CachedLeavesBackEnd) Get(k utreexo.Hash) (utreexo.LeafInfo, bool) {
-	leafInfo, found := m.cache.Get(k)
-	if !found {
-		return m.dbGet(k)
-	}
-	// Even if the entry was found, if the position value is math.MaxUint64,
-	// then it was already deleted.
-	if leafInfo.IsRemoved() {
-		return utreexo.LeafInfo{}, false
-	}
-
-	return leafInfo.LeafInfo, found
-}
-
-// CachedLeavesBatchPut puts a key-value pair in the given pebbledb batch.
-func CachedLeavesBatchPut(tx *pebble.Batch, k utreexo.Hash, v utreexo.LeafInfo) error {
-	buf := serializeLeafInfo(v)
-	return tx.Set(k[:], buf[:], nil)
-}
-
-// Add adds the given hash and the data that makes up the LeafInfo into the backend.
-func (m *CachedLeavesBackEnd) Add(k utreexo.Hash, v uint64, index uint32) {
-	m.cache.Put(k, utreexobackends.CachedPosition{
-		LeafInfo: utreexo.LeafInfo{
-			Position: v,
-			AddIndex: index,
-		},
-		Flags: utreexobackends.Fresh,
-	})
-}
-
-// Update changes the given leafhash's position with the one that's passed in.
-// It doesn't add the leaf if it doesn't already exist in the backend.
-func (m *CachedLeavesBackEnd) Update(k utreexo.Hash, v uint64) {
-	cachedPos, found := m.cache.Get(k)
-	if found {
-		cachedPos.LeafInfo.Position = v
-		m.cache.Put(k, cachedPos)
-		return
-	}
-
-	leafInfo, found := m.dbGet(k)
-	if !found {
-		return
-	}
-	leafInfo.Position = v
-
-	p := utreexobackends.CachedPosition{
-		LeafInfo: leafInfo,
-		Flags:    utreexobackends.Modified,
-	}
-
-	m.cache.Put(k, p)
-}
-
-// Delete removes the given key from the underlying map. No-op if the key
-// doesn't exist.
-func (m *CachedLeavesBackEnd) Delete(k utreexo.Hash) {
-	leafInfo, found := m.cache.Get(k)
-	if found && leafInfo.IsFresh() {
-		m.cache.Delete(k)
-		return
-	}
-	p := utreexobackends.CachedPosition{
-		LeafInfo: leafInfo.LeafInfo,
-		Flags:    leafInfo.Flags | utreexobackends.Removed,
-	}
-
-	m.cache.Put(k, p)
-}
-
-// Length returns the amount of items in the underlying db and the cache.
-func (m *CachedLeavesBackEnd) Length() int {
-	length := 0
-	m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
-		// Only operate on the entry if it's not removed and it's not already
-		// in the database.
-		if !v.IsRemoved() && v.IsFresh() {
-			length++
-		}
-		return nil
-	})
-	iter, _ := m.db.NewIter(nil)
-	defer iter.Close()
-	for iter.First(); iter.Valid(); iter.Next() {
-		// If the itered key is not chainhash.HashSize, it's not for cachedLeavesBackend.
-		// Skip it since it's not relevant here.
-		if len(iter.Key()) != chainhash.HashSize {
-			continue
-		}
-		k := iter.Key()
-		val, found := m.cache.Get(*(*[chainhash.HashSize]byte)(k))
-		if found && val.IsRemoved() {
-			// Skip if the key-value pair has already been removed in the cache.
-			continue
-		}
-
-		length++
-	}
-
-	return length
-}
-
-// ForEach calls the given function for each of the elements in the underlying map.
-func (m *CachedLeavesBackEnd) ForEach(fn func(utreexo.Hash, utreexo.LeafInfo) error) error {
-	m.cache.ForEach(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
-		// Only operate on the entry if it's not removed and it's not already
-		// in the database.
-		if !v.IsRemoved() && v.IsFresh() {
-			fn(k, v.LeafInfo)
-		}
-		return nil
-	})
-	iter, _ := m.db.NewIter(nil)
-	defer iter.Close()
-	for iter.Next() {
-		// If the itered key is not chainhash.HashSize, it's not for cachedLeavesBackend.
-		// Skip it since it's not relevant here.
-		if len(iter.Key()) != chainhash.HashSize {
-			continue
-		}
-		// Remember that the contents of the returned slice should not be modified, and
-		// only valid until the next call to Next.
-		k := iter.Key()
-		val, found := m.cache.Get(*(*[chainhash.HashSize]byte)(k))
-		if found && val.IsRemoved() {
-			// Skip if the key-value pair has already been removed in the cache.
-			continue
-		}
-		serialized := iter.Value()
-		if len(serialized) != leafInfoSize {
-			continue
-		}
-		leafInfo := deserializeLeafInfo(([leafInfoSize]byte)(serialized))
-
-		err := fn(*(*[chainhash.HashSize]byte)(k), leafInfo)
-		if err != nil {
-			return err
-		}
-	}
-
-	return iter.Error()
-}
-
-// IsFlushNeeded returns true if the backend needs to be flushed.
-func (m *CachedLeavesBackEnd) IsFlushNeeded() bool {
-	return m.cache.Overflowed()
-}
-
-// UsageStats returns the currently cached elements and the total amount the cache can hold.
-func (m *CachedLeavesBackEnd) UsageStats() (int64, int64) {
-	return int64(m.cache.Length()), m.maxCacheElem
-}
-
-// RoughSize is a quick calculation of the cached items. The returned value is simply the
-// length multiplied by the cache length.
-func (m *CachedLeavesBackEnd) RoughSize() uint64 {
-	return uint64(m.cache.Length()) * (chainhash.HashSize + leafInfoSize)
-}
-
-// FlushBatch resets the cache and saves all the key values onto the given Batch.
-func (m *CachedLeavesBackEnd) FlushBatch(batch *pebble.Batch) error {
-	err := m.cache.ForEachAndDelete(func(k utreexo.Hash, v utreexobackends.CachedPosition) error {
-		if v.IsRemoved() {
-			err := batch.Delete(k[:], nil)
-			if err != nil {
-				return err
-			}
-		} else {
-			err := CachedLeavesBatchPut(batch, k, v.LeafInfo)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("CachedLeavesBackEnd flush error. %v", err)
-	}
-
-	return nil
-}
-
 // FlushToSstable writes all the cached items in the maps to the given writer.
-func FlushToSstable(writer *sstable.Writer, nDB *NodesBackEnd, cDB *CachedLeavesBackEnd) {
-	utreexobackends.FlushToSstable(writer, &nDB.cache, &cDB.cache, serializeLeaf, serializeLeafInfo)
+func FlushToSstable(writer *sstable.Writer, nDB *NodesBackEnd) {
+	utreexobackends.FlushToSstable(writer, &nDB.cache, serializeNode)
 }

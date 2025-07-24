@@ -177,7 +177,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 		var utreexoUD, flatUD *wire.UData
 		var stump, flatStump utreexo.Stump
 		var numAdds, flatNumAdds uint64
-		var targets, flatTargets []uint64
+		var proof, flatProof *utreexo.Proof
 		var delHashes, flatDelHashes []utreexo.Hash
 
 		for _, indexer := range indexes {
@@ -204,7 +204,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 
 				} else {
 					err = idxType.db.View(func(dbTx database.Tx) error {
-						numAdds, targets, delHashes, err = dbFetchUndoData(dbTx, block.Hash())
+						proof, delHashes, err = dbFetchUndoData(dbTx, block.Hash())
 						if err != nil {
 							return err
 						}
@@ -222,7 +222,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 					}
 				} else {
 					var err error
-					flatNumAdds, flatTargets, flatDelHashes, err = idxType.fetchUndoBlock(b)
+					flatProof, flatDelHashes, err = idxType.fetchUndoBlock(b)
 					if err != nil {
 						return err
 					}
@@ -237,12 +237,20 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 
 		if pruned {
 			if numAdds != flatNumAdds ||
-				!slices.Equal(targets, flatTargets) ||
 				!slices.Equal(delHashes, flatDelHashes) {
 
 				err := fmt.Errorf("Fetched undo data differ for "+
 					"utreexo proof index and flat utreexo proof index at height %d", b)
 				return err
+			}
+
+			if proof != nil {
+				if !slices.Equal(proof.Targets, flatProof.Targets) ||
+					!slices.Equal(proof.Proof, flatProof.Proof) {
+					err := fmt.Errorf("Fetched undo data differ for "+
+						"utreexo proof index and flat utreexo proof index at height %d", b)
+					return err
+				}
 			}
 		} else {
 			if !reflect.DeepEqual(utreexoUD, flatUD) {
@@ -396,9 +404,11 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 		delHashes = append(delHashes, del.LeafHash())
 	}
 
-	addHashes := make([]utreexo.Leaf, 0, len(adds))
+	addLeaves := make([]utreexo.Leaf, 0, len(adds))
+	addHashes := make([]utreexo.Hash, 0, len(adds))
 	for _, add := range adds {
-		addHashes = append(addHashes, utreexo.Leaf{Hash: add.LeafHash(), Remember: false})
+		addLeaves = append(addLeaves, utreexo.Leaf{Hash: add.LeafHash(), Remember: false})
+		addHashes = append(addHashes, add.LeafHash())
 	}
 
 	// Verify the proof on the accumulator.
@@ -408,7 +418,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 			origRoots := idxType.utreexoState.state.GetRoots()
 
 			// Undo back to the state where the proof was generated.
-			err := idxType.utreexoState.state.Undo(uint64(len(adds)), utreexo.Proof{Targets: flatUD.AccProof.Targets}, delHashes, flatStump.Roots)
+			err := idxType.utreexoState.state.Undo(addHashes, flatUD.AccProof, delHashes, flatStump.Roots)
 			if err != nil {
 				return err
 			}
@@ -418,7 +428,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 				return err
 			}
 			// Go back to the original state.
-			err = idxType.utreexoState.state.Modify(addHashes, delHashes, utreexo.Proof{Targets: flatUD.AccProof.Targets})
+			err = idxType.utreexoState.state.Modify(addLeaves, delHashes, flatUD.AccProof)
 			if err != nil {
 				return err
 			}
@@ -432,7 +442,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 			origRoots := idxType.utreexoState.state.GetRoots()
 
 			// Undo back to the state where the proof was generated.
-			err = idxType.utreexoState.state.Undo(uint64(len(adds)), utreexo.Proof{Targets: ud.AccProof.Targets}, delHashes, stump.Roots)
+			err = idxType.utreexoState.state.Undo(addHashes, ud.AccProof, delHashes, stump.Roots)
 			if err != nil {
 				return err
 			}
@@ -442,7 +452,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 				return err
 			}
 			// Go back to the original state.
-			err = idxType.utreexoState.state.Modify(addHashes, delHashes, utreexo.Proof{Targets: ud.AccProof.Targets})
+			err = idxType.utreexoState.state.Modify(addLeaves, delHashes, ud.AccProof)
 			if err != nil {
 				return err
 			}

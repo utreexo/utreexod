@@ -6,14 +6,15 @@ import (
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 const (
-	// Calculated with unsafe.Sizeof(cachedLeaf{}).
-	cachedLeafSize = 34
+	// Calculated with unsafe.Sizeof(CachedNode{}).
+	cachedNodeSize = 108
 
 	// Bucket size for the node map.
-	nodesMapBucketSize = 16 + sizehelper.Uint64Size*sizehelper.Uint64Size + sizehelper.Uint64Size*cachedLeafSize
+	nodesMapBucketSize = 16 + sizehelper.Uint64Size*chainhash.HashSize + sizehelper.Uint64Size*cachedNodeSize
 )
 
 // CachedFlag is the status of each of the cached elements in the NodesBackEnd.
@@ -31,41 +32,41 @@ const (
 	Removed
 )
 
-// CachedLeaf has the leaf and a flag for the status in the cache.
-type CachedLeaf struct {
-	Leaf  utreexo.Leaf
+// CachedNode has the leaf and a flag for the status in the cache.
+type CachedNode struct {
+	Node  utreexo.Node
 	Flags CachedFlag
 }
 
-// IsFresh returns if the cached leaf has never been in the database.
-func (c *CachedLeaf) IsFresh() bool {
+// IsFresh returns if the node has never been in the database.
+func (c *CachedNode) IsFresh() bool {
 	return c.Flags&Fresh == Fresh
 }
 
-// IsModified returns if the cached leaf has been in the database and was modified in the cache.
-func (c *CachedLeaf) IsModified() bool {
+// IsModified returns if the node has been in the database and was modified in the cache.
+func (c *CachedNode) IsModified() bool {
 	return c.Flags&Modified == Modified
 }
 
-// IsRemoved returns if the key for this cached leaf has been removed.
-func (c *CachedLeaf) IsRemoved() bool {
+// IsRemoved returns if true the key for this cached node has been removed.
+func (c *CachedNode) IsRemoved() bool {
 	return c.Flags&Removed == Removed
 }
 
-// intHeap is just the slice of the keys in the nodes map.
-type intHeap []uint64
+// hashHeap is just the slice of the keys in the nodes map.
+type hashHeap []utreexo.Hash
 
-func (h intHeap) Len() int           { return len(h) }
-func (h intHeap) Less(i, j int) bool { return h[i] < h[j] }
-func (h intHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h intHeap) View() any {
+func (h hashHeap) Len() int           { return len(h) }
+func (h hashHeap) Less(i, j int) bool { return string(h[i][:]) < string(h[j][:]) }
+func (h hashHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h hashHeap) View() any {
 	if len(h) == 0 {
 		return nil
 	}
 	return h[0]
 }
-func (h *intHeap) Push(x any) { *h = append(*h, x.(uint64)) }
-func (h *intHeap) Pop() any {
+func (h *hashHeap) Push(x any) { *h = append(*h, x.(utreexo.Hash)) }
+func (h *hashHeap) Pop() any {
 	old := *h
 	n := len(old)
 	item := old[n-1]
@@ -85,13 +86,13 @@ type NodesMapSlice struct {
 
 	// keyPriorityQueue keeps all the keys in a priority queue so that we're able
 	// to support the Pop() functionality.
-	keyPriorityQueue intHeap
+	keyPriorityQueue hashHeap
 
 	// maps are the underlying maps in the slice of maps.
-	maps []map[uint64]CachedLeaf
+	maps []map[utreexo.Hash]CachedNode
 
 	// overflow puts the overflowed entries.
-	overflow map[uint64]CachedLeaf
+	overflow map[utreexo.Hash]CachedNode
 
 	// maxEntries is the maximum amount of elements that the map is allocated for.
 	maxEntries []int
@@ -106,17 +107,17 @@ type NodesMapSlice struct {
 //
 // NOTE: this function should not be used as a general pop() function as the
 // priority queue is only built again once all the key-value pairs have been popped.
-func (ms *NodesMapSlice) popForFlushing() (uint64, *CachedLeaf) {
+func (ms *NodesMapSlice) popForFlushing() (utreexo.Hash, *CachedNode) {
 	length := ms.length()
 	if length == 0 {
 		ms.keyPriorityQueue = nil
-		return 0, nil
+		return utreexo.Hash{}, nil
 	}
 
 	// If the length is 0, it means this is the first time we've called this
 	// function and we need to build the priority queue.
 	if len(ms.keyPriorityQueue) == 0 {
-		ms.keyPriorityQueue = make([]uint64, 0, length)
+		ms.keyPriorityQueue = make([]utreexo.Hash, 0, length)
 		for _, m := range ms.maps {
 			for k := range m {
 				ms.keyPriorityQueue.Push(k)
@@ -132,18 +133,13 @@ func (ms *NodesMapSlice) popForFlushing() (uint64, *CachedLeaf) {
 		heap.Init(&ms.keyPriorityQueue)
 	}
 
-	key := heap.Pop(&ms.keyPriorityQueue).(uint64)
+	key := heap.Pop(&ms.keyPriorityQueue).(utreexo.Hash)
 
 	for _, m := range ms.maps {
 		v, found := m[key]
 		if found {
 			delete(m, key)
 
-			// If the key is fresh and removed, we don't need to flush it
-			// to disk. Try popping another one.
-			if v.IsFresh() && v.IsRemoved() {
-				return ms.popForFlushing()
-			}
 			return key, &v
 		}
 	}
@@ -153,16 +149,11 @@ func (ms *NodesMapSlice) popForFlushing() (uint64, *CachedLeaf) {
 		if found {
 			delete(ms.overflow, key)
 
-			// If the key is fresh and removed, we don't need to flush it
-			// to disk. Try popping another one.
-			if v.IsFresh() && v.IsRemoved() {
-				return ms.popForFlushing()
-			}
 			return key, &v
 		}
 	}
 
-	return 0, nil
+	return utreexo.Hash{}, nil
 }
 
 // Length returns the length of all the maps in the map slice added together.
@@ -190,14 +181,14 @@ func (ms *NodesMapSlice) length() int {
 }
 
 // get looks for the outpoint in all the maps in the map slice and returns
-// the entry. nil and false is returned if the outpoint is not found.
+// the entry. nil and false is returned if the node is not found.
 //
 // This function is safe for concurrent access.
-func (ms *NodesMapSlice) Get(k uint64) (CachedLeaf, bool) {
+func (ms *NodesMapSlice) Get(k utreexo.Hash) (CachedNode, bool) {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
-	var v CachedLeaf
+	var v CachedNode
 	var found bool
 
 	for _, m := range ms.maps {
@@ -222,7 +213,7 @@ func (ms *NodesMapSlice) Get(k uint64) (CachedLeaf, bool) {
 // return false.
 //
 // This function is safe for concurrent access.
-func (ms *NodesMapSlice) Put(k uint64, v CachedLeaf) bool {
+func (ms *NodesMapSlice) Put(k utreexo.Hash, v CachedNode) bool {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
@@ -263,11 +254,11 @@ func (ms *NodesMapSlice) Put(k uint64, v CachedLeaf) bool {
 	return false
 }
 
-// delete attempts to delete the given outpoint in all of the maps. No-op if the
+// Delete attempts to delete the given hash in all of the maps. No-op if the
 // key doesn't exist.
 //
 // This function is safe for concurrent access.
-func (ms *NodesMapSlice) delete(k uint64) {
+func (ms *NodesMapSlice) Delete(k utreexo.Hash) {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
@@ -281,7 +272,7 @@ func (ms *NodesMapSlice) delete(k uint64) {
 // ForEach loops through all the elements in the nodes map slice and calls fn with the key-value pairs.
 //
 // This function is safe for concurrent access.
-func (ms *NodesMapSlice) ForEach(fn func(uint64, CachedLeaf) error) error {
+func (ms *NodesMapSlice) ForEach(fn func(utreexo.Hash, CachedNode) error) error {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
@@ -309,7 +300,7 @@ func (ms *NodesMapSlice) ForEach(fn func(uint64, CachedLeaf) error) error {
 // ForEachAndDelete loops through all the elements in the nodes map slice and calls fn with the key-value pairs and deletes that key.
 //
 // This function is safe for concurrent access.
-func (ms *NodesMapSlice) ForEachAndDelete(fn func(uint64, CachedLeaf) error) error {
+func (ms *NodesMapSlice) ForEachAndDelete(fn func(utreexo.Hash, CachedNode) error) error {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
@@ -359,12 +350,12 @@ func (ms *NodesMapSlice) createMaps(maxMemoryUsage int64) int64 {
 	}
 
 	// Create the maps.
-	ms.maps = make([]map[uint64]CachedLeaf, len(ms.maxEntries))
+	ms.maps = make([]map[utreexo.Hash]CachedNode, len(ms.maxEntries))
 	for i := range ms.maxEntries {
-		ms.maps[i] = make(map[uint64]CachedLeaf, ms.maxEntries[i])
+		ms.maps[i] = make(map[utreexo.Hash]CachedNode, ms.maxEntries[i])
 	}
 
-	ms.overflow = make(map[uint64]CachedLeaf)
+	ms.overflow = make(map[utreexo.Hash]CachedNode)
 
 	return int64(totalElemCount)
 }

@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/stretchr/testify/require"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg"
 )
 
@@ -24,9 +26,13 @@ func TestUtreexoStateConsistencyWrite(t *testing.T) {
 	// Values to write.
 	numLeaves := rand.Uint64()
 	hash := chaincfg.MainNetParams.GenesisHash
+	roots := make([]utreexo.Hash, 4)
+	for i := range roots {
+		roots[i][0] = uint8(i)
+	}
 
 	batch := db.NewBatch()
-	err = dbWriteUtreexoStateConsistency(batch, hash, numLeaves)
+	err = dbWriteUtreexoStateConsistency(batch, hash, roots, numLeaves)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +42,7 @@ func TestUtreexoStateConsistencyWrite(t *testing.T) {
 	}
 
 	// Fetch the consistency state.
-	gotHash, gotNumLeaves, err := dbFetchUtreexoStateConsistency(db)
+	gotHash, gotRoots, gotNumLeaves, err := dbFetchUtreexoStateConsistency(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,4 +54,6 @@ func TestUtreexoStateConsistencyWrite(t *testing.T) {
 	if numLeaves != gotNumLeaves {
 		t.Fatalf("expected %v, got %v", numLeaves, gotNumLeaves)
 	}
+
+	require.Equal(t, roots, gotRoots)
 }

@@ -825,25 +825,8 @@ func TestUtreexoViewSerialize(t *testing.T) {
 				gotUtreexoView.accumulator.NumLeaves)
 			continue
 		}
-		err = test.uView.accumulator.Nodes.ForEach(func(k uint64, v utreexo.Leaf) error {
+		err = test.uView.accumulator.Nodes.ForEach(func(k utreexo.Hash, v utreexo.Node) error {
 			gotV, found := gotUtreexoView.accumulator.Nodes.Get(k)
-			if !found {
-				return fmt.Errorf("expected %v for key of %d but it wasn't found",
-					v, k)
-			}
-			if gotV != v {
-				return fmt.Errorf("expected %v for key of %d but got %v",
-					v, k, gotV)
-			}
-
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = test.uView.accumulator.CachedLeaves.ForEach(func(k utreexo.Hash, v utreexo.LeafInfo) error {
-			gotV, found := gotUtreexoView.accumulator.CachedLeaves.Get(k)
 			if !found {
 				return fmt.Errorf("expected %v for key of %d but it wasn't found",
 					v, k)
