@@ -121,12 +121,23 @@ func (b *BlockChain) SetNewBestStateFromAssumedUtreexoPoint() {
 	// as valid, we need to set the status flags here as valid. On restart
 	// these will be marked valid anyways but with loud logs for the user so
 	// we do it here.
+	//
+	// At the same time, we mark the data as stored as otherwise the child blocks
+	// will be marked as orphans.
 	tip := b.index.LookupNode(&state.Hash)
 	for iterNode := tip; iterNode != nil; iterNode = iterNode.parent {
 		if !iterNode.status.KnownValid() {
 			b.index.SetStatusFlags(iterNode, statusValid)
 		}
+
+		if !iterNode.status.HaveData() {
+			b.index.SetStatusFlags(iterNode, statusDataStored)
+		}
 	}
+
+	// Set the bestchain tip to the bestheaders tip as we'll be failing block
+	// validation otherwise.
+	b.bestChain.SetTip(tip)
 }
 
 // BlockChain provides functions for working with the bitcoin block chain.
