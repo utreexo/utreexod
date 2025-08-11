@@ -1362,29 +1362,16 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 			os.Exit(1)
 		}
 
-		// We're done downloading headers.
+		// We're done downloading headers up to the assumed utreexo point.
 		sm.headersBuildMode = false
-
-		// No more headers first mode either.
-		sm.headersFirstMode = false
 
 		// Set the best state and the utreexo state.
 		sm.chain.SetNewBestStateFromAssumedUtreexoPoint()
 		sm.chain.SetUtreexoStateFromAssumePoint()
 
 		bestState := sm.chain.BestSnapshot()
-		log.Infof("Finished building headers. Initialized assumed utreexo point "+
-			"at block %v(%d)", bestState.Hash.String(), bestState.Height)
-
-		locator := blockchain.BlockLocator([]*chainhash.Hash{&bestState.Hash})
-		err := peer.PushGetBlocksMsg(locator, &zeroHash)
-		if err != nil {
-			log.Warnf("Failed to send getblocks message to "+
-				"peer %s: %v", peer.Addr(), err)
-			return
-		}
-
-		return
+		log.Infof("Initialized assumed utreexo point at block %v(%d)",
+			bestState.Hash.String(), bestState.Height)
 	}
 
 	if sm.headersFirstMode {
