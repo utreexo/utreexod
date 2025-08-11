@@ -87,7 +87,7 @@ type UtreexoState struct {
 	utreexoStateDB *pebble.DB
 
 	isFlushNeeded func() bool
-	flush         func(uint64, *chainhash.Hash) error
+	flush         func(uint64, []utreexo.Hash, *chainhash.Hash) error
 }
 
 // utreexoBasePath returns the base path of where the utreexo state should be
@@ -120,44 +120,68 @@ func checkUtreexoExists(cfg *UtreexoConfig, basePath string) bool {
 }
 
 // dbWriteUtreexoStateConsistency writes the consistency state to the database using the given transaction.
-func dbWriteUtreexoStateConsistency(batch *pebble.Batch, bestHash *chainhash.Hash, numLeaves uint64) error {
-	// Create the byte slice to be written.
-	var buf [8 + chainhash.HashSize]byte
-	binary.LittleEndian.PutUint64(buf[:8], numLeaves)
-	copy(buf[8:], bestHash[:])
+func dbWriteUtreexoStateConsistency(batch *pebble.Batch,
+	bestHash *chainhash.Hash, roots []utreexo.Hash, numLeaves uint64) error {
 
-	return batch.Set(utreexoStateConsistencyKeyName, buf[:], nil)
+	bytes := utreexoStateConsistencyToKeyValue(bestHash, roots, numLeaves)
+	return batch.Set(utreexoStateConsistencyKeyName, bytes, nil)
 }
 
 // utreexoStateConsistencyToKeyValue returns the given info as a serialized value.
-func utreexoStateConsistencyToKeyValue(bestHash *chainhash.Hash, numLeaves uint64) []byte {
-	// Create the byte slice to be written.
-	var buf [8 + chainhash.HashSize]byte
-	binary.LittleEndian.PutUint64(buf[:8], numLeaves)
-	copy(buf[8:], bestHash[:])
+func utreexoStateConsistencyToKeyValue(bestHash *chainhash.Hash, roots []utreexo.Hash, numLeaves uint64) []byte {
+	size := 8 + chainhash.HashSize + (chainhash.HashSize * len(roots))
+	buf := make([]byte, size)
+
+	start := 0
+	binary.LittleEndian.PutUint64(buf[start:8], numLeaves)
+	start += 8
+
+	copy(buf[start:start+chainhash.HashSize], bestHash[:])
+	start += chainhash.HashSize
+
+	for _, root := range roots {
+		copy(buf[start:start+chainhash.HashSize], root[:])
+		start += chainhash.HashSize
+	}
 
 	return buf[:]
 }
 
-// dbFetchUtreexoStateConsistency returns the stored besthash and the numleaves in the database.
-func dbFetchUtreexoStateConsistency(db *pebble.DB) (*chainhash.Hash, uint64, error) {
+// dbFetchUtreexoStateConsistency returns the stored besthash, numleaves and roots in the database.
+func dbFetchUtreexoStateConsistency(db *pebble.DB) (*chainhash.Hash, []utreexo.Hash, uint64, error) {
 	buf, closer, err := db.Get(utreexoStateConsistencyKeyName)
 	if err != nil && err != pebble.ErrNotFound {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	// Set error to nil as the error may have been ErrNotFound.
 	err = nil
 	if buf == nil {
-		return nil, 0, nil
+		return nil, nil, 0, err
 	}
 	defer closer.Close()
 
-	bestHash, err := chainhash.NewHash(buf[8:])
+	start := 0
+
+	// Read numLeaves.
+	numLeaves := binary.LittleEndian.Uint64(buf[start:8])
+	start += 8
+
+	// Read besthash.
+	bestHash, err := chainhash.NewHash(buf[start : start+chainhash.HashSize])
+	start += chainhash.HashSize
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 
-	return bestHash, binary.LittleEndian.Uint64(buf[:8]), nil
+	// Read roots. -40 since numLeaves are 8 and besthash is 32 bytes long.
+	rootCount := (len(buf) - 40) / chainhash.HashSize
+	roots := make([]utreexo.Hash, rootCount)
+	for i := range roots {
+		roots[i] = ([32]byte)(buf[start : start+chainhash.HashSize])
+		start += chainhash.HashSize
+	}
+
+	return bestHash, roots, numLeaves, nil
 }
 
 // FetchUtreexoState returns the utreexo state at the desired block.
@@ -244,7 +268,7 @@ func (idx *UtreexoProofIndex) flushUtreexoState(bestHash *chainhash.Hash) error 
 	defer idx.mtx.Unlock()
 
 	log.Infof("Flushing the utreexo state to disk...")
-	return idx.utreexoState.flush(idx.utreexoState.state.NumLeaves, bestHash)
+	return idx.utreexoState.flush(idx.utreexoState.state.NumLeaves, idx.utreexoState.state.GetRoots(), bestHash)
 }
 
 // CloseUtreexoState flushes and closes the utreexo database state.
@@ -311,7 +335,7 @@ func (idx *FlatUtreexoProofIndex) flushUtreexoState(bestHash *chainhash.Hash) er
 	defer idx.mtx.Unlock()
 
 	log.Infof("Flushing the utreexo state to disk...")
-	return idx.utreexoState.flush(idx.utreexoState.state.NumLeaves, bestHash)
+	return idx.utreexoState.flush(idx.utreexoState.state.NumLeaves, idx.utreexoState.state.GetRoots(), bestHash)
 }
 
 // CloseUtreexoState flushes and closes the utreexo database state.
@@ -326,46 +350,25 @@ func (idx *FlatUtreexoProofIndex) CloseUtreexoState() error {
 
 // serializeUndoBlock serializes all the data that's needed for undoing a full utreexo state
 // into a slice of bytes.
-func serializeUndoBlock(numAdds uint64, targets []uint64, delHashes []utreexo.Hash) ([]byte, error) {
-	numAddsSize := 8
-	targetCountSize := 4
-	targetsSize := len(targets) * 8
+func serializeUndoBlock(proof *utreexo.Proof, delHashes []utreexo.Hash) ([]byte, error) {
+	proofSize := wire.BatchProofSerializeSize(proof)
 	delHashesCountSize := 4
 	delHashesSize := len(delHashes) * chainhash.HashSize
 
-	w := bytes.NewBuffer(make([]byte, 0, numAddsSize+targetCountSize+targetsSize+delHashesCountSize+delHashesSize))
+	w := bytes.NewBuffer(make([]byte, 0, proofSize+delHashesCountSize+delHashesSize))
 
-	// Write numAdds.
-	buf := make([]byte, numAddsSize)
-	byteOrder.PutUint64(buf[:], numAdds)
-	_, err := w.Write(buf[:])
-	if err != nil {
-		return nil, err
-	}
-
-	// Write the targets.
+	// Write the proof.
 	//
-	// Targets are prefixed with the count in uint32.
-	buf = buf[:targetCountSize]
-	byteOrder.PutUint32(buf[:], uint32(len(targets)))
-	_, err = w.Write(buf[:])
+	// Proofs are prefixed with the count in uint32.
+	err := wire.BatchProofSerialize(w, proof)
 	if err != nil {
 		return nil, err
-	}
-	buf = buf[:8]
-	for _, targ := range targets {
-		byteOrder.PutUint64(buf[:], targ)
-
-		_, err = w.Write(buf[:])
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	// Write the delHashes.
 	//
 	// DelHashes are prefixed with the count in uint32.
-	buf = buf[:delHashesCountSize]
+	var buf [4]byte
 	byteOrder.PutUint32(buf[:], uint32(len(delHashes)))
 	_, err = w.Write(buf[:])
 	if err != nil {
@@ -383,59 +386,34 @@ func serializeUndoBlock(numAdds uint64, targets []uint64, delHashes []utreexo.Ha
 
 // deserializeUndoBlock deserializes all the data that's needed to undo a full utreexo
 // state from a slice of serialized bytes.
-func deserializeUndoBlock(serialized []byte) (uint64, []uint64, []utreexo.Hash, error) {
+func deserializeUndoBlock(serialized []byte) (*utreexo.Proof, []utreexo.Hash, error) {
 	r := bytes.NewReader(serialized)
 
-	// Read the numAdds.
-	buf := make([]byte, chainhash.HashSize)
-	buf = buf[:8]
-	_, err := r.Read(buf)
+	proof, err := wire.BatchProofDeserialize(r)
 	if err != nil {
-		return 0, nil, nil, err
-	}
-
-	numAdds := byteOrder.Uint64(buf)
-
-	// Read the targets.
-	buf = buf[:4]
-	_, err = r.Read(buf)
-	if err != nil {
-		return 0, nil, nil, err
-	}
-
-	targLen := byteOrder.Uint32(buf)
-	targets := make([]uint64, targLen)
-
-	buf = buf[:8]
-	for i := range targets {
-		_, err = r.Read(buf)
-		if err != nil {
-			return 0, nil, nil, err
-		}
-
-		targets[i] = byteOrder.Uint64(buf)
+		return nil, nil, err
 	}
 
 	// Read the delHashes.
-	buf = buf[:4]
-	_, err = r.Read(buf)
+	var buf [4]byte
+	_, err = r.Read(buf[:])
 	if err != nil {
-		return 0, nil, nil, err
+		return nil, nil, err
 	}
-	hashLen := byteOrder.Uint32(buf)
+	hashLen := byteOrder.Uint32(buf[:])
 	delHashes := make([]utreexo.Hash, hashLen)
 
-	buf = buf[:chainhash.HashSize]
+	var hashBuf utreexo.Hash
 	for i := range delHashes {
-		_, err = r.Read(buf)
+		_, err = r.Read(hashBuf[:])
 		if err != nil {
-			return 0, nil, nil, err
+			return nil, nil, err
 		}
 
-		delHashes[i] = *(*utreexo.Hash)(buf)
+		delHashes[i] = *(*utreexo.Hash)(hashBuf[:])
 	}
 
-	return numAdds, targets, delHashes, nil
+	return proof, delHashes, nil
 }
 
 // initConsistentUtreexoState makes the utreexo state consistent with the given tipHash.
@@ -539,7 +517,7 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 
 		if us.isFlushNeeded() {
 			log.Infof("Flushing the utreexo state to disk...")
-			err = us.flush(us.state.NumLeaves, block.Hash())
+			err = us.flush(us.state.NumLeaves, us.state.GetRoots(), block.Hash())
 			if err != nil {
 				return err
 			}
@@ -549,18 +527,9 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 	return nil
 }
 
-// batchFlush is a helper function for flushing the given nodes and cached leaves backends to the batch.
-func batchFlush(batch *pebble.Batch, nDB *blockchain.NodesBackEnd, cDB *blockchain.CachedLeavesBackEnd) error {
-	err := nDB.FlushBatch(batch)
-	if err != nil {
-		return err
-	}
-	err = cDB.FlushBatch(batch)
-	if err != nil {
-		return err
-	}
-
-	return nil
+// batchFlush is a helper function for flushing the given nodes backend to the batch.
+func batchFlush(batch *pebble.Batch, nDB *blockchain.NodesBackEnd) error {
+	return nDB.FlushBatch(batch)
 }
 
 // getSStableWriter returns a new sstable.Writer. The returned path is always the same.
@@ -578,7 +547,7 @@ func (us *UtreexoState) getSStableWriter() (*sstable.Writer, string, error) {
 
 // sstableFlush first writes a sst to a file on disk and calls db.Ingest to ingest that sst.
 func (us *UtreexoState) sstableFlush(consistencyFlushValue []byte,
-	nDB *blockchain.NodesBackEnd, cDB *blockchain.CachedLeavesBackEnd) error {
+	nDB *blockchain.NodesBackEnd) error {
 
 	writer, path, err := us.getSStableWriter()
 	if err != nil {
@@ -586,7 +555,7 @@ func (us *UtreexoState) sstableFlush(consistencyFlushValue []byte,
 	}
 	writer.Set(utreexoStateConsistencyKeyName, consistencyFlushValue)
 
-	blockchain.FlushToSstable(writer, nDB, cDB)
+	blockchain.FlushToSstable(writer, nDB)
 
 	err = writer.Close()
 	if err != nil {
@@ -614,9 +583,6 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 
 	p := utreexo.NewMapPollard(true)
 
-	maxNodesMem := cfg.MaxMemoryUsage * 7 / 10
-	maxCachedLeavesMem := cfg.MaxMemoryUsage - maxNodesMem
-
 	cache := pebble.NewCache(128 << 20) // 128MB cache
 	db, err := pebble.Open(utreexoBasePath(cfg), &pebble.Options{
 		Cache: cache,
@@ -626,24 +592,19 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 		return nil, err
 	}
 
-	nodesDB, err := blockchain.InitNodesBackEnd(db, maxNodesMem)
+	nodesDB, err := blockchain.InitNodesBackEnd(db, cfg.MaxMemoryUsage)
 	if err != nil {
 		return nil, err
 	}
 
-	cachedLeavesDB, err := blockchain.InitCachedLeavesBackEnd(db, maxCachedLeavesMem)
-	if err != nil {
-		return nil, err
-	}
-
-	savedHash, numLeaves, err := dbFetchUtreexoStateConsistency(db)
+	savedHash, roots, numLeaves, err := dbFetchUtreexoStateConsistency(db)
 	if err != nil {
 		return nil, err
 	}
 	p.NumLeaves = numLeaves
 
 	p.Nodes = nodesDB
-	p.CachedLeaves = cachedLeavesDB
+	p.Roots = roots
 
 	uState := &UtreexoState{
 		config:         cfg,
@@ -651,33 +612,28 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 		utreexoStateDB: db,
 	}
 
-	flush := func(numLeaves uint64, bestHash *chainhash.Hash) error {
+	flush := func(numLeaves uint64, roots []utreexo.Hash, bestHash *chainhash.Hash) error {
 		nodesUsed, nodesCapacity := nodesDB.UsageStats()
 		log.Debugf("Utreexo index nodesDB cache usage: %d/%d (%v%%)\n",
 			nodesUsed, nodesCapacity,
 			float64(nodesUsed)/float64(nodesCapacity))
 
-		cachedLeavesUsed, cachedLeavesCapacity := cachedLeavesDB.UsageStats()
-		log.Debugf("Utreexo index cachedLeavesDB cache usage: %d/%d (%v%%)\n",
-			cachedLeavesUsed, cachedLeavesCapacity,
-			float64(cachedLeavesUsed)/float64(cachedLeavesCapacity))
-
-		size := nodesDB.RoughSize()
-		size += cachedLeavesDB.RoughSize()
+		size := nodesDB.RoughSize() + chainhash.HashSize  // HashSize for bestHash.
+		size += uint64(len(roots)*chainhash.HashSize) + 8 // Roots + numLeaves.
 		if size >= math.MaxUint32 {
 			log.Debugf("flushing with sstable. size ~%v", formatBytesToGB(size))
-			value := utreexoStateConsistencyToKeyValue(bestHash, numLeaves)
-			return uState.sstableFlush(value, nodesDB, cachedLeavesDB)
+			value := utreexoStateConsistencyToKeyValue(bestHash, roots, numLeaves)
+			return uState.sstableFlush(value, nodesDB)
 		}
 
 		log.Debugf("flushing with batch. size ~%v", formatBytesToGB(size))
 		batch := uState.utreexoStateDB.NewBatch()
-		err = dbWriteUtreexoStateConsistency(batch, bestHash, numLeaves)
+		err = dbWriteUtreexoStateConsistency(batch, bestHash, roots, numLeaves)
 		if err != nil {
 			return err
 		}
 
-		err = batchFlush(batch, nodesDB, cachedLeavesDB)
+		err = batchFlush(batch, nodesDB)
 		if err != nil {
 			return err
 		}
@@ -685,9 +641,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 		return batch.Commit(nil)
 	}
 	isFlushNeeded := func() bool {
-		nodesNeedsFlush := nodesDB.IsFlushNeeded()
-		leavesNeedsFlush := cachedLeavesDB.IsFlushNeeded()
-		return nodesNeedsFlush || leavesNeedsFlush
+		return nodesDB.IsFlushNeeded()
 	}
 
 	uState.flush = flush
@@ -698,6 +652,8 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 	if err != nil {
 		return nil, err
 	}
+
+	p.TotalRows = utreexo.TreeRows(numLeaves)
 
 	return uState, err
 }

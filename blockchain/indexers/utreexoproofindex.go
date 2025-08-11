@@ -279,8 +279,6 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
 		})
 
 		// Generate the data for the undo block.
-		_, outCount, _, outskip := blockchain.DedupeBlock(block)
-		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 		delHashes, err := idx.chain.ReconstructUData(ud, *block.Hash())
 		if err != nil {
 			return err
@@ -288,8 +286,8 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
 
 		// Store undo block.
 		err = idx.db.Update(func(dbTx database.Tx) error {
-			err = dbStoreUndoData(dbTx, uint64(len(adds)),
-				ud.AccProof.Targets, block.Hash(), delHashes)
+			err = dbStoreUndoData(dbTx,
+				&ud.AccProof, block.Hash(), delHashes)
 			if err != nil {
 				return err
 			}
@@ -393,7 +391,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	// For pruned nodes, the undo data is necessary for reorgs.
 	if idx.config.Pruned {
 		err = dbStoreUndoData(dbTx,
-			uint64(len(adds)), ud.AccProof.Targets, block.Hash(), delHashes)
+			&ud.AccProof, block.Hash(), delHashes)
 		if err != nil {
 			return err
 		}
@@ -436,40 +434,42 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 
 // getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from
 // the undo block. For archive nodes, we generate the data from the proof.
-func (idx *UtreexoProofIndex) getUndoData(dbTx database.Tx, block *btcutil.Block) (uint64, []uint64, []utreexo.Hash, error) {
+func (idx *UtreexoProofIndex) getUndoData(dbTx database.Tx, block *btcutil.Block) ([]utreexo.Hash, *utreexo.Proof, []utreexo.Hash, error) {
 	var (
-		numAdds   uint64
-		targets   []uint64
+		addHashes []utreexo.Hash
+		proof     *utreexo.Proof
 		delHashes []utreexo.Hash
 	)
 
 	if !idx.config.Pruned {
 		ud, err := idx.FetchUtreexoProof(block.Hash())
 		if err != nil {
-			return 0, nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		targets = ud.AccProof.Targets
+		proof = &ud.AccProof
 
 		// Need to call reconstruct since the saved utreexo data is in the compact form.
 		delHashes, err = idx.chain.ReconstructUData(ud, *block.Hash())
 		if err != nil {
-			return 0, nil, nil, err
+			return nil, nil, nil, err
 		}
-
-		_, outCount, _, outskip := blockchain.DedupeBlock(block)
-		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
-
-		numAdds = uint64(len(adds))
 	} else {
 		var err error
-		numAdds, targets, delHashes, err = dbFetchUndoData(dbTx, block.Hash())
+		proof, delHashes, err = dbFetchUndoData(dbTx, block.Hash())
 		if err != nil {
-			return 0, nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 
-	return numAdds, targets, delHashes, nil
+	_, outCount, _, outskip := blockchain.DedupeBlock(block)
+	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
+	addHashes = make([]utreexo.Hash, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, add.LeafHash())
+	}
+
+	return addHashes, proof, delHashes, nil
 }
 
 // DisconnectBlock is invoked by the index manager when a new block has been
@@ -489,13 +489,13 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 		return err
 	}
 
-	numAdds, targets, delHashes, err := idx.getUndoData(dbTx, block)
+	addHashes, proof, delHashes, err := idx.getUndoData(dbTx, block)
 	if err != nil {
 		return err
 	}
 
 	idx.mtx.Lock()
-	err = idx.utreexoState.state.Undo(numAdds, utreexo.Proof{Targets: targets}, delHashes, state.Roots)
+	err = idx.utreexoState.state.Undo(addHashes, *proof, delHashes, state.Roots)
 	idx.mtx.Unlock()
 	if err != nil {
 		return err
@@ -749,7 +749,7 @@ func (idx *UtreexoProofIndex) updateBlockSummaryState(numAdds uint64, blockHash 
 //
 // This is part of the Indexer interface.
 func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastKeptHeight int32) error {
-	hash, _, err := dbFetchUtreexoStateConsistency(idx.utreexoState.utreexoStateDB)
+	hash, _, _, err := dbFetchUtreexoStateConsistency(idx.utreexoState.utreexoStateDB)
 	if err != nil {
 		return err
 	}
@@ -987,10 +987,10 @@ func dbFetchUtreexoState(dbTx database.Tx, hash *chainhash.Hash) (utreexo.Stump,
 }
 
 // Stores the data necessary for undoing blocks.
-func dbStoreUndoData(dbTx database.Tx, numAdds uint64,
-	targets []uint64, blockHash *chainhash.Hash, delHashes []utreexo.Hash) error {
+func dbStoreUndoData(dbTx database.Tx,
+	proof *utreexo.Proof, blockHash *chainhash.Hash, delHashes []utreexo.Hash) error {
 
-	bytes, err := serializeUndoBlock(numAdds, targets, delHashes)
+	bytes, err := serializeUndoBlock(proof, delHashes)
 	if err != nil {
 		return err
 	}
@@ -1000,7 +1000,7 @@ func dbStoreUndoData(dbTx database.Tx, numAdds uint64,
 }
 
 // Fetches the data necessary for undoing blocks.
-func dbFetchUndoData(dbTx database.Tx, blockHash *chainhash.Hash) (uint64, []uint64, []utreexo.Hash, error) {
+func dbFetchUndoData(dbTx database.Tx, blockHash *chainhash.Hash) (*utreexo.Proof, []utreexo.Hash, error) {
 	undoBucket := dbTx.Metadata().Bucket(utreexoParentBucketKey).Bucket(utreexoUndoKey)
 	bytes := undoBucket.Get(blockHash[:])
 
