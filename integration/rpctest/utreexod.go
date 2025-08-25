@@ -6,6 +6,7 @@ package rpctest
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -51,6 +52,9 @@ func utreexodExecutablePath() (string, error) {
 	cmd := exec.Command(
 		"go", "build", "-o", outputPath, "github.com/utreexo/utreexod",
 	)
+	// We specificy CGO_ENABLED=0 to build without the bdk wallet.
+	// TODO later put in integration tests for the bdk wallet too.
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	err = cmd.Run()
 	if err != nil {
 		return "", fmt.Errorf("Failed to build utreexod: %v", err)
