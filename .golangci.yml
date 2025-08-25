@@ -1,0 +1,31 @@
+version: "2"
+linters:
+  disable-all: true
+  disable:
+    - unused
+    - ineffassign
+    - errcheck
+    - staticcheck
+  enable:
+    - govet
+    - unconvert
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - bdkwallet/bdkgo/bdkgo.go
+      - bdkwallet/bdkgo/
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - bdkwallet/bdkgo/bdkgo.go
+      - bdkwallet/bdkgo
+run:
+  skip-dirs:
+    - bdkwallet/bdkgo/bdkgo.go
+    - bdkwallet/bdkgo
