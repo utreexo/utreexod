@@ -4957,10 +4957,6 @@ func (s *rpcServer) NotifyNewTransactions(txns []*mempool.TxDesc) {
 		// about stale block templates due to the new transaction.
 		s.gbtWorkState.NotifyMempoolTx(s.cfg.TxMemPool.LastUpdated())
 
-		if s.cfg.BDKWallet != nil {
-			s.cfg.BDKWallet.NotifyNewTransactions(txns)
-		}
-
 		if s.cfg.WatchOnlyWallet != nil {
 			s.cfg.WatchOnlyWallet.NotifyNewTransactions(txns)
 		}
