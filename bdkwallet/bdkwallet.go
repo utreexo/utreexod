@@ -36,9 +36,7 @@ func (*BDKWalletFactory) Create(dbPath string, chainParams *chaincfg.Params) (Wa
 		network = "testnet"
 	}
 
-	genesisHash := chainParams.GenesisHash.CloneBytes()
-
-	inner, err := bdkgo.WalletCreateNew(dbPath, network, genesisHash)
+	inner, err := bdkgo.WalletCreateNew(dbPath, network)
 	if err != nil {
 		return nil, err
 	}
@@ -47,11 +45,12 @@ func (*BDKWalletFactory) Create(dbPath string, chainParams *chaincfg.Params) (Wa
 	// doing this due to a bug with uniffi-bindgen-go's generated code
 	// decrementing this count too aggressively.
 	inner.IncrementReferenceCounter()
-	return &BDKWallet{*inner}, nil
+	return &BDKWallet{inner}, nil
 }
 
-func (*BDKWalletFactory) Load(dbPath string) (Wallet, error) {
-	inner, err := bdkgo.WalletLoad(dbPath)
+func (*BDKWalletFactory) Load(dbPath string, chainParams *chaincfg.Params) (Wallet, error) {
+	genesisHash := chainParams.GenesisHash.CloneBytes()
+	inner, err := bdkgo.WalletLoad(dbPath, genesisHash)
 	if err != nil {
 		return nil, err
 	}
@@ -60,12 +59,12 @@ func (*BDKWalletFactory) Load(dbPath string) (Wallet, error) {
 	// doing this due to a bug with uniffi-bindgen-go's generated code
 	// decrementing this count too aggressively.
 	inner.IncrementReferenceCounter()
-	return &BDKWallet{*inner}, nil
+	return &BDKWallet{inner}, nil
 }
 
 // Wallet is a BDK wallet.
 type BDKWallet struct {
-	inner bdkgo.Wallet
+	inner *bdkgo.Wallet
 }
 
 // UnusedAddress returns the earliest address which have not received any funds.
@@ -99,7 +98,7 @@ func (w *BDKWallet) FreshAddress() (uint, btcutil.Address, error) {
 // PeekAddress previews the address at the derivation index. This does not
 // increment the last revealed index.
 func (w *BDKWallet) PeekAddress(index uint32) (uint, btcutil.Address, error) {
-	info, err := w.inner.PeekAddress(uint32(index))
+	info, err := w.inner.PeekAddress(index)
 	if err != nil {
 		return uint(info.Index), nil, err
 	}
@@ -123,7 +122,7 @@ func (w *BDKWallet) Balance() Balance {
 
 // RecentBlocks returns the most recent blocks
 func (w *BDKWallet) RecentBlocks(count uint32) []BlockId {
-	generatedCodeBlocks := w.inner.RecentBlocks(uint32(count))
+	generatedCodeBlocks := w.inner.RecentBlocks(count)
 	out := make([]BlockId, 0, len(generatedCodeBlocks))
 	for _, block := range generatedCodeBlocks {
 		out = append(out, BlockId{
@@ -188,7 +187,7 @@ func (w *BDKWallet) ApplyMempoolTransactions(txns []*mempool.TxDesc) error {
 }
 
 // CreateTx creates and signs a transaction spending from the wallet.
-func (w *BDKWallet) CreateTx(feerate float32, recipients []Recipient) ([]byte, error) {
+func (w *BDKWallet) CreateTx(feerate uint64, recipients []Recipient) ([]byte, error) {
 	genRecipients := make([]bdkgo.Recipient, 0, len(recipients))
 	for _, r := range recipients {
 		genRecipients = append(genRecipients, bdkgo.Recipient{

@@ -57,7 +57,7 @@ func TestCreateAndLoad(t *testing.T) {
 
 	// load wallet and see what happens
 	{
-		wallet, err := factory.Load(dbPath)
+		wallet, err := factory.Load(dbPath, &chaincfg.MainNetParams)
 		if err != nil {
 			t.Fatalf("failed to load wallet: %v", err)
 		}

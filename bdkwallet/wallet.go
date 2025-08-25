@@ -28,7 +28,7 @@ func factory() (WalletFactory, error) {
 // WalletFactory creates wallets.
 type WalletFactory interface {
 	Create(dbPath string, chainParams *chaincfg.Params) (Wallet, error)
-	Load(dbPath string) (Wallet, error)
+	Load(dbPath string, chainParams *chaincfg.Params) (Wallet, error)
 }
 
 // Wallet tracks addresses and transactions sending/receiving to/from those addresses. The wallet is
@@ -41,7 +41,7 @@ type Wallet interface {
 	RecentBlocks(count uint32) []BlockId
 	ApplyBlock(block *btcutil.Block) error
 	ApplyMempoolTransactions(txns []*mempool.TxDesc) error
-	CreateTx(feerate float32, recipients []Recipient) ([]byte, error)
+	CreateTx(feerate uint64, recipients []Recipient) ([]byte, error)
 	MnemonicWords() []string
 	Transactions() ([]TxInfo, error)
 	UTXOs() []UTXOInfo
@@ -99,13 +99,4 @@ type UTXOInfo struct {
 
 func hashFromBytes(b []byte) chainhash.Hash {
 	return *(*[32]byte)(b)
-}
-
-func uintPointerFromUint32Pointer(v *uint32) *uint {
-	if v == nil {
-		return nil
-	}
-
-	v2 := uint(*v)
-	return &v2
 }
