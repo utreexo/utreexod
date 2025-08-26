@@ -1,7 +1,7 @@
 utreexod
 ====
 
-[![Build Status](https://github.com/utreexo/utreexod/workflows/Build%20and%20Test/badge.svg)](https://github.com/utreexo/utreexod/actions)
+[![Build Status](https://github.com/utreexo/utreexod/actions/workflows/go.yml/badge.svg)](https://github.com/utreexo/utreexod/actions)
 [![ISC License](https://img.shields.io/badge/license-ISC-blue.svg)](http://copyfree.org)
 [![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](https://godoc.org/github.com/utreexo/utreexod)
 
