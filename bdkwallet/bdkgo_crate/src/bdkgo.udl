@@ -11,6 +11,7 @@ enum CreateNewError {
 [Error]
 enum LoadError {
     "Database",
+    "ReadHeader",
     "ParseHeader",
     "HeaderVersion",
     "Wallet",
@@ -54,10 +55,10 @@ dictionary Balance {
 
 interface Wallet {
     [Name=create_new, Throws=CreateNewError]
-    constructor(string db_path, string network, bytes genesis_hash);
+    constructor(string db_path, string network);
 
     [Name=load, Throws=LoadError]
-    constructor(string db_path);
+    constructor(string db_path, bytes genesis_hash);
 
     void increment_reference_counter();
 
@@ -83,7 +84,7 @@ interface Wallet {
     ApplyResult apply_mempool(sequence<MempoolTx> txs);
 
     [Throws=CreateTxError]
-    bytes create_tx(f32 feerate, sequence<Recipient> recipients);
+    bytes create_tx(u64 feerate, sequence<Recipient> recipients);
 
     sequence<string> mnemonic_words();
 

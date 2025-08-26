@@ -3787,21 +3787,25 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	}
 
 	if !cfg.NoBdkWallet {
-		// Setup BDK wallet if it is enabled.
-		s.bdkWallet, err = bdkwallet.NewManager(bdkwallet.ManagerConfig{
-			Chain:       s.chain,
-			TxMemPool:   s.txMemPool,
-			ChainParams: chainParams,
-			DataDir:     cfg.DataDir,
-		})
-		if err != nil {
-			if err == bdkwallet.ErrNoBDK {
-				s.bdkWallet = nil
-				cfg.NoBdkWallet = true
-				btcdLog.Infof("Unable to enable bkdwallet as utreexod wasn't built with bdkwallet. " +
-					"Starting node without bdkwallet.")
-			} else {
-				return nil, err
+		if chainParams.Net == wire.SimNet {
+			btcdLog.Infof("Unable to enable bkdwallet as utreexod is in simnet")
+		} else {
+			// Setup BDK wallet if it is enabled.
+			s.bdkWallet, err = bdkwallet.NewManager(bdkwallet.ManagerConfig{
+				Chain:       s.chain,
+				TxMemPool:   s.txMemPool,
+				ChainParams: chainParams,
+				DataDir:     cfg.DataDir,
+			})
+			if err != nil {
+				if err == bdkwallet.ErrNoBDK {
+					s.bdkWallet = nil
+					cfg.NoBdkWallet = true
+					btcdLog.Infof("Unable to enable bkdwallet as utreexod wasn't built with bdkwallet. " +
+						"Starting node without bdkwallet.")
+				} else {
+					return nil, err
+				}
 			}
 		}
 	}

@@ -67,7 +67,7 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 			return nil, err
 		}
 	} else {
-		if wallet, err = factory.Load(dbPath); err != nil {
+		if wallet, err = factory.Load(dbPath, config.ChainParams); err != nil {
 			return nil, err
 		}
 	}

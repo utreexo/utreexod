@@ -14,60 +14,67 @@ import (
 	"unsafe"
 )
 
-type RustBuffer = C.RustBuffer
+// This is needed, because as of go 1.24
+// type RustBuffer C.RustBuffer cannot have methods,
+// RustBuffer is treated as non-local type
+type GoRustBuffer struct {
+	inner C.RustBuffer
+}
 
 type RustBufferI interface {
 	AsReader() *bytes.Reader
 	Free()
 	ToGoBytes() []byte
 	Data() unsafe.Pointer
-	Len() int
-	Capacity() int
+	Len() uint64
+	Capacity() uint64
 }
 
-func RustBufferFromExternal(b RustBufferI) RustBuffer {
-	return RustBuffer{
-		capacity: C.int(b.Capacity()),
-		len:      C.int(b.Len()),
-		data:     (*C.uchar)(b.Data()),
+func RustBufferFromExternal(b RustBufferI) GoRustBuffer {
+	return GoRustBuffer{
+		inner: C.RustBuffer{
+			capacity: C.uint64_t(b.Capacity()),
+			len:      C.uint64_t(b.Len()),
+			data:     (*C.uchar)(b.Data()),
+		},
 	}
 }
 
-func (cb RustBuffer) Capacity() int {
-	return int(cb.capacity)
+func (cb GoRustBuffer) Capacity() uint64 {
+	return uint64(cb.inner.capacity)
 }
 
-func (cb RustBuffer) Len() int {
-	return int(cb.len)
+func (cb GoRustBuffer) Len() uint64 {
+	return uint64(cb.inner.len)
 }
 
-func (cb RustBuffer) Data() unsafe.Pointer {
-	return unsafe.Pointer(cb.data)
+func (cb GoRustBuffer) Data() unsafe.Pointer {
+	return unsafe.Pointer(cb.inner.data)
 }
 
-func (cb RustBuffer) AsReader() *bytes.Reader {
-	b := unsafe.Slice((*byte)(cb.data), C.int(cb.len))
+func (cb GoRustBuffer) AsReader() *bytes.Reader {
+	b := unsafe.Slice((*byte)(cb.inner.data), C.uint64_t(cb.inner.len))
 	return bytes.NewReader(b)
 }
 
-func (cb RustBuffer) Free() {
+func (cb GoRustBuffer) Free() {
 	rustCall(func(status *C.RustCallStatus) bool {
-		C.ffi_bdkgo_rustbuffer_free(cb, status)
+		C.ffi_bdkgo_rustbuffer_free(cb.inner, status)
 		return false
 	})
 }
 
-func (cb RustBuffer) ToGoBytes() []byte {
-	return C.GoBytes(unsafe.Pointer(cb.data), C.int(cb.len))
+func (cb GoRustBuffer) ToGoBytes() []byte {
+	return C.GoBytes(unsafe.Pointer(cb.inner.data), C.int(cb.inner.len))
 }
 
-func stringToRustBuffer(str string) RustBuffer {
+func stringToRustBuffer(str string) C.RustBuffer {
 	return bytesToRustBuffer([]byte(str))
 }
 
-func bytesToRustBuffer(b []byte) RustBuffer {
+func bytesToRustBuffer(b []byte) C.RustBuffer {
 	if len(b) == 0 {
-		return RustBuffer{}
+		return C.RustBuffer{}
 	}
 	// We can pass the pointer along here, as it is pinned
 	// for the duration of this call
@@ -76,7 +83,7 @@ func bytesToRustBuffer(b []byte) RustBuffer {
 		data: (*C.uchar)(unsafe.Pointer(&b[0])),
 	}
 
-	return rustCall(func(status *C.RustCallStatus) RustBuffer {
+	return rustCall(func(status *C.RustCallStatus) C.RustBuffer {
 		return C.ffi_bdkgo_rustbuffer_from_bytes(foreign, status)
 	})
 }
@@ -86,12 +93,7 @@ type BufLifter[GoType any] interface {
 }
 
 type BufLowerer[GoType any] interface {
-	Lower(value GoType) RustBuffer
-}
-
-type FfiConverter[GoType any, FfiType any] interface {
-	Lift(value FfiType) GoType
-	Lower(value GoType) FfiType
+	Lower(value GoType) C.RustBuffer
 }
 
 type BufReader[GoType any] interface {
@@ -102,12 +104,7 @@ type BufWriter[GoType any] interface {
 	Write(writer io.Writer, value GoType)
 }
 
-type FfiRustBufConverter[GoType any, FfiType any] interface {
-	FfiConverter[GoType, FfiType]
-	BufReader[GoType]
-}
-
-func LowerIntoRustBuffer[GoType any](bufWriter BufWriter[GoType], value GoType) RustBuffer {
+func LowerIntoRustBuffer[GoType any](bufWriter BufWriter[GoType], value GoType) C.RustBuffer {
 	// This might be not the most efficient way but it does not require knowing allocation size
 	// beforehand
 	var buffer bytes.Buffer
@@ -132,31 +129,30 @@ func LiftFromRustBuffer[GoType any](bufReader BufReader[GoType], rbuf RustBuffer
 	return item
 }
 
-func rustCallWithError[U any](converter BufLifter[error], callback func(*C.RustCallStatus) U) (U, error) {
+func rustCallWithError[E any, U any](converter BufReader[*E], callback func(*C.RustCallStatus) U) (U, *E) {
 	var status C.RustCallStatus
 	returnValue := callback(&status)
 	err := checkCallStatus(converter, status)
-
 	return returnValue, err
 }
 
-func checkCallStatus(converter BufLifter[error], status C.RustCallStatus) error {
+func checkCallStatus[E any](converter BufReader[*E], status C.RustCallStatus) *E {
 	switch status.code {
 	case 0:
 		return nil
 	case 1:
-		return converter.Lift(status.errorBuf)
+		return LiftFromRustBuffer(converter, GoRustBuffer{inner: status.errorBuf})
 	case 2:
-		// when the rust code sees a panic, it tries to construct a rustbuffer
+		// when the rust code sees a panic, it tries to construct a rustBuffer
 		// with the message.  but if that code panics, then it just sends back
 		// an empty buffer.
 		if status.errorBuf.len > 0 {
-			panic(fmt.Errorf("%s", FfiConverterStringINSTANCE.Lift(status.errorBuf)))
+			panic(fmt.Errorf("%s", FfiConverterStringINSTANCE.Lift(GoRustBuffer{inner: status.errorBuf})))
 		} else {
 			panic(fmt.Errorf("Rust panicked while handling Rust panic"))
 		}
 	default:
-		return fmt.Errorf("unknown status code: %d", status.code)
+		panic(fmt.Errorf("unknown status code: %d", status.code))
 	}
 }
 
@@ -167,11 +163,13 @@ func checkCallStatusUnknown(status C.RustCallStatus) error {
 	case 1:
 		panic(fmt.Errorf("function not returning an error returned an error"))
 	case 2:
-		// when the rust code sees a panic, it tries to construct a rustbuffer
+		// when the rust code sees a panic, it tries to construct a C.RustBuffer
 		// with the message.  but if that code panics, then it just sends back
 		// an empty buffer.
 		if status.errorBuf.len > 0 {
-			panic(fmt.Errorf("%s", FfiConverterStringINSTANCE.Lift(status.errorBuf)))
+			panic(fmt.Errorf("%s", FfiConverterStringINSTANCE.Lift(GoRustBuffer{
+				inner: status.errorBuf,
+			})))
 		} else {
 			panic(fmt.Errorf("Rust panicked while handling Rust panic"))
 		}
@@ -181,11 +179,15 @@ func checkCallStatusUnknown(status C.RustCallStatus) error {
 }
 
 func rustCall[U any](callback func(*C.RustCallStatus) U) U {
-	returnValue, err := rustCallWithError(nil, callback)
+	returnValue, err := rustCallWithError[error](nil, callback)
 	if err != nil {
 		panic(err)
 	}
 	return returnValue
+}
+
+type NativeError interface {
+	AsError() error
 }
 
 func writeInt8(writer io.Writer, value int8) {
@@ -335,63 +337,63 @@ func init() {
 
 func uniffiCheckChecksums() {
 	// Get the bindings contract version from our ComponentInterface
-	bindingsContractVersion := 24
+	bindingsContractVersion := 26
 	// Get the scaffolding contract version by calling the into the dylib
-	scaffoldingContractVersion := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint32_t {
-		return C.ffi_bdkgo_uniffi_contract_version(uniffiStatus)
+	scaffoldingContractVersion := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint32_t {
+		return C.ffi_bdkgo_uniffi_contract_version()
 	})
 	if bindingsContractVersion != int(scaffoldingContractVersion) {
 		// If this happens try cleaning and rebuilding your project
 		panic("bdkgo: UniFFI contract version mismatch")
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_apply_block(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_apply_block()
 		})
-		if checksum != 38677 {
+		if checksum != 5705 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_apply_block: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_apply_mempool(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_apply_mempool()
 		})
-		if checksum != 15979 {
+		if checksum != 24216 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_apply_mempool: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_balance(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_balance()
 		})
-		if checksum != 26195 {
+		if checksum != 30648 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_balance: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_create_tx(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_create_tx()
 		})
-		if checksum != 54855 {
+		if checksum != 56495 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_create_tx: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_fresh_address(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_fresh_address()
 		})
-		if checksum != 39819 {
+		if checksum != 25662 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_fresh_address: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_genesis_hash(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_genesis_hash()
 		})
 		if checksum != 65013 {
 			// If this happens try cleaning and rebuilding your project
@@ -399,8 +401,8 @@ func uniffiCheckChecksums() {
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_increment_reference_counter(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_increment_reference_counter()
 		})
 		if checksum != 61284 {
 			// If this happens try cleaning and rebuilding your project
@@ -408,73 +410,73 @@ func uniffiCheckChecksums() {
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_last_unused_address(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_last_unused_address()
 		})
-		if checksum != 34780 {
+		if checksum != 55250 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_last_unused_address: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_mnemonic_words(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_mnemonic_words()
 		})
-		if checksum != 3138 {
+		if checksum != 29291 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_mnemonic_words: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_peek_address(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_peek_address()
 		})
-		if checksum != 60510 {
+		if checksum != 11815 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_peek_address: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_recent_blocks(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_recent_blocks()
 		})
-		if checksum != 57902 {
+		if checksum != 34204 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_recent_blocks: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_transactions(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_transactions()
 		})
-		if checksum != 39598 {
+		if checksum != 1772 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_transactions: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_method_wallet_utxos(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_method_wallet_utxos()
 		})
-		if checksum != 53540 {
+		if checksum != 16415 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_method_wallet_utxos: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_constructor_wallet_create_new(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_constructor_wallet_create_new()
 		})
-		if checksum != 23490 {
+		if checksum != 8274 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_constructor_wallet_create_new: UniFFI API checksum mismatch")
 		}
 	}
 	{
-		checksum := rustCall(func(uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_bdkgo_checksum_constructor_wallet_load(uniffiStatus)
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_bdkgo_checksum_constructor_wallet_load()
 		})
-		if checksum != 64083 {
+		if checksum != 20250 {
 			// If this happens try cleaning and rebuilding your project
 			panic("bdkgo: uniffi_bdkgo_checksum_constructor_wallet_load: UniFFI API checksum mismatch")
 		}
@@ -529,30 +531,6 @@ type FfiDestroyerUint64 struct{}
 
 func (FfiDestroyerUint64) Destroy(_ uint64) {}
 
-type FfiConverterFloat32 struct{}
-
-var FfiConverterFloat32INSTANCE = FfiConverterFloat32{}
-
-func (FfiConverterFloat32) Lower(value float32) C.float {
-	return C.float(value)
-}
-
-func (FfiConverterFloat32) Write(writer io.Writer, value float32) {
-	writeFloat32(writer, value)
-}
-
-func (FfiConverterFloat32) Lift(value C.float) float32 {
-	return float32(value)
-}
-
-func (FfiConverterFloat32) Read(reader io.Reader) float32 {
-	return readFloat32(reader)
-}
-
-type FfiDestroyerFloat32 struct{}
-
-func (FfiDestroyerFloat32) Destroy(_ float32) {}
-
 type FfiConverterBool struct{}
 
 var FfiConverterBoolINSTANCE = FfiConverterBool{}
@@ -602,7 +580,7 @@ func (FfiConverterString) Read(reader io.Reader) string {
 	length := readInt32(reader)
 	buffer := make([]byte, length)
 	read_length, err := reader.Read(buffer)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		panic(err)
 	}
 	if read_length != int(length) {
@@ -611,7 +589,7 @@ func (FfiConverterString) Read(reader io.Reader) string {
 	return string(buffer)
 }
 
-func (FfiConverterString) Lower(value string) RustBuffer {
+func (FfiConverterString) Lower(value string) C.RustBuffer {
 	return stringToRustBuffer(value)
 }
 
@@ -638,7 +616,7 @@ type FfiConverterBytes struct{}
 
 var FfiConverterBytesINSTANCE = FfiConverterBytes{}
 
-func (c FfiConverterBytes) Lower(value []byte) RustBuffer {
+func (c FfiConverterBytes) Lower(value []byte) C.RustBuffer {
 	return LowerIntoRustBuffer[[]byte](c, value)
 }
 
@@ -665,7 +643,7 @@ func (c FfiConverterBytes) Read(reader io.Reader) []byte {
 	length := readInt32(reader)
 	buffer := make([]byte, length)
 	read_length, err := reader.Read(buffer)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		panic(err)
 	}
 	if read_length != int(length) {
@@ -682,16 +660,22 @@ func (FfiDestroyerBytes) Destroy(_ []byte) {}
 // https://github.com/mozilla/uniffi-rs/blob/0dc031132d9493ca812c3af6e7dd60ad2ea95bf0/uniffi_bindgen/src/bindings/kotlin/templates/ObjectRuntime.kt#L31
 
 type FfiObject struct {
-	pointer      unsafe.Pointer
-	callCounter  atomic.Int64
-	freeFunction func(unsafe.Pointer, *C.RustCallStatus)
-	destroyed    atomic.Bool
+	pointer       unsafe.Pointer
+	callCounter   atomic.Int64
+	cloneFunction func(unsafe.Pointer, *C.RustCallStatus) unsafe.Pointer
+	freeFunction  func(unsafe.Pointer, *C.RustCallStatus)
+	destroyed     atomic.Bool
 }
 
-func newFfiObject(pointer unsafe.Pointer, freeFunction func(unsafe.Pointer, *C.RustCallStatus)) FfiObject {
+func newFfiObject(
+	pointer unsafe.Pointer,
+	cloneFunction func(unsafe.Pointer, *C.RustCallStatus) unsafe.Pointer,
+	freeFunction func(unsafe.Pointer, *C.RustCallStatus),
+) FfiObject {
 	return FfiObject{
-		pointer:      pointer,
-		freeFunction: freeFunction,
+		pointer:       pointer,
+		cloneFunction: cloneFunction,
+		freeFunction:  freeFunction,
 	}
 }
 
@@ -709,7 +693,9 @@ func (ffiObject *FfiObject) incrementPointer(debugName string) unsafe.Pointer {
 		}
 	}
 
-	return ffiObject.pointer
+	return rustCall(func(status *C.RustCallStatus) unsafe.Pointer {
+		return ffiObject.cloneFunction(ffiObject.pointer, status)
+	})
 }
 
 func (ffiObject *FfiObject) decrementPointer() {
@@ -733,99 +719,125 @@ func (ffiObject *FfiObject) freeRustArcPtr() {
 	})
 }
 
+type WalletInterface interface {
+	ApplyBlock(height uint32, blockBytes []byte) (ApplyResult, error)
+	ApplyMempool(txs []MempoolTx) (ApplyResult, error)
+	Balance() Balance
+	CreateTx(feerate uint64, recipients []Recipient) ([]byte, error)
+	FreshAddress() (AddressInfo, error)
+	GenesisHash() []byte
+	IncrementReferenceCounter()
+	LastUnusedAddress() (AddressInfo, error)
+	MnemonicWords() []string
+	PeekAddress(index uint32) (AddressInfo, error)
+	RecentBlocks(count uint32) []BlockId
+	Transactions() []TxInfo
+	Utxos() []UtxoInfo
+}
 type Wallet struct {
 	ffiObject FfiObject
 }
 
-func WalletCreateNew(dbPath string, network string, genesisHash []byte) (*Wallet, error) {
-	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeCreateNewError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_bdkgo_fn_constructor_wallet_create_new(FfiConverterStringINSTANCE.Lower(dbPath), FfiConverterStringINSTANCE.Lower(network), FfiConverterBytesINSTANCE.Lower(genesisHash), _uniffiStatus)
+func WalletCreateNew(dbPath string, network string) (*Wallet, error) {
+	_uniffiRV, _uniffiErr := rustCallWithError[CreateNewError](FfiConverterCreateNewError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_bdkgo_fn_constructor_wallet_create_new(FfiConverterStringINSTANCE.Lower(dbPath), FfiConverterStringINSTANCE.Lower(network), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *Wallet
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
-		return FfiConverterWalletINSTANCE.Lift(_uniffiRV), _uniffiErr
+		return FfiConverterWalletINSTANCE.Lift(_uniffiRV), nil
 	}
 }
-func WalletLoad(dbPath string) (*Wallet, error) {
-	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeLoadError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_bdkgo_fn_constructor_wallet_load(FfiConverterStringINSTANCE.Lower(dbPath), _uniffiStatus)
+
+func WalletLoad(dbPath string, genesisHash []byte) (*Wallet, error) {
+	_uniffiRV, _uniffiErr := rustCallWithError[LoadError](FfiConverterLoadError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_bdkgo_fn_constructor_wallet_load(FfiConverterStringINSTANCE.Lower(dbPath), FfiConverterBytesINSTANCE.Lower(genesisHash), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *Wallet
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
-		return FfiConverterWalletINSTANCE.Lift(_uniffiRV), _uniffiErr
+		return FfiConverterWalletINSTANCE.Lift(_uniffiRV), nil
 	}
 }
 
 func (_self *Wallet) ApplyBlock(height uint32, blockBytes []byte) (ApplyResult, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeApplyBlockError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_apply_block(
-			_pointer, FfiConverterUint32INSTANCE.Lower(height), FfiConverterBytesINSTANCE.Lower(blockBytes), _uniffiStatus)
+	_uniffiRV, _uniffiErr := rustCallWithError[ApplyBlockError](FfiConverterApplyBlockError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_apply_block(
+				_pointer, FfiConverterUint32INSTANCE.Lower(height), FfiConverterBytesINSTANCE.Lower(blockBytes), _uniffiStatus),
+		}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue ApplyResult
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
-		return FfiConverterTypeApplyResultINSTANCE.Lift(_uniffiRV), _uniffiErr
+		return FfiConverterApplyResultINSTANCE.Lift(_uniffiRV), nil
 	}
 }
 
 func (_self *Wallet) ApplyMempool(txs []MempoolTx) (ApplyResult, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeApplyMempoolError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_apply_mempool(
-			_pointer, FfiConverterSequenceTypeMempoolTxINSTANCE.Lower(txs), _uniffiStatus)
+	_uniffiRV, _uniffiErr := rustCallWithError[ApplyMempoolError](FfiConverterApplyMempoolError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_apply_mempool(
+				_pointer, FfiConverterSequenceMempoolTxINSTANCE.Lower(txs), _uniffiStatus),
+		}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue ApplyResult
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
-		return FfiConverterTypeApplyResultINSTANCE.Lift(_uniffiRV), _uniffiErr
+		return FfiConverterApplyResultINSTANCE.Lift(_uniffiRV), nil
 	}
 }
 
 func (_self *Wallet) Balance() Balance {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	return FfiConverterTypeBalanceINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_balance(
-			_pointer, _uniffiStatus)
+	return FfiConverterBalanceINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_balance(
+				_pointer, _uniffiStatus),
+		}
 	}))
 }
 
-func (_self *Wallet) CreateTx(feerate float32, recipients []Recipient) ([]byte, error) {
+func (_self *Wallet) CreateTx(feerate uint64, recipients []Recipient) ([]byte, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeCreateTxError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_create_tx(
-			_pointer, FfiConverterFloat32INSTANCE.Lower(feerate), FfiConverterSequenceTypeRecipientINSTANCE.Lower(recipients), _uniffiStatus)
+	_uniffiRV, _uniffiErr := rustCallWithError[CreateTxError](FfiConverterCreateTxError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_create_tx(
+				_pointer, FfiConverterUint64INSTANCE.Lower(feerate), FfiConverterSequenceRecipientINSTANCE.Lower(recipients), _uniffiStatus),
+		}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue []byte
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
-		return FfiConverterBytesINSTANCE.Lift(_uniffiRV), _uniffiErr
+		return FfiConverterBytesINSTANCE.Lift(_uniffiRV), nil
 	}
 }
 
 func (_self *Wallet) FreshAddress() (AddressInfo, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_fresh_address(
-			_pointer, _uniffiStatus)
+	_uniffiRV, _uniffiErr := rustCallWithError[DatabaseError](FfiConverterDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_fresh_address(
+				_pointer, _uniffiStatus),
+		}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue AddressInfo
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
-		return FfiConverterTypeAddressInfoINSTANCE.Lift(_uniffiRV), _uniffiErr
+		return FfiConverterAddressInfoINSTANCE.Lift(_uniffiRV), nil
 	}
 }
 
@@ -833,8 +845,10 @@ func (_self *Wallet) GenesisHash() []byte {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterBytesINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_genesis_hash(
-			_pointer, _uniffiStatus)
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_genesis_hash(
+				_pointer, _uniffiStatus),
+		}
 	}))
 }
 
@@ -851,15 +865,17 @@ func (_self *Wallet) IncrementReferenceCounter() {
 func (_self *Wallet) LastUnusedAddress() (AddressInfo, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_last_unused_address(
-			_pointer, _uniffiStatus)
+	_uniffiRV, _uniffiErr := rustCallWithError[DatabaseError](FfiConverterDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_last_unused_address(
+				_pointer, _uniffiStatus),
+		}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue AddressInfo
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
-		return FfiConverterTypeAddressInfoINSTANCE.Lift(_uniffiRV), _uniffiErr
+		return FfiConverterAddressInfoINSTANCE.Lift(_uniffiRV), nil
 	}
 }
 
@@ -867,53 +883,62 @@ func (_self *Wallet) MnemonicWords() []string {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterSequenceStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_mnemonic_words(
-			_pointer, _uniffiStatus)
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_mnemonic_words(
+				_pointer, _uniffiStatus),
+		}
 	}))
 }
 
 func (_self *Wallet) PeekAddress(index uint32) (AddressInfo, error) {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	_uniffiRV, _uniffiErr := rustCallWithError(FfiConverterTypeDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_peek_address(
-			_pointer, FfiConverterUint32INSTANCE.Lower(index), _uniffiStatus)
+	_uniffiRV, _uniffiErr := rustCallWithError[DatabaseError](FfiConverterDatabaseError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_peek_address(
+				_pointer, FfiConverterUint32INSTANCE.Lower(index), _uniffiStatus),
+		}
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue AddressInfo
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
-		return FfiConverterTypeAddressInfoINSTANCE.Lift(_uniffiRV), _uniffiErr
+		return FfiConverterAddressInfoINSTANCE.Lift(_uniffiRV), nil
 	}
 }
 
 func (_self *Wallet) RecentBlocks(count uint32) []BlockId {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	return FfiConverterSequenceTypeBlockIdINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_recent_blocks(
-			_pointer, FfiConverterUint32INSTANCE.Lower(count), _uniffiStatus)
+	return FfiConverterSequenceBlockIdINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_recent_blocks(
+				_pointer, FfiConverterUint32INSTANCE.Lower(count), _uniffiStatus),
+		}
 	}))
 }
 
 func (_self *Wallet) Transactions() []TxInfo {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	return FfiConverterSequenceTypeTxInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_transactions(
-			_pointer, _uniffiStatus)
+	return FfiConverterSequenceTxInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_transactions(
+				_pointer, _uniffiStatus),
+		}
 	}))
 }
 
 func (_self *Wallet) Utxos() []UtxoInfo {
 	_pointer := _self.ffiObject.incrementPointer("*Wallet")
 	defer _self.ffiObject.decrementPointer()
-	return FfiConverterSequenceTypeUtxoInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return C.uniffi_bdkgo_fn_method_wallet_utxos(
-			_pointer, _uniffiStatus)
+	return FfiConverterSequenceUtxoInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_bdkgo_fn_method_wallet_utxos(
+				_pointer, _uniffiStatus),
+		}
 	}))
 }
-
 func (object *Wallet) Destroy() {
 	runtime.SetFinalizer(object, nil)
 	object.ffiObject.destroy()
@@ -927,9 +952,13 @@ func (c FfiConverterWallet) Lift(pointer unsafe.Pointer) *Wallet {
 	result := &Wallet{
 		newFfiObject(
 			pointer,
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
+				return C.uniffi_bdkgo_fn_clone_wallet(pointer, status)
+			},
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
 				C.uniffi_bdkgo_fn_free_wallet(pointer, status)
-			}),
+			},
+		),
 	}
 	runtime.SetFinalizer(result, (*Wallet).Destroy)
 	return result
@@ -946,6 +975,7 @@ func (c FfiConverterWallet) Lower(value *Wallet) unsafe.Pointer {
 	pointer := value.ffiObject.incrementPointer("*Wallet")
 	defer value.ffiObject.decrementPointer()
 	return pointer
+
 }
 
 func (c FfiConverterWallet) Write(writer io.Writer, value *Wallet) {
@@ -968,33 +998,33 @@ func (r *AddressInfo) Destroy() {
 	FfiDestroyerString{}.Destroy(r.Address)
 }
 
-type FfiConverterTypeAddressInfo struct{}
+type FfiConverterAddressInfo struct{}
 
-var FfiConverterTypeAddressInfoINSTANCE = FfiConverterTypeAddressInfo{}
+var FfiConverterAddressInfoINSTANCE = FfiConverterAddressInfo{}
 
-func (c FfiConverterTypeAddressInfo) Lift(rb RustBufferI) AddressInfo {
+func (c FfiConverterAddressInfo) Lift(rb RustBufferI) AddressInfo {
 	return LiftFromRustBuffer[AddressInfo](c, rb)
 }
 
-func (c FfiConverterTypeAddressInfo) Read(reader io.Reader) AddressInfo {
+func (c FfiConverterAddressInfo) Read(reader io.Reader) AddressInfo {
 	return AddressInfo{
 		FfiConverterUint32INSTANCE.Read(reader),
 		FfiConverterStringINSTANCE.Read(reader),
 	}
 }
 
-func (c FfiConverterTypeAddressInfo) Lower(value AddressInfo) RustBuffer {
+func (c FfiConverterAddressInfo) Lower(value AddressInfo) C.RustBuffer {
 	return LowerIntoRustBuffer[AddressInfo](c, value)
 }
 
-func (c FfiConverterTypeAddressInfo) Write(writer io.Writer, value AddressInfo) {
+func (c FfiConverterAddressInfo) Write(writer io.Writer, value AddressInfo) {
 	FfiConverterUint32INSTANCE.Write(writer, value.Index)
 	FfiConverterStringINSTANCE.Write(writer, value.Address)
 }
 
-type FfiDestroyerTypeAddressInfo struct{}
+type FfiDestroyerAddressInfo struct{}
 
-func (_ FfiDestroyerTypeAddressInfo) Destroy(value AddressInfo) {
+func (_ FfiDestroyerAddressInfo) Destroy(value AddressInfo) {
 	value.Destroy()
 }
 
@@ -1006,31 +1036,31 @@ func (r *ApplyResult) Destroy() {
 	FfiDestroyerSequenceBytes{}.Destroy(r.RelevantTxids)
 }
 
-type FfiConverterTypeApplyResult struct{}
+type FfiConverterApplyResult struct{}
 
-var FfiConverterTypeApplyResultINSTANCE = FfiConverterTypeApplyResult{}
+var FfiConverterApplyResultINSTANCE = FfiConverterApplyResult{}
 
-func (c FfiConverterTypeApplyResult) Lift(rb RustBufferI) ApplyResult {
+func (c FfiConverterApplyResult) Lift(rb RustBufferI) ApplyResult {
 	return LiftFromRustBuffer[ApplyResult](c, rb)
 }
 
-func (c FfiConverterTypeApplyResult) Read(reader io.Reader) ApplyResult {
+func (c FfiConverterApplyResult) Read(reader io.Reader) ApplyResult {
 	return ApplyResult{
 		FfiConverterSequenceBytesINSTANCE.Read(reader),
 	}
 }
 
-func (c FfiConverterTypeApplyResult) Lower(value ApplyResult) RustBuffer {
+func (c FfiConverterApplyResult) Lower(value ApplyResult) C.RustBuffer {
 	return LowerIntoRustBuffer[ApplyResult](c, value)
 }
 
-func (c FfiConverterTypeApplyResult) Write(writer io.Writer, value ApplyResult) {
+func (c FfiConverterApplyResult) Write(writer io.Writer, value ApplyResult) {
 	FfiConverterSequenceBytesINSTANCE.Write(writer, value.RelevantTxids)
 }
 
-type FfiDestroyerTypeApplyResult struct{}
+type FfiDestroyerApplyResult struct{}
 
-func (_ FfiDestroyerTypeApplyResult) Destroy(value ApplyResult) {
+func (_ FfiDestroyerApplyResult) Destroy(value ApplyResult) {
 	value.Destroy()
 }
 
@@ -1048,15 +1078,15 @@ func (r *Balance) Destroy() {
 	FfiDestroyerUint64{}.Destroy(r.Confirmed)
 }
 
-type FfiConverterTypeBalance struct{}
+type FfiConverterBalance struct{}
 
-var FfiConverterTypeBalanceINSTANCE = FfiConverterTypeBalance{}
+var FfiConverterBalanceINSTANCE = FfiConverterBalance{}
 
-func (c FfiConverterTypeBalance) Lift(rb RustBufferI) Balance {
+func (c FfiConverterBalance) Lift(rb RustBufferI) Balance {
 	return LiftFromRustBuffer[Balance](c, rb)
 }
 
-func (c FfiConverterTypeBalance) Read(reader io.Reader) Balance {
+func (c FfiConverterBalance) Read(reader io.Reader) Balance {
 	return Balance{
 		FfiConverterUint64INSTANCE.Read(reader),
 		FfiConverterUint64INSTANCE.Read(reader),
@@ -1065,20 +1095,20 @@ func (c FfiConverterTypeBalance) Read(reader io.Reader) Balance {
 	}
 }
 
-func (c FfiConverterTypeBalance) Lower(value Balance) RustBuffer {
+func (c FfiConverterBalance) Lower(value Balance) C.RustBuffer {
 	return LowerIntoRustBuffer[Balance](c, value)
 }
 
-func (c FfiConverterTypeBalance) Write(writer io.Writer, value Balance) {
+func (c FfiConverterBalance) Write(writer io.Writer, value Balance) {
 	FfiConverterUint64INSTANCE.Write(writer, value.Immature)
 	FfiConverterUint64INSTANCE.Write(writer, value.TrustedPending)
 	FfiConverterUint64INSTANCE.Write(writer, value.UntrustedPending)
 	FfiConverterUint64INSTANCE.Write(writer, value.Confirmed)
 }
 
-type FfiDestroyerTypeBalance struct{}
+type FfiDestroyerBalance struct{}
 
-func (_ FfiDestroyerTypeBalance) Destroy(value Balance) {
+func (_ FfiDestroyerBalance) Destroy(value Balance) {
 	value.Destroy()
 }
 
@@ -1092,33 +1122,33 @@ func (r *BlockId) Destroy() {
 	FfiDestroyerBytes{}.Destroy(r.Hash)
 }
 
-type FfiConverterTypeBlockId struct{}
+type FfiConverterBlockId struct{}
 
-var FfiConverterTypeBlockIdINSTANCE = FfiConverterTypeBlockId{}
+var FfiConverterBlockIdINSTANCE = FfiConverterBlockId{}
 
-func (c FfiConverterTypeBlockId) Lift(rb RustBufferI) BlockId {
+func (c FfiConverterBlockId) Lift(rb RustBufferI) BlockId {
 	return LiftFromRustBuffer[BlockId](c, rb)
 }
 
-func (c FfiConverterTypeBlockId) Read(reader io.Reader) BlockId {
+func (c FfiConverterBlockId) Read(reader io.Reader) BlockId {
 	return BlockId{
 		FfiConverterUint32INSTANCE.Read(reader),
 		FfiConverterBytesINSTANCE.Read(reader),
 	}
 }
 
-func (c FfiConverterTypeBlockId) Lower(value BlockId) RustBuffer {
+func (c FfiConverterBlockId) Lower(value BlockId) C.RustBuffer {
 	return LowerIntoRustBuffer[BlockId](c, value)
 }
 
-func (c FfiConverterTypeBlockId) Write(writer io.Writer, value BlockId) {
+func (c FfiConverterBlockId) Write(writer io.Writer, value BlockId) {
 	FfiConverterUint32INSTANCE.Write(writer, value.Height)
 	FfiConverterBytesINSTANCE.Write(writer, value.Hash)
 }
 
-type FfiDestroyerTypeBlockId struct{}
+type FfiDestroyerBlockId struct{}
 
-func (_ FfiDestroyerTypeBlockId) Destroy(value BlockId) {
+func (_ FfiDestroyerBlockId) Destroy(value BlockId) {
 	value.Destroy()
 }
 
@@ -1132,33 +1162,33 @@ func (r *MempoolTx) Destroy() {
 	FfiDestroyerUint64{}.Destroy(r.AddedUnix)
 }
 
-type FfiConverterTypeMempoolTx struct{}
+type FfiConverterMempoolTx struct{}
 
-var FfiConverterTypeMempoolTxINSTANCE = FfiConverterTypeMempoolTx{}
+var FfiConverterMempoolTxINSTANCE = FfiConverterMempoolTx{}
 
-func (c FfiConverterTypeMempoolTx) Lift(rb RustBufferI) MempoolTx {
+func (c FfiConverterMempoolTx) Lift(rb RustBufferI) MempoolTx {
 	return LiftFromRustBuffer[MempoolTx](c, rb)
 }
 
-func (c FfiConverterTypeMempoolTx) Read(reader io.Reader) MempoolTx {
+func (c FfiConverterMempoolTx) Read(reader io.Reader) MempoolTx {
 	return MempoolTx{
 		FfiConverterBytesINSTANCE.Read(reader),
 		FfiConverterUint64INSTANCE.Read(reader),
 	}
 }
 
-func (c FfiConverterTypeMempoolTx) Lower(value MempoolTx) RustBuffer {
+func (c FfiConverterMempoolTx) Lower(value MempoolTx) C.RustBuffer {
 	return LowerIntoRustBuffer[MempoolTx](c, value)
 }
 
-func (c FfiConverterTypeMempoolTx) Write(writer io.Writer, value MempoolTx) {
+func (c FfiConverterMempoolTx) Write(writer io.Writer, value MempoolTx) {
 	FfiConverterBytesINSTANCE.Write(writer, value.Tx)
 	FfiConverterUint64INSTANCE.Write(writer, value.AddedUnix)
 }
 
-type FfiDestroyerTypeMempoolTx struct{}
+type FfiDestroyerMempoolTx struct{}
 
-func (_ FfiDestroyerTypeMempoolTx) Destroy(value MempoolTx) {
+func (_ FfiDestroyerMempoolTx) Destroy(value MempoolTx) {
 	value.Destroy()
 }
 
@@ -1172,33 +1202,33 @@ func (r *Recipient) Destroy() {
 	FfiDestroyerUint64{}.Destroy(r.Amount)
 }
 
-type FfiConverterTypeRecipient struct{}
+type FfiConverterRecipient struct{}
 
-var FfiConverterTypeRecipientINSTANCE = FfiConverterTypeRecipient{}
+var FfiConverterRecipientINSTANCE = FfiConverterRecipient{}
 
-func (c FfiConverterTypeRecipient) Lift(rb RustBufferI) Recipient {
+func (c FfiConverterRecipient) Lift(rb RustBufferI) Recipient {
 	return LiftFromRustBuffer[Recipient](c, rb)
 }
 
-func (c FfiConverterTypeRecipient) Read(reader io.Reader) Recipient {
+func (c FfiConverterRecipient) Read(reader io.Reader) Recipient {
 	return Recipient{
 		FfiConverterStringINSTANCE.Read(reader),
 		FfiConverterUint64INSTANCE.Read(reader),
 	}
 }
 
-func (c FfiConverterTypeRecipient) Lower(value Recipient) RustBuffer {
+func (c FfiConverterRecipient) Lower(value Recipient) C.RustBuffer {
 	return LowerIntoRustBuffer[Recipient](c, value)
 }
 
-func (c FfiConverterTypeRecipient) Write(writer io.Writer, value Recipient) {
+func (c FfiConverterRecipient) Write(writer io.Writer, value Recipient) {
 	FfiConverterStringINSTANCE.Write(writer, value.Address)
 	FfiConverterUint64INSTANCE.Write(writer, value.Amount)
 }
 
-type FfiDestroyerTypeRecipient struct{}
+type FfiDestroyerRecipient struct{}
 
-func (_ FfiDestroyerTypeRecipient) Destroy(value Recipient) {
+func (_ FfiDestroyerRecipient) Destroy(value Recipient) {
 	value.Destroy()
 }
 
@@ -1218,15 +1248,15 @@ func (r *TxInfo) Destroy() {
 	FfiDestroyerUint32{}.Destroy(r.Confirmations)
 }
 
-type FfiConverterTypeTxInfo struct{}
+type FfiConverterTxInfo struct{}
 
-var FfiConverterTypeTxInfoINSTANCE = FfiConverterTypeTxInfo{}
+var FfiConverterTxInfoINSTANCE = FfiConverterTxInfo{}
 
-func (c FfiConverterTypeTxInfo) Lift(rb RustBufferI) TxInfo {
+func (c FfiConverterTxInfo) Lift(rb RustBufferI) TxInfo {
 	return LiftFromRustBuffer[TxInfo](c, rb)
 }
 
-func (c FfiConverterTypeTxInfo) Read(reader io.Reader) TxInfo {
+func (c FfiConverterTxInfo) Read(reader io.Reader) TxInfo {
 	return TxInfo{
 		FfiConverterBytesINSTANCE.Read(reader),
 		FfiConverterBytesINSTANCE.Read(reader),
@@ -1236,11 +1266,11 @@ func (c FfiConverterTypeTxInfo) Read(reader io.Reader) TxInfo {
 	}
 }
 
-func (c FfiConverterTypeTxInfo) Lower(value TxInfo) RustBuffer {
+func (c FfiConverterTxInfo) Lower(value TxInfo) C.RustBuffer {
 	return LowerIntoRustBuffer[TxInfo](c, value)
 }
 
-func (c FfiConverterTypeTxInfo) Write(writer io.Writer, value TxInfo) {
+func (c FfiConverterTxInfo) Write(writer io.Writer, value TxInfo) {
 	FfiConverterBytesINSTANCE.Write(writer, value.Txid)
 	FfiConverterBytesINSTANCE.Write(writer, value.Tx)
 	FfiConverterUint64INSTANCE.Write(writer, value.Spent)
@@ -1248,9 +1278,9 @@ func (c FfiConverterTypeTxInfo) Write(writer io.Writer, value TxInfo) {
 	FfiConverterUint32INSTANCE.Write(writer, value.Confirmations)
 }
 
-type FfiDestroyerTypeTxInfo struct{}
+type FfiDestroyerTxInfo struct{}
 
-func (_ FfiDestroyerTypeTxInfo) Destroy(value TxInfo) {
+func (_ FfiDestroyerTxInfo) Destroy(value TxInfo) {
 	value.Destroy()
 }
 
@@ -1274,15 +1304,15 @@ func (r *UtxoInfo) Destroy() {
 	FfiDestroyerUint32{}.Destroy(r.Confirmations)
 }
 
-type FfiConverterTypeUtxoInfo struct{}
+type FfiConverterUtxoInfo struct{}
 
-var FfiConverterTypeUtxoInfoINSTANCE = FfiConverterTypeUtxoInfo{}
+var FfiConverterUtxoInfoINSTANCE = FfiConverterUtxoInfo{}
 
-func (c FfiConverterTypeUtxoInfo) Lift(rb RustBufferI) UtxoInfo {
+func (c FfiConverterUtxoInfo) Lift(rb RustBufferI) UtxoInfo {
 	return LiftFromRustBuffer[UtxoInfo](c, rb)
 }
 
-func (c FfiConverterTypeUtxoInfo) Read(reader io.Reader) UtxoInfo {
+func (c FfiConverterUtxoInfo) Read(reader io.Reader) UtxoInfo {
 	return UtxoInfo{
 		FfiConverterBytesINSTANCE.Read(reader),
 		FfiConverterUint32INSTANCE.Read(reader),
@@ -1294,11 +1324,11 @@ func (c FfiConverterTypeUtxoInfo) Read(reader io.Reader) UtxoInfo {
 	}
 }
 
-func (c FfiConverterTypeUtxoInfo) Lower(value UtxoInfo) RustBuffer {
+func (c FfiConverterUtxoInfo) Lower(value UtxoInfo) C.RustBuffer {
 	return LowerIntoRustBuffer[UtxoInfo](c, value)
 }
 
-func (c FfiConverterTypeUtxoInfo) Write(writer io.Writer, value UtxoInfo) {
+func (c FfiConverterUtxoInfo) Write(writer io.Writer, value UtxoInfo) {
 	FfiConverterBytesINSTANCE.Write(writer, value.Txid)
 	FfiConverterUint32INSTANCE.Write(writer, value.Vout)
 	FfiConverterUint64INSTANCE.Write(writer, value.Amount)
@@ -1308,14 +1338,24 @@ func (c FfiConverterTypeUtxoInfo) Write(writer io.Writer, value UtxoInfo) {
 	FfiConverterUint32INSTANCE.Write(writer, value.Confirmations)
 }
 
-type FfiDestroyerTypeUtxoInfo struct{}
+type FfiDestroyerUtxoInfo struct{}
 
-func (_ FfiDestroyerTypeUtxoInfo) Destroy(value UtxoInfo) {
+func (_ FfiDestroyerUtxoInfo) Destroy(value UtxoInfo) {
 	value.Destroy()
 }
 
 type ApplyBlockError struct {
 	err error
+}
+
+// Convience method to turn *ApplyBlockError into error
+// Avoiding treating nil pointer as non nil error interface
+func (err *ApplyBlockError) AsError() error {
+	if err == nil {
+		return nil
+	} else {
+		return err
+	}
 }
 
 func (err ApplyBlockError) Error() string {
@@ -1337,9 +1377,10 @@ type ApplyBlockErrorDecodeBlock struct {
 }
 
 func NewApplyBlockErrorDecodeBlock() *ApplyBlockError {
-	return &ApplyBlockError{
-		err: &ApplyBlockErrorDecodeBlock{},
-	}
+	return &ApplyBlockError{err: &ApplyBlockErrorDecodeBlock{}}
+}
+
+func (e ApplyBlockErrorDecodeBlock) destroy() {
 }
 
 func (err ApplyBlockErrorDecodeBlock) Error() string {
@@ -1355,9 +1396,10 @@ type ApplyBlockErrorCannotConnect struct {
 }
 
 func NewApplyBlockErrorCannotConnect() *ApplyBlockError {
-	return &ApplyBlockError{
-		err: &ApplyBlockErrorCannotConnect{},
-	}
+	return &ApplyBlockError{err: &ApplyBlockErrorCannotConnect{}}
+}
+
+func (e ApplyBlockErrorCannotConnect) destroy() {
 }
 
 func (err ApplyBlockErrorCannotConnect) Error() string {
@@ -1373,9 +1415,10 @@ type ApplyBlockErrorDatabase struct {
 }
 
 func NewApplyBlockErrorDatabase() *ApplyBlockError {
-	return &ApplyBlockError{
-		err: &ApplyBlockErrorDatabase{},
-	}
+	return &ApplyBlockError{err: &ApplyBlockErrorDatabase{}}
+}
+
+func (e ApplyBlockErrorDatabase) destroy() {
 }
 
 func (err ApplyBlockErrorDatabase) Error() string {
@@ -1386,19 +1429,19 @@ func (self ApplyBlockErrorDatabase) Is(target error) bool {
 	return target == ErrApplyBlockErrorDatabase
 }
 
-type FfiConverterTypeApplyBlockError struct{}
+type FfiConverterApplyBlockError struct{}
 
-var FfiConverterTypeApplyBlockErrorINSTANCE = FfiConverterTypeApplyBlockError{}
+var FfiConverterApplyBlockErrorINSTANCE = FfiConverterApplyBlockError{}
 
-func (c FfiConverterTypeApplyBlockError) Lift(eb RustBufferI) error {
-	return LiftFromRustBuffer[error](c, eb)
+func (c FfiConverterApplyBlockError) Lift(eb RustBufferI) *ApplyBlockError {
+	return LiftFromRustBuffer[*ApplyBlockError](c, eb)
 }
 
-func (c FfiConverterTypeApplyBlockError) Lower(value *ApplyBlockError) RustBuffer {
+func (c FfiConverterApplyBlockError) Lower(value *ApplyBlockError) C.RustBuffer {
 	return LowerIntoRustBuffer[*ApplyBlockError](c, value)
 }
 
-func (c FfiConverterTypeApplyBlockError) Read(reader io.Reader) error {
+func (c FfiConverterApplyBlockError) Read(reader io.Reader) *ApplyBlockError {
 	errorID := readUint32(reader)
 
 	message := FfiConverterStringINSTANCE.Read(reader)
@@ -1410,12 +1453,12 @@ func (c FfiConverterTypeApplyBlockError) Read(reader io.Reader) error {
 	case 3:
 		return &ApplyBlockError{&ApplyBlockErrorDatabase{message}}
 	default:
-		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTypeApplyBlockError.Read()", errorID))
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterApplyBlockError.Read()", errorID))
 	}
 
 }
 
-func (c FfiConverterTypeApplyBlockError) Write(writer io.Writer, value *ApplyBlockError) {
+func (c FfiConverterApplyBlockError) Write(writer io.Writer, value *ApplyBlockError) {
 	switch variantValue := value.err.(type) {
 	case *ApplyBlockErrorDecodeBlock:
 		writeInt32(writer, 1)
@@ -1425,12 +1468,38 @@ func (c FfiConverterTypeApplyBlockError) Write(writer io.Writer, value *ApplyBlo
 		writeInt32(writer, 3)
 	default:
 		_ = variantValue
-		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeApplyBlockError.Write", value))
+		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterApplyBlockError.Write", value))
+	}
+}
+
+type FfiDestroyerApplyBlockError struct{}
+
+func (_ FfiDestroyerApplyBlockError) Destroy(value *ApplyBlockError) {
+	switch variantValue := value.err.(type) {
+	case ApplyBlockErrorDecodeBlock:
+		variantValue.destroy()
+	case ApplyBlockErrorCannotConnect:
+		variantValue.destroy()
+	case ApplyBlockErrorDatabase:
+		variantValue.destroy()
+	default:
+		_ = variantValue
+		panic(fmt.Sprintf("invalid error value `%v` in FfiDestroyerApplyBlockError.Destroy", value))
 	}
 }
 
 type ApplyMempoolError struct {
 	err error
+}
+
+// Convience method to turn *ApplyMempoolError into error
+// Avoiding treating nil pointer as non nil error interface
+func (err *ApplyMempoolError) AsError() error {
+	if err == nil {
+		return nil
+	} else {
+		return err
+	}
 }
 
 func (err ApplyMempoolError) Error() string {
@@ -1450,9 +1519,10 @@ type ApplyMempoolErrorDatabase struct {
 }
 
 func NewApplyMempoolErrorDatabase() *ApplyMempoolError {
-	return &ApplyMempoolError{
-		err: &ApplyMempoolErrorDatabase{},
-	}
+	return &ApplyMempoolError{err: &ApplyMempoolErrorDatabase{}}
+}
+
+func (e ApplyMempoolErrorDatabase) destroy() {
 }
 
 func (err ApplyMempoolErrorDatabase) Error() string {
@@ -1463,19 +1533,19 @@ func (self ApplyMempoolErrorDatabase) Is(target error) bool {
 	return target == ErrApplyMempoolErrorDatabase
 }
 
-type FfiConverterTypeApplyMempoolError struct{}
+type FfiConverterApplyMempoolError struct{}
 
-var FfiConverterTypeApplyMempoolErrorINSTANCE = FfiConverterTypeApplyMempoolError{}
+var FfiConverterApplyMempoolErrorINSTANCE = FfiConverterApplyMempoolError{}
 
-func (c FfiConverterTypeApplyMempoolError) Lift(eb RustBufferI) error {
-	return LiftFromRustBuffer[error](c, eb)
+func (c FfiConverterApplyMempoolError) Lift(eb RustBufferI) *ApplyMempoolError {
+	return LiftFromRustBuffer[*ApplyMempoolError](c, eb)
 }
 
-func (c FfiConverterTypeApplyMempoolError) Lower(value *ApplyMempoolError) RustBuffer {
+func (c FfiConverterApplyMempoolError) Lower(value *ApplyMempoolError) C.RustBuffer {
 	return LowerIntoRustBuffer[*ApplyMempoolError](c, value)
 }
 
-func (c FfiConverterTypeApplyMempoolError) Read(reader io.Reader) error {
+func (c FfiConverterApplyMempoolError) Read(reader io.Reader) *ApplyMempoolError {
 	errorID := readUint32(reader)
 
 	message := FfiConverterStringINSTANCE.Read(reader)
@@ -1483,23 +1553,45 @@ func (c FfiConverterTypeApplyMempoolError) Read(reader io.Reader) error {
 	case 1:
 		return &ApplyMempoolError{&ApplyMempoolErrorDatabase{message}}
 	default:
-		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTypeApplyMempoolError.Read()", errorID))
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterApplyMempoolError.Read()", errorID))
 	}
 
 }
 
-func (c FfiConverterTypeApplyMempoolError) Write(writer io.Writer, value *ApplyMempoolError) {
+func (c FfiConverterApplyMempoolError) Write(writer io.Writer, value *ApplyMempoolError) {
 	switch variantValue := value.err.(type) {
 	case *ApplyMempoolErrorDatabase:
 		writeInt32(writer, 1)
 	default:
 		_ = variantValue
-		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeApplyMempoolError.Write", value))
+		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterApplyMempoolError.Write", value))
+	}
+}
+
+type FfiDestroyerApplyMempoolError struct{}
+
+func (_ FfiDestroyerApplyMempoolError) Destroy(value *ApplyMempoolError) {
+	switch variantValue := value.err.(type) {
+	case ApplyMempoolErrorDatabase:
+		variantValue.destroy()
+	default:
+		_ = variantValue
+		panic(fmt.Sprintf("invalid error value `%v` in FfiDestroyerApplyMempoolError.Destroy", value))
 	}
 }
 
 type CreateNewError struct {
 	err error
+}
+
+// Convience method to turn *CreateNewError into error
+// Avoiding treating nil pointer as non nil error interface
+func (err *CreateNewError) AsError() error {
+	if err == nil {
+		return nil
+	} else {
+		return err
+	}
 }
 
 func (err CreateNewError) Error() string {
@@ -1522,9 +1614,10 @@ type CreateNewErrorParseNetwork struct {
 }
 
 func NewCreateNewErrorParseNetwork() *CreateNewError {
-	return &CreateNewError{
-		err: &CreateNewErrorParseNetwork{},
-	}
+	return &CreateNewError{err: &CreateNewErrorParseNetwork{}}
+}
+
+func (e CreateNewErrorParseNetwork) destroy() {
 }
 
 func (err CreateNewErrorParseNetwork) Error() string {
@@ -1540,9 +1633,10 @@ type CreateNewErrorParseGenesisHash struct {
 }
 
 func NewCreateNewErrorParseGenesisHash() *CreateNewError {
-	return &CreateNewError{
-		err: &CreateNewErrorParseGenesisHash{},
-	}
+	return &CreateNewError{err: &CreateNewErrorParseGenesisHash{}}
+}
+
+func (e CreateNewErrorParseGenesisHash) destroy() {
 }
 
 func (err CreateNewErrorParseGenesisHash) Error() string {
@@ -1558,9 +1652,10 @@ type CreateNewErrorDatabase struct {
 }
 
 func NewCreateNewErrorDatabase() *CreateNewError {
-	return &CreateNewError{
-		err: &CreateNewErrorDatabase{},
-	}
+	return &CreateNewError{err: &CreateNewErrorDatabase{}}
+}
+
+func (e CreateNewErrorDatabase) destroy() {
 }
 
 func (err CreateNewErrorDatabase) Error() string {
@@ -1576,9 +1671,10 @@ type CreateNewErrorWallet struct {
 }
 
 func NewCreateNewErrorWallet() *CreateNewError {
-	return &CreateNewError{
-		err: &CreateNewErrorWallet{},
-	}
+	return &CreateNewError{err: &CreateNewErrorWallet{}}
+}
+
+func (e CreateNewErrorWallet) destroy() {
 }
 
 func (err CreateNewErrorWallet) Error() string {
@@ -1589,19 +1685,19 @@ func (self CreateNewErrorWallet) Is(target error) bool {
 	return target == ErrCreateNewErrorWallet
 }
 
-type FfiConverterTypeCreateNewError struct{}
+type FfiConverterCreateNewError struct{}
 
-var FfiConverterTypeCreateNewErrorINSTANCE = FfiConverterTypeCreateNewError{}
+var FfiConverterCreateNewErrorINSTANCE = FfiConverterCreateNewError{}
 
-func (c FfiConverterTypeCreateNewError) Lift(eb RustBufferI) error {
-	return LiftFromRustBuffer[error](c, eb)
+func (c FfiConverterCreateNewError) Lift(eb RustBufferI) *CreateNewError {
+	return LiftFromRustBuffer[*CreateNewError](c, eb)
 }
 
-func (c FfiConverterTypeCreateNewError) Lower(value *CreateNewError) RustBuffer {
+func (c FfiConverterCreateNewError) Lower(value *CreateNewError) C.RustBuffer {
 	return LowerIntoRustBuffer[*CreateNewError](c, value)
 }
 
-func (c FfiConverterTypeCreateNewError) Read(reader io.Reader) error {
+func (c FfiConverterCreateNewError) Read(reader io.Reader) *CreateNewError {
 	errorID := readUint32(reader)
 
 	message := FfiConverterStringINSTANCE.Read(reader)
@@ -1615,12 +1711,12 @@ func (c FfiConverterTypeCreateNewError) Read(reader io.Reader) error {
 	case 4:
 		return &CreateNewError{&CreateNewErrorWallet{message}}
 	default:
-		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTypeCreateNewError.Read()", errorID))
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterCreateNewError.Read()", errorID))
 	}
 
 }
 
-func (c FfiConverterTypeCreateNewError) Write(writer io.Writer, value *CreateNewError) {
+func (c FfiConverterCreateNewError) Write(writer io.Writer, value *CreateNewError) {
 	switch variantValue := value.err.(type) {
 	case *CreateNewErrorParseNetwork:
 		writeInt32(writer, 1)
@@ -1632,12 +1728,40 @@ func (c FfiConverterTypeCreateNewError) Write(writer io.Writer, value *CreateNew
 		writeInt32(writer, 4)
 	default:
 		_ = variantValue
-		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeCreateNewError.Write", value))
+		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterCreateNewError.Write", value))
+	}
+}
+
+type FfiDestroyerCreateNewError struct{}
+
+func (_ FfiDestroyerCreateNewError) Destroy(value *CreateNewError) {
+	switch variantValue := value.err.(type) {
+	case CreateNewErrorParseNetwork:
+		variantValue.destroy()
+	case CreateNewErrorParseGenesisHash:
+		variantValue.destroy()
+	case CreateNewErrorDatabase:
+		variantValue.destroy()
+	case CreateNewErrorWallet:
+		variantValue.destroy()
+	default:
+		_ = variantValue
+		panic(fmt.Sprintf("invalid error value `%v` in FfiDestroyerCreateNewError.Destroy", value))
 	}
 }
 
 type CreateTxError struct {
 	err error
+}
+
+// Convience method to turn *CreateTxError into error
+// Avoiding treating nil pointer as non nil error interface
+func (err *CreateTxError) AsError() error {
+	if err == nil {
+		return nil
+	} else {
+		return err
+	}
 }
 
 func (err CreateTxError) Error() string {
@@ -1659,9 +1783,10 @@ type CreateTxErrorInvalidAddress struct {
 }
 
 func NewCreateTxErrorInvalidAddress() *CreateTxError {
-	return &CreateTxError{
-		err: &CreateTxErrorInvalidAddress{},
-	}
+	return &CreateTxError{err: &CreateTxErrorInvalidAddress{}}
+}
+
+func (e CreateTxErrorInvalidAddress) destroy() {
 }
 
 func (err CreateTxErrorInvalidAddress) Error() string {
@@ -1677,9 +1802,10 @@ type CreateTxErrorCreateTx struct {
 }
 
 func NewCreateTxErrorCreateTx() *CreateTxError {
-	return &CreateTxError{
-		err: &CreateTxErrorCreateTx{},
-	}
+	return &CreateTxError{err: &CreateTxErrorCreateTx{}}
+}
+
+func (e CreateTxErrorCreateTx) destroy() {
 }
 
 func (err CreateTxErrorCreateTx) Error() string {
@@ -1695,9 +1821,10 @@ type CreateTxErrorSignTx struct {
 }
 
 func NewCreateTxErrorSignTx() *CreateTxError {
-	return &CreateTxError{
-		err: &CreateTxErrorSignTx{},
-	}
+	return &CreateTxError{err: &CreateTxErrorSignTx{}}
+}
+
+func (e CreateTxErrorSignTx) destroy() {
 }
 
 func (err CreateTxErrorSignTx) Error() string {
@@ -1708,19 +1835,19 @@ func (self CreateTxErrorSignTx) Is(target error) bool {
 	return target == ErrCreateTxErrorSignTx
 }
 
-type FfiConverterTypeCreateTxError struct{}
+type FfiConverterCreateTxError struct{}
 
-var FfiConverterTypeCreateTxErrorINSTANCE = FfiConverterTypeCreateTxError{}
+var FfiConverterCreateTxErrorINSTANCE = FfiConverterCreateTxError{}
 
-func (c FfiConverterTypeCreateTxError) Lift(eb RustBufferI) error {
-	return LiftFromRustBuffer[error](c, eb)
+func (c FfiConverterCreateTxError) Lift(eb RustBufferI) *CreateTxError {
+	return LiftFromRustBuffer[*CreateTxError](c, eb)
 }
 
-func (c FfiConverterTypeCreateTxError) Lower(value *CreateTxError) RustBuffer {
+func (c FfiConverterCreateTxError) Lower(value *CreateTxError) C.RustBuffer {
 	return LowerIntoRustBuffer[*CreateTxError](c, value)
 }
 
-func (c FfiConverterTypeCreateTxError) Read(reader io.Reader) error {
+func (c FfiConverterCreateTxError) Read(reader io.Reader) *CreateTxError {
 	errorID := readUint32(reader)
 
 	message := FfiConverterStringINSTANCE.Read(reader)
@@ -1732,12 +1859,12 @@ func (c FfiConverterTypeCreateTxError) Read(reader io.Reader) error {
 	case 3:
 		return &CreateTxError{&CreateTxErrorSignTx{message}}
 	default:
-		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTypeCreateTxError.Read()", errorID))
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterCreateTxError.Read()", errorID))
 	}
 
 }
 
-func (c FfiConverterTypeCreateTxError) Write(writer io.Writer, value *CreateTxError) {
+func (c FfiConverterCreateTxError) Write(writer io.Writer, value *CreateTxError) {
 	switch variantValue := value.err.(type) {
 	case *CreateTxErrorInvalidAddress:
 		writeInt32(writer, 1)
@@ -1747,12 +1874,38 @@ func (c FfiConverterTypeCreateTxError) Write(writer io.Writer, value *CreateTxEr
 		writeInt32(writer, 3)
 	default:
 		_ = variantValue
-		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeCreateTxError.Write", value))
+		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterCreateTxError.Write", value))
+	}
+}
+
+type FfiDestroyerCreateTxError struct{}
+
+func (_ FfiDestroyerCreateTxError) Destroy(value *CreateTxError) {
+	switch variantValue := value.err.(type) {
+	case CreateTxErrorInvalidAddress:
+		variantValue.destroy()
+	case CreateTxErrorCreateTx:
+		variantValue.destroy()
+	case CreateTxErrorSignTx:
+		variantValue.destroy()
+	default:
+		_ = variantValue
+		panic(fmt.Sprintf("invalid error value `%v` in FfiDestroyerCreateTxError.Destroy", value))
 	}
 }
 
 type DatabaseError struct {
 	err error
+}
+
+// Convience method to turn *DatabaseError into error
+// Avoiding treating nil pointer as non nil error interface
+func (err *DatabaseError) AsError() error {
+	if err == nil {
+		return nil
+	} else {
+		return err
+	}
 }
 
 func (err DatabaseError) Error() string {
@@ -1772,9 +1925,10 @@ type DatabaseErrorWrite struct {
 }
 
 func NewDatabaseErrorWrite() *DatabaseError {
-	return &DatabaseError{
-		err: &DatabaseErrorWrite{},
-	}
+	return &DatabaseError{err: &DatabaseErrorWrite{}}
+}
+
+func (e DatabaseErrorWrite) destroy() {
 }
 
 func (err DatabaseErrorWrite) Error() string {
@@ -1785,19 +1939,19 @@ func (self DatabaseErrorWrite) Is(target error) bool {
 	return target == ErrDatabaseErrorWrite
 }
 
-type FfiConverterTypeDatabaseError struct{}
+type FfiConverterDatabaseError struct{}
 
-var FfiConverterTypeDatabaseErrorINSTANCE = FfiConverterTypeDatabaseError{}
+var FfiConverterDatabaseErrorINSTANCE = FfiConverterDatabaseError{}
 
-func (c FfiConverterTypeDatabaseError) Lift(eb RustBufferI) error {
-	return LiftFromRustBuffer[error](c, eb)
+func (c FfiConverterDatabaseError) Lift(eb RustBufferI) *DatabaseError {
+	return LiftFromRustBuffer[*DatabaseError](c, eb)
 }
 
-func (c FfiConverterTypeDatabaseError) Lower(value *DatabaseError) RustBuffer {
+func (c FfiConverterDatabaseError) Lower(value *DatabaseError) C.RustBuffer {
 	return LowerIntoRustBuffer[*DatabaseError](c, value)
 }
 
-func (c FfiConverterTypeDatabaseError) Read(reader io.Reader) error {
+func (c FfiConverterDatabaseError) Read(reader io.Reader) *DatabaseError {
 	errorID := readUint32(reader)
 
 	message := FfiConverterStringINSTANCE.Read(reader)
@@ -1805,23 +1959,45 @@ func (c FfiConverterTypeDatabaseError) Read(reader io.Reader) error {
 	case 1:
 		return &DatabaseError{&DatabaseErrorWrite{message}}
 	default:
-		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTypeDatabaseError.Read()", errorID))
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterDatabaseError.Read()", errorID))
 	}
 
 }
 
-func (c FfiConverterTypeDatabaseError) Write(writer io.Writer, value *DatabaseError) {
+func (c FfiConverterDatabaseError) Write(writer io.Writer, value *DatabaseError) {
 	switch variantValue := value.err.(type) {
 	case *DatabaseErrorWrite:
 		writeInt32(writer, 1)
 	default:
 		_ = variantValue
-		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeDatabaseError.Write", value))
+		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterDatabaseError.Write", value))
+	}
+}
+
+type FfiDestroyerDatabaseError struct{}
+
+func (_ FfiDestroyerDatabaseError) Destroy(value *DatabaseError) {
+	switch variantValue := value.err.(type) {
+	case DatabaseErrorWrite:
+		variantValue.destroy()
+	default:
+		_ = variantValue
+		panic(fmt.Sprintf("invalid error value `%v` in FfiDestroyerDatabaseError.Destroy", value))
 	}
 }
 
 type LoadError struct {
 	err error
+}
+
+// Convience method to turn *LoadError into error
+// Avoiding treating nil pointer as non nil error interface
+func (err *LoadError) AsError() error {
+	if err == nil {
+		return nil
+	} else {
+		return err
+	}
 }
 
 func (err LoadError) Error() string {
@@ -1834,6 +2010,7 @@ func (err LoadError) Unwrap() error {
 
 // Err* are used for checking error type with `errors.Is`
 var ErrLoadErrorDatabase = fmt.Errorf("LoadErrorDatabase")
+var ErrLoadErrorReadHeader = fmt.Errorf("LoadErrorReadHeader")
 var ErrLoadErrorParseHeader = fmt.Errorf("LoadErrorParseHeader")
 var ErrLoadErrorHeaderVersion = fmt.Errorf("LoadErrorHeaderVersion")
 var ErrLoadErrorWallet = fmt.Errorf("LoadErrorWallet")
@@ -1844,9 +2021,10 @@ type LoadErrorDatabase struct {
 }
 
 func NewLoadErrorDatabase() *LoadError {
-	return &LoadError{
-		err: &LoadErrorDatabase{},
-	}
+	return &LoadError{err: &LoadErrorDatabase{}}
+}
+
+func (e LoadErrorDatabase) destroy() {
 }
 
 func (err LoadErrorDatabase) Error() string {
@@ -1857,14 +2035,34 @@ func (self LoadErrorDatabase) Is(target error) bool {
 	return target == ErrLoadErrorDatabase
 }
 
+type LoadErrorReadHeader struct {
+	message string
+}
+
+func NewLoadErrorReadHeader() *LoadError {
+	return &LoadError{err: &LoadErrorReadHeader{}}
+}
+
+func (e LoadErrorReadHeader) destroy() {
+}
+
+func (err LoadErrorReadHeader) Error() string {
+	return fmt.Sprintf("ReadHeader: %s", err.message)
+}
+
+func (self LoadErrorReadHeader) Is(target error) bool {
+	return target == ErrLoadErrorReadHeader
+}
+
 type LoadErrorParseHeader struct {
 	message string
 }
 
 func NewLoadErrorParseHeader() *LoadError {
-	return &LoadError{
-		err: &LoadErrorParseHeader{},
-	}
+	return &LoadError{err: &LoadErrorParseHeader{}}
+}
+
+func (e LoadErrorParseHeader) destroy() {
 }
 
 func (err LoadErrorParseHeader) Error() string {
@@ -1880,9 +2078,10 @@ type LoadErrorHeaderVersion struct {
 }
 
 func NewLoadErrorHeaderVersion() *LoadError {
-	return &LoadError{
-		err: &LoadErrorHeaderVersion{},
-	}
+	return &LoadError{err: &LoadErrorHeaderVersion{}}
+}
+
+func (e LoadErrorHeaderVersion) destroy() {
 }
 
 func (err LoadErrorHeaderVersion) Error() string {
@@ -1898,9 +2097,10 @@ type LoadErrorWallet struct {
 }
 
 func NewLoadErrorWallet() *LoadError {
-	return &LoadError{
-		err: &LoadErrorWallet{},
-	}
+	return &LoadError{err: &LoadErrorWallet{}}
+}
+
+func (e LoadErrorWallet) destroy() {
 }
 
 func (err LoadErrorWallet) Error() string {
@@ -1911,19 +2111,19 @@ func (self LoadErrorWallet) Is(target error) bool {
 	return target == ErrLoadErrorWallet
 }
 
-type FfiConverterTypeLoadError struct{}
+type FfiConverterLoadError struct{}
 
-var FfiConverterTypeLoadErrorINSTANCE = FfiConverterTypeLoadError{}
+var FfiConverterLoadErrorINSTANCE = FfiConverterLoadError{}
 
-func (c FfiConverterTypeLoadError) Lift(eb RustBufferI) error {
-	return LiftFromRustBuffer[error](c, eb)
+func (c FfiConverterLoadError) Lift(eb RustBufferI) *LoadError {
+	return LiftFromRustBuffer[*LoadError](c, eb)
 }
 
-func (c FfiConverterTypeLoadError) Lower(value *LoadError) RustBuffer {
+func (c FfiConverterLoadError) Lower(value *LoadError) C.RustBuffer {
 	return LowerIntoRustBuffer[*LoadError](c, value)
 }
 
-func (c FfiConverterTypeLoadError) Read(reader io.Reader) error {
+func (c FfiConverterLoadError) Read(reader io.Reader) *LoadError {
 	errorID := readUint32(reader)
 
 	message := FfiConverterStringINSTANCE.Read(reader)
@@ -1931,30 +2131,54 @@ func (c FfiConverterTypeLoadError) Read(reader io.Reader) error {
 	case 1:
 		return &LoadError{&LoadErrorDatabase{message}}
 	case 2:
-		return &LoadError{&LoadErrorParseHeader{message}}
+		return &LoadError{&LoadErrorReadHeader{message}}
 	case 3:
-		return &LoadError{&LoadErrorHeaderVersion{message}}
+		return &LoadError{&LoadErrorParseHeader{message}}
 	case 4:
+		return &LoadError{&LoadErrorHeaderVersion{message}}
+	case 5:
 		return &LoadError{&LoadErrorWallet{message}}
 	default:
-		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTypeLoadError.Read()", errorID))
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterLoadError.Read()", errorID))
 	}
 
 }
 
-func (c FfiConverterTypeLoadError) Write(writer io.Writer, value *LoadError) {
+func (c FfiConverterLoadError) Write(writer io.Writer, value *LoadError) {
 	switch variantValue := value.err.(type) {
 	case *LoadErrorDatabase:
 		writeInt32(writer, 1)
-	case *LoadErrorParseHeader:
+	case *LoadErrorReadHeader:
 		writeInt32(writer, 2)
-	case *LoadErrorHeaderVersion:
+	case *LoadErrorParseHeader:
 		writeInt32(writer, 3)
-	case *LoadErrorWallet:
+	case *LoadErrorHeaderVersion:
 		writeInt32(writer, 4)
+	case *LoadErrorWallet:
+		writeInt32(writer, 5)
 	default:
 		_ = variantValue
-		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTypeLoadError.Write", value))
+		panic(fmt.Sprintf("invalid error value `%v` in FfiConverterLoadError.Write", value))
+	}
+}
+
+type FfiDestroyerLoadError struct{}
+
+func (_ FfiDestroyerLoadError) Destroy(value *LoadError) {
+	switch variantValue := value.err.(type) {
+	case LoadErrorDatabase:
+		variantValue.destroy()
+	case LoadErrorReadHeader:
+		variantValue.destroy()
+	case LoadErrorParseHeader:
+		variantValue.destroy()
+	case LoadErrorHeaderVersion:
+		variantValue.destroy()
+	case LoadErrorWallet:
+		variantValue.destroy()
+	default:
+		_ = variantValue
+		panic(fmt.Sprintf("invalid error value `%v` in FfiDestroyerLoadError.Destroy", value))
 	}
 }
 
@@ -1978,7 +2202,7 @@ func (c FfiConverterSequenceString) Read(reader io.Reader) []string {
 	return result
 }
 
-func (c FfiConverterSequenceString) Lower(value []string) RustBuffer {
+func (c FfiConverterSequenceString) Lower(value []string) C.RustBuffer {
 	return LowerIntoRustBuffer[[]string](c, value)
 }
 
@@ -2021,7 +2245,7 @@ func (c FfiConverterSequenceBytes) Read(reader io.Reader) [][]byte {
 	return result
 }
 
-func (c FfiConverterSequenceBytes) Lower(value [][]byte) RustBuffer {
+func (c FfiConverterSequenceBytes) Lower(value [][]byte) C.RustBuffer {
 	return LowerIntoRustBuffer[[][]byte](c, value)
 }
 
@@ -2044,217 +2268,217 @@ func (FfiDestroyerSequenceBytes) Destroy(sequence [][]byte) {
 	}
 }
 
-type FfiConverterSequenceTypeBlockId struct{}
+type FfiConverterSequenceBlockId struct{}
 
-var FfiConverterSequenceTypeBlockIdINSTANCE = FfiConverterSequenceTypeBlockId{}
+var FfiConverterSequenceBlockIdINSTANCE = FfiConverterSequenceBlockId{}
 
-func (c FfiConverterSequenceTypeBlockId) Lift(rb RustBufferI) []BlockId {
+func (c FfiConverterSequenceBlockId) Lift(rb RustBufferI) []BlockId {
 	return LiftFromRustBuffer[[]BlockId](c, rb)
 }
 
-func (c FfiConverterSequenceTypeBlockId) Read(reader io.Reader) []BlockId {
+func (c FfiConverterSequenceBlockId) Read(reader io.Reader) []BlockId {
 	length := readInt32(reader)
 	if length == 0 {
 		return nil
 	}
 	result := make([]BlockId, 0, length)
 	for i := int32(0); i < length; i++ {
-		result = append(result, FfiConverterTypeBlockIdINSTANCE.Read(reader))
+		result = append(result, FfiConverterBlockIdINSTANCE.Read(reader))
 	}
 	return result
 }
 
-func (c FfiConverterSequenceTypeBlockId) Lower(value []BlockId) RustBuffer {
+func (c FfiConverterSequenceBlockId) Lower(value []BlockId) C.RustBuffer {
 	return LowerIntoRustBuffer[[]BlockId](c, value)
 }
 
-func (c FfiConverterSequenceTypeBlockId) Write(writer io.Writer, value []BlockId) {
+func (c FfiConverterSequenceBlockId) Write(writer io.Writer, value []BlockId) {
 	if len(value) > math.MaxInt32 {
 		panic("[]BlockId is too large to fit into Int32")
 	}
 
 	writeInt32(writer, int32(len(value)))
 	for _, item := range value {
-		FfiConverterTypeBlockIdINSTANCE.Write(writer, item)
+		FfiConverterBlockIdINSTANCE.Write(writer, item)
 	}
 }
 
-type FfiDestroyerSequenceTypeBlockId struct{}
+type FfiDestroyerSequenceBlockId struct{}
 
-func (FfiDestroyerSequenceTypeBlockId) Destroy(sequence []BlockId) {
+func (FfiDestroyerSequenceBlockId) Destroy(sequence []BlockId) {
 	for _, value := range sequence {
-		FfiDestroyerTypeBlockId{}.Destroy(value)
+		FfiDestroyerBlockId{}.Destroy(value)
 	}
 }
 
-type FfiConverterSequenceTypeMempoolTx struct{}
+type FfiConverterSequenceMempoolTx struct{}
 
-var FfiConverterSequenceTypeMempoolTxINSTANCE = FfiConverterSequenceTypeMempoolTx{}
+var FfiConverterSequenceMempoolTxINSTANCE = FfiConverterSequenceMempoolTx{}
 
-func (c FfiConverterSequenceTypeMempoolTx) Lift(rb RustBufferI) []MempoolTx {
+func (c FfiConverterSequenceMempoolTx) Lift(rb RustBufferI) []MempoolTx {
 	return LiftFromRustBuffer[[]MempoolTx](c, rb)
 }
 
-func (c FfiConverterSequenceTypeMempoolTx) Read(reader io.Reader) []MempoolTx {
+func (c FfiConverterSequenceMempoolTx) Read(reader io.Reader) []MempoolTx {
 	length := readInt32(reader)
 	if length == 0 {
 		return nil
 	}
 	result := make([]MempoolTx, 0, length)
 	for i := int32(0); i < length; i++ {
-		result = append(result, FfiConverterTypeMempoolTxINSTANCE.Read(reader))
+		result = append(result, FfiConverterMempoolTxINSTANCE.Read(reader))
 	}
 	return result
 }
 
-func (c FfiConverterSequenceTypeMempoolTx) Lower(value []MempoolTx) RustBuffer {
+func (c FfiConverterSequenceMempoolTx) Lower(value []MempoolTx) C.RustBuffer {
 	return LowerIntoRustBuffer[[]MempoolTx](c, value)
 }
 
-func (c FfiConverterSequenceTypeMempoolTx) Write(writer io.Writer, value []MempoolTx) {
+func (c FfiConverterSequenceMempoolTx) Write(writer io.Writer, value []MempoolTx) {
 	if len(value) > math.MaxInt32 {
 		panic("[]MempoolTx is too large to fit into Int32")
 	}
 
 	writeInt32(writer, int32(len(value)))
 	for _, item := range value {
-		FfiConverterTypeMempoolTxINSTANCE.Write(writer, item)
+		FfiConverterMempoolTxINSTANCE.Write(writer, item)
 	}
 }
 
-type FfiDestroyerSequenceTypeMempoolTx struct{}
+type FfiDestroyerSequenceMempoolTx struct{}
 
-func (FfiDestroyerSequenceTypeMempoolTx) Destroy(sequence []MempoolTx) {
+func (FfiDestroyerSequenceMempoolTx) Destroy(sequence []MempoolTx) {
 	for _, value := range sequence {
-		FfiDestroyerTypeMempoolTx{}.Destroy(value)
+		FfiDestroyerMempoolTx{}.Destroy(value)
 	}
 }
 
-type FfiConverterSequenceTypeRecipient struct{}
+type FfiConverterSequenceRecipient struct{}
 
-var FfiConverterSequenceTypeRecipientINSTANCE = FfiConverterSequenceTypeRecipient{}
+var FfiConverterSequenceRecipientINSTANCE = FfiConverterSequenceRecipient{}
 
-func (c FfiConverterSequenceTypeRecipient) Lift(rb RustBufferI) []Recipient {
+func (c FfiConverterSequenceRecipient) Lift(rb RustBufferI) []Recipient {
 	return LiftFromRustBuffer[[]Recipient](c, rb)
 }
 
-func (c FfiConverterSequenceTypeRecipient) Read(reader io.Reader) []Recipient {
+func (c FfiConverterSequenceRecipient) Read(reader io.Reader) []Recipient {
 	length := readInt32(reader)
 	if length == 0 {
 		return nil
 	}
 	result := make([]Recipient, 0, length)
 	for i := int32(0); i < length; i++ {
-		result = append(result, FfiConverterTypeRecipientINSTANCE.Read(reader))
+		result = append(result, FfiConverterRecipientINSTANCE.Read(reader))
 	}
 	return result
 }
 
-func (c FfiConverterSequenceTypeRecipient) Lower(value []Recipient) RustBuffer {
+func (c FfiConverterSequenceRecipient) Lower(value []Recipient) C.RustBuffer {
 	return LowerIntoRustBuffer[[]Recipient](c, value)
 }
 
-func (c FfiConverterSequenceTypeRecipient) Write(writer io.Writer, value []Recipient) {
+func (c FfiConverterSequenceRecipient) Write(writer io.Writer, value []Recipient) {
 	if len(value) > math.MaxInt32 {
 		panic("[]Recipient is too large to fit into Int32")
 	}
 
 	writeInt32(writer, int32(len(value)))
 	for _, item := range value {
-		FfiConverterTypeRecipientINSTANCE.Write(writer, item)
+		FfiConverterRecipientINSTANCE.Write(writer, item)
 	}
 }
 
-type FfiDestroyerSequenceTypeRecipient struct{}
+type FfiDestroyerSequenceRecipient struct{}
 
-func (FfiDestroyerSequenceTypeRecipient) Destroy(sequence []Recipient) {
+func (FfiDestroyerSequenceRecipient) Destroy(sequence []Recipient) {
 	for _, value := range sequence {
-		FfiDestroyerTypeRecipient{}.Destroy(value)
+		FfiDestroyerRecipient{}.Destroy(value)
 	}
 }
 
-type FfiConverterSequenceTypeTxInfo struct{}
+type FfiConverterSequenceTxInfo struct{}
 
-var FfiConverterSequenceTypeTxInfoINSTANCE = FfiConverterSequenceTypeTxInfo{}
+var FfiConverterSequenceTxInfoINSTANCE = FfiConverterSequenceTxInfo{}
 
-func (c FfiConverterSequenceTypeTxInfo) Lift(rb RustBufferI) []TxInfo {
+func (c FfiConverterSequenceTxInfo) Lift(rb RustBufferI) []TxInfo {
 	return LiftFromRustBuffer[[]TxInfo](c, rb)
 }
 
-func (c FfiConverterSequenceTypeTxInfo) Read(reader io.Reader) []TxInfo {
+func (c FfiConverterSequenceTxInfo) Read(reader io.Reader) []TxInfo {
 	length := readInt32(reader)
 	if length == 0 {
 		return nil
 	}
 	result := make([]TxInfo, 0, length)
 	for i := int32(0); i < length; i++ {
-		result = append(result, FfiConverterTypeTxInfoINSTANCE.Read(reader))
+		result = append(result, FfiConverterTxInfoINSTANCE.Read(reader))
 	}
 	return result
 }
 
-func (c FfiConverterSequenceTypeTxInfo) Lower(value []TxInfo) RustBuffer {
+func (c FfiConverterSequenceTxInfo) Lower(value []TxInfo) C.RustBuffer {
 	return LowerIntoRustBuffer[[]TxInfo](c, value)
 }
 
-func (c FfiConverterSequenceTypeTxInfo) Write(writer io.Writer, value []TxInfo) {
+func (c FfiConverterSequenceTxInfo) Write(writer io.Writer, value []TxInfo) {
 	if len(value) > math.MaxInt32 {
 		panic("[]TxInfo is too large to fit into Int32")
 	}
 
 	writeInt32(writer, int32(len(value)))
 	for _, item := range value {
-		FfiConverterTypeTxInfoINSTANCE.Write(writer, item)
+		FfiConverterTxInfoINSTANCE.Write(writer, item)
 	}
 }
 
-type FfiDestroyerSequenceTypeTxInfo struct{}
+type FfiDestroyerSequenceTxInfo struct{}
 
-func (FfiDestroyerSequenceTypeTxInfo) Destroy(sequence []TxInfo) {
+func (FfiDestroyerSequenceTxInfo) Destroy(sequence []TxInfo) {
 	for _, value := range sequence {
-		FfiDestroyerTypeTxInfo{}.Destroy(value)
+		FfiDestroyerTxInfo{}.Destroy(value)
 	}
 }
 
-type FfiConverterSequenceTypeUtxoInfo struct{}
+type FfiConverterSequenceUtxoInfo struct{}
 
-var FfiConverterSequenceTypeUtxoInfoINSTANCE = FfiConverterSequenceTypeUtxoInfo{}
+var FfiConverterSequenceUtxoInfoINSTANCE = FfiConverterSequenceUtxoInfo{}
 
-func (c FfiConverterSequenceTypeUtxoInfo) Lift(rb RustBufferI) []UtxoInfo {
+func (c FfiConverterSequenceUtxoInfo) Lift(rb RustBufferI) []UtxoInfo {
 	return LiftFromRustBuffer[[]UtxoInfo](c, rb)
 }
 
-func (c FfiConverterSequenceTypeUtxoInfo) Read(reader io.Reader) []UtxoInfo {
+func (c FfiConverterSequenceUtxoInfo) Read(reader io.Reader) []UtxoInfo {
 	length := readInt32(reader)
 	if length == 0 {
 		return nil
 	}
 	result := make([]UtxoInfo, 0, length)
 	for i := int32(0); i < length; i++ {
-		result = append(result, FfiConverterTypeUtxoInfoINSTANCE.Read(reader))
+		result = append(result, FfiConverterUtxoInfoINSTANCE.Read(reader))
 	}
 	return result
 }
 
-func (c FfiConverterSequenceTypeUtxoInfo) Lower(value []UtxoInfo) RustBuffer {
+func (c FfiConverterSequenceUtxoInfo) Lower(value []UtxoInfo) C.RustBuffer {
 	return LowerIntoRustBuffer[[]UtxoInfo](c, value)
 }
 
-func (c FfiConverterSequenceTypeUtxoInfo) Write(writer io.Writer, value []UtxoInfo) {
+func (c FfiConverterSequenceUtxoInfo) Write(writer io.Writer, value []UtxoInfo) {
 	if len(value) > math.MaxInt32 {
 		panic("[]UtxoInfo is too large to fit into Int32")
 	}
 
 	writeInt32(writer, int32(len(value)))
 	for _, item := range value {
-		FfiConverterTypeUtxoInfoINSTANCE.Write(writer, item)
+		FfiConverterUtxoInfoINSTANCE.Write(writer, item)
 	}
 }
 
-type FfiDestroyerSequenceTypeUtxoInfo struct{}
+type FfiDestroyerSequenceUtxoInfo struct{}
 
-func (FfiDestroyerSequenceTypeUtxoInfo) Destroy(sequence []UtxoInfo) {
+func (FfiDestroyerSequenceUtxoInfo) Destroy(sequence []UtxoInfo) {
 	for _, value := range sequence {
-		FfiDestroyerTypeUtxoInfo{}.Destroy(value)
+		FfiDestroyerUtxoInfo{}.Destroy(value)
 	}
 }

@@ -72,13 +72,13 @@ type Recipient struct {
 
 // CreateTransactionFromBDKWalletCmd defines the createtransactionfrombdkwallet JSON-RPC command.
 type CreateTransactionFromBDKWalletCmd struct {
-	FeeRate    float32
+	FeeRate    uint64
 	Recipients []Recipient
 }
 
 // NewCreateTransactionFromBDKWalletCmd returns a new instance which can be used to issue
 // a createtransactionfrombdkwallet command.
-func NewCreateTransactionFromBDKWalletCmd(feeRate float32, recipients []Recipient) *CreateTransactionFromBDKWalletCmd {
+func NewCreateTransactionFromBDKWalletCmd(feeRate uint64, recipients []Recipient) *CreateTransactionFromBDKWalletCmd {
 	return &CreateTransactionFromBDKWalletCmd{
 		FeeRate:    feeRate,
 		Recipients: recipients,
