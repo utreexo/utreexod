@@ -131,7 +131,7 @@ type FlatUtreexoProofIndex struct {
 	blockTTLState []utreexo.Pollard
 
 	// pStats are the proof size statistics that are kept for research purposes.
-	pStats proofStats
+	pStats ProofStats
 
 	// The time of when the utreexo state was last flushed.
 	lastFlushTime time.Time

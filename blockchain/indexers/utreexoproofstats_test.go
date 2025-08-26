@@ -29,19 +29,19 @@ func TestProofStatSerialize(t *testing.T) {
 	seed := rand.NewSource(time)
 	rand := rand.New(seed)
 
-	proofStatsVal, ok := quick.Value(reflect.TypeOf(proofStats{}), rand)
+	proofStatsVal, ok := quick.Value(reflect.TypeOf(ProofStats{}), rand)
 	if !ok {
 		t.Fatalf("Couldn't create random proofStats")
 	}
 
-	pStats := proofStatsVal.Interface().(proofStats)
+	pStats := proofStatsVal.Interface().(ProofStats)
 
 	err = pStats.WritePStats(&ff)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	newPStats := proofStats{}
+	newPStats := ProofStats{}
 	err = newPStats.InitPStats(&ff)
 	if err != nil {
 		t.Fatal(err)

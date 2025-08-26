@@ -13,11 +13,11 @@ import (
 	"github.com/utreexo/utreexod/wire"
 )
 
-// proofStatsSize has 10 elements that are each 8 bytes big.
-const proofStatsSize int = 8 * 10
+// ProofStatsSize has 10 elements that are each 8 bytes big.
+const ProofStatsSize int = 8 * 10
 
-// proofStats are the relevant proof statistics to check how big each proofs are.
-type proofStats struct {
+// ProofStats are the relevant proof statistics to check how big each proofs are.
+type ProofStats struct {
 	// The height of the chain for the below stats.
 	BlockHeight uint64
 
@@ -42,12 +42,12 @@ type proofStats struct {
 }
 
 // UpdateTotalDelCount updates the deletion count in the proof stats.
-func (ps *proofStats) UpdateTotalDelCount(delCount uint64) {
+func (ps *ProofStats) UpdateTotalDelCount(delCount uint64) {
 	ps.TotalDels += delCount
 }
 
 // UpdateUDStats updates the all the udata statistics.
-func (ps *proofStats) UpdateUDStats(excludeAccProof bool, ud *wire.UData) {
+func (ps *ProofStats) UpdateUDStats(excludeAccProof bool, ud *wire.UData) {
 	// Update target size.
 	ps.TgSize += uint64(wire.BatchProofSerializeTargetSize(&ud.AccProof))
 	ps.TgCount += uint64(len(ud.AccProof.Targets))
@@ -69,7 +69,7 @@ func (ps *proofStats) UpdateUDStats(excludeAccProof bool, ud *wire.UData) {
 }
 
 // LogProofStats outputs a log of the proof statistics.
-func (ps *proofStats) LogProofStats() {
+func (ps *ProofStats) LogProofStats() {
 	log.Infof("height %d: totalDels %d, ldSize %d, ldCount %d, tgSize %d, tgCount %d, proofSize %d, proofCount %d",
 		ps.BlockHeight, ps.TotalDels, ps.LdSize, ps.LdCount, ps.TgSize, ps.TgCount,
 		ps.ProofSize, ps.ProofCount)
@@ -80,7 +80,7 @@ func (ps *proofStats) LogProofStats() {
 }
 
 // Serialize serializes the proof statistics into the writer.
-func (ps *proofStats) Serialize(w io.Writer) error {
+func (ps *ProofStats) Serialize(w io.Writer) error {
 	// 19 * 8
 	var buf [8]byte
 
@@ -148,7 +148,7 @@ func (ps *proofStats) Serialize(w io.Writer) error {
 }
 
 // Deserialize deserializes the proof statistics from the reader.
-func (ps *proofStats) Deserialize(r io.Reader) error {
+func (ps *ProofStats) Deserialize(r io.Reader) error {
 	var buf [8]byte
 	var res uint64
 
@@ -218,8 +218,8 @@ func (ps *proofStats) Deserialize(r io.Reader) error {
 
 // WritePStats writes the proof statistics into the passed in flatfile.  It always
 // writes the stats in the beginning of the file.
-func (ps *proofStats) WritePStats(pStatFF *FlatFileState) error {
-	w := bytes.NewBuffer(make([]byte, 0, proofStatsSize))
+func (ps *ProofStats) WritePStats(pStatFF *FlatFileState) error {
+	w := bytes.NewBuffer(make([]byte, 0, ProofStatsSize))
 
 	err := ps.Serialize(w)
 	if err != nil {
@@ -237,10 +237,10 @@ func (ps *proofStats) WritePStats(pStatFF *FlatFileState) error {
 // InitPStats reads the proof statistics from the passed in flatfile and attempts to
 // initializes the proof statistics.  If the size read is smaller than the proofStatsSize,
 // then nothing is initialized and the function returns.
-func (ps *proofStats) InitPStats(pStatFF *FlatFileState) error {
-	buf := make([]byte, proofStatsSize)
+func (ps *ProofStats) InitPStats(pStatFF *FlatFileState) error {
+	buf := make([]byte, ProofStatsSize)
 	n, err := pStatFF.dataFile.ReadAt(buf, 0)
-	if n < proofStatsSize {
+	if n < ProofStatsSize {
 		return nil
 	}
 	if err != nil {
