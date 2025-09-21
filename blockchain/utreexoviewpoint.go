@@ -144,7 +144,7 @@ func (uview *UtreexoViewpoint) updateCaches(block *btcutil.Block, leaves []wire.
 		// Create the leaf to potentially cache.
 		leaf := cachedLeaf{
 			hash:        addHashes[i].Hash,
-			deathHeight: int32(ttl.TTL) + int32(ttls.BlockHeight),
+			deathHeight: int32(ttl.DeathHeight),
 		}
 
 		// Simply add the leaf if we're under the maxCachedLeaves limit.
