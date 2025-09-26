@@ -268,7 +268,6 @@ type SyncManager struct {
 	// The following fields are used for headers-first mode.
 	headersFirstMode    bool
 	startHeader         *headerNode
-	nextCheckpoint      *chaincfg.Checkpoint
 	utreexoSummaries    map[chainhash.Hash]*wire.UtreexoBlockSummary
 	bestSummariesHash   chainhash.Hash
 	numLeaves           map[int32]uint64
@@ -1186,7 +1185,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		return
 	}
 
-	bestHeaderHash, bestHeaderHeight := sm.chain.BestHeader()
+	_, bestHeaderHeight := sm.chain.BestHeader()
 	bestState := sm.chain.BestSnapshot()
 	length := bestHeaderHeight - bestState.Height
 
@@ -1207,9 +1206,6 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	gdmsg := wire.NewMsgGetDataSizeHint(uint(length))
 	numRequested := 0
 
-	hash := bestState.Hash
-	log.Infof("fetching from %v(%v) to %v(%v) from %v", hash, bestState.Height+1,
-		bestHeaderHash, bestHeaderHeight, reqPeer.String())
 	for h := bestState.Height + 1; h <= bestHeaderHeight; h++ {
 		if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil {
 			// Break if we ran out of ttls.
@@ -1331,26 +1327,6 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	}
 
 	bestHash, bestHeight := sm.chain.BestHeader()
-	if sm.nextCheckpoint != nil {
-		if bestHeight == sm.nextCheckpoint.Height {
-			if bestHash.IsEqual(sm.nextCheckpoint.Hash) {
-				log.Infof("Verified downloaded block "+
-					"header against checkpoint at height "+
-					"%d/hash %s", bestHeight, bestHash)
-			} else {
-				log.Warnf("Block header at height %d/hash "+
-					"%s from peer %s does NOT match "+
-					"expected checkpoint hash of %s -- "+
-					"disconnecting", bestHeight,
-					bestHash, peer.Addr(),
-					sm.nextCheckpoint.Hash)
-				peer.Disconnect()
-				return
-			}
-			sm.nextCheckpoint = sm.findNextHeaderCheckpoint(bestHeight)
-		}
-	}
-
 	if sm.headersBuildMode && bestHeight >= sm.chain.AssumeUtreexoHeight() {
 		assumeUtreexoHash := sm.chain.AssumeUtreexoHash()
 		if !bestHash.IsEqual(&assumeUtreexoHash) {
@@ -1390,7 +1366,6 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 
 	if shouldFetchBlocks {
 		bestState := sm.chain.BestSnapshot()
-		sm.nextCheckpoint = sm.findNextHeaderCheckpoint(bestState.Height)
 		if sm.startHeader == nil {
 			hash, err := sm.chain.HeaderHashByHeight(bestState.Height + 1)
 			if err != nil {
@@ -1410,14 +1385,10 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	// If we don't have the headers chain caught up to our peer, ask for more headers.
 	if shouldFetchHeaders {
 		locator := blockchain.BlockLocator([]*chainhash.Hash{&bestHash})
-
 		stopHash := zeroHash
 		if sm.headersBuildMode {
 			stopHash = sm.chain.AssumeUtreexoHash()
-		} else if sm.nextCheckpoint != nil {
-			stopHash = *sm.nextCheckpoint.Hash
 		}
-
 		hmsg.peer.PushGetHeadersMsg(locator, &stopHash)
 		return
 	}
@@ -2439,9 +2410,6 @@ func New(config *Config) (*SyncManager, error) {
 
 	best := sm.chain.BestSnapshot()
 	if !config.DisableCheckpoints {
-		// Initialize the next checkpoint based on the current height.
-		sm.nextCheckpoint = sm.findNextHeaderCheckpoint(best.Height)
-
 		if sm.chain.IsUtreexoViewActive() {
 			if len(sm.chainParams.TTL.Stump) > 0 {
 				// Initialize the committed ttl state.
