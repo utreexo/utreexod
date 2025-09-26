@@ -72,6 +72,9 @@ const (
 
 	// size of a uint64. Shame go std lib doesn't provide it.
 	uint64Size = 8
+
+	// size of a uint32. Shame go std lib doesn't provide it.
+	uint32Size = 4
 )
 
 var (
@@ -296,8 +299,9 @@ func (idx *FlatUtreexoProofIndex) initTTLState(height int32) (*utreexo.Pollard, 
 		// as it's not spent at the height and thus doesn't have a ttl value
 		// we can use.
 		for i, ttl := range ttls {
-			if ttl.TTL+uint64(h) > uint64(height) {
-				ttls[i].TTL = 0
+			if ttl.DeathHeight > uint32(height) {
+				ttls[i].DeathHeight = 0
+				ttls[i].DeathBlkIndex = 0
 				ttls[i].DeathPos = 0
 			}
 		}
@@ -1028,8 +1032,9 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 
 		// Remove the ttls that were added after the commitment.
 		for i, ttl := range ttls {
-			if ttl.TTL+uint64(height) > uint64(endHeight) {
-				ttls[i].TTL = 0
+			if ttl.DeathHeight > endHeight {
+				ttls[i].DeathHeight = 0
+				ttls[i].DeathBlkIndex = 0
 				ttls[i].DeathPos = 0
 			}
 		}
@@ -1080,7 +1085,8 @@ func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
 	ttls := make([]wire.TTLInfo, len(ttlBytes)/ttlSize)
 	for i := range ttls {
 		start := i * ttlSize
-		ttls[i].TTL = byteOrder.Uint64(ttlBytes[start : start+uint64Size])
+		ttls[i].DeathHeight = byteOrder.Uint32(ttlBytes[start : start+uint32Size])
+		ttls[i].DeathBlkIndex = byteOrder.Uint32(ttlBytes[start+uint32Size : start+uint64Size])
 		ttls[i].DeathPos = byteOrder.Uint64(ttlBytes[start+uint64Size : start+ttlSize])
 	}
 
@@ -1118,8 +1124,9 @@ func writeTTLs(curHeight int32, createdIndexes []int32, targets []uint64, lds []
 	buf := [ttlSize]byte{}
 
 	for i, ld := range lds {
-		ttl := uint64(curHeight - ld.Height)
-		byteOrder.PutUint64(buf[:uint64Size], ttl)
+		byteOrder.PutUint32(buf[:uint32Size], uint32(curHeight))
+		byteOrder.PutUint32(buf[uint32Size:uint64Size], uint32(i))
+
 		byteOrder.PutUint64(buf[uint64Size:], targets[i])
 
 		cIndex := createdIndexes[i]

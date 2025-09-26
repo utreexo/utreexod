@@ -1558,15 +1558,14 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 	// Accept the ttls.
 	for _, ttlPerBlock := range ttls {
 		for _, ttlInfo := range ttlPerBlock.TTLs {
-			if ttlInfo.TTL == 0 {
+			if ttlInfo.DeathHeight == 0 {
 				continue
 			}
 
 			sm.ttlTargets.Push(
 				ttlTarget{
-					deathHeight: ttlInfo.TTL +
-						uint64(ttlPerBlock.BlockHeight),
-					pos: ttlInfo.DeathPos,
+					deathHeight: uint64(ttlInfo.DeathHeight),
+					pos:         ttlInfo.DeathPos,
 				})
 		}
 
