@@ -267,7 +267,6 @@ type SyncManager struct {
 
 	// The following fields are used for headers-first mode.
 	headersFirstMode    bool
-	startHeader         *headerNode
 	utreexoSummaries    map[chainhash.Hash]*wire.UtreexoBlockSummary
 	bestSummariesHash   chainhash.Hash
 	numLeaves           map[int32]uint64
@@ -333,7 +332,7 @@ func (sm *SyncManager) startSync() {
 	utreexoViewActive := sm.chain.IsUtreexoViewActive()
 
 	best := sm.chain.BestSnapshot()
-	bestHeaderHash, bestHeaderHeight := sm.chain.BestHeader()
+	_, bestHeaderHeight := sm.chain.BestHeader()
 	var higherPeers, equalPeers, higherHeaderPeers []*peerpkg.Peer
 	for peer, state := range sm.peerStates {
 		if !state.syncCandidate {
@@ -455,10 +454,6 @@ func (sm *SyncManager) startSync() {
 		// syncPeer to avoid instantly detecting it as stalled in the
 		// event the progress time hasn't been updated recently.
 		sm.lastProgressTime = time.Now()
-
-		if sm.startHeader == nil {
-			sm.startHeader = &headerNode{bestHeaderHeight + 1, &bestHeaderHash}
-		}
 
 		sm.fetchHeaderBlocks(nil)
 	} else {
@@ -1020,11 +1015,11 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		}
 	}
 
+	// If we're in headersFirstMode then we're downloading the block from the sync peer.
+	// Only ask for more if we don't have any more requestedBlocks left.
 	_, lastHeight := sm.chain.BestHeader()
-	if bmsg.block.Height() < lastHeight {
-		if sm.startHeader != nil && len(state.requestedBlocks) == 0 {
-			sm.fetchHeaderBlocks(nil)
-		}
+	if bmsg.block.Height() < lastHeight && len(state.requestedBlocks) == 0 {
+		sm.fetchHeaderBlocks(nil)
 		return
 	}
 	if bmsg.block.Height() >= lastHeight {
@@ -1037,12 +1032,6 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 // fetchUtreexoTTLs constructs a request for ttls that fetches as much as we could
 // until we reach the end of the committed ttl accumulator state.
 func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
-	// Nothing to do if there is no start header.
-	if sm.startHeader == nil {
-		log.Warnf("fetchUtreexoTTLs called with no start header")
-		return
-	}
-
 	// Can't fetch if both are nil.
 	if peer == nil && sm.syncPeer == nil {
 		log.Warnf("fetchUtreexoTTLs called with syncPeer and peer as nil")
@@ -1089,12 +1078,6 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 // list of utreexo summaries to be downloaded based on the current list of headers.
 // Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
 func (sm *SyncManager) fetchUtreexoSummaries(peer *peerpkg.Peer) {
-	// Nothing to do if there is no start header.
-	if sm.startHeader == nil {
-		log.Warnf("fetchUtreexoSummaries called with no start header")
-		return
-	}
-
 	// Can't fetch if both are nil.
 	if peer == nil && sm.syncPeer == nil {
 		log.Warnf("fetchUtreexoSummaries called with syncPeer and peer as nil")
@@ -1161,12 +1144,6 @@ func getTargetsAtHeight(h *TTLHeap, height int32) []uint64 {
 // list of blocks to be downloaded based on the current list of headers.
 // Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
 func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
-	// Nothing to do if there is no start header.
-	if sm.startHeader == nil {
-		log.Warnf("fetchHeaderBlocks called with no start header")
-		return
-	}
-
 	// Can't fetch if both are nil.
 	if peer == nil && sm.syncPeer == nil {
 		log.Warnf("fetchHeaderBlocks called with syncPeer and peer as nil")
@@ -1273,16 +1250,6 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			}
 		}
 
-		if h+1 <= bestHeaderHeight {
-			hash, err := sm.chain.HeaderHashByHeight(h + 1)
-			if err != nil {
-				log.Warnf("error while fetching the block hash for height %v -- %v",
-					h, err)
-				return
-			}
-			sm.startHeader = &headerNode{h + 1, hash}
-		}
-
 		if numRequested >= wire.MaxInvPerMsg {
 			break
 		}
@@ -1365,15 +1332,6 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	}
 
 	if shouldFetchBlocks {
-		bestState := sm.chain.BestSnapshot()
-		if sm.startHeader == nil {
-			hash, err := sm.chain.HeaderHashByHeight(bestState.Height + 1)
-			if err != nil {
-				return
-			}
-			sm.startHeader = &headerNode{bestState.Height + 1, hash}
-		}
-
 		bestHeaderHash, bestHeaderHeight := sm.chain.BestHeader()
 		log.Infof("fetching blocks to %v(%v) from peer %v",
 			bestHeaderHash, bestHeaderHeight, hmsg.peer.String())
