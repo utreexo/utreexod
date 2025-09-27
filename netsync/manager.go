@@ -1198,6 +1198,11 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			sm.fetchUtreexoTTLs(reqPeer)
 			return
 		}
+
+		// If we're downloading ttl messages before asking for blocks,
+		// then the maximum amount of blocks we are able to download is
+		// the max utreexo ttls per message.
+		length = wire.MaxUtreexoTTLsPerMsg
 	}
 
 	// Build up a getdata request for the list of blocks the headers
