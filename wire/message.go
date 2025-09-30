@@ -152,17 +152,11 @@ func makeEmptyMessage(command string) (Message, error) {
 	case CmdGetHeaders:
 		msg = &MsgGetHeaders{}
 
-	case CmdGetUtreexoSummaries:
-		msg = &MsgGetUtreexoSummaries{}
-
 	case CmdGetUtreexoTTLs:
 		msg = &MsgGetUtreexoTTLs{}
 
 	case CmdHeaders:
 		msg = &MsgHeaders{}
-
-	case CmdUtreexoSummaries:
-		msg = &MsgUtreexoSummaries{}
 
 	case CmdUtreexoTTLs:
 		msg = &MsgUtreexoTTLs{}

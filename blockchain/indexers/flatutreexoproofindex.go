@@ -1409,23 +1409,6 @@ func (idx *FlatUtreexoProofIndex) updateBlockTTLState(height int32) error {
 	return nil
 }
 
-// FetchUtreexoSummaries fetches all the summaries.
-func (idx *FlatUtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash) (*wire.MsgUtreexoSummaries, error) {
-	msg := wire.MsgUtreexoSummaries{
-		Summaries: make([]*wire.UtreexoBlockSummary, 0, len(blockHashes)),
-	}
-
-	for _, blockHash := range blockHashes {
-		summary, err := idx.fetchBlockSummary(blockHash)
-		if err != nil {
-			return nil, err
-		}
-		msg.Summaries = append(msg.Summaries, summary)
-	}
-
-	return &msg, nil
-}
-
 func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (*wire.UtreexoBlockSummary, error) {
 	height, err := idx.chain.BlockHeightByHash(blockHash)
 	if err != nil {

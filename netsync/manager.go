@@ -83,13 +83,6 @@ type headersMsg struct {
 	peer    *peerpkg.Peer
 }
 
-// utreexoSummariesMsg packages a bitcoin utreexo summaries message and the peer it came from
-// together so the block handler has access to that information.
-type utreexoSummariesMsg struct {
-	summaries *wire.MsgUtreexoSummaries
-	peer      *peerpkg.Peer
-}
-
 // utreexoProofMsg packages a bitcoin utreexo proof message and the peer it came from
 // together so the block handler has access to that information.
 type utreexoProofMsg struct {
@@ -2140,18 +2133,6 @@ func (sm *SyncManager) QueueHeaders(headers *wire.MsgHeaders, peer *peerpkg.Peer
 	}
 
 	sm.msgChan <- &headersMsg{headers: headers, peer: peer}
-}
-
-// QueueUtreexoSummaries adds the passed utreexo summaries message and peer to the block handling
-// queue.
-func (sm *SyncManager) QueueUtreexoSummaries(summaries *wire.MsgUtreexoSummaries, peer *peerpkg.Peer) {
-	// No channel handling here because peers do not need to block on
-	// summaries messages.
-	if atomic.LoadInt32(&sm.shutdown) != 0 {
-		return
-	}
-
-	sm.msgChan <- &utreexoSummariesMsg{summaries: summaries, peer: peer}
 }
 
 // QueueUtreexoProof adds the utreexo proof to the block handling queue.

@@ -14,6 +14,8 @@ import (
 // AccumulatorRows is the pre-allocated rows that the accumulator has.
 const AccumulatorRows = 63
 
+const MaxUtreexoExponent = 7
+
 // MsgGetUtreexoSummaries implements the Message interface and represents a bitcoin
 // getutreexosummaries message. It's used to request the utreexo summaries from the given
 // start hash.
