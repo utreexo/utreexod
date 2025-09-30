@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
@@ -79,50 +78,6 @@ func (msg *MsgGetUtreexoSummaries) MaxPayloadLength(pver uint32) uint32 {
 // the Message interface.  See MsgGetUtreexoSummaries for details.
 func NewMsgGetUtreexoSummaries(blockHash chainhash.Hash, maxReceiveExponent uint8) *MsgGetUtreexoSummaries {
 	return &MsgGetUtreexoSummaries{StartHash: blockHash, MaxReceiveExponent: maxReceiveExponent}
-}
-
-// GetUtreexoSummaryHeights returns the heights of the blocks that we can serve based on the startBlock
-// and the exponent. The returned heights are such that they always minimize the proof size.
-func GetUtreexoSummaryHeights(startBlock, bestHeight int32, exponent uint8) ([]int32, error) {
-	count := int32(1 << exponent)
-	numLeaves := uint64(bestHeight + 1)
-
-	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves)
-	heights := make([]int32, 0, count)
-	for i := int32(0); i < count; i++ {
-		position := i + startBlock
-		if position > bestHeight {
-			break
-		}
-		got, _, _, _ := utreexo.DetectOffset(uint64(position), numLeaves)
-		if got != subtree {
-			break
-		}
-		heights = append(heights, position)
-	}
-
-	return heights, nil
-}
-
-// getUtreexoExponent is a function that returns the ideal exponent to minimize the proof size
-// while requesting as much as possible with the given arguments.
-func getUtreexoExponent(startBlock, endHeight, bestHeight int32, maxExp uint8) uint8 {
-	numLeaves := uint64(bestHeight + 1)
-	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves)
-
-	exponent := uint8(0)
-	for ; exponent < maxExp; exponent++ {
-		height := uint64(startBlock + (1 << exponent))
-		if height > uint64(endHeight) {
-			break
-		}
-		gotSubTree, _, _, _ := utreexo.DetectOffset(height, numLeaves)
-		if subtree != gotSubTree {
-			break
-		}
-	}
-
-	return exponent
 }
 
 // GetUtreexoSummariesExponent returns the ideal value to request as much as possible while also not

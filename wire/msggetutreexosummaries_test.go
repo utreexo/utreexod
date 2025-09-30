@@ -2,7 +2,6 @@ package wire
 
 import (
 	"bytes"
-	"reflect"
 	"testing"
 
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -90,68 +89,6 @@ func TestMsgGetUtreexoSummariesEncode(t *testing.T) {
 		if afterMsg.MaxReceiveExponent != testCase.maxExponent {
 			t.Fatalf("expected %v but got %v",
 				testCase.maxExponent, afterMsg.MaxReceiveExponent)
-		}
-	}
-}
-
-func TestGetUtreexoSummaryHeight(t *testing.T) {
-	testCases := []struct {
-		height          int32
-		bestHeight      int32
-		exponent        uint8
-		expectedHeights []int32
-	}{
-		{
-			height:          0,
-			bestHeight:      2,
-			exponent:        1,
-			expectedHeights: []int32{0, 1},
-		},
-
-		{
-			height:          1,
-			bestHeight:      1,
-			exponent:        1,
-			expectedHeights: []int32{1},
-		},
-
-		{
-			height:          1,
-			bestHeight:      1,
-			exponent:        0,
-			expectedHeights: []int32{1},
-		},
-
-		{
-			height:          8,
-			bestHeight:      20,
-			exponent:        3,
-			expectedHeights: []int32{8, 9, 10, 11, 12, 13, 14, 15},
-		},
-
-		{
-			height:          8,
-			bestHeight:      20,
-			exponent:        3,
-			expectedHeights: []int32{8, 9, 10, 11, 12, 13, 14, 15},
-		},
-
-		{
-			height:          9,
-			bestHeight:      20,
-			exponent:        3,
-			expectedHeights: []int32{9, 10, 11, 12, 13, 14, 15},
-		},
-	}
-
-	for _, testCase := range testCases {
-		got, err := GetUtreexoSummaryHeights(testCase.height, testCase.bestHeight, testCase.exponent)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !reflect.DeepEqual(testCase.expectedHeights, got) {
-			t.Fatalf("expected %v, got %v", testCase.expectedHeights, got)
 		}
 	}
 }

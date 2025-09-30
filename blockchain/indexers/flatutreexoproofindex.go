@@ -1010,7 +1010,7 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 		return wire.MsgUtreexoTTLs{}, fmt.Errorf("version %v doesn't exist", version)
 	}
 
-	heights, err := wire.GetUtreexoSummaryHeights(
+	heights, err := wire.GetUtreexoTTLHeights(
 		int32(startHeight), int32(version), exponent)
 	if err != nil {
 		return wire.MsgUtreexoTTLs{}, err
