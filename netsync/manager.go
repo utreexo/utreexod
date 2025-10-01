@@ -1740,17 +1740,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeBlock:
 			// Request the block if there is not already a pending
 			// request.
-			//
-			// No check for if we're in headers first since it's
-			// already done so earlier in the method.
 			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
-				amUtreexoNode := sm.chain.IsUtreexoViewActive()
-				if amUtreexoNode {
-					ghmsg := wire.NewMsgGetUtreexoSummaries(iv.Hash, 1)
-					peer.QueueMessage(ghmsg, nil)
-					continue
-				}
-
 				limitAdd(sm.requestedBlocks, iv.Hash, maxRequestedBlocks)
 				limitAdd(state.requestedBlocks, iv.Hash, maxRequestedBlocks)
 
