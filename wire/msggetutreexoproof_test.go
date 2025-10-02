@@ -3,6 +3,7 @@ package wire
 import (
 	"bytes"
 	"crypto/rand"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,6 +41,30 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 			},
 		},
 		{
+			name: "failure case",
+			msg: MsgGetUtreexoProof{
+				BlockHash: chainhash.HashH([]byte("failure case hash")),
+				ProofIndexBitMap: func() []byte {
+					length := math.MaxUint8 * MaxPossibleInputsPerBlock
+					b := make([]bool, length)
+					for i := range b {
+						b[i] = true
+					}
+
+					return createBitmap(b)
+				}(),
+				LeafIndexBitMap: func() []byte {
+					length := MaxPossibleInputsPerBlock
+					b := make([]bool, length)
+					for i := range b {
+						b[i] = true
+					}
+
+					return createBitmap(b)
+				}(),
+			},
+		},
+		{
 			name: "Large indexes",
 			msg: MsgGetUtreexoProof{
 				BlockHash:        chainhash.HashH([]byte("large test hash")),
@@ -56,6 +81,8 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 		// Encode the message
 		err := tc.msg.BtcEncode(&buf, pver, LatestEncoding)
 		assert.NoError(t, err, "BtcEncode should not return an error")
+
+		assert.LessOrEqual(t, uint32(len(buf.Bytes())), tc.msg.MaxPayloadLength(0))
 
 		// Decode into a new message
 		var decodedMsg MsgGetUtreexoProof
