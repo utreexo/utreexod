@@ -140,9 +140,6 @@ type MessageListeners struct {
 	// OnHeaders is invoked when a peer receives a headers bitcoin message.
 	OnHeaders func(p *Peer, msg *wire.MsgHeaders)
 
-	// OnUtreexoSummaries is invoked when a peer receives a utreexo summaries bitcoin message.
-	OnUtreexoSummaries func(p *Peer, msg *wire.MsgUtreexoSummaries)
-
 	// OnUtreexoProof is invoked when a peer receives a utreexo proof bitcoin message.
 	OnUtreexoProof func(p *Peer, msg *wire.MsgUtreexoProof)
 
@@ -169,10 +166,6 @@ type MessageListeners struct {
 	// OnGetHeaders is invoked when a peer receives a getheaders bitcoin
 	// message.
 	OnGetHeaders func(p *Peer, msg *wire.MsgGetHeaders)
-
-	// OnGetUtreexoSummaries is invoked when a peer receives a getutreexosummaries bitcoin
-	// message.
-	OnGetUtreexoSummaries func(p *Peer, msg *wire.MsgGetUtreexoSummaries)
 
 	// OnGetUtreexoRoot is invoked when a peer receives a getutreexoroot bitcoin
 	// message.
@@ -1491,11 +1484,6 @@ out:
 				p.cfg.Listeners.OnHeaders(p, msg)
 			}
 
-		case *wire.MsgUtreexoSummaries:
-			if p.cfg.Listeners.OnUtreexoSummaries != nil {
-				p.cfg.Listeners.OnUtreexoSummaries(p, msg)
-			}
-
 		case *wire.MsgUtreexoProof:
 			if p.cfg.Listeners.OnUtreexoProof != nil {
 				p.cfg.Listeners.OnUtreexoProof(p, msg)
@@ -1534,11 +1522,6 @@ out:
 		case *wire.MsgGetHeaders:
 			if p.cfg.Listeners.OnGetHeaders != nil {
 				p.cfg.Listeners.OnGetHeaders(p, msg)
-			}
-
-		case *wire.MsgGetUtreexoSummaries:
-			if p.cfg.Listeners.OnGetUtreexoSummaries != nil {
-				p.cfg.Listeners.OnGetUtreexoSummaries(p, msg)
 			}
 
 		case *wire.MsgGetUtreexoRoot:

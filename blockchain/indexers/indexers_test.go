@@ -1000,36 +1000,6 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 	}
 }
 
-func compareBlockSummaries(indexes []Indexer, blockHashes []*chainhash.Hash) error {
-	var err error
-	var flatMsg *wire.MsgUtreexoSummaries
-	var msg *wire.MsgUtreexoSummaries
-	for _, indexer := range indexes {
-		switch idxType := indexer.(type) {
-		case *FlatUtreexoProofIndex:
-			flatMsg, err = idxType.FetchUtreexoSummaries(blockHashes)
-			if err != nil {
-				return err
-			}
-
-		case *UtreexoProofIndex:
-			msg, err = idxType.FetchUtreexoSummaries(blockHashes)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	for i, flatSummary := range flatMsg.Summaries {
-		err = compareSummary(flatSummary, msg.Summaries[i])
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func compareSummary(this, other *wire.UtreexoBlockSummary) error {
 	if !this.BlockHash.IsEqual(&other.BlockHash) {
 		return fmt.Errorf("expected %v, got %v", this.BlockHash, other.BlockHash)
@@ -1056,17 +1026,10 @@ func compareBlockSummaryState(indexes []Indexer, blockHash *chainhash.Hash) erro
 	var flatMsg *wire.UtreexoBlockSummary
 	var msg *wire.UtreexoBlockSummary
 
-	var flatSummaries *wire.MsgUtreexoSummaries
-	var summaries *wire.MsgUtreexoSummaries
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
 			flatMsg, err = idxType.fetchBlockSummary(blockHash)
-			if err != nil {
-				return err
-			}
-
-			flatSummaries, err = idxType.FetchUtreexoSummaries([]*chainhash.Hash{blockHash})
 			if err != nil {
 				return err
 			}
@@ -1085,18 +1048,6 @@ func compareBlockSummaryState(indexes []Indexer, blockHash *chainhash.Hash) erro
 			if err != nil {
 				return err
 			}
-
-			summaries, err = idxType.FetchUtreexoSummaries([]*chainhash.Hash{blockHash})
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	for i, summary := range summaries.Summaries {
-		err = compareSummary(summary, flatSummaries.Summaries[i])
-		if err != nil {
-			return err
 		}
 	}
 
@@ -1226,11 +1177,6 @@ func TestUtreexoRootsAndSummaryState(t *testing.T) {
 		}
 
 		blockHashes = append(blockHashes, hash)
-	}
-
-	err = compareBlockSummaries(indexes, blockHashes)
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 

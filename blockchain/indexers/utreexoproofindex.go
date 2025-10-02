@@ -773,38 +773,6 @@ func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastK
 	return idx.Flush(&bestHash, blockchain.FlushRequired, true)
 }
 
-// FetchUtreexoSummaries fetches all the summaries and attaches a proof for those summaries if requsted with the includeProof boolean.
-func (idx *UtreexoProofIndex) FetchUtreexoSummaries(blockHashes []*chainhash.Hash) (*wire.MsgUtreexoSummaries, error) {
-	msg := wire.MsgUtreexoSummaries{
-		Summaries: make([]*wire.UtreexoBlockSummary, 0, len(blockHashes)),
-	}
-
-	for i := range blockHashes {
-		var prevHash *chainhash.Hash
-		if i == 0 {
-			height, err := idx.chain.BlockHeightByHash(blockHashes[i])
-			if err != nil {
-				return nil, err
-			}
-
-			prevHash, err = idx.chain.BlockHashByHeight(height - 1)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			prevHash = blockHashes[i-1]
-		}
-
-		summary, err := idx.fetchBlockSummary(blockHashes[i], prevHash)
-		if err != nil {
-			return nil, err
-		}
-		msg.Summaries = append(msg.Summaries, summary)
-	}
-
-	return &msg, nil
-}
-
 func (idx *UtreexoProofIndex) fetchBlockSummary(blockHash, prevHash *chainhash.Hash) (*wire.UtreexoBlockSummary, error) {
 	ud, err := idx.FetchUtreexoProof(blockHash)
 	if err != nil {

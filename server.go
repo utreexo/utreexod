@@ -699,12 +699,6 @@ func (sp *serverPeer) OnHeaders(_ *peer.Peer, msg *wire.MsgHeaders) {
 	sp.server.syncManager.QueueHeaders(msg, sp.Peer)
 }
 
-// OnUtreexoSummaries is invoked when a peer receives a utreexo summaries bitcoin
-// message.  The message is passed down to the sync manager.
-func (sp *serverPeer) OnUtreexoSummaries(_ *peer.Peer, msg *wire.MsgUtreexoSummaries) {
-	sp.server.syncManager.QueueUtreexoSummaries(msg, sp.Peer)
-}
-
 // handleGetData is invoked when a peer receives a getdata bitcoin message and
 // is used to deliver block and transaction information.
 func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
@@ -889,75 +883,6 @@ func (sp *serverPeer) OnGetHeaders(_ *peer.Peer, msg *wire.MsgGetHeaders) {
 		blockHeaders[i] = &headers[i]
 	}
 	sp.QueueMessage(&wire.MsgHeaders{Headers: blockHeaders}, nil)
-}
-
-// OnGetUtreexoSummaries is invoked when a peer receives a getutreexosummaries bitcoin message.
-func (sp *serverPeer) OnGetUtreexoSummaries(_ *peer.Peer, msg *wire.MsgGetUtreexoSummaries) {
-	// Ignore getutreexoheaders requests if not in sync.
-	if !sp.server.syncManager.IsCurrent() {
-		return
-	}
-
-	if sp.server.utreexoProofIndex == nil && sp.server.flatUtreexoProofIndex == nil {
-		return
-	}
-
-	height, err := sp.server.chain.BlockHeightByHash(&msg.StartHash)
-	if err != nil {
-		chanLog.Debugf("Unable to fetch height for block hash %v: %v",
-			msg.StartHash, err)
-		return
-	}
-
-	// If we're pruned and the requested block is beyond the point where pruned blocks
-	// are able to serve blocks, just ignore the message.
-	bestHeight := sp.server.chain.BestSnapshot().Height
-	if cfg.Prune != 0 && height >= bestHeight-288 {
-		return
-	}
-
-	heights, err := wire.GetUtreexoSummaryHeights(height, bestHeight, msg.MaxReceiveExponent)
-	if err != nil {
-		chanLog.Debugf("Unable to fetch required heights for msg %v: %v",
-			msg.StartHash, err)
-		return
-	}
-
-	bestState := sp.server.chain.BestSnapshot()
-	blockHashes := make([]*chainhash.Hash, 0, len(heights))
-	for _, height := range heights {
-		// We can only serve blocks to our best block.
-		if height > bestState.Height {
-			break
-		}
-		hash, err := sp.server.chain.BlockHashByHeight(height)
-		if err != nil {
-			chanLog.Debugf("Unable to fetch height for block hash %v: %v",
-				msg.StartHash, err)
-			return
-		}
-		blockHashes = append(blockHashes, hash)
-	}
-
-	var usmsg *wire.MsgUtreexoSummaries
-	if sp.server.utreexoProofIndex != nil {
-		usmsg, err = sp.server.utreexoProofIndex.FetchUtreexoSummaries(blockHashes)
-		if err != nil {
-			chanLog.Debugf("Unable to fetch summaries for start hash %v and max receive exponent of %v: %v",
-				msg.StartHash, msg.MaxReceiveExponent, err)
-			return
-		}
-	}
-	if sp.server.flatUtreexoProofIndex != nil {
-		usmsg, err = sp.server.flatUtreexoProofIndex.FetchUtreexoSummaries(blockHashes)
-		if err != nil {
-			chanLog.Debugf("Unable to fetch summaries for start hash %v and max receive exponent of %v: %v",
-				msg.StartHash, msg.MaxReceiveExponent, err)
-			return
-		}
-	}
-
-	sp.QueueMessage(usmsg, nil)
 }
 
 // OnGetCFilters is invoked when a peer receives a getcfilters bitcoin message.
@@ -2658,36 +2583,34 @@ func disconnectPeer(peerList map[int32]*serverPeer, compareFunc func(*serverPeer
 func newPeerConfig(sp *serverPeer) *peer.Config {
 	return &peer.Config{
 		Listeners: peer.MessageListeners{
-			OnVersion:             sp.OnVersion,
-			OnVerAck:              sp.OnVerAck,
-			OnMemPool:             sp.OnMemPool,
-			OnTx:                  sp.OnTx,
-			OnUtreexoTx:           sp.OnUtreexoTx,
-			OnBlock:               sp.OnBlock,
-			OnInv:                 sp.OnInv,
-			OnHeaders:             sp.OnHeaders,
-			OnUtreexoSummaries:    sp.OnUtreexoSummaries,
-			OnUtreexoProof:        sp.OnUtreexoProof,
-			OnUtreexoTTLs:         sp.OnUtreexoTTLs,
-			OnGetUtreexoProof:     sp.OnGetUtreexoProof,
-			OnGetUtreexoRoot:      sp.OnGetUtreexoRoot,
-			OnGetUtreexoTTLs:      sp.OnGetUtreexoTTLs,
-			OnGetData:             sp.OnGetData,
-			OnGetBlocks:           sp.OnGetBlocks,
-			OnGetHeaders:          sp.OnGetHeaders,
-			OnGetUtreexoSummaries: sp.OnGetUtreexoSummaries,
-			OnGetCFilters:         sp.OnGetCFilters,
-			OnGetCFHeaders:        sp.OnGetCFHeaders,
-			OnGetCFCheckpt:        sp.OnGetCFCheckpt,
-			OnFeeFilter:           sp.OnFeeFilter,
-			OnFilterAdd:           sp.OnFilterAdd,
-			OnFilterClear:         sp.OnFilterClear,
-			OnFilterLoad:          sp.OnFilterLoad,
-			OnGetAddr:             sp.OnGetAddr,
-			OnAddr:                sp.OnAddr,
-			OnRead:                sp.OnRead,
-			OnWrite:               sp.OnWrite,
-			OnNotFound:            sp.OnNotFound,
+			OnVersion:         sp.OnVersion,
+			OnVerAck:          sp.OnVerAck,
+			OnMemPool:         sp.OnMemPool,
+			OnTx:              sp.OnTx,
+			OnUtreexoTx:       sp.OnUtreexoTx,
+			OnBlock:           sp.OnBlock,
+			OnInv:             sp.OnInv,
+			OnHeaders:         sp.OnHeaders,
+			OnUtreexoProof:    sp.OnUtreexoProof,
+			OnUtreexoTTLs:     sp.OnUtreexoTTLs,
+			OnGetUtreexoProof: sp.OnGetUtreexoProof,
+			OnGetUtreexoRoot:  sp.OnGetUtreexoRoot,
+			OnGetUtreexoTTLs:  sp.OnGetUtreexoTTLs,
+			OnGetData:         sp.OnGetData,
+			OnGetBlocks:       sp.OnGetBlocks,
+			OnGetHeaders:      sp.OnGetHeaders,
+			OnGetCFilters:     sp.OnGetCFilters,
+			OnGetCFHeaders:    sp.OnGetCFHeaders,
+			OnGetCFCheckpt:    sp.OnGetCFCheckpt,
+			OnFeeFilter:       sp.OnFeeFilter,
+			OnFilterAdd:       sp.OnFilterAdd,
+			OnFilterClear:     sp.OnFilterClear,
+			OnFilterLoad:      sp.OnFilterLoad,
+			OnGetAddr:         sp.OnGetAddr,
+			OnAddr:            sp.OnAddr,
+			OnRead:            sp.OnRead,
+			OnWrite:           sp.OnWrite,
+			OnNotFound:        sp.OnNotFound,
 
 			// Note: The reference client currently bans peers that send alerts
 			// not signed with its key.  We could verify against their key, but

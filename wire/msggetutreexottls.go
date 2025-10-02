@@ -7,6 +7,8 @@ package wire
 import (
 	"fmt"
 	"io"
+
+	"github.com/utreexo/utreexo"
 )
 
 // MsgGetUtreexoTTLs implements the Message interface and represents a bitcoin
@@ -115,6 +117,50 @@ func NewMsgGetUtreexoTTLs(version, startHeight uint32, maxReceiveExponent uint8)
 		StartHeight:        startHeight,
 		MaxReceiveExponent: maxReceiveExponent,
 	}
+}
+
+// GetUtreexoTTLHeights returns the heights of the blocks that we can serve based on the startBlock
+// and the exponent. The returned heights are such that they always minimize the proof size.
+func GetUtreexoTTLHeights(startBlock, bestHeight int32, exponent uint8) ([]int32, error) {
+	count := int32(1 << exponent)
+	numLeaves := uint64(bestHeight + 1)
+
+	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves)
+	heights := make([]int32, 0, count)
+	for i := int32(0); i < count; i++ {
+		position := i + startBlock
+		if position > bestHeight {
+			break
+		}
+		got, _, _, _ := utreexo.DetectOffset(uint64(position), numLeaves)
+		if got != subtree {
+			break
+		}
+		heights = append(heights, position)
+	}
+
+	return heights, nil
+}
+
+// getUtreexoExponent is a function that returns the ideal exponent to minimize the proof size
+// while requesting as much as possible with the given arguments.
+func getUtreexoExponent(startBlock, endHeight, bestHeight int32, maxExp uint8) uint8 {
+	numLeaves := uint64(bestHeight + 1)
+	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves)
+
+	exponent := uint8(0)
+	for ; exponent < maxExp; exponent++ {
+		height := uint64(startBlock + (1 << exponent))
+		if height > uint64(endHeight) {
+			break
+		}
+		gotSubTree, _, _, _ := utreexo.DetectOffset(height, numLeaves)
+		if subtree != gotSubTree {
+			break
+		}
+	}
+
+	return exponent
 }
 
 // GetUtreexoTTLsExponent returns the ideal exponent to minimize the proof size for the given arguments
