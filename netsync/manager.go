@@ -202,26 +202,25 @@ func limitAdd(m map[chainhash.Hash]struct{}, hash chainhash.Hash, limit int) {
 	m[hash] = struct{}{}
 }
 
-// ttlTarget is a helper for the TTLHeap. Just the death height and the position when it's spent.
-type ttlTarget struct {
-	deathHeight uint64
-	pos         uint64
-}
-
 // TTLHeap is a priority queue for the ttlTargets. Used to grab all the targets at the next earliest
 // block height.
-type TTLHeap []ttlTarget
+type TTLHeap []wire.TTLInfo
 
-func (h TTLHeap) Len() int           { return len(h) }
-func (h TTLHeap) Less(i, j int) bool { return h[i].deathHeight < h[j].deathHeight }
-func (h TTLHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h TTLHeap) Len() int { return len(h) }
+func (h TTLHeap) Less(i, j int) bool {
+	if h[i].DeathHeight == h[j].DeathHeight {
+		return h[i].DeathBlkIndex < h[j].DeathBlkIndex
+	}
+	return h[i].DeathHeight < h[j].DeathHeight
+}
+func (h TTLHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 func (h TTLHeap) View() any {
 	if len(h) == 0 {
 		return nil
 	}
 	return h[0]
 }
-func (h *TTLHeap) Push(x any) { *h = append(*h, x.(ttlTarget)) }
+func (h *TTLHeap) Push(x any) { *h = append(*h, x.(wire.TTLInfo)) }
 func (h *TTLHeap) Pop() any {
 	old := *h
 	n := len(old)
@@ -262,7 +261,7 @@ type SyncManager struct {
 	headersFirstMode    bool
 	committedTTLAcc     *utreexo.Stump
 	queuedTTLs          map[int32]wire.UtreexoTTL
-	ttlTargets          TTLHeap
+	ttlInfos            TTLHeap
 	queuedBlocks        map[chainhash.Hash]*blockMsg
 	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
 
@@ -1063,18 +1062,18 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 
 // getTargetsAtHeight returns all the targets at the passed in height.
 //
-// NOTE: if the height given is greater than the next ttlTarget's deathHeight,
+// NOTE: if the height given is greater than the next ttlInfo's deathHeight,
 // the returned slice will be empty.
-func getTargetsAtHeight(h *TTLHeap, height int32) []uint64 {
+func getTargetsAtHeight(h *TTLHeap, height uint32) []uint64 {
 	targets := []uint64{}
 	for h.Len() > 0 {
-		item := h.View().(ttlTarget)
-		if item.deathHeight != uint64(height) {
+		item := h.View().(wire.TTLInfo)
+		if item.DeathHeight != height {
 			break
 		}
 
-		if item.deathHeight == uint64(height) {
-			targets = append(targets, item.pos)
+		if item.DeathHeight == height {
+			targets = append(targets, item.DeathPos)
 			heap.Pop(h)
 		}
 	}
@@ -1187,7 +1186,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 
 				// We don't use the returned values yet.
 				// TODO: use them.
-				getTargetsAtHeight(&sm.ttlTargets, h)
+				getTargetsAtHeight(&sm.ttlInfos, uint32(h))
 
 				msg := wire.MsgGetUtreexoProof{
 					BlockHash:  *hash,
@@ -1403,16 +1402,12 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 				continue
 			}
 
-			sm.ttlTargets.Push(
-				ttlTarget{
-					deathHeight: uint64(ttlInfo.DeathHeight),
-					pos:         ttlInfo.DeathPos,
-				})
+			sm.ttlInfos.Push(ttlInfo)
 		}
 
 		sm.queuedTTLs[int32(ttlPerBlock.BlockHeight)] = ttlPerBlock
 	}
-	heap.Init(&sm.ttlTargets)
+	heap.Init(&sm.ttlInfos)
 
 	sm.fetchHeaderBlocks(nil)
 }
