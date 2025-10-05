@@ -202,26 +202,25 @@ func limitAdd(m map[chainhash.Hash]struct{}, hash chainhash.Hash, limit int) {
 	m[hash] = struct{}{}
 }
 
-// ttlTarget is a helper for the TTLHeap. Just the death height and the position when it's spent.
-type ttlTarget struct {
-	deathHeight uint64
-	pos         uint64
-}
-
 // TTLHeap is a priority queue for the ttlTargets. Used to grab all the targets at the next earliest
 // block height.
-type TTLHeap []ttlTarget
+type TTLHeap []wire.TTLInfo
 
-func (h TTLHeap) Len() int           { return len(h) }
-func (h TTLHeap) Less(i, j int) bool { return h[i].deathHeight < h[j].deathHeight }
-func (h TTLHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h TTLHeap) Len() int { return len(h) }
+func (h TTLHeap) Less(i, j int) bool {
+	if h[i].DeathHeight == h[j].DeathHeight {
+		return h[i].DeathBlkIndex < h[j].DeathBlkIndex
+	}
+	return h[i].DeathHeight < h[j].DeathHeight
+}
+func (h TTLHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 func (h TTLHeap) View() any {
 	if len(h) == 0 {
 		return nil
 	}
 	return h[0]
 }
-func (h *TTLHeap) Push(x any) { *h = append(*h, x.(ttlTarget)) }
+func (h *TTLHeap) Push(x any) { *h = append(*h, x.(wire.TTLInfo)) }
 func (h *TTLHeap) Pop() any {
 	old := *h
 	n := len(old)
@@ -262,7 +261,9 @@ type SyncManager struct {
 	headersFirstMode    bool
 	committedTTLAcc     *utreexo.Stump
 	queuedTTLs          map[int32]wire.UtreexoTTL
-	ttlTargets          TTLHeap
+	queuedTargets       map[chainhash.Hash][]uint64
+	numLeaves           map[int32]uint64
+	ttlInfos            TTLHeap
 	queuedBlocks        map[chainhash.Hash]*blockMsg
 	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
 
@@ -829,7 +830,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		}
 	}
 
-	// Check if we've received the utreexo summaries already.
+	// Check if we've received the utreexo proofs already.
 	if sm.chain.IsUtreexoViewActive() {
 		best := sm.chain.BestSnapshot()
 		if !best.Hash.IsEqual(&bmsg.block.MsgBlock().Header.PrevBlock) {
@@ -851,9 +852,30 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		// it's safee to remove this utreexo proof from the queue.
 		delete(sm.queuedUtreexoProofs, *bmsg.block.Hash())
 
+		height, err := sm.chain.HeaderHeightByHash(*blockHash)
+		if err != nil {
+			log.Warnf("failed to fetch height for hash %v", blockHash)
+			return
+		}
+
+		targets := utreexoProofMsg.proof.Targets
+		if uint64(height) <= sm.committedTTLAcc.NumLeaves-1 {
+
+			// Grab the targets from the queued targets as we would have
+			// calculated them from the ttls.
+			targets, found = sm.queuedTargets[*blockHash]
+			if !found {
+				log.Warnf("got block %v but don't have the associated "+
+					"utreexo targets", blockHash)
+				return
+			}
+
+			delete(sm.queuedTargets, *blockHash)
+		}
+
 		udata := wire.UData{
 			AccProof: utreexo.Proof{
-				Targets: utreexoProofMsg.proof.Targets,
+				Targets: targets,
 				Proof:   utreexoProofMsg.proof.ProofHashes,
 			},
 			LeafDatas: utreexoProofMsg.proof.LeafDatas,
@@ -1063,18 +1085,18 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 
 // getTargetsAtHeight returns all the targets at the passed in height.
 //
-// NOTE: if the height given is greater than the next ttlTarget's deathHeight,
+// NOTE: if the height given is greater than the next ttlInfo's deathHeight,
 // the returned slice will be empty.
-func getTargetsAtHeight(h *TTLHeap, height int32) []uint64 {
+func getTargetsAtHeight(h *TTLHeap, height uint32) []uint64 {
 	targets := []uint64{}
 	for h.Len() > 0 {
-		item := h.View().(ttlTarget)
-		if item.deathHeight != uint64(height) {
+		item := h.View().(wire.TTLInfo)
+		if item.DeathHeight != height {
 			break
 		}
 
-		if item.deathHeight == uint64(height) {
-			targets = append(targets, item.pos)
+		if item.DeathHeight == height {
+			targets = append(targets, item.DeathPos)
 			heap.Pop(h)
 		}
 	}
@@ -1185,14 +1207,20 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			if sm.chain.IsUtreexoViewActive() {
 				peerState.requestedUtreexoProofs[*hash] = struct{}{}
 
-				// We don't use the returned values yet.
-				// TODO: use them.
-				getTargetsAtHeight(&sm.ttlTargets, h)
-
 				msg := wire.MsgGetUtreexoProof{
 					BlockHash:  *hash,
 					TargetBool: true,
 				}
+
+				if uint64(h) <= sm.committedTTLAcc.NumLeaves-1 {
+					targets := getTargetsAtHeight(&sm.ttlInfos, uint32(h))
+					sm.queuedTargets[*hash] = targets
+					numLeaves := sm.numLeaves[h-1]
+
+					msg.ProofIndexBitMap = wire.GetProofBitMap(targets, numLeaves)
+					msg.LeafIndexBitMap = wire.GetLeafBitMap(targets)
+				}
+
 				reqPeer.QueueMessage(&msg, nil)
 			}
 		}
@@ -1403,16 +1431,15 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 				continue
 			}
 
-			sm.ttlTargets.Push(
-				ttlTarget{
-					deathHeight: uint64(ttlInfo.DeathHeight),
-					pos:         ttlInfo.DeathPos,
-				})
+			sm.ttlInfos.Push(ttlInfo)
 		}
 
 		sm.queuedTTLs[int32(ttlPerBlock.BlockHeight)] = ttlPerBlock
+
+		prevLeaves := sm.numLeaves[int32(ttlPerBlock.BlockHeight)-1]
+		sm.numLeaves[int32(ttlPerBlock.BlockHeight)] = prevLeaves + uint64(len(ttlPerBlock.TTLs))
 	}
-	heap.Init(&sm.ttlTargets)
+	heap.Init(&sm.ttlInfos)
 
 	sm.fetchHeaderBlocks(nil)
 }
@@ -2242,8 +2269,10 @@ func New(config *Config) (*SyncManager, error) {
 		requestedTxns:       make(map[chainhash.Hash]struct{}),
 		requestedBlocks:     make(map[chainhash.Hash]struct{}),
 		queuedTTLs:          make(map[int32]wire.UtreexoTTL),
+		queuedTargets:       make(map[chainhash.Hash][]uint64),
 		queuedBlocks:        make(map[chainhash.Hash]*blockMsg),
 		queuedUtreexoProofs: make(map[chainhash.Hash]*utreexoProofMsg),
+		numLeaves:           make(map[int32]uint64),
 		peerStates:          make(map[*peerpkg.Peer]*peerSyncState),
 		progressLogger:      newBlockProgressLogger("Processed", log),
 		msgChan:             make(chan interface{}, config.MaxPeers*3),
@@ -2257,6 +2286,10 @@ func New(config *Config) (*SyncManager, error) {
 				// Initialize the committed ttl state.
 				sm.committedTTLAcc = &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
 			}
+
+			bestHeight := sm.chain.BestSnapshot().Height
+			view := sm.chain.GetUtreexoView()
+			sm.numLeaves[bestHeight] = view.NumLeaves()
 		}
 	} else {
 		log.Info("Checkpoints are disabled")
