@@ -6,9 +6,28 @@ package wire
 
 import (
 	"io"
+	"math"
 
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
+
+// math.MaxUint8 in bitmaps. Ceiling divide.
+const maxProofSizePerInput = (math.MaxUint8 + 8 - 1) / 8
+
+// MaxPossibleInputsPerBlock in bitmaps. Ceiling divide.
+const maxLeafIndexBitMapSize = (MaxPossibleInputsPerBlock + 8 - 1) / 8
+
+// hashsize + target bool + proofBitMap len + maxProofSizePerInput*MaxPossibleInputsPerBlock +
+// leafindex bitmap len + maxLeafIndexBitMapSize.
+const MaxGetUtreexoProofSize = chainhash.HashSize +
+	1 +
+	MaxVarIntPayload +
+	(maxProofSizePerInput * MaxPossibleInputsPerBlock) +
+	MaxVarIntPayload +
+	maxLeafIndexBitMapSize
+
+// Enforce that the MaxGetUtreexoProofSize is smaller than the max message payload.
+var _ [MaxMessagePayload - MaxGetUtreexoProofSize]struct{}
 
 // MsgGetUtreexoProof encodes uint64s in varints to request specifics indexes of a
 // utreexoproof from a peer.
@@ -121,9 +140,7 @@ func (msg *MsgGetUtreexoProof) Command() string {
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver.  This is part of the Message interface implementation.
 func (msg *MsgGetUtreexoProof) MaxPayloadLength(pver uint32) uint32 {
-	// hashsize + target bool + proofBitMap len + math.MaxUint8 in bitmaps +
-	// leafindex bitmap len + MaxPossibleInputsPerBlock in bitmaps.
-	return chainhash.HashSize + 1 + MaxVarIntPayload + 32 + MaxVarIntPayload + 3049
+	return MaxGetUtreexoProofSize
 }
 
 // IsLeafDataRequested returns if the leafdata at the given index is requested or not.
