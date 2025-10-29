@@ -99,6 +99,8 @@ Example:
 `./utreexoctl createtransactionfrombdkwallet 12 '[{"amount":10000,"address":"tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq"},{"amount":20000,"address":"tb1puuv30z568uc58c40duwl5ytyu5898fyehlyqtm0al2xk70z8tw0qcxfn6w"}]'`
 ```
 
+### Bridge node
+
 Bridge nodes are nodes that keep the entire merkle forest and attach proofs to new blocks
 and transactions. Since miners and nodes publish blocks and transactions without proofs, these
 nodes are needed to allow for utreexo nodes without a soft fork. To run a bridge node:
