@@ -7,9 +7,7 @@ package wire
 import (
 	"io"
 	"math"
-	"slices"
 
-	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
@@ -153,31 +151,6 @@ func (msg *MsgGetUtreexoProof) IsLeafDataRequested(idx int) bool {
 // IsProofRequested returns if the proof hash at the given index is requested or not.
 func (msg *MsgGetUtreexoProof) IsProofRequested(idx int) bool {
 	return isBitSet(msg.ProofIndexBitMap, idx)
-}
-
-// GetProofBitMap returns a bitmap requesting all proofs for the given targets and numleaves.
-func GetProofBitMap(targets []uint64, numleaves uint64) []byte {
-	targetsCopy := make([]uint64, len(targets))
-	copy(targetsCopy, targets)
-	slices.Sort(targetsCopy)
-
-	proofPositions, _ := utreexo.ProofPositions(targetsCopy, numleaves, utreexo.TreeRows(numleaves))
-
-	bitMap := make([]bool, len(proofPositions))
-	for i := range bitMap {
-		bitMap[i] = true
-	}
-
-	return createBitmap(bitMap)
-}
-
-// GetLeafBitMap returns a bitmap requesting all leaf datas for the given targets.
-func GetLeafBitMap(targets []uint64) []byte {
-	bitMap := make([]bool, len(targets))
-	for i := range bitMap {
-		bitMap[i] = true
-	}
-	return createBitmap(bitMap)
 }
 
 // Returns true if the bit at the given index is set.

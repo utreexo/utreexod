@@ -1317,17 +1317,13 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 		return
 	}
 
-	ttls := tmsg.ttls.TTLs
-	startHeight := int32(ttls[0].BlockHeight)
-	endHeight := int32(ttls[len(ttls)-1].BlockHeight)
-
-	// Construct the get message that would've gave us this ttl message.
-	gotGtMsg := sm.utreexoCache.FetchMsgGetUtreexoTTLs(startHeight, endHeight)
-
 	// Disconnect if we didn't request these.
+	gotGtMsg := sm.utreexoCache.CalcFetchTTLMsg(tmsg.ttls)
 	if _, exists = state.requestedUtreexoTTLs[gotGtMsg]; !exists {
 		log.Warnf("Got unrequested utreexo ttls %v - %v from %s -- "+
-			"disconnecting", startHeight, endHeight, peer.Addr())
+			"disconnecting", tmsg.ttls.TTLs[0].BlockHeight,
+			tmsg.ttls.TTLs[len(tmsg.ttls.TTLs)-1].BlockHeight,
+			peer.Addr())
 		peer.Disconnect()
 		return
 	}
@@ -1879,6 +1875,8 @@ out:
 		if err := sm.chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
 			log.Errorf("Error while flushing blockchain caches: %v", err)
 		}
+	} else {
+		sm.chain.FlushUtreexoTTLCache()
 	}
 
 	sm.wg.Done()

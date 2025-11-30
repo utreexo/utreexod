@@ -60,12 +60,6 @@ type UtreexoViewpoint struct {
 	// It only holds the root hashes and the number of elements in the
 	// accumulator.
 	accumulator utreexo.MapPollard
-
-	//// cache holds the currently cached leaves.
-	//cache map[utreexo.Hash]wire.LeafData
-
-	//// cachedLeafHeap is a priority queue of the cached leaves ordered by their death heights.
-	//cachedLeafHeap LeafHeap
 }
 
 func (uview *UtreexoViewpoint) MakeProofFull(origTargets []uint64, haves []bool, proofHashes []utreexo.Hash) (*utreexo.Proof, error) {
@@ -90,117 +84,11 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 	return newUview
 }
 
-//// addLeafToCache adds a single leaf to the cache.
-//func (uview *UtreexoViewpoint) addLeafToCache(cacheLeaf cachedLeaf, leaf wire.LeafData) {
-//	// Add to the cache.
-//	uview.cache[cacheLeaf.hash] = leaf
-//
-//	// Add to the heap.
-//	uview.cachedLeafHeap.Push(cacheLeaf)
-//	heap.Init(&uview.cachedLeafHeap)
-//}
-//
-//// maybeReplace checks the next leaf in the priority queue and replaces it with the passed in leaf
-//// if the newLeaf's deathHeight is earlier.
-//func (uview *UtreexoViewpoint) maybeReplace(newLeaf cachedLeaf, leafData wire.LeafData) *utreexo.Hash {
-//	// Check if the newLeaf's deathHeight is less than the next leaf in the
-//	// priority queue.
-//	item := uview.cachedLeafHeap.View().(cachedLeaf)
-//	if item.deathHeight >= newLeaf.deathHeight {
-//		if item.deathHeight == newLeaf.deathHeight &&
-//			item.deathIndex < newLeaf.deathIndex {
-//			return nil
-//		}
-//
-//		// Remove current.
-//		delete(uview.cache, item.hash)
-//		heap.Pop(&uview.cachedLeafHeap)
-//
-//		// Replace.
-//		uview.addLeafToCache(newLeaf, leafData)
-//
-//		return &item.hash
-//	}
-//
-//	return nil
-//}
-//
-//// updateCaches looks into the cache and adds new leaves wherever possible.
-//func (uview *UtreexoViewpoint) updateCaches(block *btcutil.Block, leaves []wire.LeafData) ([]utreexo.Leaf, []utreexo.Hash) {
-//	ttls := block.UtreexoTTLs()
-//	if ttls == nil {
-//		return nil, nil
-//	}
-//
-//	// Check the cache for spent positions.
-//	cachedstr := ""
-//	for uview.cachedLeafHeap.Len() > 0 {
-//		// If the leaf's deathheight is now, remove it.
-//		item := uview.cachedLeafHeap.View().(cachedLeaf)
-//		if item.deathHeight <= block.Height() {
-//			delete(uview.cache, item.hash)
-//			heap.Pop(&uview.cachedLeafHeap)
-//			cachedstr += fmt.Sprintf("%v, ", item.deathPos)
-//		} else {
-//			// Break if we don't have any more to pop.
-//			break
-//		}
-//	}
-//	//log.Infof("uview cached at block %v(%v):\n%v\n", block.Hash(), block.Height(), cachedstr)
-//
-//	addHashes := make([]utreexo.Leaf, len(leaves))
-//	for i := range addHashes {
-//		addHashes[i] = utreexo.Leaf{Hash: leaves[i].LeafHash()}
-//	}
-//
-//	uncache := []utreexo.Hash{}
-//
-//	for i, ttl := range ttls.TTLs {
-//		if ttl.DeathHeight == 0 {
-//			continue
-//		}
-//
-//		// Create the leaf to potentially cache.
-//		leaf := cachedLeaf{
-//			hash:        addHashes[i].Hash,
-//			deathHeight: int32(ttl.DeathHeight),
-//			deathPos:    ttl.DeathPos,
-//			deathIndex:  ttl.DeathBlkIndex,
-//		}
-//
-//		// Simply add the leaf if we're under the maxCachedLeaves limit.
-//		if len(uview.cache) < MaxCachedLeaves {
-//			// Add to the cache.
-//			uview.addLeafToCache(leaf, leaves[i])
-//
-//			// Set the add to be remembered.
-//			addHashes[i].Remember = true
-//
-//			continue
-//		}
-//
-//		// If we're here, we must check if we can replace an existing
-//		// leaf.
-//		replaced := uview.maybeReplace(leaf, leaves[i])
-//		if replaced != nil {
-//			// Add it to be uncached.
-//			uncache = append(uncache, *replaced)
-//
-//			// Set the add to be remembered.
-//			addHashes[i].Remember = true
-//		}
-//	}
-//
-//	return addHashes, uncache
-//}
-
 // ProcessUData updates the underlying accumulator. It does NOT check if the verification passes.
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	bestChain *chainView, ud *wire.UData) error {
 
-	//// Extracts the block into additions and deletions that will be processed.
-	//// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-
+	// Extracts the block into deletions that will be processed.
 	dels, err := ExtractAccumulatorDels(block, bestChain)
 	if err != nil {
 		return err
@@ -955,27 +843,6 @@ func (uview *UtreexoViewpoint) ToString() string {
 	return uview.accumulator.String()
 }
 
-//// compareRoots is the underlying method that calls the utreexo accumulator code
-//func (uview *UtreexoViewpoint) compareRoots(compRoot []utreexo.Hash) bool {
-//	uviewRoots := uview.accumulator.GetRoots()
-//
-//	if len(uviewRoots) != len(compRoot) {
-//		log.Criticalf("Length of the given roots differs from the one" +
-//			"fetched from the utreexoViewpoint.")
-//		return false
-//	}
-//
-//	for i, root := range compRoot {
-//		if !bytes.Equal(root[:], uviewRoots[i][:]) {
-//			log.Debugf("The compared Utreexo roots differ."+
-//				"Passed in root:%x\nRoot from utreexoViewpoint:%x\n", root, uviewRoots[i])
-//			return false
-//		}
-//	}
-//
-//	return true
-//}
-
 // PruneAll deletes all the cached leaves in the utreexo viewpoint, leaving only the
 // roots of the accumulator.
 func (uview *UtreexoViewpoint) PruneAll() {
@@ -987,8 +854,6 @@ func (uview *UtreexoViewpoint) PruneAll() {
 func NewUtreexoViewpoint() *UtreexoViewpoint {
 	return &UtreexoViewpoint{
 		accumulator: utreexo.NewMapPollard(false),
-		//cache:          make(map[utreexo.Hash]wire.LeafData),
-		//cachedLeafHeap: make([]cachedLeaf, 0, MaxCachedLeaves),
 	}
 }
 

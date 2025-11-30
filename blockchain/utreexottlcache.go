@@ -12,6 +12,7 @@ import (
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -536,6 +537,14 @@ func (uc *UtreexoTTLCache) ValidAtHeight(height int32) bool {
 func (uc *UtreexoTTLCache) FetchMsgGetUtreexoTTLs(startHeight, endHeight int32) wire.MsgGetUtreexoTTLs {
 	return wire.CalculateGetUtreexoTTLMsgs(
 		uint32(uc.ttlAccumulator.NumLeaves), startHeight, endHeight)
+}
+
+func (b *BlockChain) FlushUtreexoTTLCache() error {
+	bestHash := b.BestSnapshot().Hash
+	err := b.db.Update(func(dbTx database.Tx) error {
+		return dbPutUtreexoView(dbTx, b.utreexoView, &bestHash)
+	})
+	return err
 }
 
 // InitUtreexoTTLCache initializes the utreexo ttl cache with the given inputs.
