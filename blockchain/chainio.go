@@ -1160,6 +1160,7 @@ func dbPutUtreexoView(dbTx database.Tx, uView *UtreexoViewpoint, blockHash *chai
 func dbFetchUtreexoView(dbTx database.Tx, blockHash *chainhash.Hash) (*UtreexoViewpoint, error) {
 	utreexoBucket := dbTx.Metadata().Bucket(utreexoStateBucketName)
 	serializedUtreexoView := utreexoBucket.Get(blockHash[:])
+
 	if serializedUtreexoView == nil {
 		return nil, nil
 	}
@@ -1177,6 +1178,36 @@ func dbFetchUtreexoView(dbTx database.Tx, blockHash *chainhash.Hash) (*UtreexoVi
 func dbRemoveUtreexoView(dbTx database.Tx, blockHash chainhash.Hash) error {
 	utreexoBucket := dbTx.Metadata().Bucket(utreexoStateBucketName)
 	return utreexoBucket.Delete(blockHash[:])
+}
+
+// dbPutUtreexoCache stores the utreexoViewpoint with the cache into the database.
+func dbPutUtreexoCache(dbTx database.Tx, uView *UtreexoViewpoint, blockHash *chainhash.Hash) error {
+	utreexoBucket := dbTx.Metadata().Bucket(utreexoStateBucketName)
+
+	size := uView.accumulator.SerializeSize()
+	buf := bytes.NewBuffer(make([]byte, 0, size))
+	_, err := uView.accumulator.Write(buf)
+	if err != nil {
+		return err
+	}
+
+	err = utreexoBucket.Put(blockHash[:], buf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func dbFetchUtreexoCache(dbTx database.Tx, blockHash *chainhash.Hash) (*UtreexoViewpoint, error) {
+	utreexoBucket := dbTx.Metadata().Bucket(utreexoStateBucketName)
+
+	buf := utreexoBucket.Get(blockHash[:])
+	r := bytes.NewBuffer(buf)
+
+	uView := NewUtreexoViewpoint()
+	_, err := uView.accumulator.Read(r)
+	return uView, err
 }
 
 // createChainState initializes both the database and the chain state to the

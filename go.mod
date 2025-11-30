@@ -20,7 +20,7 @@ require (
 	github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23
 	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/utreexo/utreexo v0.8.0
+	github.com/utreexo/utreexo v0.10.0
 	golang.org/x/crypto v0.7.0
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df
 )
@@ -35,6 +35,7 @@ require (
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
+	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/getsentry/sentry-go v0.27.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect

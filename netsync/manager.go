@@ -5,9 +5,6 @@
 package netsync
 
 import (
-	"bytes"
-	"container/heap"
-	"crypto/sha256"
 	"math/rand"
 	"net"
 	"os"
@@ -15,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -202,26 +198,25 @@ func limitAdd(m map[chainhash.Hash]struct{}, hash chainhash.Hash, limit int) {
 	m[hash] = struct{}{}
 }
 
-// ttlTarget is a helper for the TTLHeap. Just the death height and the position when it's spent.
-type ttlTarget struct {
-	deathHeight uint64
-	pos         uint64
-}
-
 // TTLHeap is a priority queue for the ttlTargets. Used to grab all the targets at the next earliest
 // block height.
-type TTLHeap []ttlTarget
+type TTLHeap []wire.TTLInfo
 
-func (h TTLHeap) Len() int           { return len(h) }
-func (h TTLHeap) Less(i, j int) bool { return h[i].deathHeight < h[j].deathHeight }
-func (h TTLHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h TTLHeap) Len() int { return len(h) }
+func (h TTLHeap) Less(i, j int) bool {
+	if h[i].DeathHeight == h[j].DeathHeight {
+		return h[i].DeathBlkIndex < h[j].DeathBlkIndex
+	}
+	return h[i].DeathHeight < h[j].DeathHeight
+}
+func (h TTLHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 func (h TTLHeap) View() any {
 	if len(h) == 0 {
 		return nil
 	}
 	return h[0]
 }
-func (h *TTLHeap) Push(x any) { *h = append(*h, x.(ttlTarget)) }
+func (h *TTLHeap) Push(x any) { *h = append(*h, x.(wire.TTLInfo)) }
 func (h *TTLHeap) Pop() any {
 	old := *h
 	n := len(old)
@@ -258,11 +253,13 @@ type SyncManager struct {
 	// headersBuildMode downloads and builds the entire header index.
 	headersBuildMode bool
 
-	// The following fields are used for headers-first mode.
-	headersFirstMode    bool
-	committedTTLAcc     *utreexo.Stump
-	queuedTTLs          map[int32]wire.UtreexoTTL
-	ttlTargets          TTLHeap
+	// headersFirstMode indicates if the sync state is performing ibd.
+	headersFirstMode bool
+
+	// utreexoCache is relevant when the node is a utreexo csn and is in ibd
+	// mode.
+	utreexoCache *blockchain.UtreexoTTLCache
+
 	queuedBlocks        map[chainhash.Hash]*blockMsg
 	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
 
@@ -793,14 +790,6 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 		isCheckpointBlock = true
 	}
 
-	ttls, found := sm.queuedTTLs[height]
-	if found {
-		block.SetUtreexoTTLs(&ttls)
-
-		// Remove the no longer needed ttl.
-		delete(sm.queuedTTLs, height)
-	}
-
 	return isCheckpointBlock, behaviorFlags
 }
 
@@ -829,7 +818,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		}
 	}
 
-	// Check if we've received the utreexo summaries already.
+	// Check if we've received the utreexo proofs already.
 	if sm.chain.IsUtreexoViewActive() {
 		best := sm.chain.BestSnapshot()
 		if !best.Hash.IsEqual(&bmsg.block.MsgBlock().Header.PrevBlock) {
@@ -851,15 +840,24 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		// it's safee to remove this utreexo proof from the queue.
 		delete(sm.queuedUtreexoProofs, *bmsg.block.Hash())
 
-		udata := wire.UData{
-			AccProof: utreexo.Proof{
-				Targets: utreexoProofMsg.proof.Targets,
-				Proof:   utreexoProofMsg.proof.ProofHashes,
-			},
-			LeafDatas: utreexoProofMsg.proof.LeafDatas,
+		height, err := sm.chain.HeaderHeightByHash(*blockHash)
+		if err != nil {
+			log.Warnf("failed to fetch height for hash %v", blockHash)
+			return
 		}
+		bmsg.block.SetHeight(height)
 
-		bmsg.block.MsgBlock().UData = &udata
+		if sm.utreexoCache.ValidAtHeight(height) {
+			udata, addLeaves, uncache, err := sm.utreexoCache.GetUData(sm.chain.GetUtreexoView(), bmsg.block, utreexoProofMsg.proof)
+			if err != nil {
+				log.Warnf("error while making proof full on block %v(%v) %v",
+					blockHash, height, err)
+				return
+			}
+			bmsg.block.MsgBlock().UData = udata
+			bmsg.block.SetAddLeaves(addLeaves)
+			bmsg.block.SetUncacheHashes(uncache)
+		}
 	}
 
 	// Process the block based off the headers if we're still in headers-first mode.
@@ -900,6 +898,13 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		code, reason := mempool.ErrToRejectErr(err)
 		peer.PushRejectMsg(wire.CmdBlock, code, reason, blockHash, false)
 		return
+	}
+
+	// Remove the ttl cache after the block has been processed.
+	if sm.chain.IsUtreexoViewActive() &&
+		sm.utreexoCache.ValidAtHeight(bmsg.block.Height()) {
+
+		sm.utreexoCache.RemoveCache(bmsg.block.Height())
 	}
 
 	// Meta-data about the new block this peer is reporting. We use this
@@ -1025,8 +1030,8 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 		return
 	}
 
-	if sm.committedTTLAcc == nil {
-		log.Warnf("fetchUtreexoTTLs called with nil sm.committedTTLAcc")
+	if sm.utreexoCache == nil {
+		log.Warnf("fetchUtreexoTTLs called with nil sm.utreexoCache")
 		return
 	}
 
@@ -1042,12 +1047,8 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 		return
 	}
 
-	stump := *sm.committedTTLAcc
-
 	bestState := sm.chain.BestSnapshot()
-	gtmsg := wire.CalculateGetUtreexoTTLMsgs(
-		uint32(stump.NumLeaves), bestState.Height+1,
-		bestState.Height+wire.MaxUtreexoTTLsPerMsg)
+	gtmsg := sm.utreexoCache.FetchMsgGetUtreexoTTLs(bestState.Height+1, bestState.Height+wire.MaxUtreexoTTLsPerMsg)
 
 	_, found := peerState.requestedUtreexoTTLs[gtmsg]
 	if !found {
@@ -1059,27 +1060,6 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 			reqPeer.String())
 		reqPeer.QueueMessage(&gtmsg, nil)
 	}
-}
-
-// getTargetsAtHeight returns all the targets at the passed in height.
-//
-// NOTE: if the height given is greater than the next ttlTarget's deathHeight,
-// the returned slice will be empty.
-func getTargetsAtHeight(h *TTLHeap, height int32) []uint64 {
-	targets := []uint64{}
-	for h.Len() > 0 {
-		item := h.View().(ttlTarget)
-		if item.deathHeight != uint64(height) {
-			break
-		}
-
-		if item.deathHeight == uint64(height) {
-			targets = append(targets, item.pos)
-			heap.Pop(h)
-		}
-	}
-
-	return targets
 }
 
 // fetchHeaderBlocks creates and sends a request to the syncPeer for the next
@@ -1109,11 +1089,11 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	length := bestHeaderHeight - bestState.Height
 
 	// Check if we have the ttl for the next block lined up to be download.
-	if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil &&
-		bestState.Height+1 <= int32(sm.committedTTLAcc.NumLeaves)-1 {
+	if sm.chain.IsUtreexoViewActive() && sm.utreexoCache != nil &&
+		sm.utreexoCache.ValidAtHeight(bestState.Height+1) {
 
 		// If we have no ttls, fetch for more.
-		if len(sm.queuedTTLs) == 0 {
+		if !sm.utreexoCache.HaveTTLInfo(bestState.Height + 1) {
 			sm.fetchUtreexoTTLs(reqPeer)
 			return
 		}
@@ -1131,11 +1111,12 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	numRequested := 0
 
 	for h := bestState.Height + 1; h <= bestHeaderHeight; h++ {
-		if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil {
+		if sm.chain.IsUtreexoViewActive() && sm.utreexoCache != nil {
 			// Break if we ran out of ttls.
-			if h <= int32(sm.committedTTLAcc.NumLeaves)-1 &&
-				h > bestState.Height+int32(len(sm.queuedTTLs)) {
-				break
+			if sm.utreexoCache.ValidAtHeight(h) {
+				if !sm.utreexoCache.HaveTTLInfo(h) {
+					break
+				}
 			}
 		}
 
@@ -1185,14 +1166,14 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			if sm.chain.IsUtreexoViewActive() {
 				peerState.requestedUtreexoProofs[*hash] = struct{}{}
 
-				// We don't use the returned values yet.
-				// TODO: use them.
-				getTargetsAtHeight(&sm.ttlTargets, h)
-
 				msg := wire.MsgGetUtreexoProof{
 					BlockHash:  *hash,
 					TargetBool: true,
 				}
+				if sm.utreexoCache.ValidAtHeight(h) {
+					msg = *sm.utreexoCache.FetchMsgGetUtreexoProof(h, hash)
+				}
+
 				reqPeer.QueueMessage(&msg, nil)
 			}
 		}
@@ -1336,33 +1317,13 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 		return
 	}
 
-	if sm.chain.GetUtreexoView() == nil {
-		log.Warnf("Received unrequested utreexo ttl message from unknown peer %s "+
-			"when the node isn't a utreexo node -- disconnecting", peer)
-		peer.Disconnect()
-		return
-	}
-
-	if sm.committedTTLAcc == nil {
-		log.Warnf("Received unrequested utreexo ttl message from unknown peer %s "+
-			"when the node has ttl messages disabled -- disconnecting", peer)
-		peer.Disconnect()
-		return
-	}
-
-	ttls := tmsg.ttls.TTLs
-	startHeight := int32(ttls[0].BlockHeight)
-	endHeight := int32(ttls[len(ttls)-1].BlockHeight)
-	stump := *sm.committedTTLAcc
-
-	// Construct the get message that would've gave us this ttl message.
-	gotGtMsg := wire.CalculateGetUtreexoTTLMsgs(
-		uint32(stump.NumLeaves), startHeight, endHeight)
-
 	// Disconnect if we didn't request these.
+	gotGtMsg := sm.utreexoCache.CalcFetchTTLMsg(tmsg.ttls)
 	if _, exists = state.requestedUtreexoTTLs[gotGtMsg]; !exists {
 		log.Warnf("Got unrequested utreexo ttls %v - %v from %s -- "+
-			"disconnecting", startHeight, endHeight, peer.Addr())
+			"disconnecting", tmsg.ttls.TTLs[0].BlockHeight,
+			tmsg.ttls.TTLs[len(tmsg.ttls.TTLs)-1].BlockHeight,
+			peer.Addr())
 		peer.Disconnect()
 		return
 	}
@@ -1370,49 +1331,13 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 	// We can remove the request queue as we got the ttl message.
 	delete(state.requestedUtreexoTTLs, gotGtMsg)
 
-	ttlHashes := make([]utreexo.Hash, 0, len(ttls))
-	ttlTargets := make([]uint64, 0, len(ttls))
-	for _, ttl := range ttls {
-		buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
-		err := ttl.Serialize(buf)
-		if err != nil {
-			log.Warnf("Failed to serialize utreexo ttl %v from %s. %v",
-				ttl.BlockHeight, peer.Addr(), err)
-			return
-		}
-
-		ttlTargets = append(ttlTargets, uint64(ttl.BlockHeight))
-		ttlHashes = append(ttlHashes, sha256.Sum256(buf.Bytes()))
-	}
-
-	proof := utreexo.Proof{Targets: ttlTargets, Proof: tmsg.ttls.ProofHashes}
-	_, err := utreexo.Verify(stump, ttlHashes, proof)
+	err := sm.utreexoCache.ProcessTTLs(tmsg.ttls)
 	if err != nil {
 		log.Warnf("Utreexo ttl proof from %s failed verification -- "+
 			"disconnecting", peer.Addr())
 		peer.Disconnect()
 		return
 	}
-
-	log.Debugf("verified proof for ttls %v - %v", startHeight, endHeight)
-
-	// Accept the ttls.
-	for _, ttlPerBlock := range ttls {
-		for _, ttlInfo := range ttlPerBlock.TTLs {
-			if ttlInfo.DeathHeight == 0 {
-				continue
-			}
-
-			sm.ttlTargets.Push(
-				ttlTarget{
-					deathHeight: uint64(ttlInfo.DeathHeight),
-					pos:         ttlInfo.DeathPos,
-				})
-		}
-
-		sm.queuedTTLs[int32(ttlPerBlock.BlockHeight)] = ttlPerBlock
-	}
-	heap.Init(&sm.ttlTargets)
 
 	sm.fetchHeaderBlocks(nil)
 }
@@ -1950,6 +1875,8 @@ out:
 		if err := sm.chain.FlushUtxoCache(blockchain.FlushRequired); err != nil {
 			log.Errorf("Error while flushing blockchain caches: %v", err)
 		}
+	} else {
+		sm.chain.FlushUtreexoTTLCache()
 	}
 
 	sm.wg.Done()
@@ -2241,7 +2168,6 @@ func New(config *Config) (*SyncManager, error) {
 		rejectedTxns:        make(map[chainhash.Hash]struct{}),
 		requestedTxns:       make(map[chainhash.Hash]struct{}),
 		requestedBlocks:     make(map[chainhash.Hash]struct{}),
-		queuedTTLs:          make(map[int32]wire.UtreexoTTL),
 		queuedBlocks:        make(map[chainhash.Hash]*blockMsg),
 		queuedUtreexoProofs: make(map[chainhash.Hash]*utreexoProofMsg),
 		peerStates:          make(map[*peerpkg.Peer]*peerSyncState),
@@ -2253,9 +2179,14 @@ func New(config *Config) (*SyncManager, error) {
 
 	if !config.DisableCheckpoints {
 		if sm.chain.IsUtreexoViewActive() {
+			bestHeight := sm.chain.BestSnapshot().Height
+			view := sm.chain.GetUtreexoView()
+
 			if len(sm.chainParams.TTL.Stump) > 0 {
 				// Initialize the committed ttl state.
-				sm.committedTTLAcc = &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
+				stump := &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
+				sm.utreexoCache = blockchain.InitUtreexoTTLCache(
+					stump, 100_000, bestHeight, view.NumLeaves())
 			}
 		}
 	} else {
