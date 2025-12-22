@@ -1325,6 +1325,7 @@ func TestInvalidateBlock(t *testing.T) {
 
 				chain, params, tearDown := utxoCacheTestChain("TestInvalidateBlock-one-branch-invalidate-once")
 				tip := btcutil.NewBlock(params.GenesisBlock)
+				tip.SetHeight(0)
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
@@ -1382,6 +1383,7 @@ func TestInvalidateBlock(t *testing.T) {
 
 				chain, params, tearDown := utxoCacheTestChain("TestInvalidateBlock-invalidate-twice")
 				tip := btcutil.NewBlock(params.GenesisBlock)
+				tip.SetHeight(0)
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
@@ -1475,6 +1477,7 @@ func TestInvalidateBlock(t *testing.T) {
 
 				chain, params, tearDown := utxoCacheTestChain("TestInvalidateBlock-invalidate-side-branch")
 				tip := btcutil.NewBlock(params.GenesisBlock)
+				tip.SetHeight(0)
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
@@ -1698,6 +1701,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 				chain, params, tearDown := utxoCacheTestChain("TestInvalidateBlock-one-branch-invalidate-once")
 				tip := btcutil.NewBlock(params.GenesisBlock)
+				tip.SetHeight(0)
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
@@ -1755,6 +1759,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 				chain, params, tearDown := utxoCacheTestChain("TestReconsiderBlock-invalidate-with-side-branch")
 				tip := btcutil.NewBlock(params.GenesisBlock)
+				tip.SetHeight(0)
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
@@ -1841,6 +1846,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 				chain, params, tearDown := utxoCacheTestChain("TestReconsiderBlock-invalidate-a-side-branch")
 				tip := btcutil.NewBlock(params.GenesisBlock)
+				tip.SetHeight(0)
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
@@ -1927,6 +1933,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 				chain, params, tearDown := utxoCacheTestChain("TestReconsiderBlock-reconsider-an-invalid-side-branch-higher")
 				tip := btcutil.NewBlock(params.GenesisBlock)
+				tip.SetHeight(0)
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
@@ -1996,6 +2003,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 				chain, params, tearDown := utxoCacheTestChain("TestReconsiderBlock-reconsider-an-invalid-side-branch-lower")
 				tip := btcutil.NewBlock(params.GenesisBlock)
+				tip.SetHeight(0)
 
 				// Create block at height 1.
 				var emptySpendableOuts []*SpendableOut
