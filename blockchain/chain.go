@@ -1493,12 +1493,18 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		stxos := make([]SpentTxOut, 0, countSpentOutputs(block))
 		if b.utreexoView != nil {
 			if fastAdd {
-				// Check that the block txOuts are valid by checking the utreexo proof and
-				// the leaf data.
-				err := b.utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
-				if err != nil {
-					return false, fmt.Errorf("connectBestChain fail on block %s. "+
-						"Error: %v", block.Hash().String(), err)
+				// Only attempt to verify the udata if we don't have utreexo ttls.
+				// If we have ttls, it means that we're still on the swiftsync part
+				// of the ibd and we do not need to verify the proof as we don't
+				// perform deletions.
+				if block.UtreexoTTLs() == nil {
+					// Check that the block txOuts are valid by checking the utreexo proof and
+					// the leaf data.
+					err := b.utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+					if err != nil {
+						return false, fmt.Errorf("connectBestChain fail on block %s. "+
+							"Error: %v", block.Hash().String(), err)
+					}
 				}
 			}
 			// Update the accumulator.
