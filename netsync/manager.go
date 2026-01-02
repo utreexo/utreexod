@@ -1082,6 +1082,29 @@ func getTargetsAtHeight(h *TTLHeap, height int32) []uint64 {
 	return targets
 }
 
+// createFullBitmap returns a bitmap of the provided length with every bit set.
+func createFullBitmap(length int) []byte {
+	if length <= 0 {
+		return []byte{}
+	}
+
+	count := (length + 7) / 8
+	bitMap := make([]byte, count)
+
+	for i := 0; i < count-1; i++ {
+		bitMap[i] = 0xff
+	}
+
+	remainder := length % 8
+	if remainder == 0 {
+		bitMap[count-1] = 0xff
+	} else {
+		bitMap[count-1] = byte((1 << remainder) - 1)
+	}
+
+	return bitMap
+}
+
 // fetchHeaderBlocks creates and sends a request to the syncPeer for the next
 // list of blocks to be downloaded based on the current list of headers.
 // Will fetch from the peer if it's not nil. Otherwise it'll default to the syncPeer.
@@ -1183,16 +1206,25 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			// Immediately queue the utreexo proof for this block if we're a
 			// utreexo node.
 			if sm.chain.IsUtreexoViewActive() {
+				var msg wire.MsgGetUtreexoProof
+
+				// If we still have ttls left to download, then we don't need
+				// the utreexo proof data since we're in swiftsync ibd.
+				if h <= int32(sm.committedTTLAcc.NumLeaves)-1 {
+					targets := getTargetsAtHeight(&sm.ttlTargets, h)
+
+					msg = wire.MsgGetUtreexoProof{
+						BlockHash:       *hash,
+						LeafIndexBitMap: createFullBitmap(len(targets)),
+					}
+				} else {
+					msg = wire.MsgGetUtreexoProof{
+						BlockHash:  *hash,
+						TargetBool: true,
+					}
+				}
 				peerState.requestedUtreexoProofs[*hash] = struct{}{}
 
-				// We don't use the returned values yet.
-				// TODO: use them.
-				getTargetsAtHeight(&sm.ttlTargets, h)
-
-				msg := wire.MsgGetUtreexoProof{
-					BlockHash:  *hash,
-					TargetBool: true,
-				}
 				reqPeer.QueueMessage(&msg, nil)
 			}
 		}
