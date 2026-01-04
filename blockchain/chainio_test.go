@@ -768,6 +768,14 @@ func initUtreexoViewpoints() []*UtreexoViewpoint {
 		uViews[i] = newUView
 	}
 
+	for i := range uViews {
+		var aggBytes [64]byte
+		for j := range aggBytes {
+			aggBytes[j] = byte(i + j + 1)
+		}
+		uViews[i].agg.InitFromBytes(aggBytes)
+	}
+
 	return uViews[:]
 }
 
@@ -840,6 +848,12 @@ func TestUtreexoViewSerialize(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+		gotAgg := gotUtreexoView.agg.Bytes()
+		wantAgg := test.uView.agg.Bytes()
+		if gotAgg != wantAgg {
+			t.Fatalf("serializeUtreexoView #%d (%s) unexpected aggregator "+
+				"state - got %x, want %x", i, test.name, gotAgg, wantAgg)
 		}
 	}
 }
