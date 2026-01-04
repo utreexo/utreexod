@@ -49,6 +49,7 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 		newUview.accumulator.Nodes.Put(roots[i], nodes[i])
 	}
 
+	newUview.agg = uview.agg
 	return newUview
 }
 
