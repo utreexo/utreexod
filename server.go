@@ -1266,14 +1266,14 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 	// Construct utreexo proof to send.
 	leafDatas := make([]wire.LeafData, 0, len(udata.LeafDatas))
 	for i := 0; i < len(udata.LeafDatas); i++ {
-		if msg.IsLeafDataRequested(i) || msg.TargetBool {
+		if msg.IsEntireLeafDataRequested() || msg.IsLeafDataRequestedAtIdx(i) {
 			leafDatas = append(leafDatas, udata.LeafDatas[i])
 		}
 	}
 
 	proofHashes := make([]utreexo.Hash, 0, len(udata.AccProof.Proof))
 	for i := 0; i < len(udata.AccProof.Proof); i++ {
-		if msg.IsProofRequested(i) || msg.TargetBool {
+		if msg.IsEntireLeafDataRequested() || msg.IsProofRequestedAtIdx(i) {
 			proofHashes = append(proofHashes, udata.AccProof.Proof[i])
 		}
 	}
@@ -1283,7 +1283,7 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 		LeafDatas:   leafDatas,
 	}
 
-	if msg.TargetBool {
+	if msg.AreTargetsRequested() {
 		utreexoProof.Targets = udata.AccProof.Targets
 	}
 

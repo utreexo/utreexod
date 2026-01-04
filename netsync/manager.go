@@ -1189,10 +1189,19 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				// TODO: use them.
 				getTargetsAtHeight(&sm.ttlTargets, h)
 
-				msg := wire.MsgGetUtreexoProof{
-					BlockHash:  *hash,
-					TargetBool: true,
+				// If we still have ttls left to download, then we only need
+				// the utreexo proof data since we're in swiftsync ibd.
+				msg := wire.MsgGetUtreexoProof{BlockHash: *hash}
+				if sm.committedTTLAcc != nil &&
+					h <= int32(sm.committedTTLAcc.NumLeaves)-1 {
+					msg.SetLeafDataRequestBit()
+				} else {
+					// If not, we need all the data.
+					msg.SetTargetRequestBit()
+					msg.SetProofHashRequestBit()
+					msg.SetLeafDataRequestBit()
 				}
+
 				reqPeer.QueueMessage(&msg, nil)
 			}
 		}
