@@ -27,6 +27,54 @@ func bigIntToLittleEndian64(x *big.Int) [64]byte {
 	return out
 }
 
+func TestAgg512IsAggZero(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*Agg512)
+		want  bool
+	}{
+		{
+			name:  "zero-by-default",
+			setup: func(*Agg512) {},
+			want:  true,
+		},
+		{
+			name: "non-zero-limb",
+			setup: func(a *Agg512) {
+				var input [64]byte
+				input[17] = 0x42
+				a.InitFromBytes(input)
+			},
+			want: false,
+		},
+		{
+			name: "add-makes-non-zero",
+			setup: func(a *Agg512) {
+				var delta [32]byte
+				delta[5] = 0xFF
+				a.Add256(&delta)
+			},
+			want: false,
+		},
+		{
+			name: "add-then-sub-returns-zero",
+			setup: func(a *Agg512) {
+				var delta [32]byte
+				delta[5] = 0xFF
+				a.Add256(&delta)
+				a.Sub256(&delta)
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		var agg Agg512
+		tt.setup(&agg)
+		require.Equal(t, tt.want, agg.IsAggZero())
+	}
+}
+
 func TestAgg512Bytes(t *testing.T) {
 	tests := []struct {
 		name string

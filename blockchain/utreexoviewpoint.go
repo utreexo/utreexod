@@ -1137,6 +1137,11 @@ func (b *BlockChain) FetchUtreexoViewpoint(blockHash *chainhash.Hash) (*UtreexoV
 	return utreexoView, nil
 }
 
+// IsAggZero returns true if the underlying aggregator in the utreexoViewpoint is 0. False if not.
+func (b *BlockChain) IsAggZero() bool {
+	return b.utreexoView.agg.IsAggZero()
+}
+
 // ChainTipProof represents all the information that is needed to prove that a
 // utxo exists in the chain tip with utreexo accumulator proof.
 type ChainTipProof struct {

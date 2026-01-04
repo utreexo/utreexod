@@ -11,6 +11,18 @@ type Agg512 struct {
 	limbs [8]uint64
 }
 
+// IsAggZero returns true if the underlying aggregator is 0. False if not.
+func (a *Agg512) IsAggZero() bool {
+	return a.limbs[0] == 0 &&
+		a.limbs[1] == 0 &&
+		a.limbs[2] == 0 &&
+		a.limbs[3] == 0 &&
+		a.limbs[4] == 0 &&
+		a.limbs[5] == 0 &&
+		a.limbs[6] == 0 &&
+		a.limbs[7] == 0
+}
+
 // InitFromBytes initializes from a little-endian [64]byte.
 func (a *Agg512) InitFromBytes(b [64]byte) {
 	a.limbs[0] = binary.LittleEndian.Uint64(b[0:8])
