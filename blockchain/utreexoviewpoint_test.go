@@ -5,13 +5,16 @@
 package blockchain
 
 import (
-	"reflect"
+	"crypto/sha256"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
 )
 
 func TestChainTipProofSerialize(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		ctp     ChainTipProof
@@ -43,26 +46,102 @@ func TestChainTipProofSerialize(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		// Test String().
-		gotString := test.ctp.String()
-		if gotString != test.encoded {
-			t.Errorf("%s: Encoded string mismatch. Expected %s but got %s",
-				test.name, test.encoded, gotString)
-			continue
-		}
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 
-		// Test DecodeString().
-		gotCtp := ChainTipProof{}
-		err := gotCtp.DecodeString(test.encoded)
-		if err != nil {
-			t.Errorf("%s: Error %v", test.name, err)
-			continue
-		}
+			gotString := test.ctp.String()
+			require.Equalf(t, test.encoded, gotString, "encoded string mismatch")
 
-		if !reflect.DeepEqual(gotCtp, test.ctp) {
-			t.Errorf("%s: Decoded chain tip proof mismatch.", test.name)
-			continue
-		}
+			var gotCtp ChainTipProof
+			require.NoErrorf(t, gotCtp.DecodeString(test.encoded), "DecodeString failed")
+			require.Equalf(t, test.ctp, gotCtp, "decoded chain tip proof mismatch")
+		})
+	}
+}
 
+func TestUtreexoViewpointCopyWithRoots(t *testing.T) {
+	t.Parallel()
+
+	hash := func(label string) utreexo.Hash {
+		return utreexo.Hash(sha256.Sum256([]byte(label)))
+	}
+
+	setAgg := func(u *UtreexoViewpoint, seed byte) {
+		var aggBytes [64]byte
+		for i := range aggBytes {
+			aggBytes[i] = seed + byte(i)
+		}
+		u.agg.InitFromBytes(aggBytes)
+	}
+
+	tests := []struct {
+		name   string
+		setup  func(orig *UtreexoViewpoint)
+		mutate func(orig *UtreexoViewpoint)
+	}{
+		{
+			name: "single-root",
+			setup: func(orig *UtreexoViewpoint) {
+				h := hash("leaf-1")
+				orig.accumulator.NumLeaves = 1
+				orig.accumulator.TotalRows = 1
+				orig.accumulator.Roots = []utreexo.Hash{h}
+				orig.accumulator.Nodes.Put(h, utreexo.Node{AddIndex: 5})
+				setAgg(orig, 1)
+			},
+		},
+		{
+			name: "multi-root-mutation-resistant",
+			setup: func(orig *UtreexoViewpoint) {
+				h1 := hash("leaf-1")
+				h2 := hash("leaf-2")
+				orig.accumulator.NumLeaves = 2
+				orig.accumulator.TotalRows = 2
+				orig.accumulator.Roots = []utreexo.Hash{h1, h2}
+				orig.accumulator.Nodes.Put(h1, utreexo.Node{AddIndex: 1})
+				orig.accumulator.Nodes.Put(h2, utreexo.Node{AddIndex: 2})
+				setAgg(orig, 42)
+			},
+			mutate: func(orig *UtreexoViewpoint) {
+				if len(orig.accumulator.Roots) > 0 {
+					orig.accumulator.Roots[0] = utreexo.Hash{}
+				}
+				delta := hash("delta")
+				orig.agg.Add256((*[32]byte)(&delta))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			orig := NewUtreexoViewpoint()
+			test.setup(orig)
+
+			copyView := orig.CopyWithRoots()
+
+			require.Equal(t, orig.accumulator.NumLeaves, copyView.accumulator.NumLeaves, "num leaves mismatch")
+			require.Equal(t, orig.accumulator.TotalRows, copyView.accumulator.TotalRows, "total rows mismatch")
+			require.Equal(t, orig.accumulator.Roots, copyView.accumulator.Roots, "roots mismatch")
+			require.Equal(t, orig.agg, copyView.agg, "aggregator mismatch")
+
+			for _, root := range copyView.accumulator.Roots {
+				_, ok := copyView.accumulator.Nodes.Get(root)
+				require.Truef(t, ok, "missing node for root %x", root[:])
+			}
+
+			expectedRoots := append([]utreexo.Hash(nil), copyView.accumulator.Roots...)
+			expectedAgg := copyView.agg
+
+			if test.mutate != nil {
+				test.mutate(orig)
+
+				require.Equal(t, expectedRoots, copyView.accumulator.Roots, "copy roots mutated")
+				require.Equal(t, expectedAgg, copyView.agg, "copy aggregator mutated")
+			}
+		})
 	}
 }

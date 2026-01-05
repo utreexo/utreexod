@@ -28,6 +28,7 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 			name: "Basic case",
 			msg: MsgGetUtreexoProof{
 				BlockHash:        chainhash.HashH([]byte("basic test hash")),
+				RequestBitMap:    0b101,
 				ProofIndexBitMap: []byte{1, 2, 3, 4},
 				LeafIndexBitMap:  []byte{5, 6, 7, 8},
 			},
@@ -36,6 +37,7 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 			name: "Empty indexes",
 			msg: MsgGetUtreexoProof{
 				BlockHash:        chainhash.HashH([]byte("empty test hash")),
+				RequestBitMap:    0,
 				ProofIndexBitMap: []byte{},
 				LeafIndexBitMap:  []byte{},
 			},
@@ -43,7 +45,8 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 		{
 			name: "failure case",
 			msg: MsgGetUtreexoProof{
-				BlockHash: chainhash.HashH([]byte("failure case hash")),
+				BlockHash:     chainhash.HashH([]byte("failure case hash")),
+				RequestBitMap: 0b010,
 				ProofIndexBitMap: func() []byte {
 					length := math.MaxUint8 * MaxPossibleInputsPerBlock
 					b := make([]bool, length)
@@ -68,6 +71,7 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 			name: "Large indexes",
 			msg: MsgGetUtreexoProof{
 				BlockHash:        chainhash.HashH([]byte("large test hash")),
+				RequestBitMap:    0b111,
 				ProofIndexBitMap: randomBytes(100),
 				LeafIndexBitMap:  randomBytes(100),
 			},
@@ -91,9 +95,37 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 
 		// Verify the decoded message matches the original
 		assert.Equal(t, tc.msg.BlockHash, decodedMsg.BlockHash, "BlockHash should match")
+		assert.Equal(t, tc.msg.RequestBitMap, decodedMsg.RequestBitMap, "RequestBitMap should match")
 		assert.Equal(t, tc.msg.ProofIndexBitMap, decodedMsg.ProofIndexBitMap, "ProofIndexBitMap should match")
 		assert.Equal(t, tc.msg.LeafIndexBitMap, decodedMsg.LeafIndexBitMap, "LeafIndexBitMap should match")
 	}
+}
+
+func TestMsgGetUtreexoProofRequestBitMapBits(t *testing.T) {
+	var msg MsgGetUtreexoProof
+
+	assert.False(t, msg.AreTargetsRequested())
+	assert.False(t, msg.IsEntireProofRequested())
+	assert.False(t, msg.IsEntireLeafDataRequested())
+	assert.Equal(t, uint8(0), msg.RequestBitMap)
+
+	msg.SetTargetRequestBit()
+	assert.True(t, msg.AreTargetsRequested(), "target bit not set")
+	assert.False(t, msg.IsEntireProofRequested())
+	assert.False(t, msg.IsEntireLeafDataRequested())
+	assert.Equal(t, uint8(0b001), msg.RequestBitMap)
+
+	msg.SetProofHashRequestBit()
+	assert.True(t, msg.IsEntireProofRequested(), "proof bit not set")
+	assert.True(t, msg.AreTargetsRequested(), "target bit flipped unexpectedly")
+	assert.False(t, msg.IsEntireLeafDataRequested())
+	assert.Equal(t, uint8(0b011), msg.RequestBitMap)
+
+	msg.SetLeafDataRequestBit()
+	assert.True(t, msg.IsEntireLeafDataRequested(), "leaf bit not set")
+	assert.True(t, msg.IsEntireProofRequested())
+	assert.True(t, msg.AreTargetsRequested())
+	assert.Equal(t, uint8(0b111), msg.RequestBitMap)
 }
 
 func setBitSlice(size int, bitIndexes []int) []byte {

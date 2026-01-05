@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/blockchain/internal/aggregator"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
@@ -26,6 +27,11 @@ type UtreexoViewpoint struct {
 	// It holds the root hashes, the number of elements in the
 	// accumulator, and any number of cached leaves.
 	accumulator utreexo.MapPollard
+
+	// agg is the utxo aggregator for verifying that the utxos that are marked as spent
+	// by the ttls are indeed spent in the downloaded Bitcoin blocks.
+	// This is part of the swiftsync implementation.
+	agg aggregator.Agg512
 }
 
 // CopyWithRoots returns a new utreexo viewpoint with just the roots copied.
@@ -43,6 +49,7 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 		newUview.accumulator.Nodes.Put(roots[i], nodes[i])
 	}
 
+	newUview.agg = uview.agg
 	return newUview
 }
 
@@ -54,23 +61,58 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
 	adds := ExtractAccumulatorAdds(block)
 
+	ttls := block.UtreexoTTLs()
+	if ttls != nil {
+		// Generate the addHashes. Add empty hashes if the utxo has already been
+		// spent.
+		addHashes := make([]utreexo.Hash, len(adds))
+		for i, add := range adds {
+			addHash := add.LeafHash()
+			if ttls.TTLs[i].DeathHeight == 0 {
+				addHashes[i] = addHash
+			} else {
+				var empty [32]byte
+				addHashes[i] = empty
+
+				// Add the deleted utxo hash to the aggregator.
+				uview.agg.Add256(&addHash)
+			}
+		}
+
+		// If we have any leafdatas, reconstruct them and subtract the delHashes
+		// from the aggregator.
+		if len(ud.LeafDatas) > 0 {
+			var err error
+			_, _, inskip, _ := DedupeBlock(block)
+			delHashes, err := reconstructUData(ud, block, bestChain, inskip)
+			if err != nil {
+				return err
+			}
+
+			// Remove the delHashes from the aggregator.
+			for _, delHash := range delHashes {
+				delVal := ([32]byte)(delHash)
+				uview.agg.Sub256(&delVal)
+			}
+		}
+
+		// Since only the stump supports adding empty hashes, we grab the stump
+		// from the mappollard and re-init the mappollard with the modified stump.
+		stump := uview.accumulator.GetStump()
+		stump.Add(addHashes)
+		uview.accumulator = *utreexo.InitWithStump(stump)
+
+		return nil
+	}
+
 	dels, err := ExtractAccumulatorDels(block, bestChain)
 	if err != nil {
 		return err
 	}
 
-	var addHashes []utreexo.Leaf
-
-	ttls := block.UtreexoTTLs()
-	if ttls != nil {
-		// Left empty for now.
-	} else {
-		// If the block didn't have any ttls, the returned addHashes are going to be nil.
-		// We therefore need to hash the leaves.
-		addHashes = make([]utreexo.Leaf, len(adds))
-		for i, add := range adds {
-			addHashes[i] = utreexo.Leaf{Hash: add.LeafHash(), Remember: false}
-		}
+	addHashes := make([]utreexo.Leaf, len(adds))
+	for i, add := range adds {
+		addHashes[i] = utreexo.Leaf{Hash: add.LeafHash(), Remember: false}
 	}
 
 	// Update the underlying accumulator.
@@ -1093,6 +1135,11 @@ func (b *BlockChain) FetchUtreexoViewpoint(blockHash *chainhash.Hash) (*UtreexoV
 	}
 
 	return utreexoView, nil
+}
+
+// IsAggZero returns true if the underlying aggregator in the utreexoViewpoint is 0. False if not.
+func (b *BlockChain) IsAggZero() bool {
+	return b.utreexoView.agg.IsAggZero()
 }
 
 // ChainTipProof represents all the information that is needed to prove that a

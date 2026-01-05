@@ -1115,12 +1115,43 @@ func DeserializeUtreexoRoots(serializedUView []byte) (uint64, []utreexo.Hash, er
 //
 // TODO in the future perhaps consider serializing other things in the utreexo viewpoint.
 func serializeUtreexoView(uView *UtreexoViewpoint) ([]byte, error) {
-	return SerializeUtreexoRoots(uView.accumulator.NumLeaves, uView.accumulator.GetRoots())
+	roots := uView.accumulator.GetRoots()
+
+	size := 8 // 8 byte NumLeaves
+	size += len(roots) * chainhash.HashSize
+	size += 64 // 64 byte aggregator
+	w := bytes.NewBuffer(make([]byte, 0, size))
+
+	// Write the NumLeaves first.
+	var buf [8]byte
+	byteOrder.PutUint64(buf[:], uView.accumulator.NumLeaves)
+	_, err := w.Write(buf[:])
+	if err != nil {
+		return nil, err
+	}
+
+	// Then write the roots.
+	for _, root := range roots {
+		_, err = w.Write(root[:])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Then write the aggregator.
+	aggBytes := uView.agg.Bytes()
+	_, err = w.Write(aggBytes[:])
+	return w.Bytes(), err
 }
 
 // deserializeUtreexoView deserializes the provided byte slice into the provided uView.
 func deserializeUtreexoView(uView *UtreexoViewpoint, serializedUView []byte) error {
-	numLeaves, roots, err := DeserializeUtreexoRoots(serializedUView)
+	if len(serializedUView) < 64 {
+		return fmt.Errorf("serialized utreexo view too short: %d bytes", len(serializedUView))
+	}
+
+	serializedRoots := serializedUView[:len(serializedUView)-64]
+	numLeaves, roots, err := DeserializeUtreexoRoots(serializedRoots)
 	if err != nil {
 		return err
 	}
@@ -1136,6 +1167,9 @@ func deserializeUtreexoView(uView *UtreexoViewpoint, serializedUView []byte) err
 		}
 		uView.accumulator.Nodes.Put(root, utreexo.Node{AddIndex: -1})
 	}
+
+	aggBytes := serializedUView[len(serializedUView)-64:]
+	uView.agg.InitFromBytes(*(*[64]byte)(aggBytes))
 
 	return nil
 }

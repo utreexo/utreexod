@@ -35,8 +35,9 @@ type MsgGetUtreexoProof struct {
 	// BlockHash is the hash of the block we want the utreexo proof for.
 	BlockHash chainhash.Hash
 
-	// TargetBool indicates if the targets should be included in the proof message.
-	TargetBool bool
+	// RequestBitMap indicates if the targets, proofs, or leaf indexes should be
+	// included in the proof message.
+	RequestBitMap uint8
 
 	// ProofIndexBitMap is a bitmap of the proof indexes. The bits that are
 	// turned on indicate the proofs that the requester wants.
@@ -62,7 +63,7 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEn
 	if err != nil {
 		return err
 	}
-	msg.TargetBool = b[0] == 1
+	msg.RequestBitMap = b[0]
 
 	proofCount, err := ReadVarInt(r, 0)
 	if err != nil {
@@ -99,11 +100,7 @@ func (msg *MsgGetUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEn
 		return err
 	}
 
-	var b [1]byte
-	if msg.TargetBool {
-		b[0] = 1
-	}
-	_, err = w.Write(b[:])
+	_, err = w.Write([]byte{msg.RequestBitMap})
 	if err != nil {
 		return err
 	}
@@ -143,14 +140,44 @@ func (msg *MsgGetUtreexoProof) MaxPayloadLength(pver uint32) uint32 {
 	return MaxGetUtreexoProofSize
 }
 
+// SetTargetRequestBit sets the bit for requesting all the targets.
+func (msg *MsgGetUtreexoProof) SetTargetRequestBit() {
+	msg.RequestBitMap |= 1
+}
+
+// SetProofHashRequestBit sets the bit for requesting all the proof hashes.
+func (msg *MsgGetUtreexoProof) SetProofHashRequestBit() {
+	msg.RequestBitMap |= (1 << 1)
+}
+
+// SetLeafDataRequestBit sets the bit for requesting all the leaf datas.
+func (msg *MsgGetUtreexoProof) SetLeafDataRequestBit() {
+	msg.RequestBitMap |= (1 << 2)
+}
+
 // IsLeafDataRequested returns if the leafdata at the given index is requested or not.
-func (msg *MsgGetUtreexoProof) IsLeafDataRequested(idx int) bool {
+func (msg *MsgGetUtreexoProof) IsLeafDataRequestedAtIdx(idx int) bool {
 	return isBitSet(msg.LeafIndexBitMap, idx)
 }
 
 // IsProofRequested returns if the proof hash at the given index is requested or not.
-func (msg *MsgGetUtreexoProof) IsProofRequested(idx int) bool {
+func (msg *MsgGetUtreexoProof) IsProofRequestedAtIdx(idx int) bool {
 	return isBitSet(msg.ProofIndexBitMap, idx)
+}
+
+// AreTargetsRequested returns if all the targets are requested or not.
+func (msg *MsgGetUtreexoProof) AreTargetsRequested() bool {
+	return isBitSet([]byte{msg.RequestBitMap}, 0)
+}
+
+// IsEntireProofRequested returns if the entire proof hashes are requested or not.
+func (msg *MsgGetUtreexoProof) IsEntireProofRequested() bool {
+	return isBitSet([]byte{msg.RequestBitMap}, 1)
+}
+
+// IsEntireLeafDataRequested returns if the entire leaf datas are requested or not.
+func (msg *MsgGetUtreexoProof) IsEntireLeafDataRequested() bool {
+	return isBitSet([]byte{msg.RequestBitMap}, 2)
 }
 
 // Returns true if the bit at the given index is set.

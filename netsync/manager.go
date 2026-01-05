@@ -975,6 +975,22 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		}
 	}
 
+	// If we're at the block when the swiftsync part of ibd ends, make sure the
+	// aggregator is zero.
+	if sm.committedTTLAcc != nil &&
+		bmsg.block.Height() == int32(sm.committedTTLAcc.NumLeaves-1) {
+		if !sm.chain.IsAggZero() {
+			log.Warnf("The swiftsync aggregator is non-zero at swiftsync checkpoint at block %v(%v). "+
+				"The binary is likely corrupted and the user should not trust this "+
+				"software as genuine and there may be attempts to steal funds. The user "+
+				"should delete the datadir and the binary from their computer.",
+				bmsg.block.Hash(), bmsg.block.Height())
+			os.Exit(1)
+		}
+
+		log.Infof("Verified swiftsync checkpoint block at %v(%v)", bmsg.block.Hash(), bmsg.block.Height())
+	}
+
 	// If we are not in headers first mode, it's a good time to periodically
 	// flush the blockchain cache because we don't expect new blocks immediately.
 	// After that, there is nothing more to do.
@@ -1189,10 +1205,19 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				// TODO: use them.
 				getTargetsAtHeight(&sm.ttlTargets, h)
 
-				msg := wire.MsgGetUtreexoProof{
-					BlockHash:  *hash,
-					TargetBool: true,
+				// If we still have ttls left to download, then we only need
+				// the utreexo proof data since we're in swiftsync ibd.
+				msg := wire.MsgGetUtreexoProof{BlockHash: *hash}
+				if sm.committedTTLAcc != nil &&
+					h <= int32(sm.committedTTLAcc.NumLeaves)-1 {
+					msg.SetLeafDataRequestBit()
+				} else {
+					// If not, we need all the data.
+					msg.SetTargetRequestBit()
+					msg.SetProofHashRequestBit()
+					msg.SetLeafDataRequestBit()
 				}
+
 				reqPeer.QueueMessage(&msg, nil)
 			}
 		}
