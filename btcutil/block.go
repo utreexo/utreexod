@@ -46,9 +46,11 @@ type Block struct {
 // blockUtreexoData contains all of the optional Utreexo-related metadata attached
 // to a block.
 type blockUtreexoData struct {
-	updateData *utreexo.UpdateData // Utreexo update data for this block
-	adds       []utreexo.Hash      // Hashes of the utreexo leaves being added
+	updateData *utreexo.UpdateData // Utreexo update data for this block.
+	adds       []utreexo.Hash      // Hashes of the utreexo leaves being added.
 	leafTTLs   *wire.UtreexoTTL    // The ttls of the leaves created in this block.
+	leafDatas  []wire.LeafData     // The leaves of the inputs in this block.
+	proofData  *utreexo.Proof      // Utreexo proof for this block.
 }
 
 // MsgBlock returns the underlying wire.MsgBlock for the Block.
@@ -267,6 +269,32 @@ func (b *Block) UtreexoTTLs() *wire.UtreexoTTL {
 		return nil
 	}
 	return b.utreexoData.leafTTLs
+}
+
+// SetUtreexoLeafDatas sets the leaf data for the inputs in this block.
+func (b *Block) SetUtreexoLeafDatas(leafDatas []wire.LeafData) {
+	b.ensureUtreexoData().leafDatas = leafDatas
+}
+
+// UtreexoLeafDatas returns the leaf data for the inputs in this block.
+func (b *Block) UtreexoLeafDatas() []wire.LeafData {
+	if b.utreexoData == nil {
+		return nil
+	}
+	return b.utreexoData.leafDatas
+}
+
+// SetUtreexoProof sets the utreexo proof for this block.
+func (b *Block) SetUtreexoProof(proof *utreexo.Proof) {
+	b.ensureUtreexoData().proofData = proof
+}
+
+// UtreexoProof returns the utreexo proof for this block.
+func (b *Block) UtreexoProof() *utreexo.Proof {
+	if b.utreexoData == nil {
+		return nil
+	}
+	return b.utreexoData.proofData
 }
 
 // NewBlock returns a new instance of a bitcoin block given an underlying
