@@ -738,9 +738,9 @@ func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
 		var err error
 		switch iv.Type {
 		case wire.InvTypeWitnessTx:
-			err = sp.server.pushTxMsg(sp, &iv.Hash, nil, c, waitChan, wire.WitnessEncoding)
+			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeTx:
-			err = sp.server.pushTxMsg(sp, &iv.Hash, nil, c, waitChan, wire.BaseEncoding)
+			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.BaseEncoding)
 		case wire.InvTypeWitnessUtreexoTx:
 			fallthrough
 		case wire.InvTypeUtreexoTx:
@@ -770,7 +770,7 @@ func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
 			// All utreexo nodes are segwit nodes. Not including the witness will make it
 			// impossible to generate the leaf hashes since they're propagated in the compact
 			// form.
-			err = sp.server.pushTxMsg(sp, &iv.Hash, packedPositions, c, waitChan, wire.UtreexoEncoding|wire.WitnessEncoding)
+			err = sp.server.pushUtreexoTxMsg(sp, &iv.Hash, packedPositions, c, waitChan, wire.UtreexoEncoding|wire.WitnessEncoding)
 		case wire.InvTypeWitnessBlock:
 			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeBlock:
@@ -1711,9 +1711,10 @@ func (s *server) TransactionConfirmed(tx *btcutil.Tx) {
 	s.RemoveRebroadcastInventory(iv)
 }
 
-// pushTxMsg sends a tx message for the provided transaction hash to the
-// connected peer.  An error is returned if the transaction hash is not known.
-func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions []chainhash.Hash, doneChan chan<- struct{},
+// pushTxMsg sends a standard (non-utreexo) tx message for the provided
+// transaction hash to the connected peer.  An error is returned if the
+// transaction hash is not known.
+func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, doneChan chan<- struct{},
 	waitChan <-chan struct{}, encoding wire.MessageEncoding) error {
 
 	// Attempt to fetch the requested transaction from the pool.  A
@@ -1730,16 +1731,21 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions
 		return err
 	}
 
-	// If the requsted encoding is not a utreexo encoding, send the tx over and return.
-	if encoding&wire.UtreexoEncoding != wire.UtreexoEncoding {
-		// Once we have fetched data wait for any previous operation to finish.
-		if waitChan != nil {
-			<-waitChan
-		}
-
-		sp.QueueMessageWithEncoding(tx.MsgTx(), doneChan, encoding)
-		return nil
+	// Once we have fetched data wait for any previous operation to finish.
+	if waitChan != nil {
+		<-waitChan
 	}
+
+	sp.QueueMessageWithEncoding(tx.MsgTx(), doneChan, encoding)
+
+	return nil
+}
+
+// pushUtreexoTxMsg sends a utreexo tx message for the provided transaction
+// hash to the connected peer.  An error is returned if the transaction hash is
+// not known or the required utreexo data can't be generated.
+func (s *server) pushUtreexoTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions []chainhash.Hash, doneChan chan<- struct{},
+	waitChan <-chan struct{}, encoding wire.MessageEncoding) error {
 
 	// If utreexo proof index is not present, we can't send the tx
 	// as we can't grab the proof for the tx.
@@ -1747,6 +1753,21 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions
 		err := fmt.Errorf("UtreexoProofIndex and FlatUtreexoProofIndex is nil. " +
 			"Cannot fetch utreexo accumulator proofs.")
 		srvrLog.Debugf(err.Error())
+		if doneChan != nil {
+			doneChan <- struct{}{}
+		}
+
+		return err
+	}
+
+	// Attempt to fetch the requested transaction from the pool.  A
+	// call could be made to check for existence first, but simply trying
+	// to fetch a missing transaction results in the same behavior.
+	tx, err := s.txMemPool.FetchTransaction(hash)
+	if err != nil {
+		peerLog.Tracef("Unable to fetch tx %v from transaction "+
+			"pool: %v", hash, err)
+
 		if doneChan != nil {
 			doneChan <- struct{}{}
 		}
@@ -1851,7 +1872,7 @@ func (s *server) pushTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPositions
 		<-waitChan
 	}
 
-	sp.QueueMessageWithEncoding(utreexoTx, doneChan, wire.WitnessEncoding)
+	sp.QueueMessageWithEncoding(utreexoTx, doneChan, encoding)
 
 	return nil
 }
