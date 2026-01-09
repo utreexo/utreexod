@@ -783,6 +783,14 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 		return false, blockchain.BFNone
 	}
 
+	ttls, found := sm.queuedTTLs[height]
+	if found {
+		block.SetUtreexoTTLs(&ttls)
+
+		// Remove the no longer needed ttl.
+		delete(sm.queuedTTLs, height)
+	}
+
 	checkpoint := sm.findNextHeaderCheckpoint(height - 1)
 	if checkpoint == nil {
 		return false, blockchain.BFNone
@@ -791,14 +799,6 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 	behaviorFlags |= blockchain.BFFastAdd
 	if blockHash.IsEqual(checkpoint.Hash) {
 		isCheckpointBlock = true
-	}
-
-	ttls, found := sm.queuedTTLs[height]
-	if found {
-		block.SetUtreexoTTLs(&ttls)
-
-		// Remove the no longer needed ttl.
-		delete(sm.queuedTTLs, height)
 	}
 
 	return isCheckpointBlock, behaviorFlags
@@ -2276,19 +2276,17 @@ func New(config *Config) (*SyncManager, error) {
 		feeEstimator:        config.FeeEstimator,
 	}
 
-	if !config.DisableCheckpoints {
-		if sm.chain.IsUtreexoViewActive() {
-			if len(sm.chainParams.TTL.Stump) > 0 {
-				// Initialize the committed ttl state.
-				sm.committedTTLAcc = &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
-			}
-		}
-	} else {
-		log.Info("Checkpoints are disabled")
+	if sm.chain.IsUtreexoViewActive() {
+		if len(sm.chainParams.TTL.Stump) > 0 {
+			// Initialize the committed ttl state.
+			sm.committedTTLAcc = &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
 
-		if sm.chain.IsUtreexoViewActive() {
-			log.Info("TTL downloading is disabled")
+			log.Info("TTL downloading initialized")
 		}
+	}
+
+	if config.DisableCheckpoints {
+		log.Info("Checkpoints are disabled")
 	}
 
 	// If we're at assume utreexo mode, build headers first.

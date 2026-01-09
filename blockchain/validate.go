@@ -1075,12 +1075,24 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 	// If utreexo accumulators are enabled, then check that the accumulator
 	// proof is ok.  Then convert the msgBlock.UData into UtxoViewpoint.
 	if utreexoView != nil {
-		err := utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
-		if err != nil {
-			return fmt.Errorf("checkConnectBlock fail. error: %v", err)
+		// Only attempt to verify the udata if we don't have utreexo ttls.
+		// If we have ttls, it means that we're still on the swiftsync part
+		// of the ibd and we do not need to verify the proof as we don't
+		// perform deletions.
+		if block.UtreexoTTLs() == nil {
+			err := utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+			if err != nil {
+				return fmt.Errorf("checkConnectBlock fail. error: %v", err)
+			}
+		} else {
+			_, _, inskip, _ := DedupeBlock(block)
+			_, err := reconstructUData(block.MsgBlock().UData, block, b.bestChain, inskip)
+			if err != nil {
+				return err
+			}
 		}
 
-		err = view.BlockToUtxoView(block)
+		err := view.BlockToUtxoView(block)
 		if err != nil {
 			return err
 		}
