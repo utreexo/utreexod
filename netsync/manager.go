@@ -783,6 +783,14 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 		return false, blockchain.BFNone
 	}
 
+	ttls, found := sm.queuedTTLs[height]
+	if found {
+		block.SetUtreexoTTLs(&ttls)
+
+		// Remove the no longer needed ttl.
+		delete(sm.queuedTTLs, height)
+	}
+
 	checkpoint := sm.findNextHeaderCheckpoint(height - 1)
 	if checkpoint == nil {
 		return false, blockchain.BFNone
@@ -791,14 +799,6 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 	behaviorFlags |= blockchain.BFFastAdd
 	if blockHash.IsEqual(checkpoint.Hash) {
 		isCheckpointBlock = true
-	}
-
-	ttls, found := sm.queuedTTLs[height]
-	if found {
-		block.SetUtreexoTTLs(&ttls)
-
-		// Remove the no longer needed ttl.
-		delete(sm.queuedTTLs, height)
 	}
 
 	return isCheckpointBlock, behaviorFlags
