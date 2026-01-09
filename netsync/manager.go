@@ -2276,19 +2276,17 @@ func New(config *Config) (*SyncManager, error) {
 		feeEstimator:        config.FeeEstimator,
 	}
 
-	if !config.DisableCheckpoints {
-		if sm.chain.IsUtreexoViewActive() {
-			if len(sm.chainParams.TTL.Stump) > 0 {
-				// Initialize the committed ttl state.
-				sm.committedTTLAcc = &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
-			}
-		}
-	} else {
-		log.Info("Checkpoints are disabled")
+	if sm.chain.IsUtreexoViewActive() {
+		if len(sm.chainParams.TTL.Stump) > 0 {
+			// Initialize the committed ttl state.
+			sm.committedTTLAcc = &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
 
-		if sm.chain.IsUtreexoViewActive() {
-			log.Info("TTL downloading is disabled")
+			log.Info("TTL downloading initialized")
 		}
+	}
+
+	if config.DisableCheckpoints {
+		log.Info("Checkpoints are disabled")
 	}
 
 	// If we're at assume utreexo mode, build headers first.
