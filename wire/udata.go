@@ -97,12 +97,12 @@ func (ud *UData) Serialize(w io.Writer) error {
 		return err
 	}
 
-	return SerializeUtxoData(w, ud.LeafDatas)
+	return SerializeCompactUtxoData(w, ud.LeafDatas)
 }
 
-// SerializeUtxoData encodes the passed in leafdatas using the compact serialization
-// format.
-func SerializeUtxoData(w io.Writer, leafDatas []LeafData) error {
+// SerializeCompactUtxoData encodes the passed in leafdatas using the compact
+// serialization format.
+func SerializeCompactUtxoData(w io.Writer, leafDatas []LeafData) error {
 	// Write the size of the leaf datas.
 	err := WriteVarInt(w, 0, uint64(len(leafDatas)))
 	if err != nil {
@@ -120,6 +120,26 @@ func SerializeUtxoData(w io.Writer, leafDatas []LeafData) error {
 	return nil
 }
 
+// SerializeUtxoData encodes the passed in leafdatas using the non-compact
+// serialization format.
+func SerializeUtxoData(w io.Writer, leafDatas []LeafData) error {
+	// Write the size of the leaf datas.
+	err := WriteVarInt(w, 0, uint64(len(leafDatas)))
+	if err != nil {
+		return err
+	}
+
+	// Write the actual leaf datas.
+	for _, ld := range leafDatas {
+		err = ld.Serialize(w)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Deserialize encodes the UData to w using the UData serialization format.
 func (ud *UData) Deserialize(r io.Reader) error {
 	proof, err := BatchProofDeserialize(r)
@@ -128,12 +148,13 @@ func (ud *UData) Deserialize(r io.Reader) error {
 	}
 	ud.AccProof = *proof
 
-	ud.LeafDatas, err = DeserializeUtxoData(r)
+	ud.LeafDatas, err = DeserializeCompactUtxoData(r)
 	return err
 }
 
-// DeserializeUtxoData decodes the leaf datas from the reader.
-func DeserializeUtxoData(r io.Reader) ([]LeafData, error) {
+// DeserializeCompactUtxoData decodes the leaf datas from the reader using the
+// compact serialization format.
+func DeserializeCompactUtxoData(r io.Reader) ([]LeafData, error) {
 	// Read the size of the leaf datas.
 	txInCount, err := ReadVarInt(r, 0)
 	if err != nil {
@@ -147,6 +168,30 @@ func DeserializeUtxoData(r io.Reader) ([]LeafData, error) {
 	for i := 0; i < int(txInCount); i++ {
 		ld := LeafData{}
 		err = ld.DeserializeCompact(r)
+		if err != nil {
+			return nil, err
+		}
+		lds = append(lds, ld)
+	}
+
+	return lds, nil
+}
+
+// DeserializeUtxoData decodes the leaf datas from the reader using the
+// non-compact serialization format.
+func DeserializeUtxoData(r io.Reader) ([]LeafData, error) {
+	txInCount, err := ReadVarInt(r, 0)
+	if err != nil {
+		return nil, err
+	}
+	if txInCount == 0 {
+		return nil, nil
+	}
+
+	lds := make([]LeafData, 0, txInCount)
+	for i := 0; i < int(txInCount); i++ {
+		ld := LeafData{}
+		err = ld.Deserialize(r)
 		if err != nil {
 			return nil, err
 		}

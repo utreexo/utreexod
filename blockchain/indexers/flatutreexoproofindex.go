@@ -917,7 +917,7 @@ func (idx *FlatUtreexoProofIndex) fetchLeafDatas(height int32) ([]wire.LeafData,
 	}
 	r := bytes.NewReader(leafDataBytes)
 
-	return wire.DeserializeUtxoData(r)
+	return wire.DeserializeCompactUtxoData(r)
 }
 
 // fetchProofHashes fetches the proof hashes at the given height. Returns an error if it
@@ -1185,7 +1185,7 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error
 	}
 
 	leafBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeUtxoDataSize()))
-	err = wire.SerializeUtxoData(leafBuf, ud.LeafDatas)
+	err = wire.SerializeCompactUtxoData(leafBuf, ud.LeafDatas)
 	if err != nil {
 		return err
 	}
