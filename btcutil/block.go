@@ -33,16 +33,24 @@ func (e OutOfRangeError) Error() string {
 // transactions on their first access so subsequent accesses don't have to
 // repeat the relatively expensive hashing operations.
 type Block struct {
-	msgBlock                 *wire.MsgBlock      // Underlying MsgBlock
-	serializedBlock          []byte              // Serialized bytes for the block
-	serializedBlockNoWitness []byte              // Serialized bytes for block w/o witness data
-	blockHash                *chainhash.Hash     // Cached block hash
-	blockHeight              int32               // Height in the main block chain
-	transactions             []*Tx               // Transactions
-	txnsGenerated            bool                // ALL wrapped transactions generated
-	utreexoUpdateData        *utreexo.UpdateData // Utreexo update data for this block
-	utreexoAdds              []utreexo.Hash      // Hashes of the utreexo leaves being added
-	utreexoLeafTTLs          *wire.UtreexoTTL    // The ttls of the leaves created in this block.
+	msgBlock                 *wire.MsgBlock    // Underlying MsgBlock
+	serializedBlock          []byte            // Serialized bytes for the block
+	serializedBlockNoWitness []byte            // Serialized bytes for block w/o witness data
+	blockHash                *chainhash.Hash   // Cached block hash
+	blockHeight              int32             // Height in the main block chain
+	transactions             []*Tx             // Transactions
+	txnsGenerated            bool              // ALL wrapped transactions generated
+	utreexoData              *blockUtreexoData // All Utreexo related data
+}
+
+// blockUtreexoData contains all of the optional Utreexo-related metadata attached
+// to a block.
+type blockUtreexoData struct {
+	updateData *utreexo.UpdateData // Utreexo update data for this block.
+	adds       []utreexo.Hash      // Hashes of the utreexo leaves being added.
+	leafTTLs   *wire.UtreexoTTL    // The ttls of the leaves created in this block.
+	leafDatas  []wire.LeafData     // The leaves of the inputs in this block.
+	proofData  *utreexo.Proof      // Utreexo proof for this block.
 }
 
 // MsgBlock returns the underlying wire.MsgBlock for the Block.
@@ -222,12 +230,15 @@ func (b *Block) SetHeight(height int32) {
 
 // SetUtreexoUpdateData sets the utreexo update data of the block in the block chain.
 func (b *Block) SetUtreexoUpdateData(data *utreexo.UpdateData) {
-	b.utreexoUpdateData = data
+	b.ensureUtreexoData().updateData = data
 }
 
 // UtreexoUpdateData returns the utreexo update data for the block in the block chain.
 func (b *Block) UtreexoUpdateData() *utreexo.UpdateData {
-	return b.utreexoUpdateData
+	if b.utreexoData == nil {
+		return nil
+	}
+	return b.utreexoData.updateData
 }
 
 // SetUtreexoAdds sets the hashes of the utreexo leaves being added in this block.
@@ -236,22 +247,54 @@ func (b *Block) SetUtreexoAdds(adds []utreexo.Leaf) {
 	for _, add := range adds {
 		addHashes = append(addHashes, add.Hash)
 	}
-	b.utreexoAdds = addHashes
+	b.ensureUtreexoData().adds = addHashes
 }
 
 // UtreexoAdds returns the hashes of the utreexo leaves added in this block.
 func (b *Block) UtreexoAdds() []utreexo.Hash {
-	return b.utreexoAdds
+	if b.utreexoData == nil {
+		return nil
+	}
+	return b.utreexoData.adds
 }
 
 // SetUtreexoTTLs sets the ttls for this block.
 func (b *Block) SetUtreexoTTLs(ttls *wire.UtreexoTTL) {
-	b.utreexoLeafTTLs = ttls
+	b.ensureUtreexoData().leafTTLs = ttls
 }
 
 // UtreexoTTLs returns the ttls for this block.
 func (b *Block) UtreexoTTLs() *wire.UtreexoTTL {
-	return b.utreexoLeafTTLs
+	if b.utreexoData == nil {
+		return nil
+	}
+	return b.utreexoData.leafTTLs
+}
+
+// SetUtreexoLeafDatas sets the leaf data for the inputs in this block.
+func (b *Block) SetUtreexoLeafDatas(leafDatas []wire.LeafData) {
+	b.ensureUtreexoData().leafDatas = leafDatas
+}
+
+// UtreexoLeafDatas returns the leaf data for the inputs in this block.
+func (b *Block) UtreexoLeafDatas() []wire.LeafData {
+	if b.utreexoData == nil {
+		return nil
+	}
+	return b.utreexoData.leafDatas
+}
+
+// SetUtreexoProof sets the utreexo proof for this block.
+func (b *Block) SetUtreexoProof(proof *utreexo.Proof) {
+	b.ensureUtreexoData().proofData = proof
+}
+
+// UtreexoProof returns the utreexo proof for this block.
+func (b *Block) UtreexoProof() *utreexo.Proof {
+	if b.utreexoData == nil {
+		return nil
+	}
+	return b.utreexoData.proofData
 }
 
 // NewBlock returns a new instance of a bitcoin block given an underlying
@@ -300,4 +343,13 @@ func NewBlockFromBlockAndBytes(msgBlock *wire.MsgBlock, serializedBlock []byte) 
 		serializedBlock: serializedBlock,
 		blockHeight:     BlockHeightUnknown,
 	}
+}
+
+// ensureUtreexoData lazily initializes the container that holds the block's
+// Utreexo-related metadata.
+func (b *Block) ensureUtreexoData() *blockUtreexoData {
+	if b.utreexoData == nil {
+		b.utreexoData = &blockUtreexoData{}
+	}
+	return b.utreexoData
 }
