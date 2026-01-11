@@ -53,7 +53,7 @@ func (ps *ProofStats) UpdateUDStats(excludeAccProof bool, ud *wire.UData) {
 	ps.TgCount += uint64(len(ud.AccProof.Targets))
 
 	// Update leaf data size.
-	ps.LdSize += uint64(ud.SerializeUtxoDataSize())
+	ps.LdSize += uint64(ud.SerializeCompactUtxoDataSize())
 	ps.LdCount += uint64(len(ud.LeafDatas))
 
 	// Update proof size if the proof is to be included.

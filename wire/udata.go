@@ -51,12 +51,23 @@ func (ud *UData) SerializeAccSize() int {
 	return BatchProofSerializeSize(&ud.AccProof)
 }
 
-// SerializeUtxoDataSize returns the number of bytes it would take to serialize the
-// utxo data size.
-func (ud *UData) SerializeUtxoDataSize() int {
+// SerializeCompactUtxoDataSize returns the number of bytes it would take to serialize the
+// utxo data size using the compact serialization.
+func (ud *UData) SerializeCompactUtxoDataSize() int {
 	size := VarIntSerializeSize(uint64(len(ud.LeafDatas)))
 	for _, l := range ud.LeafDatas {
 		size += l.SerializeSizeCompact()
+	}
+
+	return size
+}
+
+// SerializeUtxoDataSize returns the number of bytes it would take to serialize the
+// utxo data size using the non-compact serialization.
+func (ud *UData) SerializeUtxoDataSize() int {
+	size := VarIntSerializeSize(uint64(len(ud.LeafDatas)))
+	for _, l := range ud.LeafDatas {
+		size += l.SerializeSize()
 	}
 
 	return size
@@ -66,7 +77,7 @@ func (ud *UData) SerializeUtxoDataSize() int {
 // UData.
 func (ud *UData) SerializeSize() int {
 	// Accumulator proof size + leaf data size
-	return BatchProofSerializeSize(&ud.AccProof) + ud.SerializeUtxoDataSize()
+	return BatchProofSerializeSize(&ud.AccProof) + ud.SerializeCompactUtxoDataSize()
 }
 
 // -----------------------------------------------------------------------------

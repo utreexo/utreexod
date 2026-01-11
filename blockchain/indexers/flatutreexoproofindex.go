@@ -1184,7 +1184,7 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error
 		return fmt.Errorf("store targets err. %v", err)
 	}
 
-	leafBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeUtxoDataSize()))
+	leafBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeCompactUtxoDataSize()))
 	err = wire.SerializeCompactUtxoData(leafBuf, ud.LeafDatas)
 	if err != nil {
 		return err
