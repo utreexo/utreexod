@@ -760,6 +760,15 @@ var helpDescsEnUS = map[string]string{
 	"submitblock--condition1": "Block rejected",
 	"submitblock--result1":    "The reason the block was rejected",
 
+	// SubmitBlockAndUtreexoProofCmd help.
+	"submitblockandutreexoproof--synopsis":   "Submits a serialized, hex-encoded block along with its serialized utreexo proof and leaf data.",
+	"submitblockandutreexoproof-hexblock":    "Serialized, hex-encoded block",
+	"submitblockandutreexoproof-hexproof":    "Serialized, hex-encoded utreexo accumulator proof",
+	"submitblockandutreexoproof-hexleafdata": "Serialized, hex-encoded utreexo leaf data",
+	"submitblockandutreexoproof--condition0": "Block successfully submitted",
+	"submitblockandutreexoproof--condition1": "Block rejected",
+	"submitblockandutreexoproof--result1":    "The reason the block was rejected",
+
 	// ValidateAddressResult help.
 	"validateaddresschainresult-isvalid":         "Whether or not the address is valid",
 	"validateaddresschainresult-address":         "The bitcoin address (only when isvalid is true)",
@@ -972,6 +981,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"signmessagewithprivkey":             {(*string)(nil)},
 	"stop":                               {(*string)(nil)},
 	"submitblock":                        {nil, (*string)(nil)},
+	"submitblockandutreexoproof":         {nil, (*string)(nil)},
 	"unusedaddress":                      {(*btcjson.BDKAddressResult)(nil)},
 	"uptime":                             {(*int64)(nil)},
 	"validateaddress":                    {(*btcjson.ValidateAddressChainResult)(nil)},
