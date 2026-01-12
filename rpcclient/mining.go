@@ -5,6 +5,7 @@
 package rpcclient
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // FutureGenerateResult is a future promise to deliver the result of a
@@ -459,6 +461,75 @@ func (c *Client) SubmitBlockAsync(block *btcutil.Block, options *btcjson.SubmitB
 // SubmitBlock attempts to submit a new block into the bitcoin network.
 func (c *Client) SubmitBlock(block *btcutil.Block, options *btcjson.SubmitBlockOptions) error {
 	return c.SubmitBlockAsync(block, options).Receive()
+}
+
+// FutureSubmitBlockAndUtreexoProofResult is a future promise to deliver the
+// result of a SubmitBlockAndUtreexoProofAsync RPC invocation (or an applicable
+// error).
+type FutureSubmitBlockAndUtreexoProofResult chan *Response
+
+// Receive waits for the Response promised by the future and returns an error if
+// any occurred when submitting the block and proof.
+func (r FutureSubmitBlockAndUtreexoProofResult) Receive() error {
+	res, err := ReceiveFuture(r)
+	if err != nil {
+		return err
+	}
+
+	if string(res) != "null" {
+		var result string
+		err = json.Unmarshal(res, &result)
+		if err != nil {
+			return err
+		}
+
+		return errors.New(result)
+	}
+
+	return nil
+}
+
+// SubmitBlockAndUtreexoProofAsync returns an instance of a type that can be used to get
+// the result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+func (c *Client) SubmitBlockAndUtreexoProofAsync(block *btcutil.Block, udata *wire.UData) FutureSubmitBlockAndUtreexoProofResult {
+	if block == nil {
+		return newFutureError(errors.New("block must not be nil"))
+	}
+	if udata == nil {
+		return newFutureError(errors.New("utreexo proof data must not be nil"))
+	}
+
+	var blockBuf bytes.Buffer
+	err := block.MsgBlock().BtcEncode(&blockBuf, 0, wire.WitnessEncoding)
+	if err != nil {
+		return newFutureError(err)
+	}
+
+	var proofBuf bytes.Buffer
+	err = wire.BatchProofSerialize(&proofBuf, &udata.AccProof)
+	if err != nil {
+		return newFutureError(err)
+	}
+
+	var leafBuf bytes.Buffer
+	err = wire.SerializeUtxoData(&leafBuf, udata.LeafDatas)
+	if err != nil {
+		return newFutureError(err)
+	}
+
+	cmd := btcjson.NewSubmitBlockAndUtreexoProofCmd(
+		hex.EncodeToString(blockBuf.Bytes()),
+		hex.EncodeToString(proofBuf.Bytes()),
+		hex.EncodeToString(leafBuf.Bytes()),
+	)
+	return c.SendCmd(cmd)
+}
+
+// SubmitBlockAndUtreexoProof attempts to submit a new block and its associated
+// utreexo proof into the bitcoin network.
+func (c *Client) SubmitBlockAndUtreexoProof(block *btcutil.Block, udata *wire.UData) error {
+	return c.SubmitBlockAndUtreexoProofAsync(block, udata).Receive()
 }
 
 // FutureGetBlockTemplateResponse is a future promise to deliver the result of a
