@@ -1174,6 +1174,14 @@ type SubmitBlockCmd struct {
 	Options  *SubmitBlockOptions
 }
 
+// SubmitBlockAndUtreexoProofCmd defines the submitblockandutreexoproof
+// JSON-RPC command.
+type SubmitBlockAndUtreexoProofCmd struct {
+	HexBlock    string
+	HexProof    string
+	HexLeafData string
+}
+
 // NewSubmitBlockCmd returns a new instance which can be used to issue a
 // submitblock JSON-RPC command.
 //
@@ -1183,6 +1191,16 @@ func NewSubmitBlockCmd(hexBlock string, options *SubmitBlockOptions) *SubmitBloc
 	return &SubmitBlockCmd{
 		HexBlock: hexBlock,
 		Options:  options,
+	}
+}
+
+// NewSubmitBlockAndUtreexoProofCmd returns a new instance which can be used to
+// issue a submitblockandutreexoproof JSON-RPC command.
+func NewSubmitBlockAndUtreexoProofCmd(hexBlock, hexProof, hexLeafData string) *SubmitBlockAndUtreexoProofCmd {
+	return &SubmitBlockAndUtreexoProofCmd{
+		HexBlock:    hexBlock,
+		HexProof:    hexProof,
+		HexLeafData: hexLeafData,
 	}
 }
 
@@ -1370,6 +1388,7 @@ func init() {
 	MustRegisterCmd("signmessagewithprivkey", (*SignMessageWithPrivKeyCmd)(nil), flags)
 	MustRegisterCmd("stop", (*StopCmd)(nil), flags)
 	MustRegisterCmd("submitblock", (*SubmitBlockCmd)(nil), flags)
+	MustRegisterCmd("submitblockandutreexoproof", (*SubmitBlockAndUtreexoProofCmd)(nil), flags)
 	MustRegisterCmd("unusedaddress", (*UnusedAddressCmd)(nil), flags)
 	MustRegisterCmd("uptime", (*UptimeCmd)(nil), flags)
 	MustRegisterCmd("validateaddress", (*ValidateAddressCmd)(nil), flags)
