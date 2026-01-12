@@ -1244,7 +1244,7 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 	// Fetch UData.
 	var udata *wire.UData
 	if !cfg.NoUtreexo {
-		udata = block.MsgBlock().UData
+		udata = block.UtreexoData()
 	}
 	if sp.server.utreexoProofIndex != nil {
 		udata, err = sp.server.utreexoProofIndex.FetchUtreexoProof(&msg.BlockHash)
