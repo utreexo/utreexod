@@ -859,7 +859,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 			LeafDatas: utreexoProofMsg.proof.LeafDatas,
 		}
 
-		bmsg.block.MsgBlock().UData = &udata
+		bmsg.block.SetUtreexoData(&udata)
 	}
 
 	// Process the block based off the headers if we're still in headers-first mode.
