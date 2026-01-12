@@ -1017,7 +1017,8 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpo
 func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 	view *UtxoViewpoint, utreexoView *UtreexoViewpoint, stxos *[]SpentTxOut) error {
 
-	if b.utreexoView != nil && block.MsgBlock().UData == nil {
+	udata := block.UtreexoData()
+	if b.utreexoView != nil && udata == nil {
 		return fmt.Errorf("utreexo viewpoint is active but no utreexo proof data" +
 			"was included in the block")
 	}
@@ -1073,20 +1074,20 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 	// transaction inputs, counting pay-to-script-hashes, and scripts.
 	//
 	// If utreexo accumulators are enabled, then check that the accumulator
-	// proof is ok.  Then convert the msgBlock.UData into UtxoViewpoint.
+	// proof is ok.  Then convert the block's Utreexo data into UtxoViewpoint.
 	if utreexoView != nil {
 		// Only attempt to verify the udata if we don't have utreexo ttls.
 		// If we have ttls, it means that we're still on the swiftsync part
 		// of the ibd and we do not need to verify the proof as we don't
 		// perform deletions.
 		if block.UtreexoTTLs() == nil {
-			err := utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+			err := utreexoView.VerifyUData(block, b.bestChain, udata)
 			if err != nil {
 				return fmt.Errorf("checkConnectBlock fail. error: %v", err)
 			}
 		} else {
 			_, _, inskip, _ := DedupeBlock(block)
-			_, err := reconstructUData(block.MsgBlock().UData, block, b.bestChain, inskip)
+			_, err := reconstructUData(udata, block, b.bestChain, inskip)
 			if err != nil {
 				return err
 			}
