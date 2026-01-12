@@ -228,6 +228,24 @@ func (b *Block) SetHeight(height int32) {
 	b.blockHeight = height
 }
 
+// SetUtreexoData stores the serialized Utreexo proof data for this block.
+func (b *Block) SetUtreexoData(data *wire.UData) {
+	b.ensureUtreexoData().proofData = &data.AccProof
+	b.ensureUtreexoData().leafDatas = data.LeafDatas
+}
+
+// UtreexoData returns the serialized Utreexo proof data for the block.
+func (b *Block) UtreexoData() *wire.UData {
+	if b.utreexoData == nil {
+		return nil
+	}
+
+	return &wire.UData{
+		AccProof:  *b.utreexoData.proofData,
+		LeafDatas: b.utreexoData.leafDatas,
+	}
+}
+
 // SetUtreexoUpdateData sets the utreexo update data of the block in the block chain.
 func (b *Block) SetUtreexoUpdateData(data *utreexo.UpdateData) {
 	b.ensureUtreexoData().updateData = data
