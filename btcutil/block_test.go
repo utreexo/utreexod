@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/wire"
@@ -296,6 +297,101 @@ func TestBlockErrors(t *testing.T) {
 	if err != io.EOF {
 		t.Errorf("TxLoc: did not get expected error - "+
 			"got %v, want %v", err, io.EOF)
+	}
+}
+
+// TestNewBlockFromBytesWithUtreexoData ensures cached Utreexo data is restored
+// when reading a serialized block from bytes.
+func TestNewBlockFromBytesWithUtreexoData(t *testing.T) {
+	block := btcutil.NewBlock(&Block100000)
+	want := testWireUData()
+	block.SetUtreexoData(want)
+
+	serialized, err := block.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: unexpected error: %v", err)
+	}
+
+	newBlock, err := btcutil.NewBlockFromBytes(serialized)
+	if err != nil {
+		t.Fatalf("NewBlockFromBytes: unexpected error: %v", err)
+	}
+
+	assertUDataEqual(t, newBlock.UtreexoData(), want)
+}
+
+// TestNewBlockFromReaderWithUtreexoData ensures reader-based construction parses
+// appended Utreexo data.
+func TestNewBlockFromReaderWithUtreexoData(t *testing.T) {
+	block := btcutil.NewBlock(&Block100000)
+	want := testWireUData()
+	block.SetUtreexoData(want)
+
+	serialized, err := block.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: unexpected error: %v", err)
+	}
+
+	newBlock, err := btcutil.NewBlockFromReader(bytes.NewReader(serialized))
+	if err != nil {
+		t.Fatalf("NewBlockFromReader: unexpected error: %v", err)
+	}
+
+	assertUDataEqual(t, newBlock.UtreexoData(), want)
+}
+
+// TestSetUtreexoDataInvalidatesCache ensures cached serialization is rebuilt
+// once the Utreexo data changes.
+func TestSetUtreexoDataInvalidatesCache(t *testing.T) {
+	block := btcutil.NewBlock(&Block100000)
+	base, err := block.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: unexpected error: %v", err)
+	}
+
+	block.SetUtreexoData(testWireUData())
+	withProof, err := block.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes (with utreexo data): unexpected error: %v", err)
+	}
+
+	if bytes.Equal(base, withProof) {
+		t.Fatalf("expected serialized block to change once utreexo data added")
+	}
+}
+
+func assertUDataEqual(t *testing.T, got, want *wire.UData) {
+	t.Helper()
+
+	switch {
+	case want == nil && got == nil:
+		return
+	case want == nil && got != nil:
+		t.Fatalf("expected nil UData, got %v", got)
+	case want != nil && got == nil:
+		t.Fatalf("expected non-nil UData, got nil")
+	}
+
+	if !reflect.DeepEqual(got.AccProof, want.AccProof) {
+		t.Fatalf("unexpected accumulator proof\ngot:  %v\nwant: %v",
+			got.AccProof, want.AccProof)
+	}
+	if !reflect.DeepEqual(got.LeafDatas, want.LeafDatas) {
+		t.Fatalf("unexpected leaf data\ngot:  %v\nwant: %v",
+			got.LeafDatas, want.LeafDatas)
+	}
+}
+
+func testWireUData() *wire.UData {
+	return &wire.UData{
+		AccProof: utreexo.Proof{
+			Targets: []uint64{1, 2, 3},
+			Proof: []utreexo.Hash{
+				{0x01},
+				{0x02},
+				{0x03},
+			},
+		},
 	}
 }
 

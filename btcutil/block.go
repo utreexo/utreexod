@@ -69,9 +69,13 @@ func (b *Block) Bytes() ([]byte, error) {
 	}
 
 	// Serialize the MsgBlock.
-	w := bytes.NewBuffer(make([]byte, 0, b.msgBlock.SerializeSize()))
+	size := b.msgBlock.SerializeSize() + b.utreexoDataSerializeSize()
+	w := bytes.NewBuffer(make([]byte, 0, size))
 	err := b.msgBlock.Serialize(w)
 	if err != nil {
+		return nil, err
+	}
+	if err := b.appendSerializedUtreexoData(w); err != nil {
 		return nil, err
 	}
 	serializedBlock := w.Bytes()
@@ -230,13 +234,13 @@ func (b *Block) SetHeight(height int32) {
 
 // SetUtreexoData stores the serialized Utreexo proof data for this block.
 func (b *Block) SetUtreexoData(data *wire.UData) {
-	b.ensureUtreexoData().proofData = &data.AccProof
-	b.ensureUtreexoData().leafDatas = data.LeafDatas
+	b.setUtreexoDataInternal(data)
+	b.invalidateSerializedBlock()
 }
 
 // UtreexoData returns the serialized Utreexo proof data for the block.
 func (b *Block) UtreexoData() *wire.UData {
-	if b.utreexoData == nil {
+	if b.utreexoData == nil || b.utreexoData.proofData == nil {
 		return nil
 	}
 
@@ -292,6 +296,7 @@ func (b *Block) UtreexoTTLs() *wire.UtreexoTTL {
 // SetUtreexoLeafDatas sets the leaf data for the inputs in this block.
 func (b *Block) SetUtreexoLeafDatas(leafDatas []wire.LeafData) {
 	b.ensureUtreexoData().leafDatas = leafDatas
+	b.invalidateSerializedBlock()
 }
 
 // UtreexoLeafDatas returns the leaf data for the inputs in this block.
@@ -305,6 +310,7 @@ func (b *Block) UtreexoLeafDatas() []wire.LeafData {
 // SetUtreexoProof sets the utreexo proof for this block.
 func (b *Block) SetUtreexoProof(proof *utreexo.Proof) {
 	b.ensureUtreexoData().proofData = proof
+	b.invalidateSerializedBlock()
 }
 
 // UtreexoProof returns the utreexo proof for this block.
@@ -327,22 +333,41 @@ func NewBlock(msgBlock *wire.MsgBlock) *Block {
 // NewBlockFromBytes returns a new instance of a bitcoin block given the
 // serialized bytes.  See Block.
 func NewBlockFromBytes(serializedBlock []byte) (*Block, error) {
-	br := bytes.NewReader(serializedBlock)
-	b, err := NewBlockFromReader(br)
+	// Deserialize the bytes into a MsgBlock.
+	var msgBlock wire.MsgBlock
+	err := msgBlock.Deserialize(bytes.NewReader(serializedBlock))
 	if err != nil {
 		return nil, err
 	}
-	b.serializedBlock = serializedBlock
+
+	b := &Block{
+		msgBlock:        &msgBlock,
+		serializedBlock: serializedBlock,
+		blockHeight:     BlockHeightUnknown,
+	}
+	if err := b.attachUtreexoDataFromSerialized(serializedBlock); err != nil {
+		return nil, err
+	}
+
 	return b, nil
 }
 
 // NewBlockFromReader returns a new instance of a bitcoin block given a
 // Reader to deserialize the block.  See Block.
 func NewBlockFromReader(r io.Reader) (*Block, error) {
+	var buf bytes.Buffer
+	tr := io.TeeReader(r, &buf)
+
 	// Deserialize the bytes into a MsgBlock.
 	var msgBlock wire.MsgBlock
-	err := msgBlock.Deserialize(r)
+	err := msgBlock.Deserialize(tr)
 	if err != nil {
+		return nil, err
+	}
+
+	// Capture any remaining bytes (utreexo data) for parsing.
+	_, err = io.Copy(&buf, r)
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
 
@@ -350,17 +375,26 @@ func NewBlockFromReader(r io.Reader) (*Block, error) {
 		msgBlock:    &msgBlock,
 		blockHeight: BlockHeightUnknown,
 	}
+	if err := b.attachUtreexoDataFromSerialized(buf.Bytes()); err != nil {
+		return nil, err
+	}
+	// Clear the UData from the underlying MsgBlock since we store it separately.
+	msgBlock.UData = nil
 	return &b, nil
 }
 
 // NewBlockFromBlockAndBytes returns a new instance of a bitcoin block given
 // an underlying wire.MsgBlock and the serialized bytes for it.  See Block.
 func NewBlockFromBlockAndBytes(msgBlock *wire.MsgBlock, serializedBlock []byte) *Block {
-	return &Block{
+	b := &Block{
 		msgBlock:        msgBlock,
 		serializedBlock: serializedBlock,
 		blockHeight:     BlockHeightUnknown,
 	}
+	_ = b.attachUtreexoDataFromSerialized(serializedBlock)
+	// Clear the UData from the underlying MsgBlock since we store it separately.
+	msgBlock.UData = nil
+	return b
 }
 
 // ensureUtreexoData lazily initializes the container that holds the block's
@@ -370,4 +404,66 @@ func (b *Block) ensureUtreexoData() *blockUtreexoData {
 		b.utreexoData = &blockUtreexoData{}
 	}
 	return b.utreexoData
+}
+
+// invalidateSerializedBlock clears the cached serialized block so it will be
+// regenerated on the next call to Bytes().
+func (b *Block) invalidateSerializedBlock() {
+	b.serializedBlock = nil
+}
+
+// utreexoDataSerializeSize returns the number of bytes needed to serialize the
+// cached Utreexo data.
+func (b *Block) utreexoDataSerializeSize() int {
+	ud := b.UtreexoData()
+	if ud == nil {
+		return 0
+	}
+	return ud.SerializeSize()
+}
+
+// appendSerializedUtreexoData writes the serialized Utreexo data to the writer
+// if any is cached on the block.
+func (b *Block) appendSerializedUtreexoData(w io.Writer) error {
+	ud := b.UtreexoData()
+	if ud == nil {
+		return nil
+	}
+	return ud.Serialize(w)
+}
+
+// attachUtreexoDataFromSerialized attempts to read serialized Utreexo data
+// appended to the provided serialized block bytes.
+func (b *Block) attachUtreexoDataFromSerialized(serialized []byte) error {
+	baseLen := b.baseBlockSerializeLen()
+	if baseLen >= len(serialized) {
+		return nil
+	}
+
+	ud := new(wire.UData)
+	if err := ud.Deserialize(bytes.NewReader(serialized[baseLen:])); err != nil {
+		return err
+	}
+
+	b.setUtreexoDataInternal(ud)
+	return nil
+}
+
+// baseBlockSerializeLen returns the serialized length of the underlying block
+// without any appended Utreexo data.
+func (b *Block) baseBlockSerializeLen() int {
+	return b.msgBlock.SerializeSize()
+}
+
+// setUtreexoDataInternal stores the provided Utreexo data.
+func (b *Block) setUtreexoDataInternal(data *wire.UData) {
+	if data == nil {
+		b.utreexoData.proofData = nil
+		b.utreexoData.leafDatas = nil
+		return
+	}
+
+	ud := b.ensureUtreexoData()
+	ud.proofData = &data.AccProof
+	ud.leafDatas = data.LeafDatas
 }
