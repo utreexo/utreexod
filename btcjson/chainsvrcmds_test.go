@@ -1386,6 +1386,21 @@ func TestChainSvrCmds(t *testing.T) {
 			},
 		},
 		{
+			name: "submitblockandutreexoproof",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("submitblockandutreexoproof", "aa", "bb", "cc")
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewSubmitBlockAndUtreexoProofCmd("aa", "bb", "cc")
+			},
+			marshalled: `{"jsonrpc":"1.0","method":"submitblockandutreexoproof","params":["aa","bb","cc"],"id":1}`,
+			unmarshalled: &btcjson.SubmitBlockAndUtreexoProofCmd{
+				HexBlock:    "aa",
+				HexProof:    "bb",
+				HexLeafData: "cc",
+			},
+		},
+		{
 			name: "uptime",
 			newCmd: func() (interface{}, error) {
 				return btcjson.NewCmd("uptime")

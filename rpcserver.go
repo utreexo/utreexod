@@ -202,6 +202,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"signmessagewithprivkey":             handleSignMessageWithPrivKey,
 	"stop":                               handleStop,
 	"submitblock":                        handleSubmitBlock,
+	"submitblockandutreexoproof":         handleSubmitBlockAndUtreexoProof,
 	"unusedaddress":                      handleUnusedAddress,
 	"uptime":                             handleUptime,
 	"validateaddress":                    handleValidateAddress,
@@ -4451,6 +4452,73 @@ func handleSubmitBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 	}
 
 	rpcsLog.Infof("Accepted block %s via submitblock", block.Hash())
+	return nil, nil
+}
+
+// handleSubmitBlockAndUtreexoProof implements the submitblockandutreexoproof command.
+func handleSubmitBlockAndUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.SubmitBlockAndUtreexoProofCmd)
+
+	decodeHex := func(input string) ([]byte, error) {
+		hexStr := input
+		if len(hexStr)%2 != 0 {
+			hexStr = "0" + input
+		}
+		decoded, err := hex.DecodeString(hexStr)
+		if err != nil {
+			return nil, rpcDecodeHexError(hexStr)
+		}
+		return decoded, nil
+	}
+
+	serializedBlock, err := decodeHex(c.HexBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	block, err := btcutil.NewBlockFromBytes(serializedBlock)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCDeserialization,
+			Message: "Block decode failed: " + err.Error(),
+		}
+	}
+
+	serializedProof, err := decodeHex(c.HexProof)
+	if err != nil {
+		return nil, err
+	}
+	proof, err := wire.BatchProofDeserialize(bytes.NewReader(serializedProof))
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCDeserialization,
+			Message: "Utreexo proof decode failed: " + err.Error(),
+		}
+	}
+
+	serializedLeafData, err := decodeHex(c.HexLeafData)
+	if err != nil {
+		return nil, err
+	}
+	leafDatas, err := wire.DeserializeUtxoData(bytes.NewReader(serializedLeafData))
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCDeserialization,
+			Message: "Leaf data decode failed: " + err.Error(),
+		}
+	}
+
+	block.MsgBlock().UData = &wire.UData{
+		AccProof:  *proof,
+		LeafDatas: leafDatas,
+	}
+
+	_, err = s.cfg.SyncMgr.SubmitBlock(block, blockchain.BFNone)
+	if err != nil {
+		return fmt.Sprintf("rejected: %s", err.Error()), nil
+	}
+
+	rpcsLog.Infof("Accepted block %s via submitblockandutreexoproof", block.Hash())
 	return nil, nil
 }
 

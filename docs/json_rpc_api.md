@@ -187,8 +187,9 @@ the method name for further details such as parameter and return information.
 |27|[setgenerate](#setgenerate) |N|Set the server to generate coins (mine) or not.<br/>NOTE: Since btcd does not have the wallet integrated to provide payment addresses, btcd must be configured via the `--miningaddr` option to provide which payment addresses to pay created blocks to for this RPC to function.|
 |28|[stop](#stop)|N|Shutdown btcd.|
 |29|[submitblock](#submitblock)|Y|Attempts to submit a new serialized, hex-encoded block to the network.|
-|30|[validateaddress](#validateaddress)|Y|Verifies the given address is valid.  NOTE: Since btcd does not have a wallet integrated, btcd will only return whether the address is valid or not.|
-|31|[verifychain](#verifychain)|N|Verifies the block chain database.|
+|30|[submitblockandutreexoproof](#submitblockandutreexoproof)|Y|Submits a new block along with a serialized utreexo proof and leaf data.|
+|31|[validateaddress](#validateaddress)|Y|Verifies the given address is valid.  NOTE: Since btcd does not have a wallet integrated, btcd will only return whether the address is valid or not.|
+|32|[verifychain](#verifychain)|N|Verifies the block chain database.|
 
 <a name="MethodDetails" />
 
@@ -536,6 +537,17 @@ Example Return|`{`<br />&nbsp;&nbsp;`"bytes": 310768,`<br />&nbsp;&nbsp;`"size":
 |Method|submitblock|
 |Parameters|1. data (string, required) serialized, hex-encoded block<br />2. params (json object, optional, default=nil) this parameter is currently ignored|
 |Description|Attempts to submit a new serialized, hex-encoded block to the network.|
+|Returns (success)|Success: Nothing<br />Failure: `"rejected: reason"` (string)|
+[Return to Overview](#MethodOverview)<br />
+
+***
+<a name="submitblockandutreexoproof"/>
+
+|   |   |
+|---|---|
+|Method|submitblockandutreexoproof|
+|Parameters|1. blockdata (string, required) serialized, hex-encoded block<br />2. utreexoproof (string, required) serialized, hex-encoded utreexo accumulator proof<br />3. leafdata (string, required) serialized, hex-encoded utreexo leaf data|
+|Description|Attempts to submit a new serialized, hex-encoded block to the network using the supplied utreexo proof and leaf data for validation.|
 |Returns (success)|Success: Nothing<br />Failure: `"rejected: reason"` (string)|
 [Return to Overview](#MethodOverview)<br />
 

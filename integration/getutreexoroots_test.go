@@ -125,11 +125,12 @@ func TestGetUtreexoRoots(t *testing.T) {
 	}
 
 	// Sync the CSN. Omit genesis.
-	utreexoBlocks, err := fetchBlocks(blockHashes[1:], flatUtreexoProofNode)
+	utreexoBlocks, utreexoUdatas, err := fetchBlocks(blockHashes[1:], flatUtreexoProofNode)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, block := range utreexoBlocks {
+	for i, block := range utreexoBlocks {
+		block.MsgBlock().UData = utreexoUdatas[i]
 		err = csn.Client.SubmitBlock(block, nil)
 		if err != nil {
 			t.Fatal(err)
