@@ -18,68 +18,72 @@ import (
 	"github.com/utreexo/utreexod/wire"
 )
 
-// fetchBlocks fetches the blocks for the given block hashes and attaches the
-// udata to each of the blocks.
+// fetchBlocks fetches the blocks for the given block hashes and
+// returns the blocks and their corresponding UData separately. This is needed for
+// testing SubmitBlockAndUtreexoProof which takes block and UData as separate parameters.
 func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
-	[]*btcutil.Block, error) {
+	[]*btcutil.Block, []*wire.UData, error) {
 
 	blocks := make([]*btcutil.Block, 0, len(blockhashes))
+	udatas := make([]*wire.UData, 0, len(blockhashes))
+
 	for _, blockhash := range blockhashes {
 		msgBlock, err := harness.Client.GetBlock(blockhash)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		utreexoProof, err := harness.Client.GetUtreexoProof(blockhash)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch proof for block %s. %v",
-				blockhash.String(), err)
+			return nil, nil, err
 		}
 
-		jsonToUdata := func(*btcjson.GetUtreexoProofVerboseResult) (*wire.UData, error) {
-			lds := []wire.LeafData{}
-			for _, ldString := range utreexoProof.TargetPreimages {
-				raw, err := hex.DecodeString(ldString)
-				if err != nil {
-					return nil, err
-				}
-
-				ld := new(wire.LeafData)
-				err = ld.Deserialize(bytes.NewReader(raw))
-				if err != nil {
-					return nil, err
-				}
-
-				lds = append(lds, *ld)
-			}
-			proofHashes := []utreexo.Hash{}
-			for _, proofString := range utreexoProof.ProofHashes {
-				raw, err := hex.DecodeString(proofString)
-				if err != nil {
-					return nil, err
-				}
-				proofHashes = append(proofHashes, *((*utreexo.Hash)(raw)))
-			}
-			accProof := utreexo.Proof{Targets: utreexoProof.ProofTargets, Proof: proofHashes}
-
-			udata := wire.UData{
-				AccProof:  accProof,
-				LeafDatas: lds,
-			}
-
-			return &udata, nil
-		}
-
-		msgBlock.UData, err = jsonToUdata(utreexoProof)
+		udata, err := jsonToUData(utreexoProof)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		block := btcutil.NewBlock(msgBlock)
 		blocks = append(blocks, block)
+		udatas = append(udatas, udata)
 	}
 
-	return blocks, nil
+	return blocks, udatas, nil
+}
+
+// jsonToUData converts the JSON utreexo proof result to wire.UData.
+func jsonToUData(utreexoProof *btcjson.GetUtreexoProofVerboseResult) (*wire.UData, error) {
+	lds := []wire.LeafData{}
+	for _, ldString := range utreexoProof.TargetPreimages {
+		raw, err := hex.DecodeString(ldString)
+		if err != nil {
+			return nil, err
+		}
+
+		ld := new(wire.LeafData)
+		err = ld.Deserialize(bytes.NewReader(raw))
+		if err != nil {
+			return nil, err
+		}
+
+		lds = append(lds, *ld)
+	}
+	proofHashes := []utreexo.Hash{}
+	for _, proofString := range utreexoProof.ProofHashes {
+		raw, err := hex.DecodeString(proofString)
+		if err != nil {
+			return nil, err
+		}
+		proofHashes = append(proofHashes, *((*utreexo.Hash)(raw)))
+	}
+	accProof := utreexo.Proof{Targets: utreexoProof.ProofTargets, Proof: proofHashes}
+
+	udata := wire.UData{
+		AccProof:  accProof,
+		LeafDatas: lds,
+	}
+
+	return &udata, nil
 }
 
 func TestUtreexoCSN(t *testing.T) {
@@ -206,11 +210,12 @@ func TestUtreexoCSN(t *testing.T) {
 	defer csn.TearDown()
 
 	// Sync the CSN up to block 150.
-	blocks, err := fetchBlocks(mainBranchBlockHashes[:150], bridgeNode)
+	blocks, udatas, err := fetchBlocks(mainBranchBlockHashes[:150], bridgeNode)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, block := range blocks {
+	for i, block := range blocks {
+		block.MsgBlock().UData = udatas[i]
 		err = csn.Client.SubmitBlock(block, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -218,11 +223,12 @@ func TestUtreexoCSN(t *testing.T) {
 	}
 
 	// Submit side chain to the CSN. This will become the main chain.
-	sideBranchBlocks, err := fetchBlocks(sideBranchBlockHashes, bridgeNode)
+	sideBranchBlocks, sideBranchUdatas, err := fetchBlocks(sideBranchBlockHashes, bridgeNode)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, block := range sideBranchBlocks {
+	for i, block := range sideBranchBlocks {
+		block.MsgBlock().UData = sideBranchUdatas[i]
 		err = csn.Client.SubmitBlock(block, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -236,11 +242,12 @@ func TestUtreexoCSN(t *testing.T) {
 	}
 
 	// Sync the CSN up to block 170 on the now active chain.
-	mainBranchBlocks, err := fetchBlocks(mainBranchBlockHashes[150:], bridgeNode)
+	mainBranchBlocks, mainBranchUdatas, err := fetchBlocks(mainBranchBlockHashes[150:], bridgeNode)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, block := range mainBranchBlocks {
+	for i, block := range mainBranchBlocks {
+		block.MsgBlock().UData = mainBranchUdatas[i]
 		submitErr := csn.Client.SubmitBlock(block, nil)
 
 		// If we errored out on a submitblock, write all the blocks that we used in this test to a file.
