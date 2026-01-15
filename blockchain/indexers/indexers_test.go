@@ -305,12 +305,11 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 			return err
 		}
 
-		block.MsgBlock().UData = ud
+		block.SetUtreexoData(ud)
 
 		// This will reset the serializedBlock inside the btcutil.Block.  It's needed because the
 		// serializedBlock is already cached without the udata which is needed for the csn.
-		newBlock := btcutil.NewBlock(block.MsgBlock())
-		_, _, err = csnChain.ProcessBlock(newBlock, blockchain.BFNone)
+		_, _, err = csnChain.ProcessBlock(block, blockchain.BFNone)
 		if err != nil {
 			str := fmt.Errorf("ProcessBlock fail at block height %d err: %s\n", b, err)
 			return str

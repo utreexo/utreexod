@@ -1068,7 +1068,7 @@ func (wm *WatchOnlyWalletManager) filterBlockForUndo(block *btcutil.Block) ([]ui
 			// are utxos again. Look through all the stxos and make them utxos.
 			txData, found := wm.wallet.RelevantStxos[in.PreviousOutPoint]
 			if found {
-				target := block.MsgBlock().UData.AccProof.Targets[leafIdx]
+				target := block.UtreexoData().AccProof.Targets[leafIdx]
 				targetsToProve = append(targetsToProve, target)
 
 				wm.wallet.RelevantUtxos[in.PreviousOutPoint] = txData
@@ -1153,7 +1153,7 @@ func (wm *WatchOnlyWalletManager) handleBlockchainNotification(notification *blo
 
 		remembers, updates := wm.filterBlock(block)
 
-		ud := block.MsgBlock().UData
+		ud := block.UtreexoData()
 		targets := ud.AccProof.Targets
 		adds := block.UtreexoAdds()
 		updateData := block.UtreexoUpdateData()
@@ -1194,7 +1194,7 @@ func (wm *WatchOnlyWalletManager) handleBlockchainNotification(notification *blo
 			break
 		}
 
-		ud := block.MsgBlock().UData
+		ud := block.UtreexoData()
 		targets := ud.AccProof.Targets
 		updateData := block.UtreexoUpdateData()
 		numAdds := uint64(len(block.UtreexoAdds()))

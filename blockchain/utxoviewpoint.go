@@ -646,11 +646,11 @@ func (view *UtxoViewpoint) fetchInputUtxos(cache *utxoCache, block *btcutil.Bloc
 //
 // NOTE: this function is only relevant when the utreexo accumulators are enabled.
 func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
-	if block.MsgBlock().UData == nil {
+	ud := block.UtreexoData()
+	if ud == nil {
 		return fmt.Errorf("UData is nil. Cannot verify block with hash %s.",
 			block.Hash().String())
 	}
-	ud := block.MsgBlock().UData
 	m := view.Entries()
 
 	// Loop through LeafDatas and convert them into UtxoEntries.

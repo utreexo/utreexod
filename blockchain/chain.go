@@ -1046,7 +1046,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 			// NOTE: Undoing instead of replacing the utreexoview with the roots in the database
 			// allows the cached leaves to stay cached.
 			err = b.utreexoView.accumulator.Undo(addHashes,
-				block.MsgBlock().UData.AccProof, delHashes, uView.accumulator.GetRoots())
+				block.UtreexoData().AccProof, delHashes, uView.accumulator.GetRoots())
 			if err != nil {
 				return err
 			}
@@ -1095,12 +1095,12 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return err
 			}
 		} else {
-			err := b.utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+			err := b.utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
 				return fmt.Errorf("reorganizeChain fail while attaching "+
 					"block %s. Error: %v", block.Hash().String(), err)
 			}
-			err = b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			err = b.utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
 				return fmt.Errorf("reorganizeChain fail while attaching "+
 					"block %s. Error: %v", block.Hash().String(), err)
@@ -1259,7 +1259,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			// block.  The added data here is needed to undo utreexo
 			// proofs.
 			copyUView := prevUView.CopyWithRoots()
-			err = copyUView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			err = copyUView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
 				return nil, nil, nil,
 					fmt.Errorf("verifyReorganizationValidity fail "+
@@ -1337,7 +1337,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 
 			// Reconstruct the utreexo data as it's stored in the compact state.
 			_, _, inskip, _ := DedupeBlock(block)
-			_, err := reconstructUData(block.MsgBlock().UData, block, b.bestChain, inskip)
+			_, err := reconstructUData(block.UtreexoData(), block, b.bestChain, inskip)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("verifyReorganizationValidity fail "+
 					"while reconstructing udata. Error: %v", err)
@@ -1362,14 +1362,14 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			} else {
 				// Check that the block txOuts are valid by checking the utreexo proof and
 				// extra data and then update the accumulator.
-				err := utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+				err := utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
 				if err != nil {
 					return nil, nil, nil,
 						fmt.Errorf("verifyReorganizationValidity fail "+
 							"while attaching block %s. Error %v",
 							block.Hash().String(), err)
 				}
-				err = utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+				err = utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 				if err != nil {
 					return nil, nil, nil,
 						fmt.Errorf("verifyReorganizationValidity fail "+
@@ -1410,7 +1410,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			return nil, nil, nil, err
 		}
 		if utreexoView != nil {
-			err = utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			err = utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
 				return nil, nil, nil,
 					fmt.Errorf("verifyReorganizationValidity fail "+
@@ -1500,7 +1500,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 				if block.UtreexoTTLs() == nil {
 					// Check that the block txOuts are valid by checking the utreexo proof and
 					// the leaf data.
-					err := b.utreexoView.VerifyUData(block, b.bestChain, block.MsgBlock().UData)
+					err := b.utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
 					if err != nil {
 						return false, fmt.Errorf("connectBestChain fail on block %s. "+
 							"Error: %v", block.Hash().String(), err)
@@ -1508,7 +1508,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 				}
 			}
 			// Update the accumulator.
-			err := b.utreexoView.ProcessUData(block, b.bestChain, block.MsgBlock().UData)
+			err := b.utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
 				return false, fmt.Errorf("connectBestChain fail on block %s. "+
 					"Error: %v", block.Hash().String(), err)

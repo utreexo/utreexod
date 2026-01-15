@@ -298,12 +298,11 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 	[]utreexo.Hash, error) {
 
 	// Check that UData field isn't nil before doing anything else.
-	if block.MsgBlock().UData == nil {
-		return nil, fmt.Errorf("ExtractAccumulatorDels(): block.MsgBlock().UData is nil. " +
+	ud := block.UtreexoData()
+	if ud == nil {
+		return nil, fmt.Errorf("ExtractAccumulatorDels(): Utreexo data is nil. " +
 			"Cannot extract utreexo accumulator deletions")
 	}
-
-	ud := block.MsgBlock().UData
 
 	_, _, inskip, _ := DedupeBlock(block)
 
