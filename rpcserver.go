@@ -4508,10 +4508,11 @@ func handleSubmitBlockAndUtreexoProof(s *rpcServer, cmd interface{}, closeChan <
 		}
 	}
 
-	block.MsgBlock().UData = &wire.UData{
-		AccProof:  *proof,
-		LeafDatas: leafDatas,
-	}
+	block.SetUtreexoData(
+		&wire.UData{
+			AccProof:  *proof,
+			LeafDatas: leafDatas,
+		})
 
 	_, err = s.cfg.SyncMgr.SubmitBlock(block, blockchain.BFNone)
 	if err != nil {
