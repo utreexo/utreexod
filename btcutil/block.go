@@ -378,8 +378,6 @@ func NewBlockFromReader(r io.Reader) (*Block, error) {
 	if err := b.attachUtreexoDataFromSerialized(buf.Bytes()); err != nil {
 		return nil, err
 	}
-	// Clear the UData from the underlying MsgBlock since we store it separately.
-	msgBlock.UData = nil
 	return &b, nil
 }
 
@@ -392,8 +390,6 @@ func NewBlockFromBlockAndBytes(msgBlock *wire.MsgBlock, serializedBlock []byte) 
 		blockHeight:     BlockHeightUnknown,
 	}
 	_ = b.attachUtreexoDataFromSerialized(serializedBlock)
-	// Clear the UData from the underlying MsgBlock since we store it separately.
-	msgBlock.UData = nil
 	return b
 }
 

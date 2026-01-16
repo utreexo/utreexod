@@ -47,11 +47,6 @@ type TxLoc struct {
 type MsgBlock struct {
 	Header       BlockHeader
 	Transactions []*MsgTx
-
-	// UData is an optional field that contains all the data needed to prove
-	// the validity of a block with only the utreexo accmulator state of the
-	// previous block.
-	UData *UData
 }
 
 // Copy creates a deep copy of MsgBlock.
