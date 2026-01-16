@@ -215,8 +215,7 @@ func TestUtreexoCSN(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, block := range blocks {
-		block.MsgBlock().UData = udatas[i]
-		err = csn.Client.SubmitBlock(block, nil)
+		err = csn.Client.SubmitBlockAndUtreexoProof(block, udatas[i])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -228,8 +227,7 @@ func TestUtreexoCSN(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, block := range sideBranchBlocks {
-		block.MsgBlock().UData = sideBranchUdatas[i]
-		err = csn.Client.SubmitBlock(block, nil)
+		err = csn.Client.SubmitBlockAndUtreexoProof(block, sideBranchUdatas[i])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -247,8 +245,7 @@ func TestUtreexoCSN(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, block := range mainBranchBlocks {
-		block.MsgBlock().UData = mainBranchUdatas[i]
-		submitErr := csn.Client.SubmitBlock(block, nil)
+		submitErr := csn.Client.SubmitBlockAndUtreexoProof(block, mainBranchUdatas[i])
 
 		// If we errored out on a submitblock, write all the blocks that we used in this test to a file.
 		if submitErr != nil {

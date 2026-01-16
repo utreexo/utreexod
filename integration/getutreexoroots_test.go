@@ -130,8 +130,7 @@ func TestGetUtreexoRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, block := range utreexoBlocks {
-		block.MsgBlock().UData = utreexoUdatas[i]
-		err = csn.Client.SubmitBlock(block, nil)
+		err = csn.Client.SubmitBlockAndUtreexoProof(block, utreexoUdatas[i])
 		if err != nil {
 			t.Fatal(err)
 		}
