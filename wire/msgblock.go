@@ -104,41 +104,14 @@ func (msg *MsgBlock) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) er
 		return messageError("MsgBlock.BtcDecode", str)
 	}
 
-	// Unset UtreexoEncoding for the encoding that we'll pass off to the
-	// tx.BtcDecode().  This is done as tx.BtcDecode() expects Utreexo
-	// Proofs to be appended to each tx if UtreexoEncoding bit is turned on.
-	// However, this only applies to mempool txs and there are no separate
-	// Utreexo Proofs for individual txs as the MsgBlock contains a proof
-	// for all the txs.
-	txEncoding := enc &^ UtreexoEncoding
-
 	msg.Transactions = make([]*MsgTx, 0, txCount)
 	for i := uint64(0); i < txCount; i++ {
 		tx := MsgTx{}
-		err := tx.BtcDecode(r, pver, txEncoding)
+		err := tx.BtcDecode(r, pver, enc)
 		if err != nil {
 			return err
 		}
 		msg.Transactions = append(msg.Transactions, &tx)
-	}
-
-	// Try to decode as a utreexo block.  If we get EOF, it means
-	// it's not a utreexo block.
-	//
-	// TODO Since the reader we received in this function is already
-	// checked for length, this probably is ok. But do think of
-	// a better solution.
-	msg.UData = new(UData)
-	err = msg.UData.Deserialize(r)
-	if err != nil {
-		if enc&UtreexoEncoding == UtreexoEncoding {
-			return err
-		}
-		if err == io.EOF {
-			msg.UData = nil
-			return nil
-		}
-		return err
 	}
 
 	return nil
@@ -234,26 +207,8 @@ func (msg *MsgBlock) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) er
 		return err
 	}
 
-	// Unset UtreexoEncoding for the encoding that we'll pass off to the
-	// tx.BtcDecode().  This is done as tx.BtcDecode() expects Utreexo
-	// Proofs to be appended to each tx if UtreexoEncoding bit is turned on.
-	// However, this only applies to mempool txs and there are no separate
-	// Utreexo Proofs for individual txs as the MsgBlock contains a proof
-	// for all the txs.
-	txEncoding := enc &^ UtreexoEncoding
 	for _, tx := range msg.Transactions {
-		err = tx.BtcEncode(w, pver, txEncoding)
-		if err != nil {
-			return err
-		}
-	}
-
-	if enc&UtreexoEncoding == UtreexoEncoding {
-		if msg.UData == nil {
-			str := "utreexo encoding specified but MsgBlock.UData field is nil"
-			return messageError("MsgBlock.BtcEncode", str)
-		}
-		err = msg.UData.Serialize(w)
+		err = tx.BtcEncode(w, pver, enc)
 		if err != nil {
 			return err
 		}
@@ -279,11 +234,7 @@ func (msg *MsgBlock) Serialize(w io.Writer) error {
 	// Passing WitnessEncoding as the encoding type here indicates that
 	// each of the transactions should be serialized using the witness
 	// serialization structure defined in BIP0141.
-	enc := WitnessEncoding
-	if msg.UData != nil {
-		enc |= UtreexoEncoding
-	}
-	return msg.BtcEncode(w, 0, enc)
+	return msg.BtcEncode(w, 0, WitnessEncoding)
 }
 
 // SerializeNoWitness encodes a block to w using an identical format to

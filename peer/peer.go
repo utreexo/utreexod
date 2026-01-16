@@ -2101,12 +2101,6 @@ func (p *Peer) readRemoteVersionMsg() error {
 		p.wireEncoding = wire.WitnessEncoding
 	}
 
-	// If the peer is a utreexo enabled node, turn on the UtreexoEncoding
-	// bit.
-	if p.services&wire.SFNodeUtreexo == wire.SFNodeUtreexo {
-		p.wireEncoding |= wire.UtreexoEncoding
-	}
-
 	// Invoke the callback if specified.
 	if p.cfg.Listeners.OnVersion != nil {
 		rejectMsg := p.cfg.Listeners.OnVersion(p, msg)
