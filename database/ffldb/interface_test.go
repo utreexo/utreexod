@@ -2314,9 +2314,9 @@ func testConcurrecy(tc *testContext) bool {
 
 	// Start up a few readers and wait for them to acquire views.  Each
 	// reader waits for a signal from the writer to be finished to ensure
-	// that the data written by the writer is seen by the view as the writer
-	// wrote the data before the reader reads it.
-	concurrentKey := []byte("shouldbethere")
+	// that the data written by the writer is not seen by the view since it
+	// was started before the data was set.
+	concurrentKey := []byte("notthere")
 	concurrentVal := []byte("someval")
 	started := make(chan struct{})
 	writeComplete := make(chan struct{})
@@ -2327,11 +2327,11 @@ func testConcurrecy(tc *testContext) bool {
 			// Wait for the writer to complete.
 			<-writeComplete
 
-			// Check that concurrentKey is visible as the writer finished writing
-			// before we read the key.
+			// Since this reader was created before the write took
+			// place, the data it added should not be visible.
 			val := tx.Metadata().Get(concurrentKey)
-			if val == nil {
-				return fmt.Errorf("%s should be visible",
+			if val != nil {
+				return fmt.Errorf("%s should not be visible",
 					concurrentKey)
 			}
 			return nil
