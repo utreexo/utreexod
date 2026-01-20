@@ -286,8 +286,8 @@ func (iter *dbCacheIterator) Error() error {
 // database at a particular point in time.
 type dbCacheSnapshot struct {
 	dbSnapshot    *leveldb.Snapshot
-	pendingKeys   *treap.Mutable
-	pendingRemove *treap.Mutable
+	pendingKeys   *treap.Immutable
+	pendingRemove *treap.Immutable
 }
 
 // Has returns whether or not the passed key exists.
@@ -387,8 +387,8 @@ type dbCache struct {
 	// the cached data.  The cacheLock is used to protect concurrent access
 	// for cache updates and snapshots.
 	cacheLock    sync.RWMutex
-	cachedKeys   *treap.Mutable
-	cachedRemove *treap.Mutable
+	cachedKeys   *treap.Immutable
+	cachedRemove *treap.Immutable
 }
 
 // Snapshot returns a snapshot of the database cache and underlying database at
@@ -519,8 +519,8 @@ func (c *dbCache) flush() error {
 
 	// Clear the cache since it has been flushed.
 	c.cacheLock.Lock()
-	c.cachedKeys = treap.NewMutable()
-	c.cachedRemove = treap.NewMutable()
+	c.cachedKeys = treap.NewImmutable()
+	c.cachedRemove = treap.NewImmutable()
 	c.cacheLock.Unlock()
 
 	return nil
@@ -599,19 +599,25 @@ func (c *dbCache) commitTx(tx *transaction) error {
 	c.cacheLock.RUnlock()
 
 	// Apply every key to add in the database transaction to the cache.
+	pendingKVs := make([]treap.KVPair, 0, tx.pendingKeys.Len())
 	tx.pendingKeys.ForEach(func(k, v []byte) bool {
-		newCachedRemove.Delete(k)
-		newCachedKeys.Put(k, v)
+		pendingKVs = append(pendingKVs, treap.KVPair{Key: k, Value: v})
+
+		newCachedRemove = newCachedRemove.Delete(k)
 		return true
 	})
+	newCachedKeys = newCachedKeys.Put(pendingKVs...)
 	tx.pendingKeys = nil
 
 	// Apply every key to remove in the database transaction to the cache.
+	pendingRemoveKVs := make([]treap.KVPair, 0, tx.pendingRemove.Len())
 	tx.pendingRemove.ForEach(func(k, v []byte) bool {
-		newCachedKeys.Delete(k)
-		newCachedRemove.Put(k, nil)
+		pendingRemoveKVs = append(pendingRemoveKVs, treap.KVPair{Key: k, Value: v})
+
+		newCachedKeys = newCachedKeys.Delete(k)
 		return true
 	})
+	newCachedRemove = newCachedRemove.Put(pendingRemoveKVs...)
 	tx.pendingRemove = nil
 
 	// Atomically replace the immutable treaps which hold the cached keys to
@@ -658,7 +664,7 @@ func newDbCache(ldb *leveldb.DB, blkStore, sjStore *blockStore, maxSize uint64, 
 		maxSize:       maxSize,
 		flushInterval: time.Second * time.Duration(flushIntervalSecs),
 		lastFlush:     time.Now(),
-		cachedKeys:    treap.NewMutable(),
-		cachedRemove:  treap.NewMutable(),
+		cachedKeys:    treap.NewImmutable(),
+		cachedRemove:  treap.NewImmutable(),
 	}
 }
