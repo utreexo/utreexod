@@ -1121,12 +1121,24 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	}
 
 	_, bestHeaderHeight := sm.chain.BestHeader()
-	bestState := sm.chain.BestSnapshot()
-	length := bestHeaderHeight - bestState.Height
 
-	// Check if we have the ttl for the next block lined up to be download.
+	// Start fetching from the fork point between the best chain and
+	// the best header chain rather than from the best chain height.
+	// When the best header chain has diverged (e.g. due to a reorg),
+	// blocks between the fork point and the current height on the new
+	// chain are different and must also be downloaded.
+	forkHeight := sm.chain.BestChainHeaderForkHeight()
+	if bestHeaderHeight < forkHeight {
+		return
+	}
+	length := bestHeaderHeight - forkHeight
+
+	// Check if we have the ttl for the next block lined up to be downloaded.
+	// Note: when committedTTLAcc is set, reorgs cannot happen below its
+	// height as it acts as a checkpoint, so forkHeight will always equal
+	// the best chain height in this case.
 	if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil &&
-		bestState.Height+1 <= int32(sm.committedTTLAcc.NumLeaves)-1 {
+		forkHeight+1 <= int32(sm.committedTTLAcc.NumLeaves)-1 {
 
 		// If we have no ttls, fetch for more.
 		if len(sm.queuedTTLs) == 0 {
@@ -1146,11 +1158,14 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	gdmsg := wire.NewMsgGetDataSizeHint(uint(length))
 	numRequested := 0
 
-	for h := bestState.Height + 1; h <= bestHeaderHeight; h++ {
+	for h := forkHeight + 1; h <= bestHeaderHeight; h++ {
 		if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil {
-			// Break if we ran out of ttls.
+			// Break if we ran out of ttls. Note: when committedTTLAcc
+			// is set, reorgs cannot happen below its height as it acts
+			// as a checkpoint, so forkHeight will always equal the best
+			// chain height in this case.
 			if h <= int32(sm.committedTTLAcc.NumLeaves)-1 &&
-				h > bestState.Height+int32(len(sm.queuedTTLs)) {
+				h > forkHeight+int32(len(sm.queuedTTLs)) {
 				break
 			}
 		}
