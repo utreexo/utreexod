@@ -1280,6 +1280,12 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		sm.progressLogger.SetLastLogTime(time.Now())
 	}
 
+	// Update the last progress time to prevent the stall handler
+	// from disconnecting the sync peer during header download.
+	if peer == sm.syncPeer {
+		sm.lastProgressTime = time.Now()
+	}
+
 	bestHash, bestHeight := sm.chain.BestHeader()
 	if sm.headersBuildMode && bestHeight >= sm.chain.AssumeUtreexoHeight() {
 		assumeUtreexoHash := sm.chain.AssumeUtreexoHash()
