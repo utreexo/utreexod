@@ -345,9 +345,6 @@ func NewBlockFromBytes(serializedBlock []byte) (*Block, error) {
 		serializedBlock: serializedBlock,
 		blockHeight:     BlockHeightUnknown,
 	}
-	if err := b.attachUtreexoDataFromSerialized(serializedBlock); err != nil {
-		return nil, err
-	}
 
 	return b, nil
 }
@@ -375,22 +372,25 @@ func NewBlockFromReader(r io.Reader) (*Block, error) {
 		msgBlock:    &msgBlock,
 		blockHeight: BlockHeightUnknown,
 	}
-	if err := b.attachUtreexoDataFromSerialized(buf.Bytes()); err != nil {
-		return nil, err
-	}
 	return &b, nil
 }
 
 // NewBlockFromBlockAndBytes returns a new instance of a bitcoin block given
 // an underlying wire.MsgBlock and the serialized bytes for it.  See Block.
 func NewBlockFromBlockAndBytes(msgBlock *wire.MsgBlock, serializedBlock []byte) *Block {
-	b := &Block{
+	return &Block{
 		msgBlock:        msgBlock,
 		serializedBlock: serializedBlock,
 		blockHeight:     BlockHeightUnknown,
 	}
-	_ = b.attachUtreexoDataFromSerialized(serializedBlock)
-	return b
+}
+
+// ParseUtreexoData attempts to read serialized utreexo data appended after the
+// base block in the cached serialized bytes.  This must be called explicitly by
+// utreexo nodes that store proof data alongside the block; non-utreexo nodes
+// should never call this.
+func (b *Block) ParseUtreexoData() {
+	b.attachUtreexoDataFromSerialized(b.serializedBlock)
 }
 
 // ensureUtreexoData lazily initializes the container that holds the block's
@@ -429,20 +429,32 @@ func (b *Block) appendSerializedUtreexoData(w io.Writer) error {
 }
 
 // attachUtreexoDataFromSerialized attempts to read serialized Utreexo data
-// appended to the provided serialized block bytes.
-func (b *Block) attachUtreexoDataFromSerialized(serialized []byte) error {
+// appended to the provided serialized block bytes.  If the trailing bytes
+// cannot be deserialized or are not fully consumed (e.g. an older incompatible
+// format), they are silently ignored and the block is returned without utreexo
+// data.
+func (b *Block) attachUtreexoDataFromSerialized(serialized []byte) {
 	baseLen := b.baseBlockSerializeLen()
 	if baseLen >= len(serialized) {
-		return nil
+		return
 	}
 
+	extra := serialized[baseLen:]
+	r := bytes.NewReader(extra)
+
 	ud := new(wire.UData)
-	if err := ud.Deserialize(bytes.NewReader(serialized[baseLen:])); err != nil {
-		return err
+	if err := ud.Deserialize(r); err != nil {
+		return
+	}
+
+	// If there are unconsumed bytes the trailing data is not in the
+	// expected format (e.g. an older serialization that includes
+	// remember indexes or non-compact leaf data).  Discard the result.
+	if r.Len() != 0 {
+		return
 	}
 
 	b.setUtreexoDataInternal(ud)
-	return nil
 }
 
 // baseBlockSerializeLen returns the serialized length of the underlying block

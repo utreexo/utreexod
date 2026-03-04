@@ -300,8 +300,9 @@ func TestBlockErrors(t *testing.T) {
 	}
 }
 
-// TestNewBlockFromBytesWithUtreexoData ensures cached Utreexo data is restored
-// when reading a serialized block from bytes.
+// TestNewBlockFromBytesWithUtreexoData ensures that NewBlockFromBytes does not
+// automatically attach utreexo data, and that ParseUtreexoData can be used by
+// utreexo nodes to explicitly attach it.
 func TestNewBlockFromBytesWithUtreexoData(t *testing.T) {
 	block := btcutil.NewBlock(&Block100000)
 	want := testWireUData()
@@ -317,11 +318,18 @@ func TestNewBlockFromBytesWithUtreexoData(t *testing.T) {
 		t.Fatalf("NewBlockFromBytes: unexpected error: %v", err)
 	}
 
+	// Constructors must not auto-attach utreexo data.
+	if newBlock.UtreexoData() != nil {
+		t.Fatalf("expected nil UtreexoData before ParseUtreexoData")
+	}
+
+	// Explicit call attaches the data (utreexo CSN path).
+	newBlock.ParseUtreexoData()
 	assertUDataEqual(t, newBlock.UtreexoData(), want)
 }
 
-// TestNewBlockFromReaderWithUtreexoData ensures reader-based construction parses
-// appended Utreexo data.
+// TestNewBlockFromReaderWithUtreexoData ensures that NewBlockFromReader does
+// not automatically attach utreexo data.
 func TestNewBlockFromReaderWithUtreexoData(t *testing.T) {
 	block := btcutil.NewBlock(&Block100000)
 	want := testWireUData()
@@ -337,7 +345,10 @@ func TestNewBlockFromReaderWithUtreexoData(t *testing.T) {
 		t.Fatalf("NewBlockFromReader: unexpected error: %v", err)
 	}
 
-	assertUDataEqual(t, newBlock.UtreexoData(), want)
+	// Constructors must not auto-attach utreexo data.
+	if newBlock.UtreexoData() != nil {
+		t.Fatalf("expected nil UtreexoData from NewBlockFromReader")
+	}
 }
 
 // TestSetUtreexoDataInvalidatesCache ensures cached serialization is rebuilt
@@ -380,6 +391,148 @@ func assertUDataEqual(t *testing.T, got, want *wire.UData) {
 		t.Fatalf("unexpected leaf data\ngot:  %v\nwant: %v",
 			got.LeafDatas, want.LeafDatas)
 	}
+}
+
+// TestBlockConstructorsIgnoreTrailingUtreexoData verifies that block
+// constructors never automatically attach utreexo data, regardless of
+// what trailing bytes follow the block.
+func TestBlockConstructorsIgnoreTrailingUtreexoData(t *testing.T) {
+	// Serialize the base block (no utreexo data).
+	var baseBuf bytes.Buffer
+	if err := Block100000.Serialize(&baseBuf); err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+	baseBytes := baseBuf.Bytes()
+
+	// Build current-format utreexo data bytes.
+	ud := testWireUData()
+	var udBuf bytes.Buffer
+	if err := ud.Serialize(&udBuf); err != nil {
+		t.Fatalf("UData.Serialize: %v", err)
+	}
+
+	oldBytes := testOldFormatUData(&ud.AccProof)
+
+	trailingData := []struct {
+		name  string
+		extra []byte
+	}{
+		{"no trailing bytes", nil},
+		{"current format udata", udBuf.Bytes()},
+		{"old format udata with remember indexes", oldBytes},
+		{"random garbage trailing bytes", []byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03}},
+	}
+
+	for _, tc := range trailingData {
+		t.Run(tc.name, func(t *testing.T) {
+			serialized := make([]byte, len(baseBytes)+len(tc.extra))
+			copy(serialized, baseBytes)
+			copy(serialized[len(baseBytes):], tc.extra)
+
+			// NewBlockFromBytes must never error and never
+			// attach utreexo data.
+			block, err := btcutil.NewBlockFromBytes(serialized)
+			if err != nil {
+				t.Fatalf("NewBlockFromBytes: unexpected error: %v", err)
+			}
+			if block.UtreexoData() != nil {
+				t.Fatalf("NewBlockFromBytes: expected nil UtreexoData")
+			}
+
+			// Same for NewBlockFromReader.
+			rBlock, err := btcutil.NewBlockFromReader(
+				bytes.NewReader(serialized))
+			if err != nil {
+				t.Fatalf("NewBlockFromReader: unexpected error: %v", err)
+			}
+			if rBlock.UtreexoData() != nil {
+				t.Fatalf("NewBlockFromReader: expected nil UtreexoData")
+			}
+
+			// Same for NewBlockFromBlockAndBytes.
+			bbBlock := btcutil.NewBlockFromBlockAndBytes(
+				&Block100000, serialized)
+			if bbBlock.UtreexoData() != nil {
+				t.Fatalf("NewBlockFromBlockAndBytes: expected nil UtreexoData")
+			}
+		})
+	}
+
+}
+
+// TestParseUtreexoData verifies that ParseUtreexoData explicitly attaches
+// current-format data (the utreexo CSN code path) and silently ignores
+// incompatible formats.
+func TestParseUtreexoData(t *testing.T) {
+	// Serialize the base block (no utreexo data).
+	var baseBuf bytes.Buffer
+	if err := Block100000.Serialize(&baseBuf); err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+	baseBytes := baseBuf.Bytes()
+
+	// Build current-format utreexo data bytes.
+	ud := testWireUData()
+	var udBuf bytes.Buffer
+	if err := ud.Serialize(&udBuf); err != nil {
+		t.Fatalf("UData.Serialize: %v", err)
+	}
+
+	oldBytes := testOldFormatUData(&ud.AccProof)
+
+	tests := []struct {
+		name     string
+		extra    []byte
+		wantData bool
+	}{
+		{"current format", udBuf.Bytes(), true},
+		{"old format is ignored", oldBytes, false},
+		{"garbage is ignored", []byte{0xde, 0xad, 0xbe, 0xef}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			serialized := make([]byte, len(baseBytes)+len(tc.extra))
+			copy(serialized, baseBytes)
+			copy(serialized[len(baseBytes):], tc.extra)
+
+			block, err := btcutil.NewBlockFromBytes(serialized)
+			if err != nil {
+				t.Fatalf("NewBlockFromBytes: unexpected error: %v", err)
+			}
+
+			block.ParseUtreexoData()
+
+			if tc.wantData {
+				assertUDataEqual(t, block.UtreexoData(), ud)
+			} else if block.UtreexoData() != nil {
+				t.Fatalf("expected nil UtreexoData")
+			}
+		})
+	}
+}
+
+// testOldFormatUData builds serialized bytes that mimic the v0.4.0 utreexo
+// data format: remember indexes + batch proof + non-compact leaf data.
+func testOldFormatUData(proof *utreexo.Proof) []byte {
+	var buf bytes.Buffer
+	// Write remember indexes: count=2, values={0, 1}.
+	wire.WriteVarInt(&buf, 0, 2)
+	wire.WriteVarInt(&buf, 0, 0)
+	wire.WriteVarInt(&buf, 0, 1)
+	// Write a batch proof.
+	wire.BatchProofSerialize(&buf, proof)
+	// Write non-compact leaf data (count + full Serialize per leaf).
+	ld := wire.LeafData{
+		BlockHash: chainhash.Hash{0xaa, 0xbb},
+		OutPoint:  wire.OutPoint{Hash: chainhash.Hash{0xcc}, Index: 0},
+		Height:    100,
+		Amount:    5000,
+		PkScript:  []byte{0x51},
+	}
+	wire.WriteVarInt(&buf, 0, 1)
+	ld.Serialize(&buf)
+	return buf.Bytes()
 }
 
 func testWireUData() *wire.UData {
