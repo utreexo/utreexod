@@ -142,6 +142,11 @@ func DeserializeUtxoData(r io.Reader) ([]LeafData, error) {
 	if txInCount == 0 {
 		return nil, nil
 	}
+	if txInCount > MaxPossibleInputsPerBlock {
+		str := fmt.Sprintf("leaf data count exceeds max allowed "+
+			"per block [count %d, max %d]", txInCount, MaxPossibleInputsPerBlock)
+		return nil, messageError("DeserializeUtxoData", str)
+	}
 
 	lds := make([]LeafData, 0, txInCount)
 	for i := 0; i < int(txInCount); i++ {
