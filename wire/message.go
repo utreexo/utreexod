@@ -450,6 +450,15 @@ func ReadMessageWithEncodingN(r io.Reader, pver uint32, btcnet BitcoinNet,
 		return totalBytes, nil, nil, err
 	}
 
+	// Ensure the entire payload was consumed by BtcDecode. Trailing
+	// bytes would pass checksum validation but are not part of the
+	// decoded message.
+	if pr.Len() > 0 {
+		str := fmt.Sprintf("message payload has %d extra bytes "+
+			"after decode", pr.Len())
+		return totalBytes, nil, nil, messageError("ReadMessage", str)
+	}
+
 	return totalBytes, msg, payload, nil
 }
 
