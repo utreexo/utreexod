@@ -1263,6 +1263,12 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoPro
 		}
 	}
 
+	if udata == nil {
+		chanLog.Debugf("Unable to fetch utreexo proof for block hash %v",
+			msg.BlockHash)
+		return
+	}
+
 	// Construct utreexo proof to send.
 	leafDatas := make([]wire.LeafData, 0, len(udata.LeafDatas))
 	for i := 0; i < len(udata.LeafDatas); i++ {
