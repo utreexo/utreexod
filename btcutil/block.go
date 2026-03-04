@@ -369,8 +369,9 @@ func NewBlockFromReader(r io.Reader) (*Block, error) {
 	}
 
 	b := Block{
-		msgBlock:    &msgBlock,
-		blockHeight: BlockHeightUnknown,
+		msgBlock:        &msgBlock,
+		serializedBlock: buf.Bytes(),
+		blockHeight:     BlockHeightUnknown,
 	}
 	return &b, nil
 }

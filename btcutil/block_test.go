@@ -349,6 +349,10 @@ func TestNewBlockFromReaderWithUtreexoData(t *testing.T) {
 	if newBlock.UtreexoData() != nil {
 		t.Fatalf("expected nil UtreexoData from NewBlockFromReader")
 	}
+
+	// Explicit call attaches the data (utreexo CSN path).
+	newBlock.ParseUtreexoData()
+	assertUDataEqual(t, newBlock.UtreexoData(), want)
 }
 
 // TestSetUtreexoDataInvalidatesCache ensures cached serialization is rebuilt
