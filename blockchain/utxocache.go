@@ -674,7 +674,7 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 
 		var block *btcutil.Block
 		err := s.db.View(func(dbTx database.Tx) error {
-			block, err = dbFetchBlockByNode(dbTx, node)
+			block, err = dbFetchBlockByNode(dbTx, node, b.utreexoView != nil)
 			if err != nil {
 				return err
 			}

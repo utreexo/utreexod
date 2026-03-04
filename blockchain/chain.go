@@ -835,7 +835,7 @@ func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view
 	var prevBlock *btcutil.Block
 	err := b.db.View(func(dbTx database.Tx) error {
 		var err error
-		prevBlock, err = dbFetchBlockByNode(dbTx, prevNode)
+		prevBlock, err = dbFetchBlockByNode(dbTx, prevNode, b.utreexoView != nil)
 		return err
 	})
 	if err != nil {
@@ -1221,7 +1221,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 		var block *btcutil.Block
 		err := b.db.View(func(dbTx database.Tx) error {
 			var err error
-			block, err = dbFetchBlockByNode(dbTx, n)
+			block, err = dbFetchBlockByNode(dbTx, n, b.utreexoView != nil)
 			return err
 		})
 		if err != nil {
@@ -1322,7 +1322,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 		var block *btcutil.Block
 		err := b.db.View(func(dbTx database.Tx) error {
 			var err error
-			block, err = dbFetchBlockByNode(dbTx, n)
+			block, err = dbFetchBlockByNode(dbTx, n, b.utreexoView != nil)
 			return err
 		})
 		if err != nil {
