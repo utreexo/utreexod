@@ -1544,8 +1544,9 @@ func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, e
 
 // dbFetchBlockByNode uses an existing database transaction to retrieve the
 // raw block for the provided node, deserialize it, and return a btcutil.Block
-// with the height set.
-func dbFetchBlockByNode(dbTx database.Tx, node *blockNode) (*btcutil.Block, error) {
+// with the height set.  When isUtreexo is true the serialized utreexo proof
+// data stored alongside the block is also parsed.
+func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*btcutil.Block, error) {
 	// Load the raw block bytes from the database.
 	blockBytes, err := dbTx.FetchBlock(&node.hash)
 	if err != nil {
@@ -1558,6 +1559,11 @@ func dbFetchBlockByNode(dbTx database.Tx, node *blockNode) (*btcutil.Block, erro
 		return nil, err
 	}
 	block.SetHeight(node.height)
+
+	// Only utreexo CSN nodes store proof data alongside the block.
+	if isUtreexo {
+		block.ParseUtreexoData()
+	}
 
 	return block, nil
 }
@@ -1622,7 +1628,7 @@ func (b *BlockChain) BlockByHeight(blockHeight int32) (*btcutil.Block, error) {
 	var block *btcutil.Block
 	err := b.db.View(func(dbTx database.Tx) error {
 		var err error
-		block, err = dbFetchBlockByNode(dbTx, node)
+		block, err = dbFetchBlockByNode(dbTx, node, b.utreexoView != nil)
 		return err
 	})
 	return block, err
@@ -1645,7 +1651,7 @@ func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (*btcutil.Block, error) {
 	var block *btcutil.Block
 	err := b.db.View(func(dbTx database.Tx) error {
 		var err error
-		block, err = dbFetchBlockByNode(dbTx, node)
+		block, err = dbFetchBlockByNode(dbTx, node, b.utreexoView != nil)
 		return err
 	})
 	return block, err
