@@ -520,18 +520,10 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state for utreexo proof index: %v", err)
 					}
-					err = idxType.utreexoState.utreexoStateDB.Close()
-					if err != nil {
-						log.Errorf("Error while closing the utreexo state for utreexo proof index: %v", err)
-					}
 				case *FlatUtreexoProofIndex:
 					err := idxType.flushUtreexoState(block.Hash())
 					if err != nil {
 						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
-					}
-					err = idxType.utreexoState.utreexoStateDB.Close()
-					if err != nil {
-						log.Errorf("Error while closing the utreexo state for flat utreexo proof index: %v", err)
 					}
 				}
 			}
