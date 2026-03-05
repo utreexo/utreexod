@@ -15,7 +15,7 @@ import (
 
 // MaxUtreexoTTLExponent is the maximum exponent you can ask for in a bitcoin getutreexosummaries
 // message.
-const MaxUtreexoTTLExponent = 4
+const MaxUtreexoTTLExponent = 5
 
 // MaxUtreexoTTLsPerMsg is the maximum amount of utreexo ttls there can be in a given MsgUtreexoTTLs.
 const MaxUtreexoTTLsPerMsg = 1 << MaxUtreexoTTLExponent

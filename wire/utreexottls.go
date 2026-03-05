@@ -9,15 +9,13 @@ import "io"
 // MaxUtreexoTTLSize is:
 // height 4 bytes +
 // varint len of ttls +
-// (death height&death block index * max outputs per block) +
-// (varint size * max outputs per block)
-const MaxUtreexoTTLSize = 4 + MaxVarIntPayload + (99_984 * (4 + 4)) + (99_984 * MaxVarIntPayload)
+// (death height&death block index * max outputs per block)
+const MaxUtreexoTTLSize = 4 + MaxVarIntPayload + (99_984 * (4 + 4))
 
-// TTLInfo is the ttl of the leaf this represents along with the position at its death.
+// TTLInfo is the ttl of the leaf this represents.
 type TTLInfo struct {
 	DeathHeight   uint32
 	DeathBlkIndex uint32
-	DeathPos      uint64
 }
 
 // UtreexoTTL provides information about the time-to-live values of each added leaf to the
@@ -34,11 +32,6 @@ func (ut *UtreexoTTL) SerializeSize() int {
 
 	// Size of DeathHeight & DeathBlkIndex for all the TTLs.
 	size += len(ut.TTLs) * (4 + 4)
-
-	// Size of the DeathPositions.
-	for _, ttl := range ut.TTLs {
-		size += VarIntSerializeSize(ttl.DeathPos)
-	}
 
 	return size
 }
@@ -70,11 +63,6 @@ func (ut *UtreexoTTL) Deserialize(r io.Reader) error {
 		if err != nil {
 			return err
 		}
-
-		ut.TTLs[i].DeathPos, err = ReadVarInt(r, 0)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -102,11 +90,6 @@ func (ut *UtreexoTTL) Serialize(w io.Writer) error {
 		}
 
 		err = bs.PutUint32(w, littleEndian, ttl.DeathBlkIndex)
-		if err != nil {
-			return err
-		}
-
-		err = WriteVarInt(w, 0, ttl.DeathPos)
 		if err != nil {
 			return err
 		}
