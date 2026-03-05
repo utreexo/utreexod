@@ -48,7 +48,7 @@ const (
 	// defaultServices describes the default services that are supported by
 	// the server.
 	defaultServices = wire.SFNodeNetwork | wire.SFNodeNetworkLimited |
-		wire.SFNodeBloom | wire.SFNodeWitness
+		wire.SFNodeBloom | wire.SFNodeWitness | wire.SFNodeP2PV2
 
 	// defaultRequiredServices describes the default services that are
 	// required to be supported by outbound peers.
@@ -2601,6 +2601,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 		DisableRelayTx:    cfg.BlocksOnly,
 		ProtocolVersion:   peer.MaxProtocolVersion,
 		TrickleInterval:   cfg.TrickleInterval,
+		UsingV2Conn:       true,
 	}
 }
 
