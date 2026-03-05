@@ -79,6 +79,15 @@ type UtreexoProofIndex struct {
 
 	// The time of when the utreexo state was last flushed.
 	lastFlushTime time.Time
+
+	// recordModeEndHeight is the height at which Record mode ends and we call HashAll().
+	// Set to the last TTL stump height from chaincfg, or -1 if no stumps exist.
+	recordModeEndHeight int32
+}
+
+// inRecordMode returns true if the given height is within the Record mode range.
+func (idx *UtreexoProofIndex) inRecordMode(height int32) bool {
+	return idx.recordModeEndHeight > 0 && height <= idx.recordModeEndHeight
 }
 
 // NeedsInputs signals that the index requires the referenced inputs in order

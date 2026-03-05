@@ -136,6 +136,24 @@ type FlatUtreexoProofIndex struct {
 
 	// The time of when the utreexo state was last flushed.
 	lastFlushTime time.Time
+
+	// recordModeEndHeight is the height at which Record mode ends and we call HashAll().
+	// Set to the last TTL stump height from chaincfg, or -1 if no stumps exist.
+	recordModeEndHeight int32
+}
+
+// maxTTLStumpHeight returns the height of the last TTL stump, or -1 if none.
+func maxTTLStumpHeight(params *chaincfg.Params) int32 {
+	if len(params.TTL.Stump) == 0 {
+		return -1
+	}
+	lastStump := params.TTL.Stump[len(params.TTL.Stump)-1]
+	return int32(lastStump.NumLeaves) - 1
+}
+
+// inRecordMode returns true if the given height is within the Record mode range.
+func (idx *FlatUtreexoProofIndex) inRecordMode(height int32) bool {
+	return idx.recordModeEndHeight > 0 && height <= idx.recordModeEndHeight
 }
 
 // NeedsInputs signals that the index requires the referenced inputs in order
