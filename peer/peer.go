@@ -404,6 +404,7 @@ type StatsSnap struct {
 	LastPingNonce  uint64
 	LastPingTime   time.Time
 	LastPingMicros int64
+	V2Connection   bool
 }
 
 // HashFunc is a function which returns a block hash, height and error
@@ -586,6 +587,7 @@ func (p *Peer) StatsSnapshot() *StatsSnap {
 		LastPingNonce:  p.lastPingNonce,
 		LastPingMicros: p.lastPingMicros,
 		LastPingTime:   p.lastPingTime,
+		V2Connection:   p.cfg.UsingV2Conn,
 	}
 
 	p.statsMtx.RUnlock()
