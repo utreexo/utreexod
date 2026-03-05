@@ -67,11 +67,9 @@ const (
 	// make the proof be generated on blocks 10, 20, 30 and so on.
 	defaultProofGenInterval = 10
 
-	// ttlSize denotes how big each ttl is. It's 16 because each ttl is 2 uint64s.
-	ttlSize = 16
-
-	// size of a uint64. Shame go std lib doesn't provide it.
-	uint64Size = 8
+	// ttlSize denotes how big each ttl is. It's 8 because each ttl is 2 uint32s
+	// (DeathHeight and DeathBlkIndex).
+	ttlSize = 8
 
 	// size of a uint32. Shame go std lib doesn't provide it.
 	uint32Size = 4
@@ -302,7 +300,6 @@ func (idx *FlatUtreexoProofIndex) initTTLState(height int32) (*utreexo.Pollard, 
 			if ttl.DeathHeight > uint32(height) {
 				ttls[i].DeathHeight = 0
 				ttls[i].DeathBlkIndex = 0
-				ttls[i].DeathPos = 0
 			}
 		}
 
@@ -570,7 +567,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 
-	err = idx.writeTTLs(block.Height(), createdIndexes, ud.AccProof.Targets, ud.LeafDatas)
+	err = idx.writeTTLs(block.Height(), createdIndexes, ud.LeafDatas)
 	if err != nil {
 		return err
 	}
@@ -1033,7 +1030,6 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 			if ttl.DeathHeight > endHeight {
 				ttls[i].DeathHeight = 0
 				ttls[i].DeathBlkIndex = 0
-				ttls[i].DeathPos = 0
 			}
 		}
 
@@ -1084,8 +1080,7 @@ func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
 	for i := range ttls {
 		start := i * ttlSize
 		ttls[i].DeathHeight = byteOrder.Uint32(ttlBytes[start : start+uint32Size])
-		ttls[i].DeathBlkIndex = byteOrder.Uint32(ttlBytes[start+uint32Size : start+uint64Size])
-		ttls[i].DeathPos = byteOrder.Uint64(ttlBytes[start+uint64Size : start+ttlSize])
+		ttls[i].DeathBlkIndex = byteOrder.Uint32(ttlBytes[start+uint32Size : start+ttlSize])
 	}
 
 	return ttls, nil
@@ -1112,7 +1107,7 @@ func (idx *FlatUtreexoProofIndex) resetTTLs(ud *wire.UData, createdIndexes []int
 }
 
 // writeTTLs writes the ttls at the given heights and indexes.
-func writeTTLs(curHeight int32, createdIndexes []int32, targets []uint64, lds []wire.LeafData,
+func writeTTLs(curHeight int32, createdIndexes []int32, lds []wire.LeafData,
 	ttlIdx *FlatFileState) error {
 
 	// Nothing to do.
@@ -1123,9 +1118,7 @@ func writeTTLs(curHeight int32, createdIndexes []int32, targets []uint64, lds []
 
 	for i, ld := range lds {
 		byteOrder.PutUint32(buf[:uint32Size], uint32(curHeight))
-		byteOrder.PutUint32(buf[uint32Size:uint64Size], uint32(i))
-
-		byteOrder.PutUint64(buf[uint64Size:], targets[i])
+		byteOrder.PutUint32(buf[uint32Size:ttlSize], uint32(i))
 
 		cIndex := createdIndexes[i]
 		offset := cIndex * ttlSize
@@ -1140,9 +1133,9 @@ func writeTTLs(curHeight int32, createdIndexes []int32, targets []uint64, lds []
 
 // writeTTLs is a wrapper on raw writeTTLs.
 func (idx *FlatUtreexoProofIndex) writeTTLs(
-	curHeight int32, createdIndexes []int32, targets []uint64, lds []wire.LeafData) error {
+	curHeight int32, createdIndexes []int32, lds []wire.LeafData) error {
 
-	return writeTTLs(curHeight, createdIndexes, targets, lds, &idx.ttlState)
+	return writeTTLs(curHeight, createdIndexes, lds, &idx.ttlState)
 }
 
 // addEmptyTTLs adds slots for every newly created leaf so that they may be marked in the future when they're spent.
