@@ -108,7 +108,15 @@ func (idx *UtreexoProofIndex) initUtreexoRootsState(bestHeight int32) error {
 	if bestHeight == -1 {
 		bestHeight = 0
 	}
-	for h := int32(0); h <= bestHeight; h++ {
+
+	// Start from after the record mode end height since blocks in record mode
+	// don't have valid roots stored.
+	startHeight := int32(0)
+	if idx.recordModeEndHeight > 0 {
+		startHeight = idx.recordModeEndHeight + 1
+	}
+
+	for h := startHeight; h <= bestHeight; h++ {
 		hash, err := idx.chain.BlockHashByHeight(h)
 		if err != nil {
 			return err
@@ -143,8 +151,15 @@ func (idx *UtreexoProofIndex) initUtreexoRootsState(bestHeight int32) error {
 func (idx *UtreexoProofIndex) initBlockSummaryState(bestHeight int32) error {
 	idx.blockSummaryState = utreexo.NewAccumulator()
 
+	// Start from after the record mode end height since blocks in record mode
+	// don't have valid proofs or state stored.
+	startHeight := int32(0)
+	if idx.recordModeEndHeight > 0 {
+		startHeight = idx.recordModeEndHeight + 1
+	}
+
 	var prevNumLeaves uint64
-	for h := int32(0); h <= bestHeight; h++ {
+	for h := startHeight; h <= bestHeight; h++ {
 		blockHash, err := idx.chain.BlockHashByHeight(h)
 		if err != nil {
 			return err
@@ -196,8 +211,11 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
 
 	idx.chain = chain
 
+	// Compute the record mode end height from the TTL stumps.
+	idx.recordModeEndHeight = maxTTLStumpHeight(idx.config.Params)
+
 	// Init Utreexo State.
-	uState, err := InitUtreexoState(idx.config, chain, nil, tipHash, tipHeight, -1)
+	uState, err := InitUtreexoState(idx.config, chain, nil, tipHash, tipHeight, idx.recordModeEndHeight)
 	if err != nil {
 		return err
 	}
@@ -362,6 +380,68 @@ func (idx *UtreexoProofIndex) Create(dbTx database.Tx) error {
 	return nil
 }
 
+// connectBlockRecord handles a single block in Record mode. It uses Record() instead
+// of Modify() to defer parent hash computation, which is significantly faster during IBD.
+// At recordModeEndHeight, it calls HashAll() to compute all parent hashes at once.
+func (idx *UtreexoProofIndex) connectBlockRecord(dbTx database.Tx, block *btcutil.Block,
+	dels []wire.LeafData, adds []wire.LeafData) error {
+
+	height := block.Height()
+
+	// Compute delHashes directly from the leaf data.
+	delHashes := make([]utreexo.Hash, len(dels))
+	for i, del := range dels {
+		delHashes[i] = del.LeafHash()
+	}
+
+	// Record takes []Hash, not []Leaf.
+	addHashes := make([]utreexo.Hash, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, add.LeafHash())
+	}
+
+	idx.mtx.Lock()
+	_, err := idx.utreexoState.state.Record(addHashes, delHashes)
+	idx.mtx.Unlock()
+	if err != nil {
+		return err
+	}
+
+	if height == idx.recordModeEndHeight {
+		// Call HashAll() to compute all parent hashes at once.
+		log.Infof("Record mode complete at height %d. Computing all parent hashes...", height)
+		idx.mtx.Lock()
+		err = idx.utreexoState.state.HashAll()
+		idx.mtx.Unlock()
+		if err != nil {
+			return err
+		}
+
+		// Store the real state at this height.
+		err = dbStoreUtreexoState(dbTx, block.Hash(), idx.utreexoState.state)
+		if err != nil {
+			return err
+		}
+
+		// Update the roots accumulator state with the real roots.
+		err = idx.updateRootsState()
+		if err != nil {
+			return err
+		}
+
+		// Flush the forest immediately to persist the valid state.
+		log.Infof("HashAll complete. Flushing utreexo state...")
+		err = idx.flushUtreexoState(block.Hash())
+		if err != nil {
+			return err
+		}
+
+		log.Infof("Transitioned from Record mode to normal mode at height %d", height)
+	}
+
+	return nil
+}
+
 // ConnectBlock is invoked by the index manager when a new block has been
 // connected to the main chain.
 //
@@ -384,6 +464,11 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	}
 
 	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
+
+	// Use Record mode for blocks up to the TTL stump height.
+	if idx.inRecordMode(block.Height()) {
+		return idx.connectBlockRecord(dbTx, block, dels, adds)
+	}
 
 	idx.mtx.RLock()
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
