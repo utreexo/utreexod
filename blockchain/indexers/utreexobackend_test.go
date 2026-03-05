@@ -5,55 +5,28 @@
 package indexers
 
 import (
-	"math/rand"
-	"os"
 	"testing"
 
-	"github.com/cockroachdb/pebble"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
-func TestUtreexoStateConsistencyWrite(t *testing.T) {
+func TestReadConsistencyHash(t *testing.T) {
 	dbPath := t.TempDir()
-	db, err := pebble.Open(dbPath, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { os.RemoveAll(dbPath) }()
+	forest, err := utreexo.OpenForest(dbPath)
+	require.NoError(t, err)
 
-	// Values to write.
-	numLeaves := rand.Uint64()
+	// Flush with a known hash.
 	hash := chaincfg.MainNetParams.GenesisHash
-	roots := make([]utreexo.Hash, 4)
-	for i := range roots {
-		roots[i][0] = uint8(i)
-	}
+	err = forest.Flush([32]byte(*hash))
+	require.NoError(t, err)
 
-	batch := db.NewBatch()
-	err = dbWriteUtreexoStateConsistency(batch, hash, roots, numLeaves)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = batch.Commit(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Read it back and cast to chainhash.Hash.
+	gotBytes, err := forest.ReadConsistencyHash()
+	require.NoError(t, err)
+	gotHash := chainhash.Hash(gotBytes)
 
-	// Fetch the consistency state.
-	gotHash, gotRoots, gotNumLeaves, err := dbFetchUtreexoStateConsistency(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Compare.
-	if *hash != *gotHash {
-		t.Fatalf("expected %v, got %v", hash.String(), gotHash.String())
-	}
-	if numLeaves != gotNumLeaves {
-		t.Fatalf("expected %v, got %v", numLeaves, gotNumLeaves)
-	}
-
-	require.Equal(t, roots, gotRoots)
+	require.Equal(t, *hash, gotHash)
 }

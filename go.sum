@@ -319,6 +319,10 @@ github.com/utreexo/utreexo v0.8.0 h1:9LGcLnKUETusbTM6aLw+U71kpypt9tb3fetZDMEJg0o
 github.com/utreexo/utreexo v0.8.0/go.mod h1:KmtWvRFEvgmpFXvamn24Kr0ecsmuSCqgVdYHKQvnnJ0=
 github.com/utreexo/utreexo v0.11.0 h1:uEEGFsdxqTJB4/C1dUQ9sCEXfDUuKn2OKB7mXa1dzNY=
 github.com/utreexo/utreexo v0.11.0/go.mod h1:KmtWvRFEvgmpFXvamn24Kr0ecsmuSCqgVdYHKQvnnJ0=
+github.com/utreexo/utreexo v0.12.0 h1:Y4+dl13BtEXOCv8J7RPmpe3U+mnqxIV47KV119nd/pQ=
+github.com/utreexo/utreexo v0.12.0/go.mod h1:7BbTQYp48IyyfSmPG+QoWxldLfyO0+5zOqKw1lF27WE=
+github.com/utreexo/utreexo v0.13.0 h1:K942iJmkvUHVoKO+6PgiU/2KZE9dNEZO9H8+FKK6Hp4=
+github.com/utreexo/utreexo v0.13.0/go.mod h1:7BbTQYp48IyyfSmPG+QoWxldLfyO0+5zOqKw1lF27WE=
 github.com/yuin/goldmark v1.1.25/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.1.32/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
