@@ -232,6 +232,7 @@ type server struct {
 	txMemPool            *mempool.TxPool
 	cpuMiner             *cpuminer.CPUMiner
 	modifyRebroadcastInv chan interface{}
+	p2pDowngrader        *peer.P2PDowngrader
 	newPeers             chan *serverPeer
 	donePeers            chan *serverPeer
 	banPeers             chan *serverPeer
@@ -283,12 +284,6 @@ type server struct {
 	// agentWhitelist is a list of whitelisted user agent substrings, no
 	// whitelisting will be applied if the list is empty or nil.
 	agentWhitelist []string
-
-	// pendingReconnects is a map of peer addresses that have failed when
-	// connecting outbound.
-	// TODO: Memory leak if outbound target reached and non-persistent peer.
-	pendingReconnects    map[string]struct{}
-	pendingReconnectsMtx sync.RWMutex
 }
 
 // serverPeer extends the peer to maintain state shared by the server and
@@ -315,9 +310,6 @@ type serverPeer struct {
 	// The following chans are used to sync blockmanager and server.
 	txProcessed    chan struct{}
 	blockProcessed chan struct{}
-
-	reconnectMtx    sync.RWMutex
-	shouldReconnect bool
 }
 
 // newServerPeer returns a new serverPeer instance. The peer needs to be set by
@@ -444,21 +436,11 @@ func hasServices(advertised, desired wire.ServiceFlag) bool {
 	return advertised&desired == desired
 }
 
-// SetShouldReconnect is invoked when we attempted a BIP324 v2 outbound connection
-// but the peer immediately hung up. In this case, we need to mark a bit so that
-// we'll remember to reconnect if this isn't a persistent peer.
-func (sp *serverPeer) SetShouldReconnect() {
-	sp.reconnectMtx.Lock()
-	sp.shouldReconnect = true
-	sp.reconnectMtx.Unlock()
-}
-
-// ShouldReconnect is invoked when we need to determine if we are going to
-// reconnect to an outbound peer.
-func (sp *serverPeer) ShouldReconnect() bool {
-	sp.reconnectMtx.RLock()
-	defer sp.reconnectMtx.RUnlock()
-	return sp.shouldReconnect
+// ShouldReconnectV1 is invoked when we need to determine if we are going to
+// reconnect to an outbound peer. This will return true if we attempted to
+// connect to the peer using the v2 transport, and need to fall back to v1.
+func (sp *serverPeer) ShouldReconnectV1() bool {
+	return sp.ShouldDowngradeToV1()
 }
 
 // OnVersion is invoked when a peer receives a version bitcoin message
@@ -2187,15 +2169,19 @@ func (s *server) handleDonePeerMsg(state *peerState, sp *serverPeer) {
 	// our connection manager about the disconnection. This can happen if we
 	// process a peer's `done` message before its `add`.
 	if !sp.Inbound() {
-		if sp.persistent {
-			s.connManager.Disconnect(sp.connReq.ID(), false)
-		} else if sp.ShouldReconnect() {
-			// If we need to reconnect due to an outbound v2
-			// connection failing, call connmgr's Disconnect to
-			// trigger a reconnect. We set the reconnect bool to true
-			// in case the ConnReq is not marked Permanent.
-			s.connManager.Disconnect(sp.connReq.ID(), true)
-		} else {
+		switch {
+		case sp.persistent:
+			s.connManager.Disconnect(sp.connReq.ID())
+
+		// If this isn't a persistent peer, but we failed a v2
+		// handshake, then we'll disconnect, but trigger a reconnect so
+		// we can use v1 instead.
+		case sp.ShouldReconnectV1():
+			s.connManager.Disconnect(
+				sp.connReq.ID(), connmgr.WithTriggerReconnect(),
+			)
+
+		default:
 			s.connManager.Remove(sp.connReq.ID())
 			go s.connManager.NewConnReq()
 		}
@@ -2655,35 +2641,35 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 // request instance and the connection itself, and finally notifies the address
 // manager of the attempt.
 func (s *server) outboundPeerConnected(c *connmgr.ConnReq, conn net.Conn) {
-	sp := newServerPeer(s, c.Permanent)
-
 	// Just an alias.
 	peerAddr := c.Addr.String()
+	sp := newServerPeer(s, c.Permanent)
 
-	// Check pendingReconnects for this peer. If it exists, do v1 transport
-	// and delete the map entry.
-	s.pendingReconnectsMtx.RLock()
-	_, shouldDowngrade := s.pendingReconnects[peerAddr]
-	delete(s.pendingReconnects, peerAddr)
-	s.pendingReconnectsMtx.RUnlock()
-
-	// Modify the UsingV2Conn parameter if shouldDowngrade is true.
 	peerCfg := newPeerConfig(sp)
-	if shouldDowngrade {
+
+	// Check with the P2PDowngrader if this connection attempt should be
+	// forced to v1.
+	if s.p2pDowngrader.ShouldDowngrade(peerAddr) {
+		srvrLog.Infof("Forcing V1 connection to %s as requested by "+
+			"P2P downgrader.", peerAddr)
+
 		peerCfg.UsingV2Conn = false
 	}
 
 	p, err := peer.NewOutboundPeer(peerCfg, peerAddr)
 	if err != nil {
-		srvrLog.Debugf("Cannot create outbound peer %s: %v", c.Addr, err)
+		srvrLog.Debugf("Cannot create outbound peer %s: %v",
+			c.Addr, err)
+
 		if c.Permanent {
-			s.connManager.Disconnect(c.ID(), false)
+			s.connManager.Disconnect(c.ID())
 		} else {
 			s.connManager.Remove(c.ID())
 			go s.connManager.NewConnReq()
 		}
 		return
 	}
+
 	sp.Peer = p
 	sp.connReq = c
 	sp.isWhitelisted = isWhitelisted(conn.RemoteAddr())
@@ -2696,21 +2682,14 @@ func (s *server) outboundPeerConnected(c *connmgr.ConnReq, conn net.Conn) {
 func (s *server) peerDoneHandler(sp *serverPeer) {
 	sp.WaitForDisconnect()
 
-	// If this is an outbound peer and the shouldDowngradeToV1 bool is set on
-	// the underlying Peer, trigger a reconnect using the OG v1 connection
-	// scheme.
+	// If this is an outbound peer and the shouldDowngradeToV1 bool is set
+	// on the underlying Peer, trigger a reconnect using the OG v1
+	// connection scheme.
 	if !sp.Inbound() && sp.Peer.ShouldDowngradeToV1() {
-		// Store the peer's address in a reconnect map that will store the
-		// set of connections to downgrade to v1.
-		s.pendingReconnectsMtx.Lock()
-		s.pendingReconnects[sp.Addr()] = struct{}{}
-		s.pendingReconnectsMtx.Unlock()
+		srvrLog.Infof("Peer %s indicated v2->v1 downgrade. "+
+			"Marking for next attempt as v1.", sp.Addr())
 
-		// Flip a bool in serverPeer to mark that we should reconnect to
-		// this peer.
-		sp.SetShouldReconnect()
-		srvrLog.Infof("Reconnecting to peer(%v) since v2 transport "+
-			"failed.", sp.Addr())
+		s.p2pDowngrader.MarkForDowngrade(sp.Addr())
 	}
 
 	// This is sent to a buffered channel, so it may not execute immediately.
@@ -3392,7 +3371,6 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		cfCheckptCaches:      make(map[wire.FilterType][]cfHeaderKV),
 		agentBlacklist:       agentBlacklist,
 		agentWhitelist:       agentWhitelist,
-		pendingReconnects:    make(map[string]struct{}),
 	}
 
 	// Create the transaction and address indexes if needed.
@@ -3661,6 +3639,8 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		return nil, err
 	}
 	s.connManager = cmgr
+
+	s.p2pDowngrader = peer.NewP2PDowngrader(uint(targetOutbound) + 1)
 
 	// Start up persistent peers.
 	permanentPeers := cfg.ConnectPeers
