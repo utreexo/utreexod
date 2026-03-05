@@ -53,6 +53,12 @@ func TestMsgGetUtreexoTTLsEncode(t *testing.T) {
 			version:     704_248,
 			startHeight: 212_878,
 			maxExponent: 5,
+			shouldErr:   false,
+		},
+		{
+			version:     704_248,
+			startHeight: 212_878,
+			maxExponent: 6,
 			shouldErr:   true,
 		},
 		{
