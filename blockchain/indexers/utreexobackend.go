@@ -301,7 +301,7 @@ func deserializeUndoBlock(serialized []byte) (*utreexo.Proof, []utreexo.Hash, er
 
 // initConsistentUtreexoState makes the utreexo state consistent with the given tipHash.
 func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain, ttlIdx *FlatFileState,
-	savedHash, tipHash *chainhash.Hash, tipHeight int32) error {
+	savedHash, tipHash *chainhash.Hash, tipHeight int32, recordModeEndHeight int32) error {
 
 	// This is a new accumulator state that we're working with.
 	var empty chainhash.Hash
@@ -362,7 +362,59 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 		}
 		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
-		err = us.replayBlock(h, block.Hash(), dels, adds, ttlIdx)
+		if recordModeEndHeight > 0 && h <= recordModeEndHeight {
+			err = us.replayBlockRecord(h, block.Hash(), dels, adds, ttlIdx, h == recordModeEndHeight)
+		} else {
+			err = us.replayBlock(h, block.Hash(), dels, adds, ttlIdx)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// replayBlockRecord replays a single block using Record mode (deferred hashing).
+// If final is true, it calls HashAll() and flushes the state.
+func (us *UtreexoState) replayBlockRecord(height int32, blockHash *chainhash.Hash,
+	dels, adds []wire.LeafData, ttlIdx *FlatFileState, final bool) error {
+
+	delHashes := make([]utreexo.Hash, len(dels))
+	for i, del := range dels {
+		delHashes[i] = del.LeafHash()
+	}
+
+	// Get targets via GetLeafPosition before Record modifies positions.
+	targets := make([]uint64, len(delHashes))
+	for i, delHash := range delHashes {
+		pos, _ := us.state.GetLeafPosition(delHash)
+		targets[i] = pos
+	}
+
+	addHashes := make([]utreexo.Hash, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, add.LeafHash())
+	}
+
+	createdIndexes, err := us.state.Record(addHashes, delHashes)
+	if err != nil {
+		return err
+	}
+
+	err = writeTTLs(height, createdIndexes, dels, ttlIdx)
+	if err != nil {
+		return err
+	}
+
+	if final {
+		log.Infof("Record mode complete at height %d. Computing all parent hashes...", height)
+		err = us.state.HashAll()
+		if err != nil {
+			return err
+		}
+		log.Infof("HashAll complete. Flushing utreexo state...")
+		err = us.state.Flush(*blockHash)
 		if err != nil {
 			return err
 		}
@@ -413,7 +465,7 @@ func (us *UtreexoState) replayBlock(height int32, blockHash *chainhash.Hash,
 // InitUtreexoState returns an initialized utreexo state. If there isn't an
 // existing state on disk, it creates one and returns it.
 func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *FlatFileState,
-	tipHash *chainhash.Hash, tipHeight int32) (*UtreexoState, error) {
+	tipHash *chainhash.Hash, tipHeight int32, recordModeEndHeight int32) (*UtreexoState, error) {
 
 	basePath := utreexoBasePath(cfg)
 	log.Infof("Initializing Utreexo state from '%s'", basePath)
@@ -438,7 +490,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 	}
 
 	// Make sure that the utreexo state is consistent before returning it.
-	err = uState.initConsistentUtreexoState(chain, ttlIdx, savedHash, tipHash, tipHeight)
+	err = uState.initConsistentUtreexoState(chain, ttlIdx, savedHash, tipHash, tipHeight, recordModeEndHeight)
 	if err != nil {
 		return nil, err
 	}

@@ -332,7 +332,7 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 	idx.chain = chain
 
 	// Init Utreexo State.
-	uState, err := InitUtreexoState(idx.config, chain, &idx.ttlState, tipHash, tipHeight)
+	uState, err := InitUtreexoState(idx.config, chain, &idx.ttlState, tipHash, tipHeight, -1)
 	if err != nil {
 		return err
 	}
