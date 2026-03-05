@@ -2619,7 +2619,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 		DisableRelayTx:    cfg.BlocksOnly,
 		ProtocolVersion:   peer.MaxProtocolVersion,
 		TrickleInterval:   cfg.TrickleInterval,
-		UsingV2Conn:       true,
+		UsingV2Conn:       cfg.V2Transport,
 	}
 }
 
@@ -3323,6 +3323,9 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			// nodes.
 			services &^= wire.SFNodeNetworkLimited
 		}
+	}
+	if !cfg.V2Transport {
+		services &^= wire.SFNodeP2PV2
 	}
 	if !cfg.NoUtreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
 		services |= wire.SFNodeUtreexo
