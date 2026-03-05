@@ -362,43 +362,48 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 		}
 		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
-		ud, err := wire.GenerateUData(dels, us.state)
+		err = us.replayBlock(h, block.Hash(), dels, adds, ttlIdx)
 		if err != nil {
 			return err
 		}
-		delHashes := make([]utreexo.Hash, len(ud.LeafDatas))
-		for i := range delHashes {
-			delHashes[i] = ud.LeafDatas[i].LeafHash()
-		}
+	}
 
-		addHashes := make([]utreexo.Leaf, 0, len(adds))
-		for _, add := range adds {
-			addHashes = append(addHashes, utreexo.Leaf{Hash: add.LeafHash(), Remember: false})
-		}
+	return nil
+}
 
-		if us.config.Pruned {
-			err := us.state.Modify(addHashes, delHashes, ud.AccProof)
-			if err != nil {
-				return err
-			}
-		} else {
-			createIndexes, err := us.state.ModifyAndReturnTTLs(addHashes, delHashes, ud.AccProof)
-			if err != nil {
-				return err
-			}
+// replayBlock replays a single block using normal Modify mode with full proof generation.
+func (us *UtreexoState) replayBlock(height int32, blockHash *chainhash.Hash,
+	dels, adds []wire.LeafData, ttlIdx *FlatFileState) error {
 
-			err = writeTTLs(block.Height(), createIndexes, ud.LeafDatas, ttlIdx)
-			if err != nil {
-				return err
-			}
-		}
+	ud, err := wire.GenerateUData(dels, us.state)
+	if err != nil {
+		return err
+	}
+	delHashes := make([]utreexo.Hash, len(ud.LeafDatas))
+	for i := range delHashes {
+		delHashes[i] = ud.LeafDatas[i].LeafHash()
+	}
 
-		if us.state.FlushNeeded() {
-			log.Infof("Flushing the utreexo state to disk...")
-			err = us.state.Flush(*block.Hash())
-			if err != nil {
-				return err
-			}
+	addHashes := make([]utreexo.Leaf, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, utreexo.Leaf{Hash: add.LeafHash(), Remember: false})
+	}
+
+	createIndexes, err := us.state.ModifyAndReturnTTLs(addHashes, delHashes, ud.AccProof)
+	if err != nil {
+		return err
+	}
+
+	err = writeTTLs(height, createIndexes, ud.LeafDatas, ttlIdx)
+	if err != nil {
+		return err
+	}
+
+	if us.state.FlushNeeded() {
+		log.Infof("Flushing the utreexo state to disk...")
+		err = us.state.Flush(*blockHash)
+		if err != nil {
+			return err
 		}
 	}
 
