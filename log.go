@@ -23,6 +23,7 @@ import (
 	"github.com/utreexo/utreexod/netsync"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/btcsuite/btcd/v2transport"
 	"github.com/utreexo/utreexod/wallet"
 
 	"github.com/btcsuite/btclog"
@@ -72,6 +73,7 @@ var (
 	srvrLog = backendLog.Logger("SRVR")
 	syncLog = backendLog.Logger("SYNC")
 	txmpLog = backendLog.Logger("TXMP")
+	v2trLog = backendLog.Logger(v2transport.Subsystem)
 	wlltLog = backendLog.Logger("WLLT")
 	elecLog = backendLog.Logger("ELEC")
 	bdkwLog = backendLog.Logger("BDKW")
@@ -90,6 +92,7 @@ func init() {
 	txscript.UseLogger(scrpLog)
 	netsync.UseLogger(syncLog)
 	mempool.UseLogger(txmpLog)
+	v2transport.UseLogger(v2trLog)
 	wallet.UseLogger(wlltLog)
 	electrum.UseLogger(elecLog)
 	bdkwallet.UseLogger(bdkwLog)
@@ -111,8 +114,9 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"SCRP": scrpLog,
 	"SRVR": srvrLog,
 	"SYNC": syncLog,
-	"TXMP": txmpLog,
-	"WLLT": wlltLog,
+	"TXMP":                txmpLog,
+	v2transport.Subsystem: v2trLog,
+	"WLLT":                wlltLog,
 	"ELEC": elecLog,
 	"BDKW": bdkwLog,
 }
