@@ -513,19 +513,13 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 		progressLogger.LogBlockHeight(block)
 
 		if interruptRequested(interrupt) {
-			for _, indexer := range m.enabledIndexes {
-				switch idxType := indexer.(type) {
-				case *UtreexoProofIndex:
-					err := idxType.flushUtreexoState(block.Hash())
-					if err != nil {
-						log.Errorf("Error while flushing utreexo state for utreexo proof index: %v", err)
-					}
-				case *FlatUtreexoProofIndex:
-					err := idxType.flushUtreexoState(block.Hash())
-					if err != nil {
-						log.Errorf("Error while flushing utreexo state for flat utreexo proof index: %v", err)
-					}
-				}
+			// Use FlushRequired to ensure the main database is flushed
+			// before the utreexo state. This prevents the utreexo
+			// consistency hash from getting ahead of the persisted
+			// indexer tip.
+			err = m.Flush(block.Hash(), blockchain.FlushRequired, true)
+			if err != nil {
+				log.Errorf("Error while flushing indexes on interrupt: %v", err)
 			}
 			return errInterruptRequested
 		}
