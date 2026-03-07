@@ -97,6 +97,10 @@ const (
 	// the last 288 blocks.
 	SFNodeNetworkLimited = 1 << 10
 
+	// SFNodeP2PV2 is a flag used to indicate a peer supports BIP324 v2
+	// connections.
+	SFNodeP2PV2 = 1 << 11
+
 	// SFNodeUtreexo is a flag used to indicate a peer is running the utreexo
 	// protocol.
 	//
@@ -116,6 +120,7 @@ var sfStrings = map[ServiceFlag]string{
 	SFNodeBit5:           "SFNodeBit5",
 	SFNodeCF:             "SFNodeCF",
 	SFNode2X:             "SFNode2X",
+	SFNodeP2PV2:          "SFNodeP2PV2",
 	SFNodeUtreexo:        "SFNodeUtreexo",
 }
 
@@ -123,7 +128,6 @@ var sfStrings = map[ServiceFlag]string{
 // lowest.
 var orderedSFStrings = []ServiceFlag{
 	SFNodeNetwork,
-	SFNodeNetworkLimited,
 	SFNodeGetUTXO,
 	SFNodeBloom,
 	SFNodeWitness,
@@ -131,6 +135,8 @@ var orderedSFStrings = []ServiceFlag{
 	SFNodeBit5,
 	SFNodeCF,
 	SFNode2X,
+	SFNodeNetworkLimited,
+	SFNodeP2PV2,
 	SFNodeUtreexo,
 }
 

@@ -48,7 +48,7 @@ const (
 	// defaultServices describes the default services that are supported by
 	// the server.
 	defaultServices = wire.SFNodeNetwork | wire.SFNodeNetworkLimited |
-		wire.SFNodeBloom | wire.SFNodeWitness
+		wire.SFNodeBloom | wire.SFNodeWitness | wire.SFNodeP2PV2
 
 	// defaultRequiredServices describes the default services that are
 	// required to be supported by outbound peers.
@@ -232,6 +232,7 @@ type server struct {
 	txMemPool            *mempool.TxPool
 	cpuMiner             *cpuminer.CPUMiner
 	modifyRebroadcastInv chan interface{}
+	p2pDowngrader        *peer.P2PDowngrader
 	newPeers             chan *serverPeer
 	donePeers            chan *serverPeer
 	banPeers             chan *serverPeer
@@ -433,6 +434,13 @@ func (sp *serverPeer) addBanScore(persistent, transient uint32, reason string) b
 // all of the provided desired service flags set.
 func hasServices(advertised, desired wire.ServiceFlag) bool {
 	return advertised&desired == desired
+}
+
+// ShouldReconnectV1 is invoked when we need to determine if we are going to
+// reconnect to an outbound peer. This will return true if we attempted to
+// connect to the peer using the v2 transport, and need to fall back to v1.
+func (sp *serverPeer) ShouldReconnectV1() bool {
+	return sp.ShouldDowngradeToV1()
 }
 
 // OnVersion is invoked when a peer receives a version bitcoin message
@@ -2161,9 +2169,19 @@ func (s *server) handleDonePeerMsg(state *peerState, sp *serverPeer) {
 	// our connection manager about the disconnection. This can happen if we
 	// process a peer's `done` message before its `add`.
 	if !sp.Inbound() {
-		if sp.persistent {
+		switch {
+		case sp.persistent:
 			s.connManager.Disconnect(sp.connReq.ID())
-		} else {
+
+		// If this isn't a persistent peer, but we failed a v2
+		// handshake, then we'll disconnect, but trigger a reconnect so
+		// we can use v1 instead.
+		case sp.ShouldReconnectV1():
+			s.connManager.Disconnect(
+				sp.connReq.ID(), connmgr.WithTriggerReconnect(),
+			)
+
+		default:
 			s.connManager.Remove(sp.connReq.ID())
 			go s.connManager.NewConnReq()
 		}
@@ -2601,6 +2619,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 		DisableRelayTx:    cfg.BlocksOnly,
 		ProtocolVersion:   peer.MaxProtocolVersion,
 		TrickleInterval:   cfg.TrickleInterval,
+		UsingV2Conn:       cfg.V2Transport,
 	}
 }
 
@@ -2622,10 +2641,26 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 // request instance and the connection itself, and finally notifies the address
 // manager of the attempt.
 func (s *server) outboundPeerConnected(c *connmgr.ConnReq, conn net.Conn) {
+	// Just an alias.
+	peerAddr := c.Addr.String()
 	sp := newServerPeer(s, c.Permanent)
-	p, err := peer.NewOutboundPeer(newPeerConfig(sp), c.Addr.String())
+
+	peerCfg := newPeerConfig(sp)
+
+	// Check with the P2PDowngrader if this connection attempt should be
+	// forced to v1.
+	if s.p2pDowngrader.ShouldDowngrade(peerAddr) {
+		srvrLog.Infof("Forcing V1 connection to %s as requested by "+
+			"P2P downgrader.", peerAddr)
+
+		peerCfg.UsingV2Conn = false
+	}
+
+	p, err := peer.NewOutboundPeer(peerCfg, peerAddr)
 	if err != nil {
-		srvrLog.Debugf("Cannot create outbound peer %s: %v", c.Addr, err)
+		srvrLog.Debugf("Cannot create outbound peer %s: %v",
+			c.Addr, err)
+
 		if c.Permanent {
 			s.connManager.Disconnect(c.ID())
 		} else {
@@ -2634,6 +2669,7 @@ func (s *server) outboundPeerConnected(c *connmgr.ConnReq, conn net.Conn) {
 		}
 		return
 	}
+
 	sp.Peer = p
 	sp.connReq = c
 	sp.isWhitelisted = isWhitelisted(conn.RemoteAddr())
@@ -2645,6 +2681,18 @@ func (s *server) outboundPeerConnected(c *connmgr.ConnReq, conn net.Conn) {
 // done along with other performing other desirable cleanup.
 func (s *server) peerDoneHandler(sp *serverPeer) {
 	sp.WaitForDisconnect()
+
+	// If this is an outbound peer and the shouldDowngradeToV1 bool is set
+	// on the underlying Peer, trigger a reconnect using the OG v1
+	// connection scheme.
+	if !sp.Inbound() && sp.Peer.ShouldDowngradeToV1() {
+		srvrLog.Infof("Peer %s indicated v2->v1 downgrade. "+
+			"Marking for next attempt as v1.", sp.Addr())
+
+		s.p2pDowngrader.MarkForDowngrade(sp.Addr())
+	}
+
+	// This is sent to a buffered channel, so it may not execute immediately.
 	s.donePeers <- sp
 
 	// Only tell sync manager we are gone if we ever told it we existed.
@@ -3276,6 +3324,9 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 			services &^= wire.SFNodeNetworkLimited
 		}
 	}
+	if !cfg.V2Transport {
+		services &^= wire.SFNodeP2PV2
+	}
 	if !cfg.NoUtreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
 		services |= wire.SFNodeUtreexo
 	}
@@ -3591,6 +3642,8 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		return nil, err
 	}
 	s.connManager = cmgr
+
+	s.p2pDowngrader = peer.NewP2PDowngrader(uint(targetOutbound) + 1)
 
 	// Start up persistent peers.
 	permanentPeers := cfg.ConnectPeers

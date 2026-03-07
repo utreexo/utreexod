@@ -199,6 +199,7 @@ type config struct {
 	// Indexing options.
 	AddrIndex                  bool  `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
 	TxIndex                    bool  `long:"txindex" description:"Maintain a full hash-based transaction index which makes all transactions available via the getrawtransaction RPC"`
+	V2Transport                bool  `long:"v2transport" description:"Enable P2P v2 encrypted transport protocol (BIP324) (default: false)"`
 	UtreexoProofIndex          bool  `long:"utreexoproofindex" description:"Maintain a utreexo proof for all blocks"`
 	FlatUtreexoProofIndex      bool  `long:"flatutreexoproofindex" description:"Maintain a utreexo proof for all blocks in flat files"`
 	UtreexoProofIndexMaxMemory int64 `long:"utreexoproofindexmaxmemory" description:"The maxmimum memory in mebibytes (MiB) that the utreexo proof indexes will use up. Default of 500MiB. Minimum of 250MiB"`
@@ -491,6 +492,7 @@ func loadConfig() (*config, []string, error) {
 		UtreexoProofIndexMaxMemory: defaultUtxoCacheMaxSizeMiB * 2,
 		Generate:                   defaultGenerate,
 		TxIndex:                    defaultTxIndex,
+		V2Transport:                false,
 		AddrIndex:                  defaultAddrIndex,
 		Prune:                      pruneMinSize,
 	}
