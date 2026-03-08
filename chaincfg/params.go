@@ -951,6 +951,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 			{193_792, newHashFromStr("000000408463e4809d3a493baf8f17f25a919f883824f5b42247402cfeec1b73")},
 			{231_620, newHashFromStr("0000012f65a81923ad36ee7d6a0d0ab2c7880e1390fbb4a87b2ebab5ee956d2e")},
 			{270_566, newHashFromStr("00000004d85480599a5997038d256ea2a31a8e9dca48b1e4c0298063cb016fd6")},
+			{294_687, newHashFromStr("000000057858aabfe204e2e2005c33567c6e310c90467d49bea36e4343f18d53")},
 		}
 	}
 
@@ -989,16 +990,17 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 			Stump: []utreexo.Stump{
 				{
 					Roots: []utreexo.Hash{
-						newUtreexoHashFromStr("809e49cbef1eeade7badd8b3477b9e97df7cba0b1c0eabeddf7690c0a80acb67"),
-						newUtreexoHashFromStr("753f7f5ae0bcac2386eb1a1747c631afab2d6b4ffbb05e2928e62ea25e988628"),
-						newUtreexoHashFromStr("94a6be116ad86bd4d98a4fd9ce2ff06b617fae01415adb35043f3514619f3ce2"),
-						newUtreexoHashFromStr("947b29604e89ac7be6e1e29bda4de0042eeaefd0fe71862b2fd0824ca6809b5b"),
-						newUtreexoHashFromStr("031b0537dc41de2b57825c4d9c5d25a8d603cfae987a090d1f0fa1f02062936c"),
-						newUtreexoHashFromStr("6f30341345e5879f28ca7081eef177c644f4eb42bf92312f426cef7e48077fbc"),
-						newUtreexoHashFromStr("a965adea2d8839c5daa4d41abc40d4eea48c72a05682bef20d788b67979b62a2"),
-						newUtreexoHashFromStr("2ae278a882a2c1300da5ce47082e3e7ec21078328c800a6e3d68581897cf91a7"),
+						newUtreexoHashFromStr("d2d236de5dfc51f6d19e6032051e23d17190a163bd141e20fec95245daf5aeb3"),
+						newUtreexoHashFromStr("c162ca415897569c3587a9ed27ae2c048ae5b7beb00a7d85516b1977ef82ff5d"),
+						newUtreexoHashFromStr("6513784f8fa270f944d6141c7c4767b24ad41c0c8aa932ee88191b47ab9c8b24"),
+						newUtreexoHashFromStr("95239c0dc67fa634b46349d24ac16c4120196931a7b17022a49a71be276ab435"),
+						newUtreexoHashFromStr("b37dc4d51ce269e4f2510a35492d36a0fd589b5b92806af6ffa4cd9d240ef9cf"),
+						newUtreexoHashFromStr("d172d80ceff3674bbc94676db958cf5664d561f1424077bbf9ae16d870e474ae"),
+						newUtreexoHashFromStr("dfd16dcf4320b308358e878ebf55b5ea35a6e24b3db76d098e055160bf552adf"),
+						newUtreexoHashFromStr("291a2a4595f158eecbbf791fde3f12605671eaa091dec625eaae0684cff39809"),
+						newUtreexoHashFromStr("56ce0aa0aaa20f8d0f3f6480ffb8f9f80d7a530d549e50a889d430d51db91b3f"),
 					},
-					NumLeaves: 270_567,
+					NumLeaves: 294_688,
 				},
 			},
 		},
