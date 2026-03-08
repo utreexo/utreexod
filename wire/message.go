@@ -40,10 +40,8 @@ const (
 	CmdTx                  = "tx"
 	CmdUtreexoTx           = "utreexotx"
 	CmdGetHeaders          = "getheaders"
-	CmdGetUtreexoSummaries = "gusummaries"
-	CmdGetUtreexoTTLs      = "getuttls"
-	CmdHeaders             = "headers"
-	CmdUtreexoSummaries    = "usummaries"
+	CmdGetUtreexoTTLs = "getuttls"
+	CmdHeaders        = "headers"
 	CmdUtreexoTTLs         = "uttls"
 	CmdPing                = "ping"
 	CmdPong                = "pong"
@@ -94,6 +92,13 @@ var (
 		25: CmdCFHeaders,
 		26: CmdGetCFCheckpt,
 		27: CmdCFCheckpt,
+		29: CmdUtreexoProof,
+		30: CmdGetUtreexoProof,
+		31: CmdUtreexoTTLs,
+		32: CmdGetUtreexoTTLs,
+		34: CmdUtreexoTx,
+		35: CmdUtreexoRoot,
+		36: CmdGetUtreexoRoot,
 	}
 
 	v2Messages = map[string]uint8{
@@ -118,8 +123,15 @@ var (
 		CmdCFilter:      23,
 		CmdGetCFHeaders: 24,
 		CmdCFHeaders:    25,
-		CmdGetCFCheckpt: 26,
-		CmdCFCheckpt:    27,
+		CmdGetCFCheckpt:    26,
+		CmdCFCheckpt:       27,
+		CmdUtreexoProof:    29,
+		CmdGetUtreexoProof: 30,
+		CmdUtreexoTTLs:     31,
+		CmdGetUtreexoTTLs:  32,
+		CmdUtreexoTx:       34,
+		CmdUtreexoRoot:     35,
+		CmdGetUtreexoRoot:  36,
 	}
 )
 
