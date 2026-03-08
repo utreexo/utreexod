@@ -21,7 +21,7 @@ require (
 	github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23
 	github.com/stretchr/testify v1.11.1
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/utreexo/utreexo v0.13.0
+	github.com/utreexo/utreexo v0.14.0
 	golang.org/x/crypto v0.25.0
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df
 	pgregory.net/rapid v1.2.0
@@ -30,7 +30,6 @@ require (
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/btcsuite/btcd/v2transport v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect
