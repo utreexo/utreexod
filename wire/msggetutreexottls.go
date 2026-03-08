@@ -125,14 +125,14 @@ func GetUtreexoTTLHeights(startBlock, bestHeight int32, exponent uint8) ([]int32
 	count := int32(1 << exponent)
 	numLeaves := uint64(bestHeight + 1)
 
-	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves)
+	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves, utreexo.TreeRows(numLeaves))
 	heights := make([]int32, 0, count)
 	for i := int32(0); i < count; i++ {
 		position := i + startBlock
 		if position > bestHeight {
 			break
 		}
-		got, _, _, _ := utreexo.DetectOffset(uint64(position), numLeaves)
+		got, _, _, _ := utreexo.DetectOffset(uint64(position), numLeaves, utreexo.TreeRows(numLeaves))
 		if got != subtree {
 			break
 		}
@@ -146,7 +146,7 @@ func GetUtreexoTTLHeights(startBlock, bestHeight int32, exponent uint8) ([]int32
 // while requesting as much as possible with the given arguments.
 func getUtreexoExponent(startBlock, endHeight, bestHeight int32, maxExp uint8) uint8 {
 	numLeaves := uint64(bestHeight + 1)
-	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves)
+	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves, utreexo.TreeRows(numLeaves))
 
 	exponent := uint8(0)
 	for ; exponent < maxExp; exponent++ {
@@ -154,7 +154,7 @@ func getUtreexoExponent(startBlock, endHeight, bestHeight int32, maxExp uint8) u
 		if height > uint64(endHeight) {
 			break
 		}
-		gotSubTree, _, _, _ := utreexo.DetectOffset(height, numLeaves)
+		gotSubTree, _, _, _ := utreexo.DetectOffset(height, numLeaves, utreexo.TreeRows(numLeaves))
 		if subtree != gotSubTree {
 			break
 		}
