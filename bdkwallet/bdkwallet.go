@@ -2,7 +2,13 @@
 
 package bdkwallet
 
-//#cgo LDFLAGS: ./target/release/libbdkgo.a -ldl -lm
+//#cgo LDFLAGS: ${SRCDIR}/../target/release/libbdkgo.a
+//#cgo linux LDFLAGS: -ldl -lm
+//#cgo darwin LDFLAGS: -ldl -lm
+//#cgo freebsd LDFLAGS: -lm -lpthread
+//#cgo openbsd LDFLAGS: -lm -lpthread
+//#cgo netbsd LDFLAGS: -lm -lpthread
+//#cgo windows LDFLAGS: -lws2_32 -luserenv -lbcrypt -lntdll
 import "C"
 
 import (
