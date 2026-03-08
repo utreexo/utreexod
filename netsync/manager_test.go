@@ -1053,6 +1053,86 @@ func TestStallNoDisconnectAtSameHeight(t *testing.T) {
 		"we should have nil syncPeer after handleStallSample")
 }
 
+// TestFetchHeaderBlocksNoDuplicateRequests verifies that when multiple peers
+// announce the same block headers while not in headers-first mode (i.e., at the
+// chain tip), blocks are only requested from the first announcing peer.
+//
+// Without this deduplication via the global sm.requestedBlocks map, every
+// announcing peer triggers a redundant block download, resulting in wasted
+// bandwidth and "already have block" rejections for all but the first response.
+func TestFetchHeaderBlocksNoDuplicateRequests(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	sm, tearDown := makeMockSyncManager(t, &params)
+	defer tearDown()
+
+	// Generate test blocks.
+	const numBlocks = 3
+	blocks := generateTestBlocks(t, &params, numBlocks)
+
+	// Simulate the node being caught up at the chain tip (not in
+	// headers-first mode).  This is the state where the bug manifests:
+	// multiple peers announce a new block via headers, and each
+	// announcement triggers fetchHeaderBlocks for that peer.
+	sm.headersFirstMode = false
+
+	// Create multiple peers that will each announce the same headers.
+	peer1 := newSyncCandidate(t, sm, int32(numBlocks))
+	peer2 := newSyncCandidate(t, sm, int32(numBlocks))
+	peer3 := newSyncCandidate(t, sm, int32(numBlocks))
+
+	// Build a headers message containing the new blocks.
+	headers := wire.NewMsgHeaders()
+	for _, block := range blocks {
+		err := headers.AddBlockHeader(&block.MsgBlock().Header)
+		require.NoError(t, err)
+	}
+
+	// Peer 1 sends headers — fetchHeaderBlocks should request the
+	// blocks from peer1.
+	sm.handleHeadersMsg(&headersMsg{
+		headers: headers,
+		peer:    peer1,
+	})
+
+	peer1State := sm.peerStates[peer1]
+	wantRequested := make(map[chainhash.Hash]struct{}, numBlocks)
+	for _, block := range blocks {
+		wantRequested[*block.Hash()] = struct{}{}
+	}
+	require.Equal(t, wantRequested, peer1State.requestedBlocks,
+		"peer1 should have requested all blocks")
+
+	// Verify global requestedBlocks is populated.
+	require.Equal(t, wantRequested, sm.requestedBlocks,
+		"global requestedBlocks should track peer1's requests")
+
+	// Peer 2 sends the same headers — fetchHeaderBlocks should NOT
+	// request the same blocks because they are already tracked in
+	// the global requestedBlocks map.
+	sm.handleHeadersMsg(&headersMsg{
+		headers: headers,
+		peer:    peer2,
+	})
+
+	peer2State := sm.peerStates[peer2]
+	require.Empty(t, peer2State.requestedBlocks,
+		"peer2 should NOT request blocks already requested from peer1")
+
+	// Peer 3 sends the same headers — same expectation.
+	sm.handleHeadersMsg(&headersMsg{
+		headers: headers,
+		peer:    peer3,
+	})
+
+	peer3State := sm.peerStates[peer3]
+	require.Empty(t, peer3State.requestedBlocks,
+		"peer3 should NOT request blocks already requested from peer1")
+}
+
 // TestStartSyncChainCurrent verifies that startSync does not set syncPeer
 // or headersFirstMode when the chain is current and no peer is strictly higher.
 // IsCurrent()==true with no higher peers causes startSync to exit immediately.

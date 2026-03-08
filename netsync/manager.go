@@ -201,7 +201,6 @@ func limitAdd(m map[chainhash.Hash]struct{}, hash chainhash.Hash, limit int) {
 	m[hash] = struct{}{}
 }
 
-
 // SyncManager is used to communicate block related messages with peers. The
 // SyncManager is started as by executing Start() in a goroutine. Once started,
 // it selects peers to sync from and starts the initial block download. Once the
@@ -1129,6 +1128,15 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 
 		_, requested := peerState.requestedBlocks[*hash]
 
+		// When not in headers-first mode (i.e., at the chain tip),
+		// also check the global requested blocks map to avoid
+		// requesting the same block from multiple peers.
+		if !sm.headersFirstMode {
+			if _, globalRequested := sm.requestedBlocks[*hash]; globalRequested {
+				requested = true
+			}
+		}
+
 		iv := wire.NewInvVect(wire.InvTypeBlock, hash)
 		haveInv, err := sm.haveInventory(iv)
 		if err != nil {
@@ -1138,6 +1146,12 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		}
 		if !haveInv && !requested {
 			peerState.requestedBlocks[*hash] = struct{}{}
+
+			// Track in the global map when not in headers-first
+			// mode so other peers won't request the same block.
+			if !sm.headersFirstMode {
+				limitAdd(sm.requestedBlocks, *hash, maxRequestedBlocks)
+			}
 
 			// If we're fetching from a witness enabled peer
 			// post-fork, then ensure that we receive all the
@@ -1271,11 +1285,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	}
 
 	if shouldFetchBlocks {
-		bestHeaderHash, bestHeaderHeight := sm.chain.BestHeader()
-		log.Infof("fetching blocks to %v(%v) from peer %v",
-			bestHeaderHash, bestHeaderHeight, hmsg.peer.String())
 		sm.fetchHeaderBlocks(hmsg.peer)
-
 		return
 	}
 
