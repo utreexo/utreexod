@@ -126,6 +126,12 @@ func (n *nodeConfig) arguments() []string {
 	if n.dataDir != "" {
 		// --datadir
 		args = append(args, fmt.Sprintf("--datadir=%s", n.dataDir))
+
+		// Point --configfile to a nonexistent path inside the data
+		// directory so that the node does not read the user's
+		// personal config file and tests are reproducible.
+		args = append(args, fmt.Sprintf("--configfile=%s",
+			filepath.Join(n.dataDir, "rpctest.conf")))
 	}
 	if n.logDir != "" {
 		// --logdir

@@ -3329,6 +3329,10 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	}
 	if !cfg.NoUtreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
 		services |= wire.SFNodeUtreexo
+
+		if cfg.Prune == 0 {
+			services |= wire.SFNodeUtreexoArchive
+		}
 	}
 
 	amgr := addrmgr.New(cfg.DataDir, btcdLookup)
