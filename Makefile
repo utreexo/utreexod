@@ -5,7 +5,7 @@ install-rust: ## Install rust if not installed
 	if ! type cargo; then curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh ; fi
 
 install-uniffi-bindgen-go: install-rust ## Install uniffi-bindgen-go if not installed
-	if ! type uniffi-bindgen-go; then CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go --tag v0.4.0+v0.28.3; fi
+	if ! type uniffi-bindgen-go; then CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go --tag v0.4.0+v0.28.3 --locked; fi
 
 build-bdk: install-uniffi-bindgen-go ## Build BDK static library
 	uniffi-bindgen-go -o bdkwallet bdkwallet/bdkgo_crate/src/bdkgo.udl
