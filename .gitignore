@@ -42,5 +42,9 @@ utreexod
 # Cargo
 target/
 
+# Nix dev shell local dirs
+.cargo/
+.go/
+
 # Running stuff
 /signet
