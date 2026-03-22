@@ -3,15 +3,15 @@ package addrmgr
 import (
 	"math/rand"
 	"net"
-	"os"
 	"testing"
+	"time"
 
 	"github.com/utreexo/utreexod/wire"
 )
 
-// randAddr generates a *wire.NetAddress backed by a random IPv4/IPv6 address.
-// Some of the returned addresses may not be routable.
-func randAddr(t *testing.T) *wire.NetAddress {
+// randAddr generates a *wire.NetAddressV2 backed by a random IPv4/IPv6
+// address.
+func randAddr(t *testing.T) *wire.NetAddressV2 {
 	t.Helper()
 
 	ipv4 := rand.Intn(2) == 0
@@ -30,39 +30,25 @@ func randAddr(t *testing.T) *wire.NetAddress {
 		ip = b[:]
 	}
 
-	return &wire.NetAddress{
-		Services: wire.ServiceFlag(rand.Uint64()),
-		IP:       ip,
-		Port:     uint16(rand.Uint32()),
-	}
-}
-
-// routableRandAddr generates a *wire.NetAddress backed by a random IPv4/IPv6 address
-// that is always routable.
-func routableRandAddr(t *testing.T) *wire.NetAddress {
-	t.Helper()
-
-	var addr *wire.NetAddress
-
-	// If the address is not routable, try again.
-	routable := false
-	for !routable {
-		addr = randAddr(t)
-		routable = IsRoutable(addr)
-	}
-
-	return addr
+	services := wire.ServiceFlag(rand.Uint64())
+	port := uint16(rand.Uint32())
+	return wire.NetAddressV2FromBytes(
+		time.Now(), services, ip, port,
+	)
 }
 
 // assertAddr ensures that the two addresses match. The timestamp is not
 // checked as it does not affect uniquely identifying a specific address.
-func assertAddr(t *testing.T, got, expected *wire.NetAddress) {
+func assertAddr(t *testing.T, got, expected *wire.NetAddressV2) {
 	if got.Services != expected.Services {
 		t.Fatalf("expected address services %v, got %v",
 			expected.Services, got.Services)
 	}
-	if !got.IP.Equal(expected.IP) {
-		t.Fatalf("expected address IP %v, got %v", expected.IP, got.IP)
+	gotAddr := got.Addr.String()
+	expectedAddr := expected.Addr.String()
+	if gotAddr != expectedAddr {
+		t.Fatalf("expected address IP %v, got %v", expectedAddr,
+			gotAddr)
 	}
 	if got.Port != expected.Port {
 		t.Fatalf("expected address port %d, got %d", expected.Port,
@@ -73,7 +59,7 @@ func assertAddr(t *testing.T, got, expected *wire.NetAddress) {
 // assertAddrs ensures that the manager's address cache matches the given
 // expected addresses.
 func assertAddrs(t *testing.T, addrMgr *AddrManager,
-	expectedAddrs map[string]*wire.NetAddress) {
+	expectedAddrs map[string]*wire.NetAddressV2) {
 
 	t.Helper()
 
@@ -102,22 +88,18 @@ func TestAddrManagerSerialization(t *testing.T) {
 
 	// We'll start by creating our address manager backed by a temporary
 	// directory.
-	tempDir, err := os.MkdirTemp("", "TestAddrManagerSerialization")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	addrMgr := New(tempDir, nil)
 
 	// We'll be adding 5 random addresses to the manager.
 	const numAddrs = 5
 
-	expectedAddrs := make(map[string]*wire.NetAddress, numAddrs)
+	expectedAddrs := make(map[string]*wire.NetAddressV2, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr := routableRandAddr(t)
+		addr := randAddr(t)
 		expectedAddrs[NetAddressKey(addr)] = addr
-		addrMgr.AddAddress(addr, routableRandAddr(t))
+		addrMgr.AddAddress(addr, randAddr(t))
 	}
 
 	// Now that the addresses have been added, we should be able to retrieve
@@ -142,11 +124,7 @@ func TestAddrManagerV1ToV2(t *testing.T) {
 
 	// We'll start by creating our address manager backed by a temporary
 	// directory.
-	tempDir, err := os.MkdirTemp("", "TestAddrManagerV1ToV2")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	addrMgr := New(tempDir, nil)
 
@@ -158,11 +136,11 @@ func TestAddrManagerV1ToV2(t *testing.T) {
 	// each addresses' services will not be stored.
 	const numAddrs = 5
 
-	expectedAddrs := make(map[string]*wire.NetAddress, numAddrs)
+	expectedAddrs := make(map[string]*wire.NetAddressV2, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr := routableRandAddr(t)
+		addr := randAddr(t)
 		expectedAddrs[NetAddressKey(addr)] = addr
-		addrMgr.AddAddress(addr, routableRandAddr(t))
+		addrMgr.AddAddress(addr, randAddr(t))
 	}
 
 	// Then, we'll persist these addresses to disk and restart the address
