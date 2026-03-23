@@ -32,6 +32,7 @@ const (
 	CmdVerAck              = "verack"
 	CmdGetAddr             = "getaddr"
 	CmdAddr                = "addr"
+	CmdAddrV2              = "addrv2"
 	CmdGetBlocks           = "getblocks"
 	CmdInv                 = "inv"
 	CmdGetData             = "getdata"
@@ -85,6 +86,7 @@ var (
 		17: CmdNotFound,
 		18: CmdPing,
 		19: CmdPong,
+		20: CmdSendAddrV2,
 		21: CmdTx,
 		22: CmdGetCFilters,
 		23: CmdCFilter,
@@ -92,6 +94,7 @@ var (
 		25: CmdCFHeaders,
 		26: CmdGetCFCheckpt,
 		27: CmdCFCheckpt,
+		28: CmdAddrV2,
 		29: CmdUtreexoProof,
 		30: CmdGetUtreexoProof,
 		31: CmdUtreexoTTLs,
@@ -118,6 +121,7 @@ var (
 		CmdNotFound:     17,
 		CmdPing:         18,
 		CmdPong:         19,
+		CmdSendAddrV2:   20,
 		CmdTx:           21,
 		CmdGetCFilters:  22,
 		CmdCFilter:      23,
@@ -125,6 +129,7 @@ var (
 		CmdCFHeaders:    25,
 		CmdGetCFCheckpt:    26,
 		CmdCFCheckpt:       27,
+		CmdAddrV2:          28,
 		CmdUtreexoProof:    29,
 		CmdGetUtreexoProof: 30,
 		CmdUtreexoTTLs:     31,
@@ -152,6 +157,13 @@ const (
 // LatestEncoding is the most recently specified encoding for the Bitcoin wire
 // protocol.
 var LatestEncoding = WitnessEncoding
+
+// ErrUnknownMessage is the error returned when decoding an unknown message.
+var ErrUnknownMessage = fmt.Errorf("received unknown message")
+
+// ErrInvalidHandshake is the error returned when a peer sends us a known
+// message that does not belong in the version-verack handshake.
+var ErrInvalidHandshake = fmt.Errorf("invalid message during handshake")
 
 // Message is an interface that describes a bitcoin message.  A type that
 // implements Message has complete control over the representation of its data
@@ -183,6 +195,9 @@ func makeEmptyMessage(command string) (Message, error) {
 
 	case CmdAddr:
 		msg = &MsgAddr{}
+
+	case CmdAddrV2:
+		msg = &MsgAddrV2{}
 
 	case CmdGetBlocks:
 		msg = &MsgGetBlocks{}
@@ -281,7 +296,7 @@ func makeEmptyMessage(command string) (Message, error) {
 		msg = &MsgCFCheckpt{}
 
 	default:
-		return nil, fmt.Errorf("unhandled command [%s]", command)
+		return nil, ErrUnknownMessage
 	}
 	return msg, nil
 }
@@ -658,9 +673,10 @@ func readMessageWithEncodingNInternal(r io.Reader, pver uint32,
 	// Create struct of appropriate message type based on the command.
 	msg, err := makeEmptyMessage(command)
 	if err != nil {
+		// makeEmptyMessage can only return ErrUnknownMessage and it is
+		// important that we bubble it up to the caller.
 		discardInput(r, hdr.length)
-		return totalBytes, nil, nil, messageError("ReadMessage",
-			err.Error())
+		return totalBytes, nil, nil, err
 	}
 
 	// Check for maximum length based on the message type as a malicious client
