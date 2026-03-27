@@ -28,44 +28,44 @@ const MaxMessagePayload = (1024 * 1024 * 32) // 32MB
 
 // Commands used in bitcoin message headers which describe the type of message.
 const (
-	CmdVersion             = "version"
-	CmdVerAck              = "verack"
-	CmdGetAddr             = "getaddr"
-	CmdAddr                = "addr"
-	CmdAddrV2              = "addrv2"
-	CmdGetBlocks           = "getblocks"
-	CmdInv                 = "inv"
-	CmdGetData             = "getdata"
-	CmdNotFound            = "notfound"
-	CmdBlock               = "block"
-	CmdTx                  = "tx"
-	CmdUtreexoTx           = "utreexotx"
-	CmdGetHeaders          = "getheaders"
-	CmdGetUtreexoTTLs = "getuttls"
-	CmdHeaders        = "headers"
-	CmdUtreexoTTLs         = "uttls"
-	CmdPing                = "ping"
-	CmdPong                = "pong"
-	CmdAlert               = "alert"
-	CmdMemPool             = "mempool"
-	CmdFilterAdd           = "filteradd"
-	CmdFilterClear         = "filterclear"
-	CmdFilterLoad          = "filterload"
-	CmdMerkleBlock         = "merkleblock"
-	CmdReject              = "reject"
-	CmdSendHeaders         = "sendheaders"
-	CmdFeeFilter           = "feefilter"
-	CmdGetCFilters         = "getcfilters"
-	CmdGetCFHeaders        = "getcfheaders"
-	CmdGetCFCheckpt        = "getcfcheckpt"
-	CmdCFilter             = "cfilter"
-	CmdCFHeaders           = "cfheaders"
-	CmdCFCheckpt           = "cfcheckpt"
-	CmdSendAddrV2          = "sendaddrv2"
-	CmdUtreexoProof        = "uproof"
-	CmdGetUtreexoProof     = "getuproof"
-	CmdUtreexoRoot         = "uroot"
-	CmdGetUtreexoRoot      = "geturoot"
+	CmdVersion         = "version"
+	CmdVerAck          = "verack"
+	CmdGetAddr         = "getaddr"
+	CmdAddr            = "addr"
+	CmdAddrV2          = "addrv2"
+	CmdGetBlocks       = "getblocks"
+	CmdInv             = "inv"
+	CmdGetData         = "getdata"
+	CmdNotFound        = "notfound"
+	CmdBlock           = "block"
+	CmdTx              = "tx"
+	CmdUtreexoTx       = "utreexotx"
+	CmdGetHeaders      = "getheaders"
+	CmdGetUtreexoTTLs  = "getuttls"
+	CmdHeaders         = "headers"
+	CmdUtreexoTTLs     = "uttls"
+	CmdPing            = "ping"
+	CmdPong            = "pong"
+	CmdAlert           = "alert"
+	CmdMemPool         = "mempool"
+	CmdFilterAdd       = "filteradd"
+	CmdFilterClear     = "filterclear"
+	CmdFilterLoad      = "filterload"
+	CmdMerkleBlock     = "merkleblock"
+	CmdReject          = "reject"
+	CmdSendHeaders     = "sendheaders"
+	CmdFeeFilter       = "feefilter"
+	CmdGetCFilters     = "getcfilters"
+	CmdGetCFHeaders    = "getcfheaders"
+	CmdGetCFCheckpt    = "getcfcheckpt"
+	CmdCFilter         = "cfilter"
+	CmdCFHeaders       = "cfheaders"
+	CmdCFCheckpt       = "cfcheckpt"
+	CmdSendAddrV2      = "sendaddrv2"
+	CmdUtreexoProof    = "uproof"
+	CmdGetUtreexoProof = "getuproof"
+	CmdUtreexoRoot     = "uroot"
+	CmdGetUtreexoRoot  = "geturoot"
 )
 
 var (
@@ -86,7 +86,7 @@ var (
 		17: CmdNotFound,
 		18: CmdPing,
 		19: CmdPong,
-		20: CmdSendAddrV2,
+		// 20 is sendcmpct per BIP 324 but we don't implement compact blocks.
 		21: CmdTx,
 		22: CmdGetCFilters,
 		23: CmdCFilter,
@@ -105,28 +105,29 @@ var (
 	}
 
 	v2Messages = map[string]uint8{
-		CmdAddr:         1,
-		CmdBlock:        2,
-		CmdFeeFilter:    5,
-		CmdFilterAdd:    6,
-		CmdFilterClear:  7,
-		CmdFilterLoad:   8,
-		CmdGetBlocks:    9,
-		CmdGetData:      11,
-		CmdGetHeaders:   12,
-		CmdHeaders:      13,
-		CmdInv:          14,
-		CmdMemPool:      15,
-		CmdMerkleBlock:  16,
-		CmdNotFound:     17,
-		CmdPing:         18,
-		CmdPong:         19,
-		CmdSendAddrV2:   20,
-		CmdTx:           21,
-		CmdGetCFilters:  22,
-		CmdCFilter:      23,
-		CmdGetCFHeaders: 24,
-		CmdCFHeaders:    25,
+		CmdAddr:        1,
+		CmdBlock:       2,
+		CmdFeeFilter:   5,
+		CmdFilterAdd:   6,
+		CmdFilterClear: 7,
+		CmdFilterLoad:  8,
+		CmdGetBlocks:   9,
+		CmdGetData:     11,
+		CmdGetHeaders:  12,
+		CmdHeaders:     13,
+		CmdInv:         14,
+		CmdMemPool:     15,
+		CmdMerkleBlock: 16,
+		CmdNotFound:    17,
+		CmdPing:        18,
+		CmdPong:        19,
+		// 20 is sendcmpct per BIP 324 but we don't implement compact blocks.
+		// sendaddrv2 has no BIP 324 short ID; it uses the long-form encoding.
+		CmdTx:              21,
+		CmdGetCFilters:     22,
+		CmdCFilter:         23,
+		CmdGetCFHeaders:    24,
+		CmdCFHeaders:       25,
 		CmdGetCFCheckpt:    26,
 		CmdCFCheckpt:       27,
 		CmdAddrV2:          28,
