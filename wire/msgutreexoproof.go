@@ -6,16 +6,29 @@ package wire
 
 import (
 	"io"
-	"math"
 
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
-// MaxUtreexoProofSize is blockhash + len proofhashes + proofhashes + len targets + targets + len leafdatas +  pkscript size + Leafdata overhead of 12 bytes.
+// maxSupportedRows is the maximum number of rows in the utreexo tree that
+// can be supported while keeping MaxUtreexoProofSize under MaxMessagePayload.
+// The theoretical max is 63 rows since leaf positions are uint64, but 51 is the highest that fits
+// within the 32 MiB message payload limit.
+const maxSupportedRows = 51
+
+// MaxProofHashes is the maximum number of proof hashes needed to prove
+// MaxPossibleInputsPerBlock leaves in a tree of maxSupportedRows rows.
+// For rows 0-35, each leaf needs one proof hash per row (no shared siblings).
+// At row 36 (2^14 = 16,384 pairs < 24,386 leaves), forced sibling pairing
+// yields 2^15 - 24,386 = 8,382 proof hashes. All rows above contribute 0.
+const MaxProofHashes = (maxSupportedRows-15)*MaxPossibleInputsPerBlock + (1<<15 - MaxPossibleInputsPerBlock)
+
+// MaxUtreexoProofSize is blockhash + len proofhashes + proofhashes + len targets +
+// targets + len leafdatas + pkscript size + leafdata overhead of 12 bytes.
 const MaxUtreexoProofSize = chainhash.HashSize +
 	MaxVarIntPayload +
-	math.MaxUint8*chainhash.HashSize +
+	MaxProofHashes*chainhash.HashSize +
 	MaxVarIntPayload +
 	MaxVarIntPayload*MaxPossibleInputsPerBlock +
 	MaxVarIntPayload +
