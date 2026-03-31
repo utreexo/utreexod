@@ -178,6 +178,30 @@ const (
 	DefinedDeployments
 )
 
+const (
+	// Mainnet AssumeUtreexo, TTL, and last checkpoint heights.
+	mainnetAssumeUtreexoHeight  = 943_013
+	mainnetTTLNumLeaves         = 943_014
+	mainnetLastCheckpointHeight = 943_013
+
+	// Testnet3 AssumeUtreexo, TTL, and last checkpoint heights.
+	testnetAssumeUtreexoHeight  = 4_898_397
+	testnetTTLNumLeaves         = 4_898_398
+	testnetLastCheckpointHeight = 4_898_397
+
+	// Signet AssumeUtreexo, TTL, and last checkpoint heights.
+	signetAssumeUtreexoHeight  = 297_353
+	signetTTLNumLeaves         = 294_688
+	signetLastCheckpointHeight = 294_687
+)
+
+// Compile-time checks to ensure the AssumeUtreexo block height is greater
+// than or equal to the TTL state height. NumLeaves - 1 is the height as
+// there is one leaf per block starting from block 0.
+var _ [mainnetAssumeUtreexoHeight - (mainnetTTLNumLeaves - 1)]struct{}
+var _ [testnetAssumeUtreexoHeight - (testnetTTLNumLeaves - 1)]struct{}
+var _ [signetAssumeUtreexoHeight - (signetTTLNumLeaves - 1)]struct{}
+
 // Params defines a Bitcoin network by its parameters.  These parameters may be
 // used by Bitcoin applications to differentiate networks as well as addresses
 // and keys for one network from those intended for use on another network.
@@ -371,12 +395,12 @@ var MainNetParams = Params{
 		{724466, newHashFromStr("000000000000000000052d314a259755ca65944e68df6b12a067ea8f1f5a7091")},
 		{751565, newHashFromStr("00000000000000000009c97098b5295f7e5f183ac811fb5d1534040adb93cabd")},
 		{841776, newHashFromStr("00000000000000000000a174eebf5b9df9b9ebf062cc3c503a2024e7d9a618b6")},
-		{943013, newHashFromStr("00000000000000000001c595730bd4a5fb0e2b35af70882962ce7ae602f48aff")},
+		{mainnetLastCheckpointHeight, newHashFromStr("00000000000000000001c595730bd4a5fb0e2b35af70882962ce7ae602f48aff")},
 	},
 
 	AssumeUtreexoPoint: AssumeUtreexo{
 		BlockHash:   newHashFromStr("00000000000000000001c595730bd4a5fb0e2b35af70882962ce7ae602f48aff"),
-		BlockHeight: 943_013,
+		BlockHeight: mainnetAssumeUtreexoHeight,
 		Bits:        386_013_841,
 		BlockSize:   1_435_475,
 		BlockWeight: 3_993_740,
@@ -422,7 +446,7 @@ var MainNetParams = Params{
 					newUtreexoHashFromStr("72a05f8b5ec6d0d5bc73f95e696ce9bdfa2e5923bc1e7448c2bc7ede454c2005"),
 					newUtreexoHashFromStr("e5104b779dce8f5ec805bf1f2d579da3fa5117f5541c504d896cb723e100380f"),
 				},
-				NumLeaves: 943_014,
+				NumLeaves: mainnetTTLNumLeaves,
 			},
 		},
 	},
@@ -672,12 +696,12 @@ var TestNet3Params = Params{
 		{2143398, newHashFromStr("00000000000163cfb1f97c4e4098a3692c8053ad9cab5ad9c86b338b5c00b8b7")},
 		{2344474, newHashFromStr("0000000000000004877fa2d36316398528de4f347df2f8a96f76613a298ce060")},
 		{2810937, newHashFromStr("000000000000005a4f7ec7942d57353c6200a284e021bc5c6be0bf1415890875")},
-		{4898397, newHashFromStr("000000006e2ff491ed5b4254949d1217eb5e642fd9935e62b89f10990c450e1e")},
+		{testnetLastCheckpointHeight, newHashFromStr("000000006e2ff491ed5b4254949d1217eb5e642fd9935e62b89f10990c450e1e")},
 	},
 
 	AssumeUtreexoPoint: AssumeUtreexo{
 		BlockHash:   newHashFromStr("000000006e2ff491ed5b4254949d1217eb5e642fd9935e62b89f10990c450e1e"),
-		BlockHeight: 4_898_397,
+		BlockHeight: testnetAssumeUtreexoHeight,
 		Bits:        486_604_799,
 		BlockSize:   7_573,
 		BlockWeight: 22_324,
@@ -725,7 +749,7 @@ var TestNet3Params = Params{
 					newUtreexoHashFromStr("693a82217188a277387170c37d3ec71d42b598666e8df11b011c2a545a8b7abd"),
 					newUtreexoHashFromStr("376664a8c8995362918b3897570f6f5b66d8c167ce327a00b95fa28ba88a287c"),
 				},
-				NumLeaves: 4_898_398,
+				NumLeaves: testnetTTLNumLeaves,
 			},
 		},
 	},
@@ -947,7 +971,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 	if bytes.Equal(challenge, DefaultSignetChallenge) {
 		assumeUtreexoPoint = AssumeUtreexo{
 			BlockHash:   newHashFromStr("0000000d0ffcda2be44be940b3f2ba0b9e1a5e60dde6d074a7dd749ef2af2061"),
-			BlockHeight: 297_353,
+			BlockHeight: signetAssumeUtreexoHeight,
 			Bits:        487_943_282,
 			BlockSize:   116_455,
 			BlockWeight: 315_976,
@@ -983,7 +1007,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 			{193_792, newHashFromStr("000000408463e4809d3a493baf8f17f25a919f883824f5b42247402cfeec1b73")},
 			{231_620, newHashFromStr("0000012f65a81923ad36ee7d6a0d0ab2c7880e1390fbb4a87b2ebab5ee956d2e")},
 			{270_566, newHashFromStr("00000004d85480599a5997038d256ea2a31a8e9dca48b1e4c0298063cb016fd6")},
-			{294_687, newHashFromStr("000000057858aabfe204e2e2005c33567c6e310c90467d49bea36e4343f18d53")},
+			{signetLastCheckpointHeight, newHashFromStr("000000057858aabfe204e2e2005c33567c6e310c90467d49bea36e4343f18d53")},
 		}
 	}
 
@@ -1032,7 +1056,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 						newUtreexoHashFromStr("291a2a4595f158eecbbf791fde3f12605671eaa091dec625eaae0684cff39809"),
 						newUtreexoHashFromStr("56ce0aa0aaa20f8d0f3f6480ffb8f9f80d7a530d549e50a889d430d51db91b3f"),
 					},
-					NumLeaves: 294_688,
+					NumLeaves: signetTTLNumLeaves,
 				},
 			},
 		},
