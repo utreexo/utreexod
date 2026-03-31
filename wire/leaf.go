@@ -149,22 +149,84 @@ func (l *LeafData) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-var sha512DigestPool = sync.Pool{
+// leafHasherPool holds reusable LeafHashers so LeafHash can hash without
+// allocating a digest per call. Callers that hash many leaves on a single
+// goroutine should use NewLeafHasher directly to avoid the pool entirely.
+var leafHasherPool = sync.Pool{
 	New: func() interface{} {
-		return sha512.New512_256()
+		return NewLeafHasher()
 	},
 }
 
 // LeafHash concats and hashes all the data in LeafData.
 func (l *LeafData) LeafHash() [32]byte {
-	digest := sha512DigestPool.Get().(hash.Hash)
-	digest.Reset()
-	defer sha512DigestPool.Put(digest)
+	lh := leafHasherPool.Get().(*LeafHasher)
+	defer leafHasherPool.Put(lh)
+	return lh.HashLeaf(l)
+}
 
-	digest.Write(chainhash.UTREEXO_TAG_V1_APPEND[:])
-	l.Serialize(digest)
+// LeafHasher is a pre-allocated hasher for computing LeafHash without
+// sync.Pool contention. Create one per goroutine via NewLeafHasher.
+type LeafHasher struct {
+	digest hash.Hash
+	buf    [8]byte // scratch for uint32/uint64 encoding
+}
 
-	return *(*[32]byte)(digest.Sum(nil))
+// NewLeafHasher creates a LeafHasher with its own SHA-512/256 state.
+func NewLeafHasher() *LeafHasher {
+	return &LeafHasher{digest: sha512.New512_256()}
+}
+
+// HashLeaf computes the leaf hash without touching any sync.Pool.
+func (lh *LeafHasher) HashLeaf(l *LeafData) [32]byte {
+	d := lh.digest
+	d.Reset()
+
+	d.Write(chainhash.UTREEXO_TAG_V1_APPEND[:])
+
+	// Inline serialization to avoid sync.Pool in Serialize/WriteOutPoint/WriteVarInt.
+	// BlockHash (32 bytes)
+	d.Write(l.BlockHash[:])
+	// OutPoint: Hash (32 bytes) + Index (4 bytes LE)
+	d.Write(l.OutPoint.Hash[:])
+	littleEndian.PutUint32(lh.buf[:4], l.OutPoint.Index)
+	d.Write(lh.buf[:4])
+	// Header code: Height<<1 | IsCoinBase (4 bytes LE)
+	hcb := l.Height << 1
+	if l.IsCoinBase {
+		hcb |= 1
+	}
+	littleEndian.PutUint32(lh.buf[:4], uint32(hcb))
+	d.Write(lh.buf[:4])
+	// Amount (8 bytes LE)
+	littleEndian.PutUint64(lh.buf[:8], uint64(l.Amount))
+	d.Write(lh.buf[:8])
+	// PkScript: varint length + bytes
+	lh.writeVarInt(d, uint64(len(l.PkScript)))
+	d.Write(l.PkScript)
+
+	return *(*[32]byte)(d.Sum(nil))
+}
+
+// writeVarInt writes a Bitcoin-style variable-length integer directly to w.
+func (lh *LeafHasher) writeVarInt(w io.Writer, val uint64) {
+	if val < 0xfd {
+		lh.buf[0] = uint8(val)
+		w.Write(lh.buf[:1])
+	} else if val <= 0xffff {
+		lh.buf[0] = 0xfd
+		littleEndian.PutUint16(lh.buf[1:3], uint16(val))
+		w.Write(lh.buf[:3])
+	} else if val <= 0xffffffff {
+		lh.buf[0] = 0xfe
+		littleEndian.PutUint32(lh.buf[1:5], uint32(val))
+		w.Write(lh.buf[:5])
+	} else {
+		lh.buf[0] = 0xff
+		w.Write(lh.buf[:1])
+		littleEndian.PutUint64(lh.buf[:8], val)
+		w.Write(lh.buf[:8])
+	}
 }
 
 // String turns a LeafData into a string for logging.
