@@ -14,27 +14,34 @@ import (
 func randAddr(t *testing.T) *wire.NetAddressV2 {
 	t.Helper()
 
-	ipv4 := rand.Intn(2) == 0
-	var ip net.IP
-	if ipv4 {
-		var b [4]byte
-		if _, err := rand.Read(b[:]); err != nil {
-			t.Fatal(err)
+	// Generate random addresses until we find one that is routable,
+	// since AddAddress silently drops non-routable addresses.
+	for {
+		ipv4 := rand.Intn(2) == 0
+		var ip net.IP
+		if ipv4 {
+			var b [4]byte
+			if _, err := rand.Read(b[:]); err != nil {
+				t.Fatal(err)
+			}
+			ip = b[:]
+		} else {
+			var b [16]byte
+			if _, err := rand.Read(b[:]); err != nil {
+				t.Fatal(err)
+			}
+			ip = b[:]
 		}
-		ip = b[:]
-	} else {
-		var b [16]byte
-		if _, err := rand.Read(b[:]); err != nil {
-			t.Fatal(err)
-		}
-		ip = b[:]
-	}
 
-	services := wire.ServiceFlag(rand.Uint64())
-	port := uint16(rand.Uint32())
-	return wire.NetAddressV2FromBytes(
-		time.Now(), services, ip, port,
-	)
+		services := wire.ServiceFlag(rand.Uint64())
+		port := uint16(rand.Uint32())
+		addr := wire.NetAddressV2FromBytes(
+			time.Now(), services, ip, port,
+		)
+		if IsRoutable(addr) {
+			return addr
+		}
+	}
 }
 
 // assertAddr ensures that the two addresses match. The timestamp is not
