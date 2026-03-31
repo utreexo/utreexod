@@ -1062,6 +1062,20 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, utreexoData *wire.UData
 	// Now that we've deemed the transaction as valid, we can add it to the
 	// mempool. If it ended up replacing any transactions, we'll remove them
 	// first.
+	//
+	// Ingest the utreexo proof data BEFORE removing conflicts. If proof
+	// ingestion fails (e.g. because the accumulator state changed between
+	// the initial verification in checkMempoolAcceptance and now), we must
+	// not have modified the pool state yet — otherwise we'd remove the
+	// conflicting transactions without adding the replacement, leaving the
+	// mempool in a degraded state.
+	if utreexoData != nil {
+		err = mp.addUtreexoData(tx, utreexoData)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	for _, conflict := range r.Conflicts {
 		log.Debugf("Replacing transaction %v (fee_rate=%v sat/kb) "+
 			"with %v (fee_rate=%v sat/kb)\n", conflict.Hash(),
@@ -1071,16 +1085,7 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, utreexoData *wire.UData
 		// The conflict set should already include the descendants for
 		// each one, so we don't need to remove the redeemers within
 		// this call as they'll be removed eventually.
-		//
-		// Don't remove the cached utreexo proof either because we'll need
-		// it for the ingestion.
 		mp.removeTransaction(conflict, false)
-	}
-	if utreexoData != nil {
-		err = mp.addUtreexoData(tx, utreexoData)
-		if err != nil {
-			return nil, nil, err
-		}
 	}
 
 	txD := mp.addTransaction(r.utxoView, tx, r.bestHeight, int64(r.TxFee))
