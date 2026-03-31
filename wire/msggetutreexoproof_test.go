@@ -3,7 +3,6 @@ package wire
 import (
 	"bytes"
 	"crypto/rand"
-	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,13 +42,12 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 			},
 		},
 		{
-			name: "failure case",
+			name: "max size case",
 			msg: MsgGetUtreexoProof{
 				BlockHash:     chainhash.HashH([]byte("failure case hash")),
 				RequestBitMap: 0b010,
 				ProofIndexBitMap: func() []byte {
-					length := math.MaxUint8 * MaxPossibleInputsPerBlock
-					b := make([]bool, length)
+					b := make([]bool, MaxProofHashes)
 					for i := range b {
 						b[i] = true
 					}

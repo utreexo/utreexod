@@ -6,23 +6,22 @@ package wire
 
 import (
 	"io"
-	"math"
 
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
-// math.MaxUint8 in bitmaps. Ceiling divide.
-const maxProofSizePerInput = (math.MaxUint8 + 8 - 1) / 8
+// maxProofIndexBitMapSize is the bitmap size for MaxProofHashes proof hashes. Ceiling divide.
+const maxProofIndexBitMapSize = (MaxProofHashes + 7) / 8
 
-// MaxPossibleInputsPerBlock in bitmaps. Ceiling divide.
-const maxLeafIndexBitMapSize = (MaxPossibleInputsPerBlock + 8 - 1) / 8
+// maxLeafIndexBitMapSize is the bitmap size for MaxPossibleInputsPerBlock leaves. Ceiling divide.
+const maxLeafIndexBitMapSize = (MaxPossibleInputsPerBlock + 7) / 8
 
-// hashsize + target bool + proofBitMap len + maxProofSizePerInput*MaxPossibleInputsPerBlock +
+// hashsize + target bool + proofBitMap len + proofBitMap +
 // leafindex bitmap len + maxLeafIndexBitMapSize.
 const MaxGetUtreexoProofSize = chainhash.HashSize +
 	1 +
 	MaxVarIntPayload +
-	(maxProofSizePerInput * MaxPossibleInputsPerBlock) +
+	maxProofIndexBitMapSize +
 	MaxVarIntPayload +
 	maxLeafIndexBitMapSize
 
