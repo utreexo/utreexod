@@ -6,6 +6,7 @@ package mempool
 
 import (
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -1851,4 +1852,72 @@ func TestRBF(t *testing.T) {
 			break
 		}
 	}
+}
+
+// TestRBFUtreexoDataFailure tests that when addUtreexoData fails during an RBF
+// replacement, the original conflicting transactions and their descendants
+// remain in the pool. This is a regression test for a bug where conflicts were
+// removed before addUtreexoData was called, so a failure would leave the
+// mempool missing transactions.
+func TestRBFUtreexoDataFailure(t *testing.T) {
+	t.Parallel()
+
+	const defaultFee = btcutil.SatoshiPerBitcoin
+
+	harness, _, err := newPoolHarness(&chaincfg.MainNetParams)
+	if err != nil {
+		t.Fatalf("unable to create test pool: %v", err)
+	}
+	harness.txPool.cfg.Policy.DisableRelayPriority = false
+
+	ctx := &testContext{t, harness}
+
+	// Create a parent tx (signals replacement) and a child spending it.
+	coinbase := ctx.addCoinbaseTx(1)
+	coinbaseOut := txOutToSpendableOut(coinbase, 0)
+	outs := []spendableOutput{coinbaseOut}
+	origTx := ctx.addSignedTx(outs, 1, defaultFee, true, false)
+	childTx := ctx.addSignedTx(
+		[]spendableOutput{txOutToSpendableOut(origTx, 0)},
+		1, defaultFee, false, false,
+	)
+
+	// Create the replacement transaction with a higher fee.
+	replacementTx, err := harness.CreateSignedTx(outs, 1, defaultFee*3, false)
+	if err != nil {
+		t.Fatalf("unable to create replacement tx: %v", err)
+	}
+
+	// Switch to utreexo mode with a VerifyUData that fails on the
+	// remember=true call, simulating the accumulator state changing
+	// between the initial proof check and the ingestion.
+	harness.txPool.cfg.IsUtreexoViewActive = func() bool { return true }
+	harness.txPool.cfg.VerifyUData = func(ud *wire.UData, txIns []*wire.TxIn, remember bool) error {
+		if remember {
+			return fmt.Errorf("simulated accumulator state change")
+		}
+		return nil
+	}
+
+	udata := &wire.UData{
+		LeafDatas: []wire.LeafData{{
+			OutPoint: replacementTx.MsgTx().TxIn[0].PreviousOutPoint,
+			Amount:   coinbase.MsgTx().TxOut[0].Value,
+			PkScript: harness.payScript,
+			Height:   1,
+		}},
+	}
+
+	// The RBF attempt should fail due to the VerifyUData error.
+	_, err = harness.txPool.ProcessTransaction(
+		replacementTx, udata, false, false, 0,
+	)
+	if err == nil {
+		t.Fatal("expected ProcessTransaction to fail")
+	}
+
+	// The original transactions must still be in the pool.
+	testPoolMembership(ctx, origTx, false, true)
+	testPoolMembership(ctx, childTx, false, true)
+	testPoolMembership(ctx, replacementTx, false, false)
 }
