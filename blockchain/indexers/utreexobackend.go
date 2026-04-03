@@ -7,6 +7,7 @@ package indexers
 import (
 	"bytes"
 	"fmt"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"time"
@@ -414,7 +415,14 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 	log.Infof("Initializing Utreexo state from '%s'", basePath)
 	defer log.Info("Utreexo state loaded")
 
-	forest, err := utreexo.OpenForest(basePath, utreexo.MaxCacheMemory(cfg.MaxMemoryUsage))
+	// Presize the position map to the next power of 2 above the assume
+	// utreexo point's leaf count to avoid costly resizes during initial
+	// block download.
+	presizeLeaves := uint64(1) << bits.Len64(cfg.Params.AssumeUtreexoPoint.NumLeaves)
+	forest, err := utreexo.OpenForest(basePath,
+		utreexo.MaxCacheMemory(cfg.MaxMemoryUsage),
+		utreexo.ExpectedMaxLeaves(presizeLeaves),
+	)
 	if err != nil {
 		return nil, err
 	}
