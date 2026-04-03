@@ -130,6 +130,11 @@ type TxSource interface {
 	// HaveTransaction returns whether or not the passed transaction hash
 	// exists in the source pool.
 	HaveTransaction(hash *chainhash.Hash) bool
+
+	// FetchLeafDatas returns the utreexo leaf data for the given
+	// transaction's inputs. This is used by CSN nodes to generate
+	// utreexo proofs for mined blocks.
+	FetchLeafDatas(txHash *chainhash.Hash) ([]wire.LeafData, error)
 }
 
 // txPrioItem houses a transaction along with extra information that allows the
@@ -277,6 +282,11 @@ type BlockTemplate struct {
 	// witness has been activated, and the block contains a transaction
 	// which has witness data.
 	WitnessCommitment []byte
+
+	// UData is the utreexo data for the block. This is only set when the
+	// node is a CSN (Compact State Node) and is needed to attach utreexo
+	// proofs to mined blocks.
+	UData *wire.UData
 }
 
 // mergeUtxoView adds all of the entries in viewB to viewA.  The result is that
@@ -902,6 +912,58 @@ mempoolLoop:
 	// chain with no issues.
 	block := btcutil.NewBlock(&msgBlock)
 	block.SetHeight(nextBlockHeight)
+
+	// If this is a utreexo CSN node, generate the utreexo proof data for
+	// the block. This is needed because checkConnectBlock requires UData
+	// when the utreexo view is active.
+	var udata *wire.UData
+	if g.chain.IsUtreexoViewActive() {
+		// Use DedupeBlock to identify same-block spends (inputs
+		// spending outputs created in the same block). These are
+		// never added to the accumulator and must be skipped.
+		// This reuses the same deduplication logic used by
+		// FlatUtreexoProofIndex.ConnectBlock and BlockToDelLeaves.
+		_, _, inskip, _ := blockchain.DedupeBlock(block)
+
+		// Collect the leaf datas for all non-coinbase transactions'
+		// inputs from the mempool, skipping same-block spends.
+		var allLeafDatas []wire.LeafData
+		var blockInIdx uint32
+		for txIdx, tx := range block.Transactions() {
+			if txIdx == 0 {
+				// coinbase can have many inputs
+				blockInIdx += uint32(len(tx.MsgTx().TxIn))
+				continue
+			}
+
+			leafDatas, err := g.txSource.FetchLeafDatas(tx.Hash())
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch utreexo leaf "+
+					"data for tx %s: %v", tx.Hash(), err)
+			}
+
+			for i := range tx.MsgTx().TxIn {
+				// Skip same-block spends using the inskip
+				// list from DedupeBlock.
+				if len(inskip) > 0 && inskip[0] == blockInIdx {
+					inskip = inskip[1:]
+					blockInIdx++
+					continue
+				}
+
+				allLeafDatas = append(allLeafDatas, leafDatas[i])
+				blockInIdx++
+			}
+		}
+
+		udata, err = g.chain.GenerateUData(allLeafDatas)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate utreexo data "+
+				"for block template: %v", err)
+		}
+		block.SetUtreexoData(udata)
+	}
+
 	if err := g.chain.CheckConnectBlockTemplate(block); err != nil {
 		return nil, err
 	}
@@ -918,6 +980,7 @@ mempoolLoop:
 		Height:            nextBlockHeight,
 		ValidPayAddress:   payToAddress != nil,
 		WitnessCommitment: witnessCommitment,
+		UData:             udata,
 	}, nil
 }
 
