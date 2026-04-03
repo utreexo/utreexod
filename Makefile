@@ -17,6 +17,9 @@ build-utreexod: build-bdk ## Build utreexod with all features
 build-utreexod-without-bdk: ## Build utreexod without BDK wallet
 	go build -o . ./...
 
+install: build-bdk ## Install binaries to GOPATH
+	go install --tags=bdkwallet ./...
+
 test: build-bdk ## Run all test
 	cargo test
 	sh ./goclean.sh

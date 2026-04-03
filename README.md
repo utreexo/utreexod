@@ -46,6 +46,11 @@ To build without the BDK wallet:
 go build -o . ./...
 ```
 
+To build and install binaries to `$GOPATH/bin` with BDK wallet:
+```bash
+make install
+```
+
 ## Getting Started
 
 To run a utreexo node:
