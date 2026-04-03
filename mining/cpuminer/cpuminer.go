@@ -356,6 +356,9 @@ out:
 		// true a solution was found, so submit the solved block.
 		if m.solveBlock(template.Block, curHeight+1, ticker, quit) {
 			block := btcutil.NewBlock(template.Block)
+			if template.UData != nil {
+				block.SetUtreexoData(template.UData)
+			}
 			m.submitBlock(block)
 		}
 	}
@@ -610,6 +613,9 @@ func (m *CPUMiner) GenerateNBlocks(n uint32) ([]*chainhash.Hash, error) {
 		// true a solution was found, so submit the solved block.
 		if m.solveBlock(template.Block, curHeight+1, ticker, nil) {
 			block := btcutil.NewBlock(template.Block)
+			if template.UData != nil {
+				block.SetUtreexoData(template.UData)
+			}
 			m.submitBlock(block)
 			blockHashes[i] = block.Hash()
 			i++
