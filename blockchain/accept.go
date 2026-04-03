@@ -91,6 +91,14 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 		return false, err
 	}
 
+	// Update the best header chain tip if the accepted block extends it.
+	// This is necessary for blocks processed without going through the
+	// header-first path (e.g. locally mined blocks), so that the best
+	// header chain stays in sync with the best block chain.
+	if isMainChain && node.workSum.Cmp(b.bestHeader.Tip().workSum) > 0 {
+		b.bestHeader.SetTip(node)
+	}
+
 	// Notify the caller that the new block was accepted into the block
 	// chain.  The caller would typically want to react by relaying the
 	// inventory to other peers.
