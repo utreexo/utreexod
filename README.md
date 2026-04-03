@@ -1,9 +1,9 @@
 utreexod
 ====
 
-[![Build Status](https://github.com/utreexo/utreexod/workflows/Build%20and%20Test/badge.svg)](https://github.com/utreexo/utreexod/actions)
+[![Build Status](https://github.com/utreexo/utreexod/workflows/Go/badge.svg)](https://github.com/utreexo/utreexod/actions)
 [![ISC License](https://img.shields.io/badge/license-ISC-blue.svg)](http://copyfree.org)
-[![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](https://godoc.org/github.com/utreexo/utreexod)
+[![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/utreexo/utreexod)
 
 utreexod is a full node bitcoin implementation with support for utreexo accumulators. Utreexo accumulator is
 an append only merkle forest data structure with support for deleting elements from the set. More information at
@@ -24,9 +24,9 @@ other than negligible amounts of bitcoin is not recommended.
 
 ## Requirements
 
-[Go](http://golang.org) 1.18 or newer.
+[Go](http://golang.org) 1.25 or newer.
 
-[Rust](http://rust-lang.org) 1.73.0 or newer (To compile the built in [BDK wallet](https://bitcoindevkit.org) support).
+[Rust](http://rust-lang.org) 1.81.0 or newer (To compile the built in [BDK wallet](https://bitcoindevkit.org) support).
 
 ## Installation
 
@@ -53,50 +53,48 @@ To run a utreexo node:
 ```bash
 # The node will start from the hardcoded UTXO state and skip the initial block download.
 # If the node was built with the bdk wallet, it'll start with the bdk wallet enabled.
-`./utreexod`
+./utreexod
 
 # For utreexo archival nodes that will not skip the initial block download.
-`./utreexod --noassumeutreexo --prune=0`
+./utreexod --noassumeutreexo --prune=0
 
-# To disable to bdkwallet. NOTE: the wallet will not be disabled if the node had ever
+# To disable the bdkwallet. NOTE: the wallet will not be disabled if the node had ever
 # started up with the wallet enabled.
-`./utreexod --nobdkwallet`
+./utreexod --nobdkwallet
 ```
 
 To use the built in bdk wallet:
 
 ```bash
 # Show the mnemonic word list of the wallet.
-`./utreexoctl getmnemonicwords`
+./utreexoctl getmnemonicwords
 
 # Get a fresh address from the wallet.
-`./utreexoctl freshaddress`
+./utreexoctl freshaddress
 
 # Get an address that has not received funds yet from the wallet.
-`./utreexoctl unusedaddress`
+./utreexoctl unusedaddress
 
 # Get an address at the desired index.
-`./utreexoctl peekaddress "bip32-index"`
-Example:
-# Returns the address at index 100.
-`./utreexoctl peekaddress 100`
+./utreexoctl peekaddress "bip32-index"
+# Example: Returns the address at index 100.
+./utreexoctl peekaddress 100
 
 # Get the current balance of the wallet.
-`./utreexoctl balance`
+./utreexoctl balance
 
 # List all the relevant transactions for the wallet.
-`./utreexoctl listbdktransactions`
+./utreexoctl listbdktransactions
 
 # List all the relevant utxos that the wallet controls.
-`./utreexoctl listbdkutxos`
+./utreexoctl listbdkutxos
 
 # Create a transaction from the wallet.
-`./utreexoctl createtransactionfrombdkwallet "feerate_in_sat_per_vbyte" [{"amount":n,"address":"value"},...]`
-Example:
-# feerate of 1 satoshi per vbyte, sending 10,000sats to address tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq
-`./utreexoctl createtransactionfrombdkwallet 1 '[{"amount":10000,"address":"tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq"}]'`
-# feerate of 12 satoshi per vbyte, sending 10,000sats to address tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq and 20,000sats to address tb1puuv30z568uc58c40duwl5ytyu5898fyehlyqtm0al2xk70z8tw0qcxfn6w
-`./utreexoctl createtransactionfrombdkwallet 12 '[{"amount":10000,"address":"tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq"},{"amount":20000,"address":"tb1puuv30z568uc58c40duwl5ytyu5898fyehlyqtm0al2xk70z8tw0qcxfn6w"}]'`
+./utreexoctl createtransactionfrombdkwallet "feerate_in_sat_per_vbyte" '[{"amount":n,"address":"value"},...]'
+# Example: feerate of 1 satoshi per vbyte, sending 10,000sats to address tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq
+./utreexoctl createtransactionfrombdkwallet 1 '[{"amount":10000,"address":"tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq"}]'
+# Example: feerate of 12 satoshi per vbyte, sending 10,000sats and 20,000sats to two addresses
+./utreexoctl createtransactionfrombdkwallet 12 '[{"amount":10000,"address":"tb1pdt9hl8ymdetdmvgk54aft8jaq4xle998m8e6adwxs4vh7vwpl9jsyadlhq"},{"amount":20000,"address":"tb1puuv30z568uc58c40duwl5ytyu5898fyehlyqtm0al2xk70z8tw0qcxfn6w"}]'
 ```
 
 ### Bridge node
@@ -113,12 +111,12 @@ could not be included in this release (v0.5.0).
 # Either one will work. The only difference these have is that the flatutreexoproofindex
 # stores all the data in .dat files instead of leveldb. It makes it easier to read the
 # proofs for tinkering.
-`./utreexod --flatutreexoproofindex`
-`./utreexod --utreexoproofindex`
+./utreexod --flatutreexoproofindex
+./utreexod --utreexoproofindex
 
 # For running bridge nodes that also keep all historical block data.
-`./utreexod --flatutreexoproofindex --prune=0`
-`./utreexod --utreexoproofindex --prune=0`
+./utreexod --flatutreexoproofindex --prune=0
+./utreexod --utreexoproofindex --prune=0
 ```
 
 ## Community
