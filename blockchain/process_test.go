@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/wire"
@@ -191,4 +193,43 @@ func TestProcessBlockHeader(t *testing.T) {
 	if !tipNode.hash.IsEqual(&lastSidechainHeaderHash) {
 		t.Fatalf("expected %v but got %v", lastSidechainHeaderHash.String(), tipNode.hash.String())
 	}
+}
+
+// TestBestHeaderUpdateOnBlockAccept verifies that the best header chain tip is
+// updated when full blocks are processed without going through the header-first
+// path. This is the case for locally mined blocks (e.g. via the generate RPC).
+func TestBestHeaderUpdateOnBlockAccept(t *testing.T) {
+	chain, params, tearDown := utxoCacheTestChain("TestBestHeaderUpdateOnBlockAccept")
+	defer tearDown()
+
+	genesis := btcutil.NewBlock(params.GenesisBlock)
+
+	// Verify bestHeader starts at genesis.
+	require.Equal(t, int32(0), chain.bestHeader.Tip().height)
+
+	// Add blocks directly via ProcessBlock (not header-first), simulating
+	// locally mined blocks.
+	prev := genesis
+	numBlocks := 5
+	for i := 0; i < numBlocks; i++ {
+		block, _, err := AddBlock(chain, prev, nil)
+		require.NoError(t, err)
+		prev = block
+
+		// Verify bestHeader is updated after each block.
+		tipNode := chain.bestHeader.Tip()
+		require.Equal(t, *block.Hash(), tipNode.hash)
+		require.Equal(t, int32(i+1), tipNode.height)
+	}
+
+	// Now simulate a peer sending headers for the same blocks. Since
+	// bestHeader is already up to date, the tip should not change.
+	tipBefore := chain.bestHeader.Tip()
+	for i := 1; i <= numBlocks; i++ {
+		node := chain.bestChain.NodeByHeight(int32(i))
+		header := node.Header()
+		_, err := chain.ProcessBlockHeader(&header, BFNone)
+		require.NoError(t, err)
+	}
+	require.Equal(t, tipBefore, chain.bestHeader.Tip())
 }
