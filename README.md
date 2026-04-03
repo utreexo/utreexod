@@ -103,7 +103,11 @@ Example:
 
 Bridge nodes are nodes that keep the entire merkle forest and attach proofs to new blocks
 and transactions. Since miners and nodes publish blocks and transactions without proofs, these
-nodes are needed to allow for utreexo nodes without a soft fork. To run a bridge node:
+nodes are needed to allow for utreexo nodes without a soft fork.
+
+Note: bridge nodes currently need to generate proofs for all historical blocks during the
+initial sync, which is slow. There are known ways to speed this up significantly but they
+could not be included in this release (v0.5.0).
 
 ```bash
 # Either one will work. The only difference these have is that the flatutreexoproofindex
@@ -112,7 +116,7 @@ nodes are needed to allow for utreexo nodes without a soft fork. To run a bridge
 `./utreexod --flatutreexoproofindex`
 `./utreexod --utreexoproofindex`
 
-# For running bridge nodes that are also archival.
+# For running bridge nodes that also keep all historical block data.
 `./utreexod --flatutreexoproofindex --prune=0`
 `./utreexod --utreexoproofindex --prune=0`
 ```
