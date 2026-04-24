@@ -1175,3 +1175,126 @@ func TestStartSyncChainCurrent(t *testing.T) {
 	require.False(t, sm.headersFirstMode,
 		"headersFirstMode should not be activated when chain is already current")
 }
+
+// TestBlockConnectedCleansMempool verifies that the NTBlockConnected
+// notification always removes double-spending transactions from the mempool,
+// even when the node is not current (e.g. during IBD).
+//
+// This is a regression test for a bug where the entire NTBlockConnected handler
+// was gated behind sm.current(), causing mempool cleanup to be skipped during
+// initial sync.  When a reorg later disconnected such a block, the stale
+// mempool entries would conflict with re-added block transactions, triggering
+// an RBF code path that crashed with a nil pointer dereference.
+func TestBlockConnectedCleansMempool(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	chain, tearDown, err := chainSetup(t, &params)
+	require.NoError(t, err)
+	defer tearDown()
+
+	txPool := mempool.New(&mempool.Config{
+		Policy: mempool.Policy{
+			DisableRelayPriority: true,
+			FreeTxRelayLimit:     15.0,
+			MaxOrphanTxs:         5,
+			MaxOrphanTxSize:      1000,
+			MaxSigOpCostPerTx:    blockchain.MaxBlockSigOpsCost / 4,
+			MinRelayTxFee:        1000,
+			MaxTxVersion:         2,
+			AcceptNonStd:         true,
+		},
+		ChainParams:   &params,
+		FetchUtxoView: chain.FetchUtxoView,
+		BestHeight:    func() int32 { return chain.BestSnapshot().Height },
+		MedianTimePast: func() time.Time {
+			return chain.BestSnapshot().MedianTime
+		},
+		CalcSequenceLock: func(tx *btcutil.Tx, view *blockchain.UtxoViewpoint) (*blockchain.SequenceLock, error) {
+			return chain.CalcSequenceLock(tx, view, true)
+		},
+		IsDeploymentActive:  chain.IsDeploymentActive,
+		IsUtreexoViewActive: func() bool { return false },
+		SigCache:            txscript.NewSigCache(1000),
+	})
+
+	sm, err := New(&Config{
+		PeerNotifier: noopPeerNotifier{},
+		Chain:        chain,
+		TxMemPool:    txPool,
+		ChainParams:  &params,
+	})
+	require.NoError(t, err)
+
+	// Mine enough blocks to mature the first coinbase.
+	blocks := generateTestBlocks(t, &params, int(params.CoinbaseMaturity)+1)
+	for _, blk := range blocks {
+		_, _, err := chain.ProcessBlock(blk, blockchain.BFNone)
+		require.NoError(t, err)
+	}
+
+	// Grab the mature coinbase outpoint.
+	cbOutpoint := wire.OutPoint{
+		Hash:  *blocks[0].Transactions()[0].Hash(),
+		Index: 0,
+	}
+
+	// Create a tx spending the coinbase and add it to the mempool.
+	mempoolSpend := wire.NewMsgTx(1)
+	mempoolSpend.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: cbOutpoint,
+		Sequence:         wire.MaxTxInSequenceNum,
+	})
+	mempoolSpend.AddTxOut(&wire.TxOut{
+		Value:    100_000_000,
+		PkScript: []byte{txscript.OP_TRUE},
+	})
+	mempoolTx := btcutil.NewTx(mempoolSpend)
+	_, err = txPool.ProcessTransaction(mempoolTx, nil, false, false, 0)
+	require.NoError(t, err)
+	require.True(t, txPool.HaveTransaction(mempoolTx.Hash()))
+
+	// Make the node NOT current by adding a peer at a much higher height.
+	newSyncCandidate(t, sm, 900_000)
+	require.False(t, sm.current())
+
+	// Build and connect a block containing a DIFFERENT tx that spends the
+	// same coinbase (a double-spend).  ProcessBlock fires NTBlockConnected
+	// synchronously, which calls handleBlockchainNotification.
+	blockSpend := wire.NewMsgTx(1)
+	blockSpend.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: cbOutpoint,
+		Sequence:         wire.MaxTxInSequenceNum,
+	})
+	blockSpend.AddTxOut(&wire.TxOut{
+		Value:    90_000_000,
+		PkScript: []byte{txscript.OP_TRUE},
+	})
+
+	snap := chain.BestSnapshot()
+	cb := createTestCoinbase(snap.Height+1, &params)
+	blockTxns := []*wire.MsgTx{cb, blockSpend}
+	merkleRoot := blockchain.CalcMerkleRoot(
+		[]*btcutil.Tx{btcutil.NewTx(cb), btcutil.NewTx(blockSpend)},
+		false,
+	)
+	header := wire.BlockHeader{
+		Version:    1,
+		PrevBlock:  snap.Hash,
+		MerkleRoot: merkleRoot,
+		Timestamp:  blocks[len(blocks)-1].MsgBlock().Header.Timestamp.Add(time.Minute),
+		Bits:       params.PowLimitBits,
+	}
+	require.True(t, solveTestBlock(&header, &params))
+	_, _, err = chain.ProcessBlock(
+		btcutil.NewBlock(&wire.MsgBlock{Header: header, Transactions: blockTxns}),
+		blockchain.BFNone,
+	)
+	require.NoError(t, err)
+
+	// The mempool tx must have been evicted, even though we were not current.
+	require.False(t, txPool.HaveTransaction(mempoolTx.Hash()),
+		"mempool should have removed the double-spending tx on block connect")
+}
