@@ -1921,3 +1921,49 @@ func TestRBFUtreexoDataFailure(t *testing.T) {
 	testPoolMembership(ctx, childTx, false, true)
 	testPoolMembership(ctx, replacementTx, false, false)
 }
+
+// TestRemoveTransactionCleansUtreexoData verifies that removing a transaction
+// from the mempool also removes its cached utreexo leaf data.
+func TestRemoveTransactionCleansUtreexoData(t *testing.T) {
+	t.Parallel()
+
+	harness, outputs, err := newPoolHarness(&chaincfg.MainNetParams)
+	if err != nil {
+		t.Fatalf("unable to create test pool: %v", err)
+	}
+
+	ctx := &testContext{t, harness}
+
+	// Add a transaction to the mempool.
+	tx := ctx.addSignedTx(outputs, 1, 0, false, false)
+
+	// Simulate utreexo proof data by writing directly to poolLeaves.
+	// In production this is done by addUtreexoData during ProcessTransaction
+	// on utreexo nodes.
+	fakeLeaves := []wire.LeafData{
+		{
+			OutPoint:   wire.OutPoint{Hash: *tx.Hash(), Index: 0},
+			Height:     1,
+			IsCoinBase: false,
+			Amount:     100,
+			PkScript:   []byte{txscript.OP_TRUE},
+		},
+	}
+	harness.txPool.poolLeaves[*tx.Hash()] = fakeLeaves
+
+	// Sanity: leaf data is present.
+	_, err = harness.txPool.FetchLeafDatas(tx.Hash())
+	if err != nil {
+		t.Fatalf("expected leaf data to be present before removal: %v", err)
+	}
+
+	// Remove the transaction.
+	harness.txPool.RemoveTransaction(tx, false)
+	testPoolMembership(ctx, tx, false, false)
+
+	// The leaf data must have been cleaned up.
+	_, err = harness.txPool.FetchLeafDatas(tx.Hash())
+	if err == nil {
+		t.Fatal("expected leaf data to be removed after RemoveTransaction")
+	}
+}
