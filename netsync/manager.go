@@ -1971,12 +1971,6 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 	// A block has been connected to the main block chain.
 	case blockchain.NTBlockConnected:
-		// Don't relay if we are not current. Other peers that are
-		// current should already know about it.
-		if !sm.current() {
-			return
-		}
-
 		block, ok := notification.Data.(*btcutil.Block)
 		if !ok {
 			log.Warnf("Chain connected notification is not a block.")
