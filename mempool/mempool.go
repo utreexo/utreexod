@@ -526,6 +526,10 @@ func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers bool) {
 			mp.cfg.AddrIndex.RemoveUnconfirmedTx(txHash)
 		}
 
+		// Uncache the utreexo proof and remove the leaf data for this
+		// transaction if present.
+		mp.removeUtreexoData(txHash)
+
 		// Mark the referenced outpoints as unspent by the pool.
 		for _, txIn := range txDesc.Tx.MsgTx().TxIn {
 			delete(mp.outpoints, txIn.PreviousOutPoint)
@@ -538,8 +542,8 @@ func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers bool) {
 // RemoveTransaction removes the passed transaction from the mempool. When the
 // removeRedeemers flag is set, any transactions that redeem outputs from the
 // removed transaction will also be removed recursively from the mempool, as
-// they would otherwise become orphans. When the uncacheUtreexo flag is set,
-// it'll uncache the utreexo proof for the given tx if it's cached.
+// they would otherwise become orphans. Any cached utreexo leaf data for the
+// transaction is always cleaned up.
 //
 // This function is safe for concurrent access.
 func (mp *TxPool) RemoveTransaction(tx *btcutil.Tx, removeRedeemers bool) {
@@ -622,6 +626,26 @@ func (mp *TxPool) addUtreexoData(tx *btcutil.Tx, udata *wire.UData) error {
 	mp.poolLeaves[*tx.Hash()] = udata.LeafDatas
 
 	return nil
+}
+
+// removeUtreexoData removes the cached leaves and uncaches the proof from the
+// accumulator for the given transaction.
+//
+// This function MUST be called with the mempool lock held (for writes).
+func (mp *TxPool) removeUtreexoData(txHash *chainhash.Hash) {
+	leaves, found := mp.poolLeaves[*txHash]
+	if !found {
+		return
+	}
+	delete(mp.poolLeaves, *txHash)
+
+	if mp.cfg.PruneFromAccumulator != nil {
+		err := mp.cfg.PruneFromAccumulator(leaves)
+		if err != nil {
+			log.Debugf("error while pruning proof for tx %v "+
+				"from the accumulator: %v", txHash, err)
+		}
+	}
 }
 
 // checkPoolDoubleSpend checks whether or not the passed transaction is
