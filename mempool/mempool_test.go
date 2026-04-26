@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -1966,4 +1967,53 @@ func TestRemoveTransactionCleansUtreexoData(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected leaf data to be removed after RemoveTransaction")
 	}
+}
+
+// TestRemoveTransactionPrunesUtreexoAccumulator verifies that when a
+// PruneFromAccumulator callback is configured, removing a transaction from the
+// mempool invokes it with the cached leaves so the proof is uncached from the
+// accumulator.
+func TestRemoveTransactionPrunesUtreexoAccumulator(t *testing.T) {
+	t.Parallel()
+
+	harness, outputs, err := newPoolHarness(&chaincfg.MainNetParams)
+	require.NoError(t, err, "unable to create test pool")
+
+	// Install a recording PruneFromAccumulator that captures the leaves it
+	// is invoked with.
+	var pruned [][]wire.LeafData
+	harness.txPool.cfg.PruneFromAccumulator = func(leaves []wire.LeafData) error {
+		pruned = append(pruned, leaves)
+		return nil
+	}
+
+	ctx := &testContext{t, harness}
+
+	tx := ctx.addSignedTx(outputs, 1, 0, false, false)
+	testPoolMembership(ctx, tx, false, true)
+
+	fakeLeaves := []wire.LeafData{
+		{
+			OutPoint:   wire.OutPoint{Hash: *tx.Hash(), Index: 0},
+			Height:     1,
+			IsCoinBase: false,
+			Amount:     100,
+			PkScript:   []byte{txscript.OP_TRUE},
+		},
+	}
+	harness.txPool.poolLeaves[*tx.Hash()] = fakeLeaves
+
+	harness.txPool.RemoveTransaction(tx, false)
+	testPoolMembership(ctx, tx, false, false)
+
+	require.Len(t, pruned, 1, "expected PruneFromAccumulator to be called once")
+	require.Equal(t, fakeLeaves, pruned[0],
+		"PruneFromAccumulator received unexpected leaves")
+
+	// Removing a transaction with no cached leaves must NOT invoke the
+	// callback again.
+	otherTx := ctx.addSignedTx(outputs, 1, 0, false, false)
+	harness.txPool.RemoveTransaction(otherTx, false)
+	require.Len(t, pruned, 1,
+		"PruneFromAccumulator should not fire when no leaves are cached")
 }
