@@ -18,12 +18,16 @@ func TestReadConsistencyHash(t *testing.T) {
 	forest, err := utreexo.OpenForest(dbPath)
 	require.NoError(t, err)
 
-	// Flush with a known hash.
+	// Close with a known hash so it is persisted via the WAL.
 	hash := chaincfg.MainNetParams.GenesisHash
-	err = forest.Flush([32]byte(*hash))
-	require.NoError(t, err)
+	require.NoError(t, forest.Close([32]byte(*hash)))
 
-	// Read it back and cast to chainhash.Hash.
+	// Reopen and read the hash back, mirroring how production callers
+	// recover the consistency hash after a restart.
+	forest, err = utreexo.OpenForest(dbPath)
+	require.NoError(t, err)
+	defer forest.Close([32]byte(*hash))
+
 	gotBytes, err := forest.ReadConsistencyHash()
 	require.NoError(t, err)
 	gotHash := chainhash.Hash(gotBytes)
