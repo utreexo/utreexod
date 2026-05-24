@@ -136,6 +136,24 @@ type FlatUtreexoProofIndex struct {
 
 	// The time of when the utreexo state was last flushed.
 	lastFlushTime time.Time
+
+	// recordModeEndHeight is the height at which Record mode ends and we call HashAll().
+	// Set to the last TTL stump height from chaincfg, or -1 if no stumps exist.
+	recordModeEndHeight int32
+}
+
+// maxTTLStumpHeight returns the height of the last TTL stump, or -1 if none.
+func maxTTLStumpHeight(params *chaincfg.Params) int32 {
+	if len(params.TTL.Stump) == 0 {
+		return -1
+	}
+	lastStump := params.TTL.Stump[len(params.TTL.Stump)-1]
+	return int32(lastStump.NumLeaves) - 1
+}
+
+// inRecordMode returns true if the given height is within the Record mode range.
+func (idx *FlatUtreexoProofIndex) inRecordMode(height int32) bool {
+	return idx.recordModeEndHeight > 0 && height <= idx.recordModeEndHeight
 }
 
 // NeedsInputs signals that the index requires the referenced inputs in order
@@ -246,7 +264,15 @@ func (idx *FlatUtreexoProofIndex) initUtreexoRootsState() error {
 	idx.utreexoRootsState = utreexo.NewAccumulator()
 
 	bestHeight := idx.rootsState.BestHeight()
-	for h := int32(0); h <= bestHeight; h++ {
+
+	// Start from after the record mode end height since blocks in record mode
+	// don't have valid roots stored (only empty placeholders).
+	startHeight := int32(0)
+	if idx.recordModeEndHeight > 0 {
+		startHeight = idx.recordModeEndHeight + 1
+	}
+
+	for h := startHeight; h <= bestHeight; h++ {
 		stump, err := idx.fetchRoots(h)
 		if err != nil {
 			return err
@@ -331,8 +357,11 @@ func (idx *FlatUtreexoProofIndex) Init(chain *blockchain.BlockChain,
 
 	idx.chain = chain
 
+	// Compute the record mode end height from the TTL stumps.
+	idx.recordModeEndHeight = maxTTLStumpHeight(idx.config.Params)
+
 	// Init Utreexo State.
-	uState, err := InitUtreexoState(idx.config, chain, &idx.ttlState, tipHash, tipHeight)
+	uState, err := InitUtreexoState(idx.config, chain, &idx.ttlState, tipHash, tipHeight, idx.recordModeEndHeight)
 	if err != nil {
 		return err
 	}
@@ -472,6 +501,146 @@ func (idx *FlatUtreexoProofIndex) Create(dbTx database.Tx) error {
 	return nil // nothing to do
 }
 
+// storeEmptyProof stores empty placeholders in proofState, targetState, and leafDataState
+// for the given height. This is needed during Record mode to maintain sequential flat file heights.
+func (idx *FlatUtreexoProofIndex) storeEmptyProof(height int32) error {
+	err := idx.proofState.StoreData(height, []byte{})
+	if err != nil {
+		return fmt.Errorf("store empty proof err. %v", err)
+	}
+
+	err = idx.targetState.StoreData(height, []byte{})
+	if err != nil {
+		return fmt.Errorf("store empty target err. %v", err)
+	}
+
+	err = idx.leafDataState.StoreData(height, []byte{})
+	if err != nil {
+		return fmt.Errorf("store empty leafdata err. %v", err)
+	}
+
+	return nil
+}
+
+// storeEmptyRoots stores an empty placeholder in rootsState for the given height.
+// This is needed during Record mode to maintain sequential flat file heights.
+func (idx *FlatUtreexoProofIndex) storeEmptyRoots(height int32) error {
+	err := idx.rootsState.StoreData(height, []byte{})
+	if err != nil {
+		return fmt.Errorf("store empty roots err. %v", err)
+	}
+
+	return nil
+}
+
+// connectBlockRecord handles a single block in Record mode. It uses Record() instead
+// of Modify() to defer parent hash computation, which is significantly faster during IBD.
+// At recordModeEndHeight, it calls HashAll() to compute all parent hashes at once.
+func (idx *FlatUtreexoProofIndex) connectBlockRecord(block *btcutil.Block,
+	dels []wire.LeafData, adds []wire.LeafData) error {
+
+	height := block.Height()
+
+	// Compute delHashes directly from the leaf data.
+	delHashes := make([]utreexo.Hash, len(dels))
+	for i, del := range dels {
+		delHashes[i] = del.LeafHash()
+	}
+
+	// Get targets via GetLeafPosition before Record() modifies the position map.
+	idx.mtx.RLock()
+	targets := make([]uint64, len(delHashes))
+	for i, delHash := range delHashes {
+		pos, _ := idx.utreexoState.state.GetLeafPosition(delHash)
+		targets[i] = pos
+	}
+	idx.mtx.RUnlock()
+
+	// Record takes []Hash, not []Leaf.
+	addHashes := make([]utreexo.Hash, 0, len(adds))
+	for _, add := range adds {
+		addHashes = append(addHashes, add.LeafHash())
+	}
+
+	idx.mtx.Lock()
+	createdIndexes, err := idx.utreexoState.state.Record(addHashes, delHashes)
+	idx.mtx.Unlock()
+	if err != nil {
+		return err
+	}
+
+	// Store empty undo block placeholder.
+	err = idx.undoState.StoreData(height, emptyUndoBlock)
+	if err != nil {
+		return fmt.Errorf("store undoblock err. %v", err)
+	}
+
+	// Store empty placeholders in proof/target/leafdata flat files to maintain
+	// sequential height requirements.
+	err = idx.storeEmptyProof(height)
+	if err != nil {
+		return err
+	}
+
+	// Store empty proof stats placeholder.
+	idx.pStats.BlockHeight = uint64(height)
+	err = idx.pStats.WritePStats(&idx.proofStatsState)
+	if err != nil {
+		return err
+	}
+
+	// Store TTL data - this is real data even in Record mode.
+	err = idx.addEmptyTTLs(height, int32(len(adds)))
+	if err != nil {
+		return err
+	}
+
+	err = idx.writeTTLs(height, createdIndexes, dels)
+	if err != nil {
+		return err
+	}
+
+	if height == idx.recordModeEndHeight {
+		// Call HashAll() to compute all parent hashes at once.
+		log.Infof("Record mode complete at height %d. Computing all parent hashes...", height)
+		idx.mtx.Lock()
+		err = idx.utreexoState.state.HashAll()
+		idx.mtx.Unlock()
+		if err != nil {
+			return err
+		}
+
+		// Store the real roots at this height.
+		err = idx.storeRoots(height, idx.utreexoState.state)
+		if err != nil {
+			return err
+		}
+
+		// Update the roots accumulator state with the real roots.
+		err = idx.updateRootsState()
+		if err != nil {
+			return err
+		}
+
+		// Flush the forest immediately to persist the valid state.
+		log.Infof("HashAll complete. Flushing utreexo state...")
+		err = idx.flushUtreexoState(block.Hash())
+		if err != nil {
+			return err
+		}
+
+		log.Infof("Transitioned from Record mode to normal mode at height %d", height)
+	} else {
+		// Store empty roots placeholder for blocks before the record mode end height.
+		err = idx.storeEmptyRoots(height)
+		if err != nil {
+			return err
+		}
+	}
+
+	return idx.updateBlockTTLState(height)
+}
+
 // ConnectBlock is invoked by the index manager when a new block has been
 // connected to the main chain.
 //
@@ -493,6 +662,11 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return err
 	}
 	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
+
+	// Use Record mode for blocks up to the TTL stump height.
+	if idx.inRecordMode(block.Height()) {
+		return idx.connectBlockRecord(block, dels, adds)
+	}
 
 	idx.mtx.RLock()
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
@@ -594,6 +768,35 @@ func (idx *FlatUtreexoProofIndex) attachBlock(blk *btcutil.Block, stxos []blockc
 	}
 
 	adds := blockchain.BlockToAddLeaves(blk, outskip, outCount)
+
+	// Use Record mode for blocks up to the record mode end height.
+	if idx.inRecordMode(blk.Height()) {
+		delHashes := make([]utreexo.Hash, len(dels))
+		for i, del := range dels {
+			delHashes[i] = del.LeafHash()
+		}
+
+		addHashes := make([]utreexo.Hash, 0, len(adds))
+		for _, add := range adds {
+			addHashes = append(addHashes, add.LeafHash())
+		}
+
+		_, err = idx.utreexoState.state.Record(addHashes, delHashes)
+		if err != nil {
+			return err
+		}
+
+		if blk.Height() == idx.recordModeEndHeight {
+			log.Infof("Record mode complete at height %d (attachBlock). Computing all parent hashes...", blk.Height())
+			err = idx.utreexoState.state.HashAll()
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
 	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
 	if err != nil {
 		return err
