@@ -1479,3 +1479,71 @@ func TestBridgeNodeSSTableFlush(t *testing.T) {
 		}
 	}
 }
+
+// cfIndexClosingInterrupt wraps a CfIndex so that its first ConnectBlock
+// closes the supplied interrupt channel. The catchup loop's interrupt
+// branch then fires on an iteration where the loop's blockhash is not
+// the utreexo indexer's tip.
+type cfIndexClosingInterrupt struct {
+	*CfIndex
+	interrupt chan struct{}
+}
+
+func (c *cfIndexClosingInterrupt) ConnectBlock(dbTx database.Tx, block *btcutil.Block, stxos []blockchain.SpentTxOut) error {
+	close(c.interrupt)
+	return c.CfIndex.ConnectBlock(dbTx, block, stxos)
+}
+
+// TestCatchupPreservesUtreexoConsistencyHash checks that the manager's
+// catchup loop does not overwrite the on-disk utreexo consistency hash
+// when utreexo is already at the chain tip and a different indexer is
+// catching up. If it did, initConsistentUtreexoState would try to re-apply
+// already-applied blocks on the next start and corrupt the forest.
+func TestCatchupPreservesUtreexoConsistencyHash(t *testing.T) {
+	defer os.RemoveAll(testDbRoot)
+	chain, indexes, params, mgr, tearDown := indexersTestChain(
+		"TestCatchupPreservesUtreexoConsistencyHash")
+	defer tearDown()
+
+	// Mine one block so that the utreexo index is now at block 1.
+	// The catchup loop will start at genesis for the lagging cfindex
+	// below, so the blockhash the cfindex passes to Flush won't match
+	// the utreexo indexer's tip.
+	_, _, err := blockchain.AddBlock(chain, btcutil.NewBlock(params.GenesisBlock), nil)
+	require.NoError(t, err)
+	tipHash := chain.BestSnapshot().Hash
+
+	// state.Close writes the chain tip as the consistency hash and
+	// releases file handles so the next Init can re-open the forest.
+	forEachUtreexoState := func(fn func(*UtreexoState)) {
+		for _, indexer := range indexes {
+			switch i := indexer.(type) {
+			case *UtreexoProofIndex:
+				fn(i.utreexoState)
+			case *FlatUtreexoProofIndex:
+				fn(i.utreexoState)
+			}
+		}
+	}
+	forEachUtreexoState(func(us *UtreexoState) {
+		require.NoError(t, us.state.Close(tipHash))
+	})
+
+	// Append a lagging cfindex so that Manager.Init runs its catchup
+	// loop, which feeds blocks to indexers whose tip is behind the
+	// chain. On the first iteration (genesis), the cfindex closes the
+	// interrupt channel from inside its ConnectBlock, so the loop's
+	// interrupt branch fires and calls Flush with the genesis blockhash,
+	// which is not the utreexo indexer's tip.
+	interrupt := make(chan struct{})
+	mgr.enabledIndexes = append(mgr.enabledIndexes,
+		&cfIndexClosingInterrupt{CfIndex: NewCfIndex(mgr.db, params), interrupt: interrupt},
+	)
+	require.Equal(t, errInterruptRequested, mgr.Init(chain, interrupt))
+
+	forEachUtreexoState(func(us *UtreexoState) {
+		got, err := us.state.ReadConsistencyHash()
+		require.NoError(t, err)
+		require.Equal(t, tipHash[:], got[:])
+	})
+}
