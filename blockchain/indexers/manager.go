@@ -661,10 +661,27 @@ func (m *Manager) PruneBlocks(dbTx database.Tx, lastKeptHeight int32,
 }
 
 // Flush flushes the enabled indexes. For the indexers that do not need to be flushed, it's a no-op.
+//
+// Indexers whose tip is not at bestHash are skipped. The catchup loop calls
+// this with the loop's per-iteration block hash, which doesn't match an
+// indexer whose tip is elsewhere (e.g. the utreexo indexer at the chain tip
+// while the cfilter indexer is catching up). Flushing then would persist a
+// consistency hash that doesn't match the indexer's actual state.
 func (m *Manager) Flush(bestHash *chainhash.Hash, mode blockchain.FlushMode, onConnect bool) error {
 	for _, index := range m.enabledIndexes {
-		err := index.Flush(bestHash, mode, onConnect)
+		var tipHash *chainhash.Hash
+		err := m.db.View(func(dbTx database.Tx) error {
+			h, _, err := dbFetchIndexerTip(dbTx, index.Key())
+			tipHash = h
+			return err
+		})
 		if err != nil {
+			return err
+		}
+		if !tipHash.IsEqual(bestHash) {
+			continue
+		}
+		if err := index.Flush(bestHash, mode, onConnect); err != nil {
 			return err
 		}
 	}
