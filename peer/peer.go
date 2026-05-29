@@ -1299,6 +1299,12 @@ func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd st
 		pendingResponses[wire.CmdUtreexoTx] = deadline
 		pendingResponses[wire.CmdNotFound] = deadline
 
+	case wire.CmdGetUtreexoProof:
+		// Expects a utreexo proof message. The peer has no notfound
+		// equivalent for proofs, so a silent drop on the remote side
+		// will trip this deadline.
+		pendingResponses[wire.CmdUtreexoProof] = deadline
+
 	case wire.CmdGetHeaders:
 		// Expects a headers message.  Use a longer deadline since it
 		// can take a while for the remote peer to load all of the
