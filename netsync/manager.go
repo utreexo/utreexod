@@ -1158,18 +1158,6 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			// witness data in the blocks.
 			if reqPeer.IsWitnessEnabled() {
 				iv.Type = wire.InvTypeWitnessBlock
-
-				// If we're syncing from a utreexo enabled peer, also
-				// ask for the proofs.
-				if reqPeer.IsUtreexoEnabled() {
-					iv.Type = wire.InvTypeWitnessUtreexoBlock
-				}
-			} else {
-				// If we're syncing from a utreexo enabled peer, also
-				// ask for the proofs.
-				if reqPeer.IsUtreexoEnabled() {
-					iv.Type = wire.InvTypeUtreexoBlock
-				}
 			}
 
 			gdmsg.AddInvVect(iv)
@@ -1418,10 +1406,6 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 		// verify the hash was actually announced by the peer
 		// before deleting from the global requested maps.
 		switch inv.Type {
-		case wire.InvTypeUtreexoBlock:
-			fallthrough
-		case wire.InvTypeWitnessUtreexoBlock:
-			fallthrough
 		case wire.InvTypeWitnessBlock:
 			fallthrough
 		case wire.InvTypeBlock:
@@ -1456,10 +1440,6 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 // are in the memory pool (either the main pool or orphan pool).
 func (sm *SyncManager) haveInventory(invVect *wire.InvVect) (bool, error) {
 	switch invVect.Type {
-	case wire.InvTypeUtreexoBlock:
-		fallthrough
-	case wire.InvTypeWitnessUtreexoBlock:
-		fallthrough
 	case wire.InvTypeWitnessBlock:
 		fallthrough
 	case wire.InvTypeBlock:
@@ -1589,8 +1569,6 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeBlock:
 		case wire.InvTypeTx:
 		case wire.InvTypeWitnessBlock:
-		case wire.InvTypeWitnessUtreexoBlock:
-		case wire.InvTypeUtreexoBlock:
 		case wire.InvTypeWitnessTx:
 		case wire.InvTypeUtreexoTx:
 		case wire.InvTypeWitnessUtreexoTx:
@@ -1668,7 +1646,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 			continue
 		}
 
-		if iv.Type == wire.InvTypeBlock || iv.Type == wire.InvTypeUtreexoBlock {
+		if iv.Type == wire.InvTypeBlock {
 			// The block is an orphan block that we already have.
 			// When the existing orphan was processed, it requested
 			// the missing parent blocks.  When this scenario
@@ -1720,10 +1698,6 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		requestQueue = requestQueue[1:]
 
 		switch iv.Type {
-		case wire.InvTypeUtreexoBlock:
-			fallthrough
-		case wire.InvTypeWitnessUtreexoBlock:
-			fallthrough
 		case wire.InvTypeWitnessBlock:
 			fallthrough
 		case wire.InvTypeBlock:
