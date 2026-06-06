@@ -1841,9 +1841,7 @@ out:
 					// out immediately, skipping the inv trickle
 					// queue.
 					if iv.Type == wire.InvTypeBlock ||
-						iv.Type == wire.InvTypeUtreexoBlock ||
-						iv.Type == wire.InvTypeWitnessBlock ||
-						iv.Type == wire.InvTypeWitnessUtreexoBlock {
+						iv.Type == wire.InvTypeWitnessBlock {
 
 						invMsg := wire.NewMsgInvSizeHint(1)
 						invMsg.AddInvVect(iv)
