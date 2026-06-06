@@ -834,10 +834,6 @@ func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
 			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeBlock:
 			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.BaseEncoding)
-		case wire.InvTypeUtreexoBlock:
-			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.BaseEncoding)
-		case wire.InvTypeWitnessUtreexoBlock:
-			err = sp.server.pushBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeFilteredWitnessBlock:
 			err = sp.server.pushMerkleBlockMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeFilteredBlock:
@@ -1699,10 +1695,6 @@ func (sp *serverPeer) OnNotFound(p *peer.Peer, msg *wire.MsgNotFound) {
 		case wire.InvTypeBlock:
 			numBlocks++
 		case wire.InvTypeWitnessBlock:
-			numBlocks++
-		case wire.InvTypeUtreexoBlock:
-			numBlocks++
-		case wire.InvTypeWitnessUtreexoBlock:
 			numBlocks++
 		case wire.InvTypeTx:
 			numTxns++
