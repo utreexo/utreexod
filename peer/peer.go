@@ -1268,6 +1268,15 @@ func (p *Peer) shouldHandleReadError(err error) bool {
 	return true
 }
 
+// proofDeadlineExpired reports whether the oldest outstanding getutreexoproof
+// deadline has passed. deadlines is ordered oldest-first, now is the current
+// time, and offset accounts for time spent in message callbacks. Because each
+// request keeps its own deadline, dropping any one proof in a batch trips this
+// even after earlier proofs in the batch have arrived.
+func proofDeadlineExpired(deadlines []time.Time, now time.Time, offset time.Duration) bool {
+	return len(deadlines) > 0 && !now.Before(deadlines[0].Add(offset))
+}
+
 // maybeAddDeadline potentially adds a deadline for the appropriate expected
 // response for the passed wire protocol command to the pending responses map.
 func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd string) {
@@ -1299,12 +1308,6 @@ func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd st
 		pendingResponses[wire.CmdUtreexoTx] = deadline
 		pendingResponses[wire.CmdNotFound] = deadline
 
-	case wire.CmdGetUtreexoProof:
-		// Expects a utreexo proof message. The peer has no notfound
-		// equivalent for proofs, so a silent drop on the remote side
-		// will trip this deadline.
-		pendingResponses[wire.CmdUtreexoProof] = deadline
-
 	case wire.CmdGetHeaders:
 		// Expects a headers message.  Use a longer deadline since it
 		// can take a while for the remote peer to load all of the
@@ -1330,6 +1333,12 @@ func (p *Peer) stallHandler() {
 	// pendingResponses tracks the expected response deadline times.
 	pendingResponses := make(map[string]time.Time)
 
+	// pendingProofDeadlines tracks one deadline per outstanding
+	// getutreexoproof request. Proofs have no notfound and several can be
+	// outstanding at once, so a single map entry can't represent them. The
+	// deadlines are kept in send order and the oldest one governs.
+	var pendingProofDeadlines []time.Time
+
 	// stallTicker is used to periodically check pending responses that have
 	// exceeded the expected deadline and disconnect the peer due to
 	// stalling.
@@ -1346,9 +1355,16 @@ out:
 			switch msg.command {
 			case sccSendMessage:
 				// Add a deadline for the expected response
-				// message if needed.
-				p.maybeAddDeadline(pendingResponses,
-					msg.message.Command())
+				// message if needed. Each getutreexoproof gets its
+				// own deadline since several may be outstanding.
+				if msg.message.Command() == wire.CmdGetUtreexoProof {
+					pendingProofDeadlines = append(
+						pendingProofDeadlines,
+						time.Now().Add(stallResponseTimeout))
+				} else {
+					p.maybeAddDeadline(pendingResponses,
+						msg.message.Command())
+				}
 
 			case sccReceiveMessage:
 				// Remove received messages from the expected
@@ -1370,6 +1386,12 @@ out:
 					delete(pendingResponses, wire.CmdTx)
 					delete(pendingResponses, wire.CmdUtreexoTx)
 					delete(pendingResponses, wire.CmdNotFound)
+
+				case wire.CmdUtreexoProof:
+					// Clear the oldest outstanding proof deadline.
+					if len(pendingProofDeadlines) > 0 {
+						pendingProofDeadlines = pendingProofDeadlines[1:]
+					}
 
 				default:
 					delete(pendingResponses, msgCmd)
@@ -1429,6 +1451,15 @@ out:
 					"disconnecting", p, command)
 				p.Disconnect()
 				break
+			}
+
+			// Disconnect the peer when the oldest outstanding utreexo
+			// proof request has passed its adjusted deadline.
+			if proofDeadlineExpired(pendingProofDeadlines, now, offset) {
+				log.Debugf("Peer %s appears to be stalled or "+
+					"misbehaving, %s timeout -- disconnecting",
+					p, wire.CmdUtreexoProof)
+				p.Disconnect()
 			}
 
 			// Reset the deadline offset for the next tick.
