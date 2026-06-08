@@ -654,6 +654,14 @@ func (sm *SyncManager) clearRequestedState(state *peerSyncState) {
 			delete(sm.requestedBlocks, blockHash)
 		}
 	}
+
+	// Clear the outstanding utreexo proof requests so they can be re-requested.
+	// When a stalled sync peer is kept rather than disconnected this state
+	// survives, so without clearing it a dropped proof would never be asked for
+	// again.
+	for blockHash := range state.requestedUtreexoProofs {
+		delete(state.requestedUtreexoProofs, blockHash)
+	}
 }
 
 // updateSyncPeer choose a new sync peer to replace the current one. If

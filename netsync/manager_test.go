@@ -1845,3 +1845,22 @@ func TestCSNSelfInconsistentPairDisconnects(t *testing.T) {
 		"the bad pair must not connect")
 	assertDisconnected(t, p)
 }
+
+// TestClearRequestedStateClearsProofs verifies that a peer reset clears its
+// outstanding utreexo proof requests so they can be re-requested.
+func TestClearRequestedStateClearsProofs(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+	defer tearDown()
+
+	p := newSyncCandidate(t, sm, 1)
+	st := sm.peerStates[p]
+	st.requestedUtreexoProofs[chainhash.Hash{0x01}] = struct{}{}
+
+	sm.clearRequestedState(st)
+
+	require.Empty(t, st.requestedUtreexoProofs,
+		"clearRequestedState should clear outstanding proof requests")
+}
