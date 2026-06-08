@@ -921,13 +921,7 @@ func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
 			dbErr.ErrorCode == database.ErrCorruption {
 			panic(dbErr)
 		}
-		if _, ok := err.(blockchain.RuleError); ok {
-			log.Infof("Rejected block %v from %s: %v",
-				blockHash, pb.blockPeer, err)
-		} else {
-			log.Errorf("Failed to process block %v: %v", blockHash, err)
-		}
-		sm.rejectBlockTo(pb.blockPeer, blockHash, err)
+		sm.attributeConnectFailure(pb, blockHash, err)
 		return
 	}
 
@@ -991,6 +985,48 @@ func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
 			log.Infof("Reached the final checkpoint -- switching to normal mode")
 		}
 	}
+}
+
+// attributeConnectFailure assigns blame for a failed block connection without
+// punishing a peer for the half it did not send. A block and its utreexo proof
+// can arrive from different peers, and a combined verification failure is not
+// always attributable to one half.
+func (sm *SyncManager) attributeConnectFailure(pb *pendingBlock,
+	blockHash *chainhash.Hash, err error) {
+
+	// A consensus rule violation is unambiguously the block sender's fault, so
+	// reject the block to that peer as is done for any bad block.
+	if _, ok := err.(blockchain.RuleError); ok {
+		log.Infof("Rejected block %v from %s: %v", blockHash, pb.blockPeer, err)
+		sm.rejectBlockTo(pb.blockPeer, blockHash, err)
+		return
+	}
+
+	log.Errorf("Failed to process block %v: %v", blockHash, err)
+
+	// When the block and proof came from different peers the bad half cannot be
+	// identified, so drop both halves and re-fetch the pair from the sync peer
+	// rather than rejecting an innocent peer. The block and proof were already
+	// removed from the request maps on arrival, so a normal fetch re-requests
+	// both, and the next failure then comes from a single peer.
+	if pb.proofPeer != nil && pb.proofPeer != pb.blockPeer {
+		sm.fetchHeaderBlocks(nil)
+		return
+	}
+
+	// A single peer supplied a block and a utreexo proof that do not validate
+	// together, which is a protocol violation, so disconnect it.
+	if pb.proofPeer != nil {
+		if bp := pb.blockPeer; bp != nil {
+			log.Warnf("Block %v and its utreexo proof from %s do not "+
+				"validate together -- disconnecting", blockHash, bp)
+			bp.Disconnect()
+		}
+		return
+	}
+
+	// A full-node failure that isn't a rule error belongs to the block sender.
+	sm.rejectBlockTo(pb.blockPeer, blockHash, err)
 }
 
 // rejectBlockTo sends a block reject message to the peer when it is still

@@ -1749,3 +1749,99 @@ func TestCSNPendingCapStopsFetch(t *testing.T) {
 	require.Len(t, st.requestedBlocks, maxPendingBlocks,
 		"fetch must request exactly up to the pending cap")
 }
+
+// assertDisconnected fails unless Disconnect was called on the peer.
+func assertDisconnected(t *testing.T, p *peer.Peer) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { p.WaitForDisconnect(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("peer should have been disconnected")
+	}
+}
+
+// assertConnected fails if Disconnect was called on the peer.
+func assertConnected(t *testing.T, p *peer.Peer) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { p.WaitForDisconnect(); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("peer was unexpectedly disconnected")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestCSNCrossPeerAttribution proves that when a block and a bad proof come from
+// different peers, the unattributable failure punishes neither peer and drops the
+// pair for re-fetch.
+func TestCSNCrossPeerAttribution(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+	defer tearDown()
+
+	block := generateTestBlocks(t, &params, 1)[0]
+	hash := *block.Hash()
+	_, err := sm.chain.ProcessBlockHeader(
+		&block.MsgBlock().Header, blockchain.BFNone)
+	require.NoError(t, err)
+
+	peerA := newSyncCandidate(t, sm, 1) // sends the good block
+	peerB := newSyncCandidate(t, sm, 1) // sends the bad proof
+	sm.syncPeer = peerA
+	sm.peerStates[peerA].requestedBlocks[hash] = struct{}{}
+	sm.peerStates[peerB].requestedUtreexoProofs[hash] = struct{}{}
+
+	deliverBlock(sm, peerA, block)
+
+	// A target with no matching deletion fails verification with a non-rule
+	// error, so the bad half can't be pinned on either peer.
+	sm.handleUtreexoProofMsg(&utreexoProofMsg{
+		proof: &wire.MsgUtreexoProof{BlockHash: hash, Targets: []uint64{0}},
+		peer:  peerB,
+	})
+
+	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height,
+		"the bad pair must not connect")
+	assertConnected(t, peerA)
+	assertConnected(t, peerB)
+	require.NotContains(t, sm.pending, hash,
+		"the unattributable pair should be dropped for re-fetch")
+}
+
+// TestCSNSelfInconsistentPairDisconnects proves that a single peer supplying a
+// block and a proof that fail to validate together is disconnected.
+func TestCSNSelfInconsistentPairDisconnects(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+	defer tearDown()
+
+	block := generateTestBlocks(t, &params, 1)[0]
+	hash := *block.Hash()
+	_, err := sm.chain.ProcessBlockHeader(
+		&block.MsgBlock().Header, blockchain.BFNone)
+	require.NoError(t, err)
+
+	p := newSyncCandidate(t, sm, 1)
+	sm.syncPeer = p
+	sm.peerStates[p].requestedBlocks[hash] = struct{}{}
+	sm.peerStates[p].requestedUtreexoProofs[hash] = struct{}{}
+
+	deliverBlock(sm, p, block)
+	sm.handleUtreexoProofMsg(&utreexoProofMsg{
+		proof: &wire.MsgUtreexoProof{BlockHash: hash, Targets: []uint64{0}},
+		peer:  p,
+	})
+
+	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height,
+		"the bad pair must not connect")
+	assertDisconnected(t, p)
+}
