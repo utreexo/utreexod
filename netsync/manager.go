@@ -52,6 +52,13 @@ const (
 	stallSampleInterval = 30 * time.Second
 )
 
+// maxPendingBlocks caps the depth of the block pipeline: received-but-unconnected
+// blocks plus outstanding block requests. fetchHeaderBlocks stops requesting once
+// the pipeline reaches this size, which bounds the number of full blocks held in
+// memory when a peer delivers blocks faster than their proofs. It is a var so
+// tests can lower it.
+var maxPendingBlocks = 500
+
 // zeroHash is the zero value hash (all zeros).  It is defined as a convenience.
 var zeroHash chainhash.Hash
 
@@ -87,6 +94,22 @@ type headersMsg struct {
 type utreexoProofMsg struct {
 	proof *wire.MsgUtreexoProof
 	peer  *peerpkg.Peer
+}
+
+// pendingBlock holds the halves of a block that must be assembled before the
+// block can connect. A compact state node needs both the block and its utreexo
+// proof, which arrive as separate messages and may come from different peers. A
+// full node only needs the block, so proof and proofPeer stay nil.
+type pendingBlock struct {
+	block     *btcutil.Block
+	proof     *wire.MsgUtreexoProof
+	blockPeer *peerpkg.Peer
+	proofPeer *peerpkg.Peer
+}
+
+// complete reports whether every half needed to connect the block is present.
+func (p *pendingBlock) complete(utreexoActive bool) bool {
+	return p.block != nil && (!utreexoActive || p.proof != nil)
 }
 
 // utreexoTTLsMsg packages a bitcoin utreexo ttls message and the peer it came from
@@ -230,11 +253,15 @@ type SyncManager struct {
 	headersBuildMode bool
 
 	// The following fields are used for headers-first mode.
-	headersFirstMode    bool
-	committedTTLAcc     *utreexo.Stump
-	queuedTTLs          map[int32]wire.UtreexoTTL
-	queuedBlocks        map[chainhash.Hash]*blockMsg
-	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
+	headersFirstMode bool
+	committedTTLAcc  *utreexo.Stump
+	queuedTTLs       map[int32]wire.UtreexoTTL
+
+	// pending holds blocks and utreexo proofs that have arrived but cannot
+	// connect yet because a half is missing or the parent is not the tip. It
+	// is keyed by blockhash so the two halves are matched regardless of
+	// arrival order or which peer delivered them.
+	pending map[chainhash.Hash]*pendingBlock
 
 	// An optional fee estimator.
 	feeEstimator *mempool.FeeEstimator
@@ -774,9 +801,12 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 	return isCheckpointBlock, behaviorFlags
 }
 
-// handleBlockMsg handles block messages from all peers.
+// handleBlockMsg deposits a received block into the pending pool and connects any
+// blocks that are now ready. The block can only connect once its parent is the
+// tip and, for a compact state node, once its utreexo proof has also arrived.
 func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	peer := bmsg.peer
+	blockHash := bmsg.block.Hash()
 	state, exists := sm.peerStates[peer]
 	if !exists {
 		log.Warnf("Received block message from unknown peer %s", peer)
@@ -784,60 +814,27 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	}
 
 	// If we didn't ask for this block then the peer is misbehaving.
-	blockHash := bmsg.block.Hash()
-	if _, exists = state.requestedBlocks[*blockHash]; !exists {
-		// The regression test intentionally sends some blocks twice
-		// to test duplicate block insertion fails.  Don't disconnect
-		// the peer or ignore the block when we're in regression test
-		// mode in this case so the chain code is actually fed the
-		// duplicate blocks.
+	_, requested := state.requestedBlocks[*blockHash]
+	if !requested {
+		// On any network but the regression test network an unrequested
+		// block means the peer is misbehaving.
 		if sm.chainParams != &chaincfg.RegressionNetParams {
-			log.Warnf("Got unrequested block %v from %s -- "+
-				"disconnecting", blockHash, peer.Addr())
+			log.Warnf("Got unrequested block %v from %s -- disconnecting",
+				blockHash, peer.Addr())
 			peer.Disconnect()
 			return
 		}
+
+		// The regression test framework intentionally sends blocks twice to
+		// confirm duplicate insertion fails, so feed the block straight to
+		// the chain instead of parking it in the pending pool.
+		sm.connectPendingBlock(&pendingBlock{block: bmsg.block, blockPeer: peer})
+		return
 	}
 
-	// Check if we've received the utreexo summaries already.
-	if sm.chain.IsUtreexoViewActive() {
-		best := sm.chain.BestSnapshot()
-		if !best.Hash.IsEqual(&bmsg.block.MsgBlock().Header.PrevBlock) {
-			log.Warnf("got block %v out of order", bmsg.block.Hash())
-			sm.queuedBlocks[*blockHash] = bmsg
-			return
-		}
-
-		// We need the utreexo proof to be able to verify the block.
-		utreexoProofMsg, found := sm.queuedUtreexoProofs[*bmsg.block.Hash()]
-		if !found {
-			log.Warnf("got block %v but don't have the associated "+
-				"utreexo proof", bmsg.block.Hash())
-			sm.queuedBlocks[*blockHash] = bmsg
-			return
-		}
-
-		// We have all the data necessary to validate the block now so
-		// it's safee to remove this utreexo proof from the queue.
-		delete(sm.queuedUtreexoProofs, *bmsg.block.Hash())
-
-		udata := wire.UData{
-			AccProof: utreexo.Proof{
-				Targets: utreexoProofMsg.proof.Targets,
-				Proof:   utreexoProofMsg.proof.ProofHashes,
-			},
-			LeafDatas: utreexoProofMsg.proof.LeafDatas,
-		}
-
-		bmsg.block.SetUtreexoData(&udata)
-	}
-
-	// Process the block based off the headers if we're still in headers-first mode.
-	isCheckpointBlock, behaviorFlags := sm.checkHeadersList(bmsg.block)
-
-	// Remove block from request maps. Either chain will know about it and
-	// so we shouldn't have any more instances of trying to fetch it, or we
-	// will fail the insert and thus we'll retry next time we get an inv.
+	// The block half is in hand so it no longer counts as outstanding,
+	// regardless of whether its proof has arrived. This keeps the request
+	// pipeline refilling even while a proof is still in flight.
 	delete(state.requestedBlocks, *blockHash)
 	if !sm.headersFirstMode {
 		// The global map of requestedBlocks is not used during
@@ -845,160 +842,201 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		delete(sm.requestedBlocks, *blockHash)
 	}
 
-	// Process the block to include validation, best chain selection, orphan
-	// handling, etc.
-	_, isOrphan, err := sm.chain.ProcessBlock(bmsg.block, behaviorFlags)
-	if err != nil {
-		// When the error is a rule error, it means the block was simply
-		// rejected as opposed to something actually going wrong, so log
-		// it as such.  Otherwise, something really did go wrong, so log
-		// it as an actual error.
-		if _, ok := err.(blockchain.RuleError); ok {
-			log.Infof("Rejected block %v from %s: %v", blockHash,
-				peer, err)
-		} else {
-			log.Errorf("Failed to process block %v: %v",
-				blockHash, err)
-		}
-		if dbErr, ok := err.(database.Error); ok && dbErr.ErrorCode ==
-			database.ErrCorruption {
-			panic(dbErr)
+	pb := sm.pending[*blockHash]
+	if pb == nil {
+		pb = &pendingBlock{}
+		sm.pending[*blockHash] = pb
+	}
+	pb.block = bmsg.block
+	pb.blockPeer = peer
+
+	sm.connectReadyBlocks()
+	sm.maybeFetchMoreBlocks()
+}
+
+// connectReadyBlocks connects pending blocks to the tip in chain order and stops
+// once the block that extends the tip is absent or incomplete. Connecting in tip
+// order keeps the utreexo accumulator updated strictly in sequence. Pending
+// payloads may outlive the peer that delivered them, so this path never depends
+// on the delivering peer still being connected.
+func (sm *SyncManager) connectReadyBlocks() {
+	utreexoActive := sm.chain.IsUtreexoViewActive()
+	for {
+		best := sm.chain.BestSnapshot()
+
+		var ready *pendingBlock
+		var readyHash chainhash.Hash
+		for hash, pb := range sm.pending {
+			if !pb.complete(utreexoActive) {
+				continue
+			}
+			if !best.Hash.IsEqual(&pb.block.MsgBlock().Header.PrevBlock) {
+				continue
+			}
+			ready, readyHash = pb, hash
+			break
 		}
 
-		// Convert the error into an appropriate reject message and
-		// send it.
-		code, reason := mempool.ErrToRejectErr(err)
-		peer.PushRejectMsg(wire.CmdBlock, code, reason, blockHash, false)
+		if ready == nil {
+			return
+		}
+
+		delete(sm.pending, readyHash)
+		sm.connectPendingBlock(ready)
+	}
+}
+
+// connectPendingBlock validates and connects a single assembled block, updates
+// the delivering peer's height, and attributes any failure to the responsible
+// peer. connectReadyBlocks calls it only once the parent is the tip and, for a
+// compact state node, the proof is present; the regression-test path also feeds
+// an unrequested block here without a proof, which ProcessBlock then rejects.
+func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
+	block := pb.block
+	blockHash := block.Hash()
+
+	// pb.proof is always present here for the in-order driver, but an
+	// unrequested regression-test block is fed straight in without one. When
+	// it's missing, ProcessBlock fails the "no utreexo proof" check and the
+	// failure is attributed below rather than panicking.
+	if sm.chain.IsUtreexoViewActive() && pb.proof != nil {
+		udata := wire.UData{
+			AccProof: utreexo.Proof{
+				Targets: pb.proof.Targets,
+				Proof:   pb.proof.ProofHashes,
+			},
+			LeafDatas: pb.proof.LeafDatas,
+		}
+		block.SetUtreexoData(&udata)
+	}
+
+	// Process the block based off the headers if we're still in headers-first
+	// mode. This also attaches the ttls for the block when downloading them.
+	isCheckpointBlock, behaviorFlags := sm.checkHeadersList(block)
+
+	// Process the block to include validation, best chain selection, etc.
+	_, _, err := sm.chain.ProcessBlock(block, behaviorFlags)
+	if err != nil {
+		if dbErr, ok := err.(database.Error); ok &&
+			dbErr.ErrorCode == database.ErrCorruption {
+			panic(dbErr)
+		}
+		if _, ok := err.(blockchain.RuleError); ok {
+			log.Infof("Rejected block %v from %s: %v",
+				blockHash, pb.blockPeer, err)
+		} else {
+			log.Errorf("Failed to process block %v: %v", blockHash, err)
+		}
+		sm.rejectBlockTo(pb.blockPeer, blockHash, err)
 		return
 	}
 
-	// Meta-data about the new block this peer is reporting. We use this
-	// below to update this peer's latest block height and the heights of
-	// other peers based on their last announced block hash. This allows us
-	// to dynamically update the block heights of peers, avoiding stale
-	// heights when looking for a new sync peer. Upon acceptance of a block
-	// or recognition of an orphan, we also use this information to update
-	// the block heights over other peers who's invs may have been ignored
-	// if we are actively syncing while the chain is not yet current or
-	// who may have lost the lock announcement race.
-	var heightUpdate int32
-	var blkHashUpdate *chainhash.Hash
+	// Connecting a block is forward progress, so reset the stall timer and the
+	// rejected transactions.
+	sm.lastProgressTime = time.Now()
+	sm.progressLogger.LogBlockHeight(block, sm.chain)
+	sm.rejectedTxns = make(map[chainhash.Hash]struct{})
 
-	// Request the parents for the orphan block from the peer that sent it.
-	if isOrphan {
-		// We've just received an orphan block from a peer. In order
-		// to update the height of the peer, we try to extract the
-		// block height from the scriptSig of the coinbase transaction.
-		// Extraction is only attempted if the block's version is
-		// high enough (ver 2+).
-		header := &bmsg.block.MsgBlock().Header
-		if blockchain.ShouldHaveSerializedBlockHeight(header) {
-			coinbaseTx := bmsg.block.Transactions()[0]
-			cbHeight, err := blockchain.ExtractCoinbaseHeight(coinbaseTx)
-			if err != nil {
-				log.Warnf("Unable to extract height from "+
-					"coinbase tx: %v", err)
-			} else {
-				log.Debugf("Extracted height of %v from "+
-					"orphan block", cbHeight)
-				heightUpdate = cbHeight
-				blkHashUpdate = blockHash
+	best := sm.chain.BestSnapshot()
+
+	// Update the block height of the peer that delivered the block so that it
+	// stays a viable sync candidate. Only announce heights once the chain is
+	// current to avoid spamming during the initial block download.
+	if bp := pb.blockPeer; bp != nil {
+		if _, ok := sm.peerStates[bp]; ok {
+			bp.UpdateLastBlockHeight(best.Height)
+			if sm.current() {
+				go sm.peerNotifier.UpdatePeerHeights(&best.Hash,
+					best.Height, bp)
 			}
-		}
-
-		orphanRoot := sm.chain.GetOrphanRoot(blockHash)
-		locator, err := sm.chain.LatestBlockLocator()
-		if err != nil {
-			log.Warnf("Failed to get block locator for the "+
-				"latest block: %v", err)
-		} else {
-			peer.PushGetBlocksMsg(locator, orphanRoot)
-		}
-	} else {
-		if peer == sm.syncPeer {
-			sm.lastProgressTime = time.Now()
-		}
-
-		// When the block is not an orphan, log information about it and
-		// update the chain state.
-		sm.progressLogger.LogBlockHeight(bmsg.block, sm.chain)
-
-		// Update this peer's latest block height, for future
-		// potential sync node candidacy.
-		best := sm.chain.BestSnapshot()
-		heightUpdate = best.Height
-		blkHashUpdate = &best.Hash
-
-		// Clear the rejected transactions.
-		sm.rejectedTxns = make(map[chainhash.Hash]struct{})
-	}
-
-	// Update the block height for this peer. But only send a message to
-	// the server for updating peer heights if this is an orphan or our
-	// chain is "current". This avoids sending a spammy amount of messages
-	// if we're syncing the chain from scratch.
-	if blkHashUpdate != nil && heightUpdate != 0 {
-		peer.UpdateLastBlockHeight(heightUpdate)
-		if isOrphan || sm.current() {
-			go sm.peerNotifier.UpdatePeerHeights(blkHashUpdate, heightUpdate,
-				peer)
 		}
 	}
 
 	// If we're at the block when the swiftsync part of ibd ends, make sure the
 	// aggregator is zero.
 	if sm.committedTTLAcc != nil &&
-		bmsg.block.Height() == int32(sm.committedTTLAcc.NumLeaves-1) {
+		block.Height() == int32(sm.committedTTLAcc.NumLeaves-1) {
 		if !sm.chain.IsAggZero() {
 			log.Warnf("The swiftsync aggregator is non-zero at swiftsync checkpoint at block %v(%v). "+
 				"The binary is likely corrupted and the user should not trust this "+
 				"software as genuine and there may be attempts to steal funds. The user "+
 				"should delete the datadir and the binary from their computer.",
-				bmsg.block.Hash(), bmsg.block.Height())
+				block.Hash(), block.Height())
 			os.Exit(1)
 		}
 
-		log.Infof("Verified swiftsync checkpoint block at %v(%v)", bmsg.block.Hash(), bmsg.block.Height())
+		log.Infof("Verified swiftsync checkpoint block at %v(%v)", block.Hash(), block.Height())
 	}
 
-	// If we are not in headers first mode, it's a good time to periodically
-	// flush the blockchain cache because we don't expect new blocks immediately.
-	// After that, there is nothing more to do.
+	// When not in headers-first mode it's a good time to periodically flush the
+	// blockchain cache because we don't expect new blocks immediately.
 	if !sm.headersFirstMode {
-		// Flush relevant indexes.
 		if err := sm.chain.FlushIndexes(blockchain.FlushPeriodic, true); err != nil {
 			log.Errorf("Error while flushing the blockchain cache: %v", err)
 		}
-		// Only flush if utreexoView is not active since a utreexo node does
-		// not have a utxo cache.
+		// Only flush the utxo cache for a full node since a utreexo node does
+		// not have one.
 		if !sm.chain.IsUtreexoViewActive() {
 			if err := sm.chain.FlushUtxoCache(blockchain.FlushPeriodic); err != nil {
 				log.Errorf("Error while flushing the blockchain cache: %v", err)
 			}
 		}
-
 		return
 	}
 
 	if isCheckpointBlock {
-		log.Infof("on checkpoint block %v(%v)", bmsg.block.Hash(), bmsg.block.Height())
-		nextCheckpoint := sm.findNextHeaderCheckpoint(bmsg.block.Height())
+		log.Infof("on checkpoint block %v(%v)", block.Hash(), block.Height())
+		nextCheckpoint := sm.findNextHeaderCheckpoint(block.Height())
 		if nextCheckpoint == nil {
 			log.Infof("Reached the final checkpoint -- switching to normal mode")
 		}
 	}
+}
 
-	// If we're in headersFirstMode then we're downloading the block from the sync peer.
-	// Only ask for more if we don't have any more requestedBlocks left.
-	_, lastHeight := sm.chain.BestHeader()
-	if bmsg.block.Height() < lastHeight && len(state.requestedBlocks) == 0 {
-		sm.fetchHeaderBlocks(nil)
+// rejectBlockTo sends a block reject message to the peer when it is still
+// connected.
+func (sm *SyncManager) rejectBlockTo(peer *peerpkg.Peer,
+	blockHash *chainhash.Hash, err error) {
+
+	if peer == nil {
 		return
 	}
-	if bmsg.block.Height() >= lastHeight {
+	if _, ok := sm.peerStates[peer]; !ok {
+		return
+	}
+	code, reason := mempool.ErrToRejectErr(err)
+	peer.PushRejectMsg(wire.CmdBlock, code, reason, blockHash, false)
+}
+
+// maybeFetchMoreBlocks refills the block and proof request pipeline for the sync
+// peer and leaves headers-first mode once the best chain reaches the best header.
+// It keys the refill on outstanding block requests rather than on assembled
+// blocks so that a missing proof never stalls the pipeline.
+func (sm *SyncManager) maybeFetchMoreBlocks() {
+	if !sm.headersFirstMode || sm.syncPeer == nil {
+		return
+	}
+	state, ok := sm.peerStates[sm.syncPeer]
+	if !ok {
+		return
+	}
+
+	best := sm.chain.BestSnapshot()
+	if _, lastHeight := sm.chain.BestHeader(); best.Height >= lastHeight {
 		log.Infof("Finished the initial block download and caught up to block %v(%v) "+
-			"-- now listening to blocks.", bmsg.block.Hash(), bmsg.block.Height())
+			"-- now listening to blocks.", best.Hash, best.Height)
 		sm.headersFirstMode = false
+		return
+	}
+
+	// Bound the memory held by received-but-unconnected blocks when proofs lag
+	// behind blocks.
+	if len(sm.pending) >= maxPendingBlocks {
+		return
+	}
+
+	if len(state.requestedBlocks) < minInFlightBlocks {
+		sm.fetchHeaderBlocks(nil)
 	}
 }
 
@@ -1108,6 +1146,13 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	numRequested := 0
 
 	for h := forkHeight + 1; h <= bestHeaderHeight; h++ {
+		// Stop once the pipeline (pending blocks plus outstanding block
+		// requests) reaches the cap so the number of full blocks held in
+		// memory stays bounded when proofs lag behind blocks.
+		if len(sm.pending)+len(peerState.requestedBlocks) >= maxPendingBlocks {
+			break
+		}
+
 		if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil {
 			// Break if we ran out of ttls. Note: when committedTTLAcc
 			// is set, reorgs cannot happen below its height as it acts
@@ -1126,17 +1171,6 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			return
 		}
 
-		_, requested := peerState.requestedBlocks[*hash]
-
-		// When not in headers-first mode (i.e., at the chain tip),
-		// also check the global requested blocks map to avoid
-		// requesting the same block from multiple peers.
-		if !sm.headersFirstMode {
-			if _, globalRequested := sm.requestedBlocks[*hash]; globalRequested {
-				requested = true
-			}
-		}
-
 		iv := wire.NewInvVect(wire.InvTypeBlock, hash)
 		haveInv, err := sm.haveInventory(iv)
 		if err != nil {
@@ -1144,44 +1178,67 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				"existing inventory during header block "+
 				"fetch: %v", err)
 		}
-		if !haveInv && !requested {
-			peerState.requestedBlocks[*hash] = struct{}{}
 
-			// Track in the global map when not in headers-first
-			// mode so other peers won't request the same block.
+		// Only fetch halves we don't already have in the chain. The block and
+		// its proof are requested independently so that a half already held in
+		// the pending pool (possibly delivered by an earlier sync peer) is
+		// reused rather than re-requested.
+		if !haveInv {
+			pb := sm.pending[*hash]
+
+			// Request the block half unless it has already arrived or is
+			// already outstanding. At the chain tip the global map dedupes
+			// the block across peers.
+			_, blockRequested := peerState.requestedBlocks[*hash]
 			if !sm.headersFirstMode {
-				limitAdd(sm.requestedBlocks, *hash, maxRequestedBlocks)
+				if _, g := sm.requestedBlocks[*hash]; g {
+					blockRequested = true
+				}
 			}
+			if (pb == nil || pb.block == nil) && !blockRequested {
+				peerState.requestedBlocks[*hash] = struct{}{}
 
-			// If we're fetching from a witness enabled peer
-			// post-fork, then ensure that we receive all the
-			// witness data in the blocks.
-			if reqPeer.IsWitnessEnabled() {
-				iv.Type = wire.InvTypeWitnessBlock
-			}
-
-			gdmsg.AddInvVect(iv)
-			numRequested++
-
-			// Immediately queue the utreexo proof for this block if we're a
-			// utreexo node.
-			if sm.chain.IsUtreexoViewActive() {
-				peerState.requestedUtreexoProofs[*hash] = struct{}{}
-
-				// If we still have ttls left to download, then we only need
-				// the utreexo proof data since we're in swiftsync ibd.
-				msg := wire.MsgGetUtreexoProof{BlockHash: *hash}
-				if sm.committedTTLAcc != nil &&
-					h <= int32(sm.committedTTLAcc.NumLeaves)-1 {
-					msg.SetLeafDataRequestBit()
-				} else {
-					// If not, we need all the data.
-					msg.SetTargetRequestBit()
-					msg.SetProofHashRequestBit()
-					msg.SetLeafDataRequestBit()
+				// Track in the global map when not in headers-first
+				// mode so other peers won't request the same block.
+				if !sm.headersFirstMode {
+					limitAdd(sm.requestedBlocks, *hash, maxRequestedBlocks)
 				}
 
-				reqPeer.QueueMessage(&msg, nil)
+				iv.Type = wire.InvTypeBlock
+
+				// If we're fetching from a witness enabled peer
+				// post-fork, then ensure that we receive all the
+				// witness data in the blocks.
+				if reqPeer.IsWitnessEnabled() {
+					iv.Type = wire.InvTypeWitnessBlock
+				}
+
+				gdmsg.AddInvVect(iv)
+				numRequested++
+			}
+
+			// Request the proof half for a compact state node unless it has
+			// already arrived or is already outstanding.
+			if sm.chain.IsUtreexoViewActive() {
+				_, proofRequested := peerState.requestedUtreexoProofs[*hash]
+				if (pb == nil || pb.proof == nil) && !proofRequested {
+					peerState.requestedUtreexoProofs[*hash] = struct{}{}
+
+					// If we still have ttls left to download, then we only
+					// need the utreexo proof data since we're in swiftsync ibd.
+					msg := wire.MsgGetUtreexoProof{BlockHash: *hash}
+					if sm.committedTTLAcc != nil &&
+						h <= int32(sm.committedTTLAcc.NumLeaves)-1 {
+						msg.SetLeafDataRequestBit()
+					} else {
+						// If not, we need all the data.
+						msg.SetTargetRequestBit()
+						msg.SetProofHashRequestBit()
+						msg.SetLeafDataRequestBit()
+					}
+
+					reqPeer.QueueMessage(&msg, nil)
+				}
 			}
 		}
 
@@ -1289,8 +1346,8 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 	}
 }
 
-// handleUtreexoProofMsg queues the utreexo proof and if we already have the block,
-// it'll send that block to be processed by the block handler.
+// handleUtreexoProofMsg deposits the proof half into the pending pool and
+// connects any blocks that are now ready.
 func (sm *SyncManager) handleUtreexoProofMsg(hmsg *utreexoProofMsg) {
 	peer := hmsg.peer
 	state, exists := sm.peerStates[peer]
@@ -1307,13 +1364,19 @@ func (sm *SyncManager) handleUtreexoProofMsg(hmsg *utreexoProofMsg) {
 		return
 	}
 
-	sm.queuedUtreexoProofs[blockHash] = hmsg
+	// The proof half is in hand so it no longer counts as outstanding.
+	delete(state.requestedUtreexoProofs, blockHash)
 
-	bmsg, haveBlock := sm.queuedBlocks[blockHash]
-	if haveBlock {
-		bmsg.reply = make(chan struct{}, 1)
-		sm.msgChan <- bmsg
+	pb := sm.pending[blockHash]
+	if pb == nil {
+		pb = &pendingBlock{}
+		sm.pending[blockHash] = pb
 	}
+	pb.proof = hmsg.proof
+	pb.proofPeer = peer
+
+	sm.connectReadyBlocks()
+	sm.maybeFetchMoreBlocks()
 }
 
 // handleUtreexoTTLsMsg handles the utreexottl message from all peers. Rejects the ttl message
@@ -2191,21 +2254,20 @@ func (sm *SyncManager) Pause() chan<- struct{} {
 // block, tx, and inv updates.
 func New(config *Config) (*SyncManager, error) {
 	sm := SyncManager{
-		peerNotifier:        config.PeerNotifier,
-		chain:               config.Chain,
-		txMemPool:           config.TxMemPool,
-		chainParams:         config.ChainParams,
-		rejectedTxns:        make(map[chainhash.Hash]struct{}),
-		requestedTxns:       make(map[chainhash.Hash]struct{}),
-		requestedBlocks:     make(map[chainhash.Hash]struct{}),
-		queuedTTLs:          make(map[int32]wire.UtreexoTTL),
-		queuedBlocks:        make(map[chainhash.Hash]*blockMsg),
-		queuedUtreexoProofs: make(map[chainhash.Hash]*utreexoProofMsg),
-		peerStates:          make(map[*peerpkg.Peer]*peerSyncState),
-		progressLogger:      newBlockProgressLogger("Processed", log),
-		msgChan:             make(chan interface{}, config.MaxPeers*3),
-		quit:                make(chan struct{}),
-		feeEstimator:        config.FeeEstimator,
+		peerNotifier:    config.PeerNotifier,
+		chain:           config.Chain,
+		txMemPool:       config.TxMemPool,
+		chainParams:     config.ChainParams,
+		rejectedTxns:    make(map[chainhash.Hash]struct{}),
+		requestedTxns:   make(map[chainhash.Hash]struct{}),
+		requestedBlocks: make(map[chainhash.Hash]struct{}),
+		queuedTTLs:      make(map[int32]wire.UtreexoTTL),
+		pending:         make(map[chainhash.Hash]*pendingBlock),
+		peerStates:      make(map[*peerpkg.Peer]*peerSyncState),
+		progressLogger:  newBlockProgressLogger("Processed", log),
+		msgChan:         make(chan interface{}, config.MaxPeers*3),
+		quit:            make(chan struct{}),
+		feeEstimator:    config.FeeEstimator,
 	}
 
 	if sm.chain.IsUtreexoViewActive() {
