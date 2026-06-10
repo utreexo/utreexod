@@ -1914,6 +1914,42 @@ func TestCSNStoredBlockProofRefetch(t *testing.T) {
 	require.Empty(t, sm.pending)
 }
 
+// TestCSNStoredBlockBadProofDisconnects proves that when the block half came
+// from the local store, a proof that fails verification gets its sender
+// disconnected: the stored block is hash-bound data, so the proof is the
+// only half a peer could have corrupted.
+func TestCSNStoredBlockBadProofDisconnects(t *testing.T) {
+	t.Parallel()
+
+	sm, tearDown, p, blocks := setupCSNChain(t, 1)
+	defer tearDown()
+	st := sm.peerStates[p]
+	sm.headersFirstMode = true
+
+	// Store the block without connecting it.
+	_, _, err := sm.chain.ProcessBlock(blocks[0], blockchain.BFNone)
+	require.Error(t, err)
+
+	// The fetch pass loads the stored block as the block half.
+	st.requestedBlocks = make(map[chainhash.Hash]struct{})
+	st.requestedUtreexoProofs = make(map[chainhash.Hash]struct{})
+	sm.fetchHeaderBlocks(nil)
+
+	// A proof with a target that proves a nonexistent deletion fails
+	// verification.
+	sm.handleUtreexoProofMsg(&utreexoProofMsg{
+		proof: &wire.MsgUtreexoProof{
+			BlockHash: *blocks[0].Hash(),
+			Targets:   []uint64{0},
+		},
+		peer: p,
+	})
+
+	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height,
+		"the bad pair must not connect")
+	assertDisconnected(t, p)
+}
+
 // TestOrphanBlockReachesChain proves that a block whose parent header is
 // unknown is handed to the chain, which classifies it as an orphan, rather
 // than being held in the pending pool waiting for a parent that was never

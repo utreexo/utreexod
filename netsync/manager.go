@@ -1084,6 +1084,17 @@ func (sm *SyncManager) attributeConnectFailure(pb *pendingBlock,
 
 	log.Errorf("Failed to process block %v: %v", blockHash, err)
 
+	// A block half loaded from the local store is hash-bound data that
+	// passed proof of work and merkle checks, so when only the proof came
+	// from the network the verification failure is the proof sender's
+	// fault.
+	if pb.blockPeer == nil && pb.proofPeer != nil {
+		log.Warnf("Utreexo proof from %s does not validate against the "+
+			"stored block %v -- disconnecting", pb.proofPeer, blockHash)
+		pb.proofPeer.Disconnect()
+		return
+	}
+
 	// When the block and proof came from different peers the bad half cannot be
 	// identified, so drop both halves and re-fetch the pair from the sync peer
 	// rather than rejecting an innocent peer. The block and proof were already
