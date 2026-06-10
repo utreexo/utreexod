@@ -1148,8 +1148,13 @@ func (sm *SyncManager) maybeFetchMoreBlocks() {
 		return
 	}
 
+	// The initial block download is done once the best chain tip is the
+	// best header. Comparing the tips by hash matters during a
+	// reorganization to a heavier branch with a lower tip height: the best
+	// chain height can match or exceed the best header height while the
+	// branch still has blocks left to download.
 	best := sm.chain.BestSnapshot()
-	if _, lastHeight := sm.chain.BestHeader(); best.Height >= lastHeight {
+	if bestHeaderHash, _ := sm.chain.BestHeader(); best.Hash.IsEqual(&bestHeaderHash) {
 		log.Infof("Finished the initial block download and caught up to block %v(%v) "+
 			"-- now listening to blocks.", best.Hash, best.Height)
 		sm.headersFirstMode = false
