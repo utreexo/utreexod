@@ -839,8 +839,11 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 
 		// The regression test framework intentionally sends blocks twice to
 		// confirm duplicate insertion fails, so feed the block straight to
-		// the chain instead of parking it in the pending pool.
+		// the chain instead of parking it in the pending pool. The block
+		// can make held pending blocks connectable when it connects.
 		sm.connectPendingBlock(&pendingBlock{block: bmsg.block, blockPeer: peer})
+		sm.connectReadyBlocks()
+		sm.maybeFetchMoreBlocks()
 		return
 	}
 

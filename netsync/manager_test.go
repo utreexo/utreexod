@@ -1745,16 +1745,24 @@ func TestCSNDuplicateBlockHalf(t *testing.T) {
 	block := blocks[0]
 	hash := *block.Hash()
 
+	// The unrequested-block handling keys the regtest duplicate-feed path
+	// on the global params instance, which the test chain's params copy
+	// does not match.
+	sm.chainParams = &chaincfg.RegressionNetParams
+
 	// First, requested copy parks the block half in pending.
 	deliverBlock(sm, p, block)
-	// Second copy is unrequested; in regtest it is fed straight to the chain
-	// without a proof and must not connect or panic.
+	// Second copy is unrequested; in regtest it is fed straight to the
+	// chain without a proof. The connect fails, storing the block, and the
+	// sender is not punished.
 	deliverBlock(sm, p, block)
+	assertConnected(t, p)
 
 	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height,
 		"block must not connect without its proof")
 
-	// The proof completes the originally parked half.
+	// The proof completes the originally parked half, which connects the
+	// stored block.
 	deliverProof(sm, p, hash)
 	require.Equal(t, int32(1), sm.chain.BestSnapshot().Height,
 		"block connects once its proof arrives")
