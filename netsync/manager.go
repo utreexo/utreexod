@@ -850,6 +850,14 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		delete(sm.requestedBlocks, *blockHash)
 	}
 
+	// The block can already be in the main chain when a copy held in the
+	// pending pool connected after this peer was asked for it. There is
+	// nothing left to do with it.
+	if sm.chain.MainChainHasBlock(blockHash) {
+		delete(sm.pending, *blockHash)
+		return
+	}
+
 	pb := sm.pending[*blockHash]
 	if pb == nil {
 		pb = &pendingBlock{}
@@ -862,25 +870,41 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	sm.maybeFetchMoreBlocks()
 }
 
-// connectReadyBlocks connects pending blocks to the tip in chain order and stops
-// once the block that extends the tip is absent or incomplete. Connecting in tip
-// order keeps the utreexo accumulator updated strictly in sequence. Pending
-// payloads may outlive the peer that delivered them, so this path never depends
-// on the delivering peer still being connected.
+// connectReadyBlocks hands assembled pending blocks to the chain in
+// parent-first order and keeps going as handing over one block makes more
+// pending blocks ready. A block is ready once its parent block data is
+// available locally: the parent is either connected or stored as a side-chain
+// block, which is all the chain needs to store the child and reorganize once
+// the child's branch carries the most work. Handing children over only after
+// their parents keeps the utreexo accumulator updated strictly in sequence
+// and guarantees a reorganization never reaches for an ancestor that hasn't
+// been stored yet. A block whose parent is not a known pending header is also
+// handed over so the chain can classify it as an orphan or as extending an
+// invalid branch. Pending payloads may outlive the peer that delivered them,
+// so this path never depends on the delivering peer still being connected.
 func (sm *SyncManager) connectReadyBlocks() {
 	utreexoActive := sm.chain.IsUtreexoViewActive()
 	for {
-		best := sm.chain.BestSnapshot()
-
 		var ready *pendingBlock
 		var readyHash chainhash.Hash
 		for hash, pb := range sm.pending {
 			if !pb.complete(utreexoActive) {
 				continue
 			}
-			if !best.Hash.IsEqual(&pb.block.MsgBlock().Header.PrevBlock) {
+
+			// Hold the block while its parent is a valid header whose
+			// block is still being downloaded ahead of this one.
+			prevHash := &pb.block.MsgBlock().Header.PrevBlock
+			haveParent, err := sm.chain.HaveBlock(prevHash)
+			if err != nil {
+				log.Warnf("Unexpected failure when checking for the "+
+					"parent of block %v: %v", hash, err)
 				continue
 			}
+			if !haveParent && sm.chain.IsValidHeader(prevHash) {
+				continue
+			}
+
 			ready, readyHash = pb, hash
 			break
 		}
@@ -923,13 +947,52 @@ func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
 	isCheckpointBlock, behaviorFlags := sm.checkHeadersList(block)
 
 	// Process the block to include validation, best chain selection, etc.
-	_, _, err := sm.chain.ProcessBlock(block, behaviorFlags)
+	_, isOrphan, err := sm.chain.ProcessBlock(block, behaviorFlags)
 	if err != nil {
 		if dbErr, ok := err.(database.Error); ok &&
 			dbErr.ErrorCode == database.ErrCorruption {
 			panic(dbErr)
 		}
 		sm.attributeConnectFailure(pb, blockHash, err)
+		return
+	}
+
+	// An orphan's parent header is unknown, so ask the peer that delivered
+	// the orphan for the blocks between our tip and the orphan's root. The
+	// orphan's coinbase carries its height, which keeps the delivering
+	// peer's height current for sync candidacy and updates the heights of
+	// other peers that announced the same block.
+	if isOrphan {
+		bp := pb.blockPeer
+		if bp == nil {
+			return
+		}
+		if _, ok := sm.peerStates[bp]; !ok {
+			return
+		}
+
+		header := &block.MsgBlock().Header
+		if blockchain.ShouldHaveSerializedBlockHeight(header) {
+			coinbaseTx := block.Transactions()[0]
+			cbHeight, err := blockchain.ExtractCoinbaseHeight(coinbaseTx)
+			if err != nil {
+				log.Warnf("Unable to extract height from "+
+					"coinbase tx: %v", err)
+			} else {
+				bp.UpdateLastBlockHeight(cbHeight)
+				go sm.peerNotifier.UpdatePeerHeights(blockHash,
+					cbHeight, bp)
+			}
+		}
+
+		orphanRoot := sm.chain.GetOrphanRoot(blockHash)
+		locator, err := sm.chain.LatestBlockLocator()
+		if err != nil {
+			log.Warnf("Failed to get block locator for the "+
+				"latest block: %v", err)
+		} else {
+			bp.PushGetBlocksMsg(locator, orphanRoot)
+		}
 		return
 	}
 
@@ -1410,6 +1473,14 @@ func (sm *SyncManager) handleUtreexoProofMsg(hmsg *utreexoProofMsg) {
 
 	// The proof half is in hand so it no longer counts as outstanding.
 	delete(state.requestedUtreexoProofs, blockHash)
+
+	// The block can already be in the main chain when a copy held in the
+	// pending pool connected after this peer was asked for its proof.
+	// There is nothing left to do with it.
+	if sm.chain.MainChainHasBlock(&blockHash) {
+		delete(sm.pending, blockHash)
+		return
+	}
 
 	pb := sm.pending[blockHash]
 	if pb == nil {

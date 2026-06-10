@@ -521,18 +521,21 @@ func solveTestBlock(header *wire.BlockHeader, params *chaincfg.Params) bool {
 	return false
 }
 
-// generateTestBlocks creates count valid blocks chaining from the genesis
-// block of the given params.  Each block contains only a coinbase transaction.
-func generateTestBlocks(
-	t *testing.T, params *chaincfg.Params, count int) []*btcutil.Block {
+// generateTestBranch creates count valid blocks chaining from the given
+// parent.  Each block contains only a coinbase transaction.  The timestamp
+// offset distinguishes branches built from the same parent: branches with
+// different offsets produce different block hashes at every height.
+func generateTestBranch(t *testing.T, params *chaincfg.Params,
+	parentHash *chainhash.Hash, parentTime time.Time, parentHeight int32,
+	count int, offset time.Duration) []*btcutil.Block {
 
 	t.Helper()
 
 	blocks := make([]*btcutil.Block, 0, count)
-	prevHash := params.GenesisHash
-	prevTime := params.GenesisBlock.Header.Timestamp
+	prevHash := parentHash
+	prevTime := parentTime
 
-	for h := int32(1); h <= int32(count); h++ {
+	for h := parentHeight + 1; h <= parentHeight+int32(count); h++ {
 		cb := createTestCoinbase(h, params)
 		merkleRoot := cb.TxHash()
 
@@ -540,7 +543,7 @@ func generateTestBlocks(
 			Version:    1,
 			PrevBlock:  *prevHash,
 			MerkleRoot: merkleRoot,
-			Timestamp:  prevTime.Add(time.Minute),
+			Timestamp:  prevTime.Add(time.Minute + offset),
 			Bits:       params.PowLimitBits,
 		}
 		require.True(t, solveTestBlock(&header, params),
@@ -559,6 +562,17 @@ func generateTestBlocks(
 	}
 
 	return blocks
+}
+
+// generateTestBlocks creates count valid blocks chaining from the genesis
+// block of the given params.  Each block contains only a coinbase transaction.
+func generateTestBlocks(
+	t *testing.T, params *chaincfg.Params, count int) []*btcutil.Block {
+
+	t.Helper()
+
+	return generateTestBranch(t, params, params.GenesisHash,
+		params.GenesisBlock.Header.Timestamp, 0, count, 0)
 }
 
 // TestSyncStateMachine exercises the end-to-end IBD sync flow:
@@ -1748,6 +1762,100 @@ func TestCSNPendingCapStopsFetch(t *testing.T) {
 	st := sm.peerStates[p]
 	require.Len(t, st.requestedBlocks, maxPendingBlocks,
 		"fetch must request exactly up to the pending cap")
+}
+
+// TestCSNReorg proves that a compact state node can reorganize to a heavier
+// branch that forks below its tip.  None of the new branch's blocks extend
+// the tip when they arrive: each one must be handed to the chain once its
+// parent's data is stored, so the blocks accumulate as a side chain until the
+// branch outweighs the tip and the chain reorganizes using the stored blocks
+// and their proofs.
+func TestCSNReorg(t *testing.T) {
+	t.Parallel()
+
+	const n = 2
+
+	sm, tearDown, p, blocks := setupCSNChain(t, n)
+	defer tearDown()
+	st := sm.peerStates[p]
+
+	// Connect the initial branch: genesis -> a1 -> a2.
+	for _, b := range blocks {
+		deliverProof(sm, p, *b.Hash())
+		deliverBlock(sm, p, b)
+	}
+	require.Equal(t, int32(n), sm.chain.BestSnapshot().Height)
+
+	// Build a heavier branch from the genesis block:
+	//
+	//	genesis -> a1 -> a2        (active)
+	//	       \-> b1 -> b2 -> b3  (heavier)
+	params := sm.chainParams
+	branch := generateTestBranch(t, params, params.GenesisHash,
+		params.GenesisBlock.Header.Timestamp, 0, n+1, time.Minute)
+
+	// The branch headers arrive first and make the best header chain fork
+	// below the tip, the same way a network reorg announces itself.
+	for _, b := range branch {
+		_, err := sm.chain.ProcessBlockHeader(
+			&b.MsgBlock().Header, blockchain.BFNone)
+		require.NoError(t, err)
+	}
+
+	for _, b := range branch {
+		st.requestedBlocks[*b.Hash()] = struct{}{}
+		st.requestedUtreexoProofs[*b.Hash()] = struct{}{}
+	}
+
+	// b1 and b2 do not outweigh the tip: they must be accepted as side
+	// chain blocks without moving the tip.
+	for _, b := range branch[:n] {
+		deliverProof(sm, p, *b.Hash())
+		deliverBlock(sm, p, b)
+	}
+	require.Equal(t, int32(n), sm.chain.BestSnapshot().Height,
+		"side chain blocks must not move the tip")
+	require.Equal(t, *blocks[n-1].Hash(), sm.chain.BestSnapshot().Hash)
+	require.Empty(t, sm.pending,
+		"side chain blocks should be stored, not parked")
+
+	// b3 makes the branch the heaviest chain and triggers the
+	// reorganization.
+	deliverProof(sm, p, *branch[n].Hash())
+	deliverBlock(sm, p, branch[n])
+
+	require.Equal(t, int32(n+1), sm.chain.BestSnapshot().Height,
+		"chain should reorganize to the heavier branch")
+	require.Equal(t, *branch[n].Hash(), sm.chain.BestSnapshot().Hash)
+	require.Empty(t, sm.pending)
+}
+
+// TestOrphanBlockReachesChain proves that a block whose parent header is
+// unknown is handed to the chain, which classifies it as an orphan, rather
+// than being held in the pending pool waiting for a parent that was never
+// announced.
+func TestOrphanBlockReachesChain(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	sm, tearDown := makeMockSyncManager(t, &params)
+	defer tearDown()
+
+	unknownParent := chainhash.Hash{0x01}
+	orphan := generateTestBranch(t, &params, &unknownParent,
+		params.GenesisBlock.Header.Timestamp, 0, 1, 0)[0]
+
+	p := newSyncCandidate(t, sm, 1)
+	sm.peerStates[p].requestedBlocks[*orphan.Hash()] = struct{}{}
+
+	deliverBlock(sm, p, orphan)
+
+	require.True(t, sm.chain.IsKnownOrphan(orphan.Hash()),
+		"the block should be in the chain's orphan pool")
+	require.Empty(t, sm.pending,
+		"the orphan should not be held in the pending pool")
 }
 
 // assertDisconnected fails unless Disconnect was called on the peer.
