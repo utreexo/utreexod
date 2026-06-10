@@ -7,6 +7,7 @@ package blockchain
 import (
 	"crypto/rand"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -193,6 +196,63 @@ func TestProcessBlockHeader(t *testing.T) {
 	if !tipNode.hash.IsEqual(&lastSidechainHeaderHash) {
 		t.Fatalf("expected %v but got %v", lastSidechainHeaderHash.String(), tipNode.hash.String())
 	}
+}
+
+// utreexoTestChain creates a chain instance with an active utreexo viewpoint
+// using the regression test parameters.
+func utreexoTestChain(t *testing.T) (*BlockChain, *chaincfg.Params) {
+	t.Helper()
+
+	params := chaincfg.RegressionNetParams
+	dbPath := filepath.Join(t.TempDir(), "db")
+	db, err := database.Create(testDbType, dbPath, blockDataNet)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	chain, err := New(&Config{
+		DB:          db,
+		ChainParams: &params,
+		TimeSource:  NewMedianTime(),
+		SigCache:    txscript.NewSigCache(1000),
+		UtreexoView: NewUtreexoViewpoint(),
+	})
+	require.NoError(t, err)
+	return chain, &params
+}
+
+// TestProcessBlockStoredRetry verifies that a block whose data was stored but
+// which never validated can be processed again.  A utreexo node can fail to
+// connect a block when its accumulator proof is bad or missing even though the
+// block itself is valid, so a later attempt with a good proof must be able to
+// connect it.
+func TestProcessBlockStoredRetry(t *testing.T) {
+	chain, params := utreexoTestChain(t)
+	genesis := btcutil.NewBlock(params.GenesisBlock)
+
+	block, _ := NewBlock(chain, genesis, nil)
+	blockHash := block.Hash()
+
+	// Feeding the block without a utreexo proof fails to connect it but
+	// stores its data.
+	_, _, err := chain.ProcessBlock(block, BFNone)
+	require.Error(t, err)
+	exists, err := chain.blockExists(blockHash)
+	require.NoError(t, err)
+	require.True(t, exists, "the failed block should have been stored")
+	require.Equal(t, int32(0), chain.BestSnapshot().Height)
+
+	// A coinbase-only block spends nothing, so an empty proof verifies.
+	block.SetUtreexoData(&wire.UData{})
+	_, _, err = chain.ProcessBlock(block, BFNone)
+	require.NoError(t, err, "the stored block should connect once a valid "+
+		"proof is attached")
+	require.True(t, chain.MainChainHasBlock(blockHash))
+
+	// A block that is known valid is rejected as a duplicate.
+	_, _, err = chain.ProcessBlock(block, BFNone)
+	var rErr RuleError
+	require.ErrorAs(t, err, &rErr)
+	require.Equal(t, ErrDuplicateBlock, rErr.ErrorCode)
 }
 
 // TestBestHeaderUpdateOnBlockAccept verifies that the best header chain tip is
