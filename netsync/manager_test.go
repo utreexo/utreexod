@@ -1112,6 +1112,35 @@ func TestStallNoDisconnectAtSameHeight(t *testing.T) {
 		"we should have nil syncPeer after handleStallSample")
 }
 
+// TestStallDisconnectDoesNotRepickPeer verifies that when the stall handler
+// disconnects the sync peer, the peer is not picked as the sync peer again.
+// The disconnected peer stays in peerStates until the done-peer cleanup runs,
+// so without marking it ineligible the immediate startSync re-picks it and
+// sends requests into a closing connection.
+func TestStallDisconnectDoesNotRepickPeer(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	sm, tearDown := makeMockSyncManager(t, &params)
+	defer tearDown()
+
+	// The peer reports more blocks than we have, so the stall handler
+	// disconnects it.
+	p := newSyncCandidate(t, sm, 10)
+	sm.syncPeer = p
+	sm.headersFirstMode = true
+	sm.lastProgressTime = time.Now().Add(
+		-(maxStallDuration + time.Minute))
+
+	sm.handleStallSample()
+
+	assertDisconnected(t, p)
+	require.Nil(t, sm.syncPeer,
+		"the disconnected peer must not be re-picked as the sync peer")
+}
+
 // TestFetchHeaderBlocksNoDuplicateRequests verifies that when multiple peers
 // announce the same block headers while not in headers-first mode (i.e., at the
 // chain tip), blocks are only requested from the first announcing peer.

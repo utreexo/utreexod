@@ -672,9 +672,16 @@ func (sm *SyncManager) updateSyncPeer(dcSyncPeer bool) {
 	log.Debugf("Updating sync peer, no progress for: %v",
 		time.Since(sm.lastProgressTime))
 
-	// First, disconnect the current sync peer if requested.
+	// First, disconnect the current sync peer if requested. The peer stays
+	// in peerStates until the disconnect completes and the done-peer
+	// cleanup runs, so mark it ineligible to keep the startSync below from
+	// re-picking the peer being disconnected and sending requests into a
+	// closing connection.
 	if dcSyncPeer {
 		sm.syncPeer.Disconnect()
+		if state, ok := sm.peerStates[sm.syncPeer]; ok {
+			state.syncCandidate = false
+		}
 	}
 
 	sm.syncPeer = nil
