@@ -798,9 +798,6 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 	ttls, found := sm.queuedTTLs[height]
 	if found {
 		block.SetUtreexoTTLs(&ttls)
-
-		// Remove the no longer needed ttl.
-		delete(sm.queuedTTLs, height)
 	}
 
 	checkpoint := sm.findNextHeaderCheckpoint(height - 1)
@@ -1002,6 +999,11 @@ func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
 		}
 		return
 	}
+
+	// The block made it into the chain, so its queued ttl is no longer
+	// needed. Keeping the ttl until this point lets a connect failure
+	// retry the block with the ttl still attached.
+	delete(sm.queuedTTLs, block.Height())
 
 	// Connecting a block is forward progress, so reset the stall timer and the
 	// rejected transactions.
