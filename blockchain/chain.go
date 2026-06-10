@@ -1335,6 +1335,13 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			// hashes.
 			b.bestChain.setTip(n)
 
+			// A stored block can lack a proof when it was processed
+			// without one attached.
+			if block.UtreexoData() == nil {
+				return nil, nil, nil, fmt.Errorf("verifyReorganizationValidity fail: "+
+					"no utreexo proof stored for block %s", block.Hash())
+			}
+
 			// Reconstruct the utreexo data as it's stored in the compact state.
 			_, _, inskip, _ := DedupeBlock(block)
 			_, err := reconstructUData(block.UtreexoData(), block, b.bestChain, inskip)

@@ -56,7 +56,25 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
 	err = b.db.Update(func(dbTx database.Tx) error {
-		return dbStoreBlock(dbTx, block)
+		hasBlock, err := dbTx.HasBlock(block.Hash())
+		if err != nil {
+			return err
+		}
+		if !hasBlock {
+			return dbTx.StoreBlock(block)
+		}
+
+		// The raw block bytes, including the proof serialized alongside
+		// them, cannot be rewritten once stored.  Persist the proof
+		// attached to this processing attempt as an override so that
+		// reorganizations read back the latest proof for the block: the
+		// proof stored with the original attempt may be the reason the
+		// block has not connected.
+		if b.utreexoView != nil && block.UtreexoData() != nil {
+			return dbPutUtreexoProofOverride(dbTx, block.Hash(),
+				block.UtreexoData())
+		}
+		return nil
 	})
 	if err != nil {
 		return false, err

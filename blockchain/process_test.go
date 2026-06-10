@@ -248,6 +248,14 @@ func TestProcessBlockStoredRetry(t *testing.T) {
 		"proof is attached")
 	require.True(t, chain.MainChainHasBlock(blockHash))
 
+	// The proof from the connecting attempt replaces the stored one, so a
+	// reorganization that detaches the block reads back the proof that
+	// verified rather than the one from the failed attempt.
+	stored, err := chain.StoredBlockByHash(blockHash)
+	require.NoError(t, err)
+	require.NotNil(t, stored.UtreexoData(),
+		"the stored block should read back with the connecting proof")
+
 	// A block that is known valid is rejected as a duplicate.
 	_, _, err = chain.ProcessBlock(block, BFNone)
 	var rErr RuleError

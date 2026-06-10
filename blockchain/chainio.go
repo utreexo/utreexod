@@ -63,6 +63,11 @@ var (
 	// utreexo accumulator state
 	utreexoStateBucketName = []byte("utreexostate")
 
+	// utreexoProofOverrideBucketName is the name of the db bucket used to
+	// house utreexo proofs that replace the proof serialized alongside the
+	// raw block bytes, which cannot be rewritten once stored.
+	utreexoProofOverrideBucketName = []byte("utreexoproofoverride")
+
 	// byteOrder is the preferred byte order used for serializing numeric
 	// fields for storage in the database.
 	byteOrder = binary.LittleEndian
@@ -1213,6 +1218,46 @@ func dbRemoveUtreexoView(dbTx database.Tx, blockHash chainhash.Hash) error {
 	return utreexoBucket.Delete(blockHash[:])
 }
 
+// dbPutUtreexoProofOverride stores the proof data for the block, replacing any
+// previously stored override.
+func dbPutUtreexoProofOverride(dbTx database.Tx, blockHash *chainhash.Hash,
+	ud *wire.UData) error {
+
+	bucket, err := dbTx.Metadata().CreateBucketIfNotExists(
+		utreexoProofOverrideBucketName)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	buf.Grow(ud.SerializeSize())
+	if err := ud.Serialize(&buf); err != nil {
+		return err
+	}
+	return bucket.Put(blockHash[:], buf.Bytes())
+}
+
+// dbFetchUtreexoProofOverride returns the override proof for the block, or nil
+// when none is stored.
+func dbFetchUtreexoProofOverride(dbTx database.Tx,
+	blockHash *chainhash.Hash) (*wire.UData, error) {
+
+	bucket := dbTx.Metadata().Bucket(utreexoProofOverrideBucketName)
+	if bucket == nil {
+		return nil, nil
+	}
+	serialized := bucket.Get(blockHash[:])
+	if serialized == nil {
+		return nil, nil
+	}
+
+	ud := new(wire.UData)
+	if err := ud.Deserialize(bytes.NewReader(serialized)); err != nil {
+		return nil, err
+	}
+	return ud, nil
+}
+
 // createChainState initializes both the database and the chain state to the
 // genesis block.  This includes creating the necessary buckets and inserting
 // the genesis block, so it must only be called on an uninitialized database.
@@ -1563,6 +1608,16 @@ func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*btc
 	// Only utreexo CSN nodes store proof data alongside the block.
 	if isUtreexo {
 		block.ParseUtreexoData()
+
+		// A proof stored after the block replaces the one serialized
+		// alongside the raw block bytes.
+		override, err := dbFetchUtreexoProofOverride(dbTx, &node.hash)
+		if err != nil {
+			return nil, err
+		}
+		if override != nil {
+			block.SetUtreexoData(override)
+		}
 	}
 
 	return block, nil
