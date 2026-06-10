@@ -24,6 +24,12 @@ const (
 	// maxOrphanBlocks is the maximum number of orphan blocks that can be
 	// queued.
 	maxOrphanBlocks = 100
+
+	// maxPendingBlocks is the maximum number of blocks held in memory while
+	// they await validation.  It bounds the memory used by side chain
+	// blocks that have not connected.  An evicted block is re-requested if
+	// its branch later wins.
+	maxPendingBlocks = 100
 )
 
 // BlockLocator is used to help locate a specific block.  The algorithm for
@@ -47,6 +53,14 @@ type BlockLocator []*chainhash.Hash
 // is a normal block plus an expiration time to prevent caching the orphan
 // forever.
 type orphanBlock struct {
+	block      *btcutil.Block
+	expiration time.Time
+}
+
+// pendingBlock represents a block whose data has arrived but which has not yet
+// validated and connected.  It is a normal block plus an expiration time to
+// prevent holding it forever.
+type pendingBlock struct {
 	block      *btcutil.Block
 	expiration time.Time
 }
@@ -209,6 +223,15 @@ type BlockChain struct {
 	orphans      map[chainhash.Hash]*orphanBlock
 	prevOrphans  map[chainhash.Hash][]*orphanBlock
 	oldestOrphan *orphanBlock
+
+	// pendingBlocks holds blocks whose data has arrived but which have not
+	// yet validated and connected.  For a utreexo node the block and its
+	// accumulator proof are kept here instead of being written to disk, so
+	// that nothing unvalidated is persisted.  A block is stored only once it
+	// connects.  Side chain blocks stay here until a reorganization attaches
+	// them or they are evicted.  Protected by pendingLock.
+	pendingLock   sync.RWMutex
+	pendingBlocks map[chainhash.Hash]*pendingBlock
 
 	// These fields are related to checkpoint handling.  They are protected
 	// by the chain lock.
@@ -399,6 +422,58 @@ func (b *BlockChain) addOrphanBlock(block *btcutil.Block) {
 	// Add to previous hash lookup index for faster dependency lookups.
 	prevHash := &block.MsgBlock().Header.PrevBlock
 	b.prevOrphans[*prevHash] = append(b.prevOrphans[*prevHash], oBlock)
+}
+
+// addPendingBlock holds the block in memory until it validates and connects.
+// It lazily evicts expired entries and caps the pool to bound memory, dropping
+// the oldest entry when full.  An evicted side chain block is forgotten and is
+// re-requested if its branch later wins.
+func (b *BlockChain) addPendingBlock(block *btcutil.Block) {
+	b.pendingLock.Lock()
+	defer b.pendingLock.Unlock()
+
+	// Remove expired entries and track the oldest remaining one so it can be
+	// discarded if the pool is full.
+	var oldest *pendingBlock
+	for hash, pBlock := range b.pendingBlocks {
+		if time.Now().After(pBlock.expiration) {
+			delete(b.pendingBlocks, hash)
+			continue
+		}
+		if oldest == nil || pBlock.expiration.Before(oldest.expiration) {
+			oldest = pBlock
+		}
+	}
+
+	// Cap the pool to prevent memory exhaustion.
+	if len(b.pendingBlocks)+1 > maxPendingBlocks && oldest != nil {
+		delete(b.pendingBlocks, *oldest.block.Hash())
+	}
+
+	b.pendingBlocks[*block.Hash()] = &pendingBlock{
+		block:      block,
+		expiration: time.Now().Add(time.Hour),
+	}
+}
+
+// removePendingBlock drops the block from the pending pool.  It is a no-op when
+// the block is not held.
+func (b *BlockChain) removePendingBlock(hash *chainhash.Hash) {
+	b.pendingLock.Lock()
+	defer b.pendingLock.Unlock()
+	delete(b.pendingBlocks, *hash)
+}
+
+// lookupPendingBlock returns the pending block for the hash and whether it is
+// held.
+func (b *BlockChain) lookupPendingBlock(hash *chainhash.Hash) (*btcutil.Block, bool) {
+	b.pendingLock.RLock()
+	defer b.pendingLock.RUnlock()
+	pBlock, exists := b.pendingBlocks[*hash]
+	if !exists {
+		return nil, false
+	}
+	return pBlock.block, true
 }
 
 // SequenceLock represents the converted relative lock-time in seconds, and
@@ -687,6 +762,14 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 
 	// Atomically insert info into the database.
 	err = b.db.Update(func(dbTx database.Tx) error {
+		// Persist the block bytes if they are not already stored.  For a
+		// utreexo node the block and its proof are held in memory while
+		// unvalidated, so this is where a validated block, carrying the
+		// proof that verified, is written to disk.
+		if err := dbStoreBlock(dbTx, block); err != nil {
+			return err
+		}
+
 		if b.pruneTarget != 0 {
 			// NODE_NETWORK_LIMITED service bit requires that the last 288 blocks.
 			// Since we just saved block with `node.height`, the minimum block height
@@ -774,6 +857,12 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 	if err != nil {
 		return err
 	}
+
+	// The block bytes are now durably stored.  Record that on the node and
+	// drop the in-memory copy that was held while it was unvalidated.  The
+	// status flag is persisted on the next block index flush.
+	b.index.SetStatusFlags(node, statusDataStored)
+	b.removePendingBlock(block.Hash())
 
 	// Flush the indexes if they need to be flushed.
 	if b.indexManager != nil {
@@ -1319,14 +1408,23 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	for e := attachNodes.Front(); e != nil; e = e.Next() {
 		n := e.Value.(*blockNode)
 
+		// A side chain block that has not connected on the main chain is
+		// held in memory rather than on disk.  Prefer the in-memory copy
+		// and fall back to disk for blocks that previously connected and
+		// were then detached.
 		var block *btcutil.Block
-		err := b.db.View(func(dbTx database.Tx) error {
-			var err error
-			block, err = dbFetchBlockByNode(dbTx, n, b.utreexoView != nil)
-			return err
-		})
-		if err != nil {
-			return nil, nil, nil, err
+		var err error
+		if pBlock, ok := b.lookupPendingBlock(&n.hash); ok {
+			block = pBlock
+		} else {
+			err = b.db.View(func(dbTx database.Tx) error {
+				var err error
+				block, err = dbFetchBlockByNode(dbTx, n, b.utreexoView != nil)
+				return err
+			})
+			if err != nil {
+				return nil, nil, nil, err
+			}
 		}
 
 		if b.utreexoView != nil {
@@ -1334,6 +1432,13 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			// the best chain will effect what block hashes are committed in the leaf
 			// hashes.
 			b.bestChain.setTip(n)
+
+			// A block can lack a proof when it was processed without one
+			// attached.
+			if block.UtreexoData() == nil {
+				return nil, nil, nil, fmt.Errorf("verifyReorganizationValidity fail: "+
+					"no utreexo proof stored for block %s", block.Hash())
+			}
 
 			// Reconstruct the utreexo data as it's stored in the compact state.
 			_, _, inskip, _ := DedupeBlock(block)
@@ -2631,6 +2736,7 @@ func New(config *Config) (*BlockChain, error) {
 		bestHeader:          newChainView(nil),
 		orphans:             make(map[chainhash.Hash]*orphanBlock),
 		prevOrphans:         make(map[chainhash.Hash][]*orphanBlock),
+		pendingBlocks:       make(map[chainhash.Hash]*pendingBlock),
 		warningCaches:       newThresholdCaches(vbNumBits),
 		deploymentCaches:    newThresholdCaches(chaincfg.DefinedDeployments),
 		pruneTarget:         config.Prune,

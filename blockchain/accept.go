@@ -46,20 +46,27 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 		return false, err
 	}
 
-	// Insert the block into the database if it's not already there.  Even
-	// though it is possible the block will ultimately fail to connect, it
-	// has already passed all proof-of-work and validity tests which means
-	// it would be prohibitively expensive for an attacker to fill up the
-	// disk with a bunch of blocks that fail to connect.  This is necessary
-	// since it allows block download to be decoupled from the much more
-	// expensive connection logic.  It also has some other nice properties
-	// such as making blocks that never become part of the main chain or
-	// blocks that fail to connect available for further analysis.
-	err = b.db.Update(func(dbTx database.Tx) error {
-		return dbStoreBlock(dbTx, block)
-	})
-	if err != nil {
-		return false, err
+	// Make the block available for connection.  A utreexo node holds the
+	// block and its accumulator proof in memory until it connects and the
+	// proof validates, so that nothing unvalidated is ever written to disk:
+	// the proof may be bogus, and once serialized alongside the immutable
+	// block bytes it could never be corrected.  The block is written to disk
+	// in connectBlock the moment it connects.
+	//
+	// A non-utreexo node stores the block here even though it may ultimately
+	// fail to connect.  It has already passed all proof-of-work and validity
+	// tests, so it would be prohibitively expensive for an attacker to fill
+	// up the disk with blocks that fail to connect, and this decouples block
+	// download from the much more expensive connection logic.
+	if b.utreexoView != nil {
+		b.addPendingBlock(block)
+	} else {
+		err = b.db.Update(func(dbTx database.Tx) error {
+			return dbStoreBlock(dbTx, block)
+		})
+		if err != nil {
+			return false, err
+		}
 	}
 
 	// Check to see if we already have the blocknode in our index.
@@ -70,12 +77,18 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 		// on a side chain.
 		blockHeader := &block.MsgBlock().Header
 		newNode := newBlockNode(blockHeader, prevNode)
-		newNode.status = statusDataStored
+
+		// A non-utreexo block is already on disk.  A utreexo block is only
+		// held in memory until it connects, so the node is not marked as
+		// having its data stored until connectBlock writes it.
+		if b.utreexoView == nil {
+			newNode.status = statusDataStored
+		}
 
 		b.index.AddNode(newNode)
 		node = newNode
-	} else {
-		// If we already have it, then just set the status as data stored.
+	} else if b.utreexoView == nil {
+		// If we already have it and stored it, set the status as data stored.
 		b.index.SetStatusFlags(node, statusDataStored)
 	}
 	err = b.index.flushToDB()
@@ -88,6 +101,10 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	// also handles validation of the transaction scripts.
 	isMainChain, err := b.connectBestChain(node, block, flags)
 	if err != nil {
+		// The block did not connect, so drop the in-memory copy held for a
+		// utreexo node.  A side chain block that connected to a fork but did
+		// not reorganize the chain returns without error and is kept.
+		b.removePendingBlock(block.Hash())
 		return false, err
 	}
 

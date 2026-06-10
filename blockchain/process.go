@@ -45,6 +45,13 @@ func (b *BlockChain) blockExists(hash *chainhash.Hash) (bool, error) {
 		return true, nil
 	}
 
+	// A block whose data is held in memory while it awaits validation also
+	// exists even though it is not yet stored on disk.  Without this a child
+	// fed before the block connects would be treated as an orphan.
+	if _, ok := b.lookupPendingBlock(hash); ok {
+		return true, nil
+	}
+
 	// Check in the database.
 	var exists bool
 	err := b.db.View(func(dbTx database.Tx) error {
@@ -196,7 +203,12 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 	blockHash := block.Hash()
 	log.Tracef("Processing block %v", blockHash)
 
-	// The block must not already exist in the main chain or side chains.
+	// A block whose node already carries a status flag is known and is
+	// rejected as a duplicate. A block that has never validated carries no
+	// flags, so it is allowed through for another attempt: for a utreexo node
+	// a connect failure can be caused by a bad or missing accumulator proof
+	// rather than by the block itself, and the block is held in memory rather
+	// than written to disk until it connects.
 	exists, err := b.blockExists(blockHash)
 	if err != nil {
 		return false, false, err
