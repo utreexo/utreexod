@@ -1958,6 +1958,70 @@ func TestCSNStoredBlockBadProofDisconnects(t *testing.T) {
 	assertDisconnected(t, p)
 }
 
+// TestFetchHeaderBlocksStopsAtInvalidBlock proves that the fetch walk stops
+// at a block that is known to be invalid.  Nothing at or past such a block
+// can connect, so requesting it, its proof, or its descendants is wasted
+// work; progress requires a header branch without the invalid block becoming
+// the heaviest.
+func TestFetchHeaderBlocksStopsAtInvalidBlock(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+	defer tearDown()
+
+	// An invalid block at height 1: the coinbase pays more than the
+	// subsidy, which fails validation only at connect time so the block
+	// gets stored first.
+	cb := createTestCoinbase(1, &params)
+	cb.TxOut[0].Value++
+	header := wire.BlockHeader{
+		Version:    1,
+		PrevBlock:  *params.GenesisHash,
+		MerkleRoot: cb.TxHash(),
+		Timestamp:  params.GenesisBlock.Header.Timestamp.Add(time.Minute),
+		Bits:       params.PowLimitBits,
+	}
+	require.True(t, solveTestBlock(&header, &params))
+	invalid := btcutil.NewBlock(&wire.MsgBlock{
+		Header:       header,
+		Transactions: []*wire.MsgTx{cb},
+	})
+
+	descendants := generateTestBranch(t, &params, invalid.Hash(),
+		header.Timestamp, 1, 2, 0)
+
+	blocks := append([]*btcutil.Block{invalid}, descendants...)
+	for _, b := range blocks {
+		_, err := sm.chain.ProcessBlockHeader(
+			&b.MsgBlock().Header, blockchain.BFNone)
+		require.NoError(t, err)
+	}
+
+	// Connecting fails with a rule error, which stores the block and
+	// marks it invalid.
+	invalid.SetUtreexoData(&wire.UData{})
+	_, _, err := sm.chain.ProcessBlock(invalid, blockchain.BFNone)
+	var rErr blockchain.RuleError
+	require.ErrorAs(t, err, &rErr)
+
+	p := newSyncCandidate(t, sm, int32(len(blocks)))
+	sm.syncPeer = p
+	sm.headersFirstMode = true
+	st := sm.peerStates[p]
+
+	sm.fetchHeaderBlocks(nil)
+
+	require.Empty(t, st.requestedBlocks,
+		"no blocks at or past the invalid block should be requested")
+	require.Empty(t, st.requestedUtreexoProofs,
+		"no proofs at or past the invalid block should be requested")
+	require.Empty(t, sm.pending,
+		"the invalid stored block must not be loaded into the pool")
+}
+
 // TestCSNPoisonedSideChainProofHeals covers proof replacement end to end.  A
 // side chain block's proof is not verified when the block is stored, so a
 // peer can poison the stored copy with a garbage proof and the

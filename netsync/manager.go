@@ -1306,6 +1306,13 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			return
 		}
 
+		// Nothing past a block that failed validation can connect, so
+		// stop requesting at it. Progress resumes once a header branch
+		// without the invalid block becomes the heaviest.
+		if !sm.chain.IsValidHeader(hash) {
+			break
+		}
+
 		iv := wire.NewInvVect(wire.InvTypeBlock, hash)
 		haveInv, err := sm.haveInventory(iv)
 		if err != nil {
