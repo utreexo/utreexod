@@ -2002,12 +2002,7 @@ func (b *BlockChain) IsValidHeader(blockHash *chainhash.Hash) bool {
 		return false
 	}
 
-	if node.status == statusValidateFailed ||
-		node.status == statusInvalidAncestor {
-		return false
-	}
-
-	return true
+	return !b.index.NodeStatus(node).KnownInvalid()
 }
 
 // LatestBlockLocatorByHeader returns a block locator for the latest known tip of the
