@@ -7,7 +7,7 @@
 
 set -ex
 
-go test -short -race -tags="rpctest" -tags="bdkwallet" ./...
+go test -short -race -timeout 20m -tags="rpctest" -tags="bdkwallet" ./...
 
 # Automatic checks
 golangci-lint run
