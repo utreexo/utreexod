@@ -35,18 +35,26 @@ type UtreexoViewpoint struct {
 }
 
 // CopyWithRoots returns a new utreexo viewpoint with just the roots copied.
+// The roots are inserted as bare nodes, the same way deserializeUtreexoView
+// builds a viewpoint: a root copied with its below pointers intact would
+// claim children that are not in the copy's node map, which makes proof
+// ingestion skip materializing those children and then fail to look up the
+// nodes beneath them.
 func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 	newUview := NewUtreexoViewpoint()
 	newUview.accumulator.NumLeaves = uview.accumulator.NumLeaves
 	newUview.accumulator.TotalRows = uview.accumulator.TotalRows
 
 	roots := uview.accumulator.GetRoots()
-	nodes := uview.accumulator.GetRootNodes()
 
+	var empty utreexo.Hash
 	newUview.accumulator.Roots = make([]utreexo.Hash, len(roots))
 	for i := range roots {
 		newUview.accumulator.Roots[i] = roots[i]
-		newUview.accumulator.Nodes.Put(roots[i], nodes[i])
+		if roots[i] == empty {
+			continue
+		}
+		newUview.accumulator.Nodes.Put(roots[i], utreexo.Node{AddIndex: -1})
 	}
 
 	newUview.agg = uview.agg
