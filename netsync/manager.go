@@ -955,7 +955,7 @@ func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
 	isCheckpointBlock, behaviorFlags := sm.checkHeadersList(block)
 
 	// Process the block to include validation, best chain selection, etc.
-	_, isOrphan, err := sm.chain.ProcessBlock(block, behaviorFlags)
+	isMainChain, isOrphan, err := sm.chain.ProcessBlock(block, behaviorFlags)
 	if err != nil {
 		if dbErr, ok := err.(database.Error); ok &&
 			dbErr.ErrorCode == database.ErrCorruption {
@@ -1004,10 +1004,14 @@ func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
 		return
 	}
 
-	// The block made it into the chain, so its queued ttl is no longer
-	// needed. Keeping the ttl until this point lets a connect failure
-	// retry the block with the ttl still attached.
-	delete(sm.queuedTTLs, block.Height())
+	// A block that extends the main chain consumes the queued ttl for its
+	// height, so the ttl is no longer needed. A side chain block leaves it in
+	// place for the block that does extend the main chain at that height.
+	// Keeping the ttl until this point also lets a connect failure retry the
+	// block with the ttl still attached.
+	if isMainChain {
+		delete(sm.queuedTTLs, block.Height())
+	}
 
 	// Connecting a block is forward progress, so reset the stall timer and the
 	// rejected transactions.
@@ -1031,8 +1035,9 @@ func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
 	}
 
 	// If we're at the block when the swiftsync part of ibd ends, make sure the
-	// aggregator is zero.
-	if sm.committedTTLAcc != nil &&
+	// aggregator is zero. Only a block that extends the main chain reaches the
+	// swiftsync checkpoint height on the active chain.
+	if isMainChain && sm.committedTTLAcc != nil &&
 		block.Height() == int32(sm.committedTTLAcc.NumLeaves-1) {
 		if !sm.chain.IsAggZero() {
 			log.Warnf("The swiftsync aggregator is non-zero at swiftsync checkpoint at block %v(%v). "+
