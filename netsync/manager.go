@@ -1534,11 +1534,19 @@ func (sm *SyncManager) handleUtreexoProofMsg(hmsg *utreexoProofMsg) {
 	}
 
 	blockHash := hmsg.proof.BlockHash
-	if _, exists = state.requestedUtreexoProofs[blockHash]; !exists {
-		log.Warnf("Got unrequested utreexo proof %v from %s -- "+
-			"disconnecting", blockHash, peer.Addr())
-		peer.Disconnect()
-		return
+	if _, requested := state.requestedUtreexoProofs[blockHash]; !requested {
+		// A proof this peer was not asked for is only misbehavior when no
+		// pending block still needs it. A stall clears the outstanding proof
+		// requests so a new sync peer re-requests them, which can race a late
+		// delivery from the original peer, so accept that delivery when a
+		// pending block half is still waiting for its proof.
+		pb := sm.pending[blockHash]
+		if pb == nil || pb.block == nil || pb.proof != nil {
+			log.Warnf("Got unrequested utreexo proof %v from %s -- "+
+				"disconnecting", blockHash, peer.Addr())
+			peer.Disconnect()
+			return
+		}
 	}
 
 	// The proof half is in hand so it no longer counts as outstanding.
