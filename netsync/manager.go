@@ -264,6 +264,11 @@ type SyncManager struct {
 	// arrival order or which peer delivered them.
 	pending map[chainhash.Hash]*pendingBlock
 
+	// heldBlocks is the number of pending entries that hold a full block in
+	// memory. It is maintained as blocks enter and leave the pending pool so
+	// the fetch pass can bound full-block memory without rescanning the pool.
+	heldBlocks int
+
 	// An optional fee estimator.
 	feeEstimator *mempool.FeeEstimator
 }
@@ -862,20 +867,47 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// pending pool connected after this peer was asked for it. There is
 	// nothing left to do with it.
 	if sm.chain.MainChainHasBlock(blockHash) {
-		delete(sm.pending, *blockHash)
+		sm.deletePending(*blockHash)
 		return
 	}
 
-	pb := sm.pending[*blockHash]
-	if pb == nil {
-		pb = &pendingBlock{}
-		sm.pending[*blockHash] = pb
-	}
-	pb.block = bmsg.block
-	pb.blockPeer = peer
+	sm.putPendingBlock(*blockHash, bmsg.block, peer)
 
 	sm.connectReadyBlocks()
 	sm.maybeFetchMoreBlocks()
+}
+
+// putPendingBlock parks a block half in the pending pool, creating the entry
+// when it is the first half to arrive, and keeps heldBlocks in step with the
+// number of entries that hold a full block. peer is the peer that delivered the
+// block, or nil when the block was loaded from the local store.
+func (sm *SyncManager) putPendingBlock(hash chainhash.Hash, block *btcutil.Block,
+	peer *peerpkg.Peer) *pendingBlock {
+
+	pb := sm.pending[hash]
+	if pb == nil {
+		pb = &pendingBlock{}
+		sm.pending[hash] = pb
+	}
+	if pb.block == nil {
+		sm.heldBlocks++
+	}
+	pb.block = block
+	pb.blockPeer = peer
+	return pb
+}
+
+// deletePending removes a pending entry and keeps heldBlocks in step with the
+// number of entries that hold a full block.
+func (sm *SyncManager) deletePending(hash chainhash.Hash) {
+	pb := sm.pending[hash]
+	if pb == nil {
+		return
+	}
+	if pb.block != nil {
+		sm.heldBlocks--
+	}
+	delete(sm.pending, hash)
 }
 
 // connectReadyBlocks hands assembled pending blocks to the chain in
@@ -921,7 +953,7 @@ func (sm *SyncManager) connectReadyBlocks() {
 			return
 		}
 
-		delete(sm.pending, readyHash)
+		sm.deletePending(readyHash)
 		sm.connectPendingBlock(ready)
 	}
 }
@@ -1153,6 +1185,20 @@ func (sm *SyncManager) rejectBlockTo(peer *peerpkg.Peer,
 	peer.PushRejectMsg(wire.CmdBlock, code, reason, blockHash, false)
 }
 
+// heldBlockCount recomputes, by scanning the pending pool, the number of
+// entries that hold a full block in memory. Proof only entries hold no block,
+// so they are excluded from the count that bounds full block memory. It returns
+// the same value as the maintained heldBlocks counter and is used to verify it.
+func (sm *SyncManager) heldBlockCount() int {
+	count := 0
+	for _, pb := range sm.pending {
+		if pb.block != nil {
+			count++
+		}
+	}
+	return count
+}
+
 // maybeFetchMoreBlocks refills the block and proof request pipeline for the sync
 // peer and leaves headers-first mode once the best chain reaches the best header.
 // It keys the refill on outstanding block requests rather than on assembled
@@ -1179,12 +1225,9 @@ func (sm *SyncManager) maybeFetchMoreBlocks() {
 		return
 	}
 
-	// Bound the memory held by received-but-unconnected blocks when proofs lag
-	// behind blocks.
-	if len(sm.pending) >= maxPendingBlocks {
-		return
-	}
-
+	// Refill the pipeline. fetchHeaderBlocks bounds the number of full blocks it
+	// pulls into memory and still re-requests proofs for blocks already held
+	// when the pipeline is full, so a dropped proof does not wedge the download.
 	if len(state.requestedBlocks) < minInFlightBlocks {
 		sm.fetchHeaderBlocks(nil)
 	}
@@ -1296,13 +1339,6 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 	numRequested := 0
 
 	for h := forkHeight + 1; h <= bestHeaderHeight; h++ {
-		// Stop once the pipeline (pending blocks plus outstanding block
-		// requests) reaches the cap so the number of full blocks held in
-		// memory stays bounded when proofs lag behind blocks.
-		if len(sm.pending)+len(peerState.requestedBlocks) >= maxPendingBlocks {
-			break
-		}
-
 		if sm.chain.IsUtreexoViewActive() && sm.committedTTLAcc != nil {
 			// Break if we ran out of ttls. Note: when committedTTLAcc
 			// is set, reorgs cannot happen below its height as it acts
@@ -1341,6 +1377,17 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		// pending pool (possibly delivered by an earlier sync peer) is
 		// reused rather than re-requested.
 		pb := sm.pending[*hash]
+
+		// Bound the number of full blocks held in memory. Once the pipeline is
+		// full stop pulling new blocks in, but keep going for a block already
+		// held whose proof is still missing so a dropped proof is re-requested
+		// rather than wedging the download behind it.
+		haveBlockHalf := pb != nil && pb.block != nil
+		if !haveBlockHalf &&
+			sm.heldBlocks+len(peerState.requestedBlocks) >= maxPendingBlocks {
+			break
+		}
+
 		if haveInv {
 			// A block above the fork point whose data is stored is one
 			// that previously failed to connect, e.g. because its utreexo
@@ -1356,11 +1403,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 						hash, err)
 					continue
 				}
-				if pb == nil {
-					pb = &pendingBlock{}
-					sm.pending[*hash] = pb
-				}
-				pb.block = block
+				pb = sm.putPendingBlock(*hash, block, nil)
 			}
 		} else {
 			// Request the block half unless it has already arrived or is
@@ -1556,7 +1599,7 @@ func (sm *SyncManager) handleUtreexoProofMsg(hmsg *utreexoProofMsg) {
 	// pending pool connected after this peer was asked for its proof.
 	// There is nothing left to do with it.
 	if sm.chain.MainChainHasBlock(&blockHash) {
-		delete(sm.pending, blockHash)
+		sm.deletePending(blockHash)
 		return
 	}
 

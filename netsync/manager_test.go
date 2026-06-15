@@ -1800,6 +1800,115 @@ func TestCSNPendingCapStopsFetch(t *testing.T) {
 	st := sm.peerStates[p]
 	require.Len(t, st.requestedBlocks, maxPendingBlocks,
 		"fetch must request exactly up to the pending cap")
+	require.Equal(t, sm.heldBlockCount(), sm.heldBlocks,
+		"the held-block counter must match a rescan of the pool")
+}
+
+// TestCSNDroppedProofAtCapReRequests reproduces an IBD wedge: when the pending
+// pool is full of block halves held behind a block whose proof was dropped, the
+// fetch pass must still re-request that block's proof rather than stop at the
+// cap. A stall clears the outstanding proof requests, so the next fetch pass is
+// the only thing that re-asks for the dropped proof. Stopping at the cap before
+// reaching the held block would leave its proof unrequested and wedge the
+// download behind it forever.
+func TestCSNDroppedProofAtCapReRequests(t *testing.T) {
+	// Not parallel: it temporarily lowers the package-level cap.
+	defer func(orig int) { maxPendingBlocks = orig }(maxPendingBlocks)
+
+	const n = 5
+	sm, tearDown, p, blocks := setupCSNChain(t, n)
+	defer tearDown()
+	st := sm.peerStates[p]
+	sm.headersFirstMode = true
+
+	// Cap the pipeline at the first three blocks so the pool fills behind the
+	// dropped proof.
+	maxPendingBlocks = 3
+
+	// Deliver the block halves for the first cap-many blocks, filling the pool.
+	// None can connect yet because their proofs have not arrived.
+	for _, b := range blocks[:maxPendingBlocks] {
+		deliverBlock(sm, p, b)
+	}
+	require.Equal(t, maxPendingBlocks, sm.heldBlockCount(),
+		"the pool should be full of held block halves")
+
+	// Deliver the proofs for every held block except the first, so the first
+	// block is the stuck one the rest are queued behind.
+	for _, b := range blocks[1:maxPendingBlocks] {
+		deliverProof(sm, p, *b.Hash())
+	}
+	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height,
+		"nothing connects while the first block's proof is missing")
+	require.Contains(t, st.requestedUtreexoProofs, *blocks[0].Hash(),
+		"the dropped proof is still outstanding")
+
+	// A stall clears the outstanding proof requests so a new sync peer can
+	// re-request them.
+	sm.clearRequestedState(st)
+	require.NotContains(t, st.requestedUtreexoProofs, *blocks[0].Hash())
+
+	// The fetch pass must re-request the first block's proof even though the
+	// pool is at the cap, because that block is already held.
+	sm.fetchHeaderBlocks(nil)
+	require.Contains(t, st.requestedUtreexoProofs, *blocks[0].Hash(),
+		"the held block's dropped proof must be re-requested at the cap")
+
+	// Delivering it connects the held blocks and unwedges the chain.
+	deliverProof(sm, p, *blocks[0].Hash())
+	require.Equal(t, int32(maxPendingBlocks), sm.chain.BestSnapshot().Height,
+		"the chain advances past the previously stuck block")
+	require.Equal(t, sm.heldBlockCount(), sm.heldBlocks,
+		"the held-block counter must match a rescan of the pool")
+}
+
+// TestCSNHeldBlocksCounterTracksPool proves that the maintained heldBlocks
+// counter, which fetchHeaderBlocks reads to bound full-block memory, stays
+// exactly equal to a rescan of the pending pool as halves arrive out of order
+// and connect. A proof half on its own holds no block and must not move the
+// counter; a block half must, and connecting a held block must decrement it.
+func TestCSNHeldBlocksCounterTracksPool(t *testing.T) {
+	t.Parallel()
+
+	const n = 4
+	sm, tearDown, p, blocks := setupCSNChain(t, n)
+	defer tearDown()
+	sm.headersFirstMode = true
+
+	// invariant asserts the counter matches a fresh scan of the pool.
+	invariant := func(step string) {
+		require.Equal(t, sm.heldBlockCount(), sm.heldBlocks,
+			"heldBlocks must match a rescan after %s", step)
+	}
+
+	invariant("setup")
+	require.Equal(t, 0, sm.heldBlocks)
+
+	// A proof for the second block arrives first. It parks a proof-only entry
+	// that holds no block, so the counter stays at zero.
+	deliverProof(sm, p, *blocks[1].Hash())
+	require.Equal(t, 0, sm.heldBlocks, "a proof-only entry holds no block")
+	invariant("proof for block 1")
+
+	// The second block's own half arrives. Its parent is still missing, so it
+	// is held and now counts.
+	deliverBlock(sm, p, blocks[1])
+	require.Equal(t, 1, sm.heldBlocks)
+	invariant("block 1 held behind its parent")
+
+	// The first block's half arrives but has no proof yet, so it is held too.
+	deliverBlock(sm, p, blocks[0])
+	require.Equal(t, 2, sm.heldBlocks)
+	invariant("block 0 held without its proof")
+
+	// The first block's proof completes it; it connects, which makes the
+	// second block ready and it connects in the same drain. Both leave the
+	// pool, so the counter returns to zero.
+	deliverProof(sm, p, *blocks[0].Hash())
+	require.Equal(t, int32(2), sm.chain.BestSnapshot().Height,
+		"both blocks connect once the first block's proof arrives")
+	require.Equal(t, 0, sm.heldBlocks, "connected blocks leave the pool")
+	invariant("both blocks connected")
 }
 
 // TestCSNReorg proves that a compact state node can reorganize to a heavier
