@@ -192,6 +192,13 @@ func (idx *FlatUtreexoProofIndex) Flush(bestHash *chainhash.Hash, mode blockchai
 		// Purposely left empty.
 	}
 
+	// Catch the proof pipeline up so the committed state is exactly the
+	// post-block state of bestHash. Crash recovery replays the blocks
+	// after that label on top of whatever this flush commits.
+	if err := idx.drainProofPipeline(); err != nil {
+		return err
+	}
+
 	if onConnect {
 		// Flush the main database first. This is because the block and other data may still
 		// be in the database cache. If we flush the utreexo state before, there's no way to
@@ -425,6 +432,23 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// A forest left in record mode comes from a run that was cut off
+	// during the proof pipeline's catch-up. The recovered state may hold
+	// recorded blocks not yet covered by a rehash pass. Running that pass
+	// is free when the recovered flush was taken with the pipeline
+	// drained. Exit record mode afterward so the replay below can use the
+	// Modify paths, which refuse to run while the flag is set.
+	if forest.IsRecordMode() {
+		log.Infof("The utreexo forest was left in record mode, " +
+			"catching up the parent hashes with a rehash pass...")
+		if _, _, _, err := forest.RehashAndProve(nil); err != nil {
+			return nil, fmt.Errorf("RehashAndProve: %w", err)
+		}
+		if err := forest.ExitRecordMode(); err != nil {
+			return nil, fmt.Errorf("ExitRecordMode: %w", err)
+		}
 	}
 
 	uState := &UtreexoState{
