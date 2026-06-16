@@ -631,6 +631,15 @@ func TestLeafHash(t *testing.T) {
 				hex.EncodeToString(expect[:]),
 				hex.EncodeToString(got[:]))
 		}
+
+		// Verify LeafHasher produces the same result.
+		lh := NewLeafHasher()
+		gotHasher := lh.HashLeaf(&test.ld)
+		if gotHasher != expect {
+			t.Fatalf("LeafHasher: expect %s but got %s",
+				hex.EncodeToString(expect[:]),
+				hex.EncodeToString(gotHasher[:]))
+		}
 	}
 }
 

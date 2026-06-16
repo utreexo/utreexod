@@ -1116,13 +1116,18 @@ func writeTTLs(curHeight int32, createdIndexes []int32, lds []wire.LeafData,
 	}
 	buf := [ttlSize]byte{}
 
+	// Take the lock once for all writes instead of per-write.
+	ttlIdx.mtx.Lock()
+	defer ttlIdx.mtx.Unlock()
+
 	for i, ld := range lds {
 		byteOrder.PutUint32(buf[:uint32Size], uint32(curHeight))
 		byteOrder.PutUint32(buf[uint32Size:ttlSize], uint32(i))
 
 		cIndex := createdIndexes[i]
 		offset := cIndex * ttlSize
-		err := ttlIdx.OverWrite(ld.Height, offset, buf[:])
+
+		err := ttlIdx.overwriteLocked(ld.Height, offset, buf[:])
 		if err != nil {
 			return err
 		}
@@ -1151,39 +1156,35 @@ func (idx *FlatUtreexoProofIndex) addEmptyTTLs(height, numAdds int32) error {
 
 // storeProof serializes and stores the utreexo data in the proof state.
 func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error {
-	proofBuf := bytes.NewBuffer(
-		make([]byte, 0, wire.BatchProofSerializeAccProofSize(&ud.AccProof)))
-	err := wire.ProofHashesSerialize(proofBuf, ud.AccProof.Proof)
-	if err != nil {
+	// One buffer serves all three writes. Each StoreData copies the bytes
+	// before the next serialization reuses the buffer, so no scratch is
+	// shared across calls or instances.
+	var buf bytes.Buffer
+
+	buf.Grow(wire.BatchProofSerializeAccProofSize(&ud.AccProof))
+	if err := wire.ProofHashesSerialize(&buf, ud.AccProof.Proof); err != nil {
 		return err
 	}
-
-	err = idx.proofState.StoreData(height, proofBuf.Bytes())
-	if err != nil {
+	if err := idx.proofState.StoreData(height, buf.Bytes()); err != nil {
 		return fmt.Errorf("store proof err. %v", err)
 	}
 
-	targetsBuf := bytes.NewBuffer(
-		make([]byte, 0, wire.BatchProofSerializeTargetSize(&ud.AccProof)))
-	err = wire.ProofTargetsSerialize(targetsBuf, ud.AccProof.Targets)
-	if err != nil {
+	buf.Reset()
+	buf.Grow(wire.BatchProofSerializeTargetSize(&ud.AccProof))
+	if err := wire.ProofTargetsSerialize(&buf, ud.AccProof.Targets); err != nil {
 		return err
 	}
-
-	err = idx.targetState.StoreData(height, targetsBuf.Bytes())
-	if err != nil {
+	if err := idx.targetState.StoreData(height, buf.Bytes()); err != nil {
 		return fmt.Errorf("store targets err. %v", err)
 	}
 
-	leafBuf := bytes.NewBuffer(make([]byte, 0, ud.SerializeUtxoDataSize()))
-	err = wire.SerializeUtxoData(leafBuf, ud.LeafDatas)
-	if err != nil {
+	buf.Reset()
+	buf.Grow(ud.SerializeUtxoDataSize())
+	if err := wire.SerializeUtxoData(&buf, ud.LeafDatas); err != nil {
 		return err
 	}
-
-	err = idx.leafDataState.StoreData(height, leafBuf.Bytes())
-	if err != nil {
-		return fmt.Errorf("store targets err. %v", err)
+	if err := idx.leafDataState.StoreData(height, buf.Bytes()); err != nil {
+		return fmt.Errorf("store leaf data err. %v", err)
 	}
 
 	return nil

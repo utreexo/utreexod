@@ -238,31 +238,27 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 			"Expected height of %d but got %d", ff.currentHeight+1, height)
 	}
 
-	// Pre-allocate the needed buffer.
-	buf := make([]byte, len(data)+8)
+	// An 8-byte stack array serves both fixed-size writes, so StoreData
+	// keeps no reusable scratch on the struct.
+	var buf [8]byte
 
-	// Slice the buffer to 8 bytes and encode the offset to it.
-	buf = buf[:8]
+	// Encode the offset and write it to the offset file.
 	ff.offsets = append(ff.offsets, ff.currentOffset)
-	binary.BigEndian.PutUint64(buf, uint64(ff.currentOffset))
-
-	// Do the actual currentOffset write to the offset file.
-	_, err := ff.offsetFile.WriteAt(buf, int64(height)*8)
-	if err != nil {
+	binary.BigEndian.PutUint64(buf[:], uint64(ff.currentOffset))
+	if _, err := ff.offsetFile.WriteAt(buf[:], int64(height)*8); err != nil {
 		return err
 	}
 
-	// Re-slice the buffer to the total length.
-	buf = buf[:len(data)+8]
-
-	// Add the magic bytes, size, and the data to the buffer to be written.
+	// Write the magic and size header, then the data itself, to the data
+	// file at adjacent offsets. FetchData reads them back as the same two
+	// pieces, and writing the data straight through avoids copying it into
+	// a combined buffer.
 	copy(buf[:4], magicBytes[:])
 	binary.BigEndian.PutUint32(buf[4:8], uint32(len(data)))
-	copy(buf[8:], data)
-
-	// Write the magic+size+data to the dataFile.
-	_, err = ff.dataFile.WriteAt(buf, ff.currentOffset)
-	if err != nil {
+	if _, err := ff.dataFile.WriteAt(buf[:], ff.currentOffset); err != nil {
+		return err
+	}
+	if _, err := ff.dataFile.WriteAt(data, ff.currentOffset+8); err != nil {
 		return err
 	}
 
@@ -279,7 +275,14 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 func (ff *FlatFileState) OverWrite(height, offset int32, data []byte) error {
 	ff.mtx.Lock()
 	defer ff.mtx.Unlock()
+	return ff.overwriteLocked(height, offset, data)
+}
 
+// overwriteLocked overwrites the given data at the height and offset. The
+// caller must hold ff.mtx. It is separate from OverWrite so a caller writing
+// many records in a row can hold the lock once across the batch instead of
+// reacquiring it for every record.
+func (ff *FlatFileState) overwriteLocked(height, offset int32, data []byte) error {
 	// If the height requsted is greater than the best height, return an error.
 	if height > ff.currentHeight || height <= 0 {
 		return fmt.Errorf("Best height is %v, can't overwrite at height %v",

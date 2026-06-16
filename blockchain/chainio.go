@@ -1059,25 +1059,13 @@ func UtxoCacheInitialized(dbTx database.Tx) bool {
 // SerializeUtreexoRoots serializes the numLeaves and the roots into a byte slice.
 func SerializeUtreexoRoots(numLeaves uint64, roots []utreexo.Hash) ([]byte, error) {
 	// 8 byte NumLeaves + (32 byte roots * len(roots))
-	w := bytes.NewBuffer(make([]byte, 0, 8+(len(roots)*chainhash.HashSize)))
-
-	// Write the NumLeaves first.
-	var buf [8]byte
-	byteOrder.PutUint64(buf[:], numLeaves)
-	_, err := w.Write(buf[:])
-	if err != nil {
-		return nil, err
+	size := 8 + len(roots)*chainhash.HashSize
+	buf := make([]byte, size)
+	byteOrder.PutUint64(buf[:8], numLeaves)
+	for i, root := range roots {
+		copy(buf[8+i*chainhash.HashSize:], root[:])
 	}
-
-	// Then write the roots.
-	for _, root := range roots {
-		_, err = w.Write(root[:])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return w.Bytes(), nil
+	return buf, nil
 }
 
 // DeserializeUtreexoRoots deserializes the provided byte slice into numLeaves and roots.
