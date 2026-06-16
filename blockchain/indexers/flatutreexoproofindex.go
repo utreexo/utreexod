@@ -136,6 +136,11 @@ type FlatUtreexoProofIndex struct {
 
 	// The time of when the utreexo state was last flushed.
 	lastFlushTime time.Time
+
+	// proofPipeline runs RehashAndProve in a background goroutine
+	// while the preprocess goroutine continues with Record for the next
+	// block. nil when record mode is not active.
+	proofPipeline *proofPipeline
 }
 
 // NeedsInputs signals that the index requires the referenced inputs in order
@@ -487,6 +492,10 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 		return nil
 	}
 
+	if idx.proofPipeline != nil {
+		return idx.connectBlockRecord(dbTx, block, stxos)
+	}
+
 	_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
 	dels, err := blockchain.BlockToDelLeaves(stxos, idx.chain, block, inskip)
 	if err != nil {
@@ -573,6 +582,440 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	}
 
 	return idx.updateBlockTTLState(block.Height())
+}
+
+// rawBlockItem is a block + stxos sent from the main thread to the
+// preprocessing goroutine. This is the minimal data needed; all CPU-heavy
+// work (DedupeBlock, LeafHash, Record) is done off the main thread.
+type rawBlockItem struct {
+	block *btcutil.Block
+	stxos []blockchain.SpentTxOut
+}
+
+// recordItem is the unit of work handed from preprocess to the record
+// goroutine. It carries the hashed leaves needed by Forest.Record along
+// with the per-block data needed downstream.
+type recordItem struct {
+	delHashes []utreexo.Hash
+	addHashes []utreexo.Hash
+	leafDatas []wire.LeafData
+	height    int32
+	numAdds   int
+	numDels   int
+}
+
+// generateItem is the unit of work handed from record to the generate
+// goroutine. It carries the deletion positions consumed by
+// RehashAndProve along with the per-block data needed downstream
+// by store.
+type generateItem struct {
+	pendingDels    []uint64
+	leafDatas      []wire.LeafData
+	createdIndexes []int32
+	height         int32
+	numAdds        int
+	numDels        int
+}
+
+// storeItem is the unit of work handed from generate to the store
+// goroutine. It carries the outputs of RehashAndProve together
+// with the block metadata needed to write proof, roots, TTLs, and undo
+// data to disk.
+type storeItem struct {
+	roots          []utreexo.Hash
+	numLeaves      uint64
+	proof          utreexo.Proof
+	leafDatas      []wire.LeafData
+	createdIndexes []int32
+	height         int32
+	numAdds        int
+	numDels        int
+}
+
+// proofPipeline is a 4-stage pipeline for IBD proof generation.
+//
+// Four concurrent stages:
+//  1. Preprocess goroutine: DedupeBlock + BlockTo*Leaves + LeafHash → recordCh
+//  2. Record goroutine:     Forest.Record → genCh
+//  3. Generate goroutine:   RehashAndProve → storeCh
+//  4. Store goroutine:      serialize + write proof/roots/TTLs/undo to disk
+//
+// At steady state blocks N, N+1, N+2, N+3 are each in a different stage.
+// Record (stage 2) writes leaf positions in the forest.
+// RehashAndProve (stage 3) writes the parent hashes. Store
+// (stage 4) writes the proof/roots/TTL/undo flat files. Stages 2 and 3
+// serialize on the forest mutex, but stages 1 and 4 still overlap freely
+// with the forest work.
+type proofPipeline struct {
+	rawCh  chan rawBlockItem
+	errCh  chan error    // first pipeline error (capacity 1)
+	doneCh chan struct{} // closed when preprocess() exits
+}
+
+// pipelineBuffer controls how many blocks can queue between stages.
+const pipelineBuffer = 32
+
+// newProofPipeline starts the background goroutines.
+func newProofPipeline(idx *FlatUtreexoProofIndex) *proofPipeline {
+	pp := &proofPipeline{
+		rawCh:  make(chan rawBlockItem, pipelineBuffer),
+		errCh:  make(chan error, 1),
+		doneCh: make(chan struct{}),
+	}
+
+	go pp.preprocess(idx)
+	return pp
+}
+
+// preprocess is the preprocess goroutine (stage 1). It does DedupeBlock +
+// BlockTo*Leaves + LeafHash for each raw block, then hands the hashed
+// leaves off to the record goroutine. It also spawns and orchestrates the
+// record, generate, and store goroutines.
+func (pp *proofPipeline) preprocess(idx *FlatUtreexoProofIndex) {
+	defer close(pp.doneCh)
+
+	// recordCh connects preprocess → record goroutine.
+	// genCh connects record → generate goroutine.
+	// storeCh connects generate → store goroutine.
+	recordCh := make(chan recordItem, pipelineBuffer)
+	genCh := make(chan generateItem, pipelineBuffer)
+	storeCh := make(chan storeItem, pipelineBuffer)
+	recordDone := make(chan struct{})
+	genDone := make(chan struct{})
+	storeDone := make(chan struct{})
+
+	// Stage 4: store. Drains storeCh; on error, reports once and keeps
+	// draining so generate is never blocked on a full storeCh.
+	go func() {
+		defer close(storeDone)
+		var stored = true
+		for item := range storeCh {
+			if !stored {
+				continue
+			}
+			if err := idx.store(item); err != nil {
+				select {
+				case pp.errCh <- err:
+				default:
+				}
+				stored = false
+			}
+		}
+	}()
+
+	// Stage 3: generate. Drains genCh; on error, reports once and keeps
+	// draining so record is never blocked on a full genCh.
+	go func() {
+		defer close(genDone)
+		defer close(storeCh)
+		var generated = true
+		for item := range genCh {
+			if !generated {
+				continue
+			}
+			si, err := idx.generate(item)
+			if err != nil {
+				select {
+				case pp.errCh <- err:
+				default:
+				}
+				generated = false
+				continue
+			}
+			storeCh <- si
+		}
+	}()
+
+	// Stage 2: record. Drains recordCh; on error, reports once and keeps
+	// draining so preprocess is never blocked on a full recordCh.
+	go func() {
+		defer close(recordDone)
+		defer close(genCh)
+		var recorded = true
+		for item := range recordCh {
+			if !recorded {
+				continue
+			}
+			gi, err := idx.record(item)
+			if err != nil {
+				select {
+				case pp.errCh <- err:
+				default:
+				}
+				recorded = false
+				continue
+			}
+			genCh <- gi
+		}
+	}()
+
+	defer func() {
+		close(recordCh)
+		<-recordDone
+		<-genDone
+		<-storeDone
+	}()
+
+	// LeafHasher is consumed synchronously inside this stage's loop, so a
+	// single instance can be reused across blocks. The hash buffers
+	// themselves now travel through recordCh and so must be fresh per
+	// block — reusing them here would race with record's consumption.
+	lh := wire.NewLeafHasher()
+
+	for raw := range pp.rawCh {
+		// Re-post any pipeline error so the caller sees it, then exit.
+		select {
+		case err := <-pp.errCh:
+			select {
+			case pp.errCh <- err:
+			default:
+			}
+			return
+		default:
+		}
+
+		height := raw.block.Height()
+		_, outCount, inskip, outskip := blockchain.DedupeBlock(raw.block)
+		dels, err := blockchain.BlockToDelLeaves(raw.stxos, idx.chain, raw.block, inskip)
+		if err != nil {
+			select {
+			case pp.errCh <- fmt.Errorf("BlockToDelLeaves at height %d: %w",
+				height, err):
+			default:
+			}
+			return
+		}
+		adds := blockchain.BlockToAddLeaves(raw.block, outskip, outCount)
+
+		// Release block and stxos early so GC can collect the large
+		// deserialized transaction data while we hash and record.
+		raw.block = nil
+		raw.stxos = nil
+
+		delHashes := make([]utreexo.Hash, len(dels))
+		addHashes := make([]utreexo.Hash, len(adds))
+		for i := range dels {
+			delHashes[i] = lh.HashLeaf(&dels[i])
+		}
+		for i := range adds {
+			addHashes[i] = lh.HashLeaf(&adds[i])
+		}
+
+		recordCh <- recordItem{
+			delHashes: delHashes,
+			addHashes: addHashes,
+			leafDatas: dels,
+			height:    height,
+			numAdds:   len(adds),
+			numDels:   len(dels),
+		}
+	}
+}
+
+// stop stops the background goroutines by closing rawCh and waiting for
+// the preprocess goroutine (and the record + generate + store goroutines
+// it owns) to drain and exit.
+func (pp *proofPipeline) stop() {
+	close(pp.rawCh)
+	<-pp.doneCh
+}
+
+// stopAndCheck stops the pipeline, waits for all queued work to drain, and
+// returns the first error any stage reported.
+func (pp *proofPipeline) stopAndCheck() error {
+	pp.stop()
+	select {
+	case err := <-pp.errCh:
+		return err
+	default:
+		return nil
+	}
+}
+
+// record runs Forest.Record for the prepared block and returns a
+// generateItem carrying the deletion positions that RehashAndProve
+// will consume. Runs in the record goroutine, concurrent with the next
+// block's prepare (stage 1) and the previous block's disk writes (stage 4).
+func (idx *FlatUtreexoProofIndex) record(item recordItem) (generateItem, error) {
+	createdIndexes, delPositions, err := idx.utreexoState.state.Record(item.addHashes, item.delHashes)
+	if err != nil {
+		return generateItem{}, fmt.Errorf("Record at height %d: %w", item.height, err)
+	}
+	return generateItem{
+		pendingDels:    delPositions,
+		leafDatas:      item.leafDatas,
+		createdIndexes: createdIndexes,
+		height:         item.height,
+		numAdds:        item.numAdds,
+		numDels:        item.numDels,
+	}, nil
+}
+
+// generate runs RehashAndProve for the recorded block and returns
+// a storeItem carrying the outputs. Runs in the generate goroutine,
+// concurrent with the previous block's disk writes (stage 4).
+func (idx *FlatUtreexoProofIndex) generate(item generateItem) (storeItem, error) {
+	roots, numLeaves, proof, err := idx.utreexoState.state.RehashAndProve(item.pendingDels)
+	if err != nil {
+		return storeItem{}, fmt.Errorf("RehashAndProve at height %d: %w", item.height, err)
+	}
+	return storeItem{
+		roots:          roots,
+		numLeaves:      numLeaves,
+		proof:          proof,
+		leafDatas:      item.leafDatas,
+		createdIndexes: item.createdIndexes,
+		height:         item.height,
+		numAdds:        item.numAdds,
+		numDels:        item.numDels,
+	}, nil
+}
+
+// store serializes and writes proof, roots, TTLs, and undo data to flat
+// files for a fully-generated block. Runs in the store goroutine,
+// concurrent with the next block's RehashAndProve (stage 3).
+func (idx *FlatUtreexoProofIndex) store(item storeItem) error {
+	if err := idx.undoState.StoreData(item.height, emptyUndoBlock); err != nil {
+		return fmt.Errorf("store undoblock at height %d: %w", item.height, err)
+	}
+	if err := idx.addEmptyTTLs(item.height, int32(item.numAdds)); err != nil {
+		return err
+	}
+	if err := idx.writeTTLs(item.height, item.createdIndexes, item.leafDatas); err != nil {
+		return err
+	}
+	if err := idx.updateBlockTTLState(item.height); err != nil {
+		return err
+	}
+
+	serialized, err := blockchain.SerializeUtreexoRoots(item.numLeaves, item.roots)
+	if err != nil {
+		return err
+	}
+	if err := idx.rootsState.StoreData(item.height, serialized); err != nil {
+		return fmt.Errorf("store roots at height %d: %w", item.height, err)
+	}
+
+	if !idx.config.Pruned && item.numDels > 0 {
+		ud := &wire.UData{
+			AccProof:  item.proof,
+			LeafDatas: item.leafDatas,
+		}
+		if err := idx.storeProof(item.height, ud); err != nil {
+			return err
+		}
+		idx.pStats.UpdateTotalDelCount(uint64(item.numDels))
+		idx.pStats.UpdateUDStats(false, ud)
+		idx.pStats.BlockHeight = uint64(item.height)
+		if err := idx.pStats.WritePStats(&idx.proofStatsState); err != nil {
+			return err
+		}
+	} else if !idx.config.Pruned {
+		emptyUD := &wire.UData{AccProof: utreexo.Proof{}}
+		if err := idx.storeProof(item.height, emptyUD); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// StartProofPipeline enables record mode with background proof generation.
+// ConnectBlock will use Forest.Record (fast, no hashing) and send proof
+// generation work to a background goroutine that calls RehashAndProve
+// concurrently with the next block's Record.
+//
+// Call StopProofPipeline when done (e.g., after IBD) to drain pending
+// work and exit record mode.
+func (idx *FlatUtreexoProofIndex) StartProofPipeline() error {
+	if err := idx.utreexoState.state.EnterRecordMode(); err != nil {
+		return fmt.Errorf("EnterRecordMode: %w", err)
+	}
+	idx.proofPipeline = newProofPipeline(idx)
+	return nil
+}
+
+// connectBlockRecord is the fast path for ConnectBlock when the proof
+// pipeline is active. It sends the raw block to the preprocessing
+// goroutine, which handles all CPU-heavy work (DedupeBlock, LeafHash,
+// Record) off the main thread. The main thread does near-zero work,
+// allowing block loading to fully overlap with the pipeline.
+func (idx *FlatUtreexoProofIndex) connectBlockRecord(_ database.Tx, block *btcutil.Block,
+	stxos []blockchain.SpentTxOut) error {
+
+	// Non-blocking check for pipeline errors.
+	select {
+	case err := <-idx.proofPipeline.errCh:
+		return fmt.Errorf("proof pipeline error: %w", err)
+	default:
+	}
+
+	// Send raw block to preprocessing goroutine. Select on doneCh so a
+	// preprocess goroutine that has already exited on its own error does
+	// not leave this send blocked forever on a full rawCh. In that case
+	// surface the pipeline error instead of hanging.
+	select {
+	case idx.proofPipeline.rawCh <- rawBlockItem{block: block, stxos: stxos}:
+	case <-idx.proofPipeline.doneCh:
+		select {
+		case err := <-idx.proofPipeline.errCh:
+			return fmt.Errorf("proof pipeline error: %w", err)
+		default:
+			return fmt.Errorf("proof pipeline stopped unexpectedly")
+		}
+	}
+	return nil
+}
+
+// StopProofPipeline drains any pending proof work, exits record mode, and
+// stops the background goroutines. After this call, ConnectBlock resumes
+// using the normal Modify + Prove path.
+func (idx *FlatUtreexoProofIndex) StopProofPipeline() error {
+	if idx.proofPipeline == nil {
+		return nil
+	}
+
+	// Stop the pipeline and wait for it to drain all queued work. By the
+	// time the drain returns, the generate and store goroutines have
+	// finished RehashAndProve and disk writes for every block, so
+	// all intermediate hashes are persisted and the accumulator is fully
+	// built up.
+	err := idx.proofPipeline.stopAndCheck()
+	idx.proofPipeline = nil
+	if err != nil {
+		return fmt.Errorf("proof pipeline error: %w", err)
+	}
+
+	if err := idx.utreexoState.state.ExitRecordMode(); err != nil {
+		return fmt.Errorf("ExitRecordMode: %w", err)
+	}
+
+	log.Infof("Proof pipeline stopped: %d leaves, %d roots",
+		idx.utreexoState.state.GetNumLeaves(),
+		len(idx.utreexoState.state.GetRoots()))
+
+	return nil
+}
+
+// drainProofPipeline waits for every block already handed to the proof
+// pipeline to be recorded, rehashed, and stored, then restarts the pipeline
+// goroutines so ConnectBlock can keep feeding blocks. Flush calls this
+// before committing: the WAL commit is labeled with a block hash, and crash
+// recovery replays the blocks after that label on top of the committed
+// state, so the committed state must be exactly the post-block state of the
+// label. While the pipeline is mid-flight it runs tens of blocks behind.
+// On a pipeline error the pipeline is torn down and the error returned. The
+// forest must not be flushed in that case since its state stops short of
+// any label the caller could supply.
+func (idx *FlatUtreexoProofIndex) drainProofPipeline() error {
+	if idx.proofPipeline == nil {
+		return nil
+	}
+	if err := idx.proofPipeline.stopAndCheck(); err != nil {
+		idx.proofPipeline = nil
+		return fmt.Errorf("proof pipeline error: %w", err)
+	}
+	idx.proofPipeline = newProofPipeline(idx)
+	return nil
 }
 
 // calcProofOverhead calculates the overhead of the current utreexo accumulator proof
