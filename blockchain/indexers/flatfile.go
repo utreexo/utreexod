@@ -279,7 +279,14 @@ func (ff *FlatFileState) StoreData(height int32, data []byte) error {
 func (ff *FlatFileState) OverWrite(height, offset int32, data []byte) error {
 	ff.mtx.Lock()
 	defer ff.mtx.Unlock()
+	return ff.overwriteLocked(height, offset, data)
+}
 
+// overwriteLocked overwrites the given data at the height and offset. The
+// caller must hold ff.mtx. It is separate from OverWrite so a caller writing
+// many records in a row can hold the lock once across the batch instead of
+// reacquiring it for every record.
+func (ff *FlatFileState) overwriteLocked(height, offset int32, data []byte) error {
 	// If the height requsted is greater than the best height, return an error.
 	if height > ff.currentHeight || height <= 0 {
 		return fmt.Errorf("Best height is %v, can't overwrite at height %v",
