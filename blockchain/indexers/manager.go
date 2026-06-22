@@ -471,16 +471,119 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 	log.Infof("Catching up indexes from height %d to %d", lowestHeight,
 		bestHeight)
 
+	// Start the proof pipeline for any indexers that support it.
+	// This enables record mode (fast, no hashing) with background
+	// proof generation during catch-up.
+	//
+	// Stop the pipelines on any early return below so a failed catch-up
+	// does not leak the pipeline goroutines or leave a forest in record
+	// mode. On the normal and interrupt exits the pipelines are already
+	// stopped by the time this runs, so it is a no-op there.
+	defer func() {
+		for _, indexer := range m.enabledIndexes {
+			if pp, ok := indexer.(ProofPipeliner); ok {
+				if err := pp.StopProofPipeline(); err != nil {
+					log.Errorf("Error stopping proof pipeline during "+
+						"index catch-up cleanup: %v", err)
+				}
+			}
+		}
+	}()
+	for _, indexer := range m.enabledIndexes {
+		if pp, ok := indexer.(ProofPipeliner); ok {
+			if err := pp.StartProofPipeline(); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Check if any indexer needs spent txouts (spend journal).
+	needsInputs := false
+	for _, indexer := range m.enabledIndexes {
+		if indexNeedsInputs(indexer) {
+			needsInputs = true
+			break
+		}
+	}
+
+	// Prefetch blocks (and optionally spend journals) ahead of the main
+	// loop. This overlaps DB I/O + deserialization with the pipeline's
+	// computation, using an additional core.
+	type prefetchedBlock struct {
+		block     *btcutil.Block
+		spentTxos []blockchain.SpentTxOut
+		err       error
+	}
+	const prefetchBuffer = 32
+	prefetchCh := make(chan prefetchedBlock, prefetchBuffer)
+	go func() {
+		defer close(prefetchCh)
+		for h := lowestHeight + 1; h <= bestHeight; h++ {
+			block, err := chain.BlockByHeight(h)
+			if err != nil {
+				prefetchCh <- prefetchedBlock{err: err}
+				return
+			}
+			var stxos []blockchain.SpentTxOut
+			if needsInputs {
+				stxos, err = chain.FetchSpendJournal(block)
+				if err != nil {
+					prefetchCh <- prefetchedBlock{err: err}
+					return
+				}
+			}
+			prefetchCh <- prefetchedBlock{block: block, spentTxos: stxos}
+		}
+	}()
+
+	// Batch DB transactions: accumulate index tip updates across multiple
+	// blocks and commit every batchSize blocks. This dramatically reduces
+	// the overhead of per-block transaction open/commit during IBD.
+	const batchSize = 128
+	var batchTx database.Tx
+	batchCount := 0
+
+	commitBatch := func() error {
+		if batchTx == nil {
+			return nil
+		}
+		err := batchTx.Commit()
+		batchTx = nil
+		batchCount = 0
+		return err
+	}
+
+	rollbackBatch := func() {
+		if batchTx != nil {
+			batchTx.Rollback()
+			batchTx = nil
+			batchCount = 0
+		}
+	}
+
+	// lastBlockHash is the most recent block connected to the indexes,
+	// used to label the final flush after the loop.
+	var lastBlockHash *chainhash.Hash
+
 	for height := lowestHeight + 1; height <= bestHeight; height++ {
-		// Load the block for the height since it is required to index
-		// it.
-		block, err := chain.BlockByHeight(height)
-		if err != nil {
-			return err
+		// Read prefetched block.
+		pf := <-prefetchCh
+		if pf.err != nil {
+			rollbackBatch()
+			return pf.err
+		}
+		block := pf.block
+
+		// Open a new batch transaction if needed.
+		if batchTx == nil {
+			batchTx, err = m.db.Begin(true)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Connect the block for all indexes that need it.
-		var spentTxos []blockchain.SpentTxOut
+		spentTxos := pf.spentTxos
 		for i, indexer := range m.enabledIndexes {
 			// Skip indexes that don't need to be updated with this
 			// block.
@@ -488,45 +591,93 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 				continue
 			}
 
-			// When the index requires all of the referenced txouts
-			// and they haven't been loaded yet, they need to be
-			// retrieved from the spend journal.
-			if spentTxos == nil && indexNeedsInputs(indexer) {
-				spentTxos, err = chain.FetchSpendJournal(block)
-				if err != nil {
-					return err
-				}
-			}
-
-			err := m.db.Update(func(dbTx database.Tx) error {
-				return dbIndexConnectBlock(
-					dbTx, indexer, block, spentTxos,
-				)
-			})
-			if err != nil {
+			if err := dbIndexConnectBlock(
+				batchTx, indexer, block, spentTxos,
+			); err != nil {
+				rollbackBatch()
 				return err
 			}
 			indexerHeights[i] = height
+		}
+		batchCount++
+
+		// Commit batch when full, then flush indexes.
+		if batchCount >= batchSize {
+			if err := commitBatch(); err != nil {
+				return err
+			}
+
+			// Check for flush after each batch commit so the DB
+			// tip is always consistent with the utreexo state.
+			err = m.Flush(block.Hash(), blockchain.FlushIfNeeded, true)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Log indexing progress.
 		progressLogger.LogBlockHeight(block)
 
 		if interruptRequested(interrupt) {
-			// Use FlushRequired to ensure the main database is flushed
-			// before the utreexo state. This prevents the utreexo
-			// consistency hash from getting ahead of the persisted
-			// indexer tip.
-			err = m.Flush(block.Hash(), blockchain.FlushRequired, true)
-			if err != nil {
-				log.Errorf("Error while flushing indexes on interrupt: %v", err)
+			// Commit any pending batch before shutting down.
+			if err := commitBatch(); err != nil {
+				log.Errorf("Error committing batch on interrupt: %v", err)
+			}
+
+			// Drain the proof pipelines and exit record mode so the
+			// flush below commits a state that matches its label. A
+			// pipeline that reports an error stopped short of a full
+			// block, so flushing would mislabel the committed state.
+			// Skip the flush and leave the last consistent state on
+			// disk for the startup replay to build on.
+			flushable := true
+			for _, indexer := range m.enabledIndexes {
+				if pp, ok := indexer.(ProofPipeliner); ok {
+					if err := pp.StopProofPipeline(); err != nil {
+						log.Errorf("Error stopping proof pipeline "+
+							"on interrupt: %v", err)
+						flushable = false
+					}
+				}
+			}
+
+			if flushable {
+				// Use FlushRequired to ensure the main database is flushed
+				// before the utreexo state. This prevents the utreexo
+				// consistency hash from getting ahead of the persisted
+				// indexer tip.
+				err = m.Flush(block.Hash(), blockchain.FlushRequired, true)
+				if err != nil {
+					log.Errorf("Error while flushing indexes on interrupt: %v", err)
+				}
 			}
 			return errInterruptRequested
 		}
 
-		// Flush indexes if needed.
-		err = m.Flush(block.Hash(), blockchain.FlushIfNeeded, true)
-		if err != nil {
+		lastBlockHash = block.Hash()
+	}
+
+	// Commit any remaining batch.
+	if err := commitBatch(); err != nil {
+		return err
+	}
+
+	// Stop the proof pipeline for any indexers that support it.
+	// This drains pending work and exits record mode.
+	for _, indexer := range m.enabledIndexes {
+		if pp, ok := indexer.(ProofPipeliner); ok {
+			if err := pp.StopProofPipeline(); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Make the caught-up state durable. The pipelines have drained and
+	// exited record mode, so this flush commits a fully-applied state
+	// labeled with the last indexed block. The record-mode exit would
+	// otherwise stay cache-only until some unrelated later flush.
+	if lastBlockHash != nil {
+		if err := m.Flush(lastBlockHash, blockchain.FlushRequired, true); err != nil {
 			return err
 		}
 	}

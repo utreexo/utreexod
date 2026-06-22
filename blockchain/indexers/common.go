@@ -33,6 +33,15 @@ type NeedsInputser interface {
 	NeedsInputs() bool
 }
 
+// ProofPipeliner is an optional interface that indexers can implement to
+// enable record mode with background proof generation during catch-up.
+// When enabled, ConnectBlock uses Forest.Record (no hashing) and a
+// background goroutine runs RehashAndProve concurrently.
+type ProofPipeliner interface {
+	StartProofPipeline() error
+	StopProofPipeline() error
+}
+
 // Indexer provides a generic interface for an indexer that is managed by an
 // index manager such as the Manager type provided by this package.
 type Indexer interface {
