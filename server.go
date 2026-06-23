@@ -1266,11 +1266,6 @@ func (sp *serverPeer) OnGetCFCheckpt(_ *peer.Peer, msg *wire.MsgGetCFCheckpt) {
 
 // OnGetUtreexoProof is invoked when a peer receives a getutreexoproof bitcoin message.
 func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *wire.MsgGetUtreexoProof) {
-	// Ignore getutreexoproof requests if not in sync.
-	if !sp.server.syncManager.IsCurrent() {
-		return
-	}
-
 	// Check if we're a utreexo node. Ignore if we're not.
 	if sp.server.utreexoProofIndex == nil && sp.server.flatUtreexoProofIndex == nil && cfg.NoUtreexo {
 		return
