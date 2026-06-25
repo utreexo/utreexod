@@ -1634,6 +1634,29 @@ func (b *BlockChain) BlockByHeight(blockHeight int32) (*btcutil.Block, error) {
 	return block, err
 }
 
+// StoredBlockByHash returns the block for the given hash so long as its data
+// is stored, regardless of whether the block is part of the best chain.  For
+// a utreexo node the proof data stored alongside the block is attached.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) StoredBlockByHash(hash *chainhash.Hash) (*btcutil.Block, error) {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	node := b.index.LookupNode(hash)
+	if node == nil || !b.index.NodeStatus(node).HaveData() {
+		return nil, fmt.Errorf("block %s is not stored", hash)
+	}
+
+	var block *btcutil.Block
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		block, err = dbFetchBlockByNode(dbTx, node, b.utreexoView != nil)
+		return err
+	})
+	return block, err
+}
+
 // BlockByHash returns the block from the main chain with the given hash with
 // the appropriate chain height set.
 //
