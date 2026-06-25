@@ -1830,6 +1830,61 @@ func TestCSNReorg(t *testing.T) {
 	require.Empty(t, sm.pending)
 }
 
+// TestCSNStoredBlockProofRefetch reproduces the wedge where a block was
+// stored but never connected, e.g. because its utreexo proof failed to
+// verify or the node shut down mid-connect.  The fetch pass must reuse the
+// stored data as the block half and request a fresh proof for it, so that
+// delivering the proof connects the block and unwedges the chain.
+func TestCSNStoredBlockProofRefetch(t *testing.T) {
+	t.Parallel()
+
+	const n = 3
+
+	sm, tearDown, p, blocks := setupCSNChain(t, n)
+	defer tearDown()
+	st := sm.peerStates[p]
+	sm.headersFirstMode = true
+
+	// Store the first block without connecting it: feeding it prooflessly
+	// fails at connect time but persists its data.
+	_, _, err := sm.chain.ProcessBlock(blocks[0], blockchain.BFNone)
+	require.Error(t, err)
+	have, err := sm.chain.HaveBlock(blocks[0].Hash())
+	require.NoError(t, err)
+	require.True(t, have, "the failed block should have been stored")
+	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height)
+
+	// Run a fresh fetch pass over the wedged chain.
+	st.requestedBlocks = make(map[chainhash.Hash]struct{})
+	st.requestedUtreexoProofs = make(map[chainhash.Hash]struct{})
+	sm.fetchHeaderBlocks(nil)
+
+	require.NotContains(t, st.requestedBlocks, *blocks[0].Hash(),
+		"the stored block's data must not be re-requested")
+	require.Contains(t, st.requestedUtreexoProofs, *blocks[0].Hash(),
+		"the stored block's proof must be requested")
+	pb := sm.pending[*blocks[0].Hash()]
+	require.NotNil(t, pb, "the stored block should be in the pending pool")
+	require.NotNil(t, pb.block, "the stored data should be the block half")
+	for _, b := range blocks[1:] {
+		require.Contains(t, st.requestedBlocks, *b.Hash())
+		require.Contains(t, st.requestedUtreexoProofs, *b.Hash())
+	}
+
+	// Delivering the proof connects the stored block.
+	deliverProof(sm, p, *blocks[0].Hash())
+	require.Equal(t, int32(1), sm.chain.BestSnapshot().Height,
+		"the stored block should connect once its proof arrives")
+
+	// The rest of the pipeline drains normally.
+	for _, b := range blocks[1:] {
+		deliverProof(sm, p, *b.Hash())
+		deliverBlock(sm, p, b)
+	}
+	require.Equal(t, int32(n), sm.chain.BestSnapshot().Height)
+	require.Empty(t, sm.pending)
+}
+
 // TestOrphanBlockReachesChain proves that a block whose parent header is
 // unknown is handed to the chain, which classifies it as an orphan, rather
 // than being held in the pending pool waiting for a parent that was never
@@ -1918,8 +1973,24 @@ func TestCSNCrossPeerAttribution(t *testing.T) {
 		"the bad pair must not connect")
 	assertConnected(t, peerA)
 	assertConnected(t, peerB)
-	require.NotContains(t, sm.pending, hash,
-		"the unattributable pair should be dropped for re-fetch")
+
+	// The failed connect attempt stored the block, so the re-fetch pass
+	// reuses the stored data as the block half and re-requests only the
+	// proof.
+	pb := sm.pending[hash]
+	require.NotNil(t, pb, "the stored block should be back in the pool")
+	require.NotNil(t, pb.block, "the stored data should be the block half")
+	require.Nil(t, pb.proof, "the bad proof must not be kept")
+	st := sm.peerStates[peerA]
+	require.NotContains(t, st.requestedBlocks, hash,
+		"the stored block's data must not be re-requested")
+	require.Contains(t, st.requestedUtreexoProofs, hash,
+		"the proof should be re-requested from the sync peer")
+
+	// A good proof connects the stored block.
+	deliverProof(sm, peerA, hash)
+	require.Equal(t, int32(1), sm.chain.BestSnapshot().Height,
+		"the stored block should connect once a good proof arrives")
 }
 
 // TestCSNSelfInconsistentPairDisconnects proves that a single peer supplying a

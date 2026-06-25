@@ -1286,13 +1286,33 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				"fetch: %v", err)
 		}
 
-		// Only fetch halves we don't already have in the chain. The block and
-		// its proof are requested independently so that a half already held in
-		// the pending pool (possibly delivered by an earlier sync peer) is
+		// Only fetch halves we don't already have. The block and its proof
+		// are requested independently so that a half already held in the
+		// pending pool (possibly delivered by an earlier sync peer) is
 		// reused rather than re-requested.
-		if !haveInv {
-			pb := sm.pending[*hash]
+		pb := sm.pending[*hash]
+		if haveInv {
+			// A block above the fork point whose data is stored is one
+			// that previously failed to connect, e.g. because its utreexo
+			// proof was bad or missing. Reuse the stored data as the block
+			// half so a fresh proof is all that is needed to connect it.
+			// The stale proof stored alongside the block is not reused.
+			if sm.chain.IsUtreexoViewActive() &&
+				(pb == nil || pb.block == nil) {
 
+				block, err := sm.chain.StoredBlockByHash(hash)
+				if err != nil {
+					log.Warnf("Unable to load stored block %v: %v",
+						hash, err)
+					continue
+				}
+				if pb == nil {
+					pb = &pendingBlock{}
+					sm.pending[*hash] = pb
+				}
+				pb.block = block
+			}
+		} else {
 			// Request the block half unless it has already arrived or is
 			// already outstanding. At the chain tip the global map dedupes
 			// the block across peers.
@@ -1323,29 +1343,29 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				gdmsg.AddInvVect(iv)
 				numRequested++
 			}
+		}
 
-			// Request the proof half for a compact state node unless it has
-			// already arrived or is already outstanding.
-			if sm.chain.IsUtreexoViewActive() {
-				_, proofRequested := peerState.requestedUtreexoProofs[*hash]
-				if (pb == nil || pb.proof == nil) && !proofRequested {
-					peerState.requestedUtreexoProofs[*hash] = struct{}{}
+		// Request the proof half for a compact state node unless it has
+		// already arrived or is already outstanding.
+		if sm.chain.IsUtreexoViewActive() {
+			_, proofRequested := peerState.requestedUtreexoProofs[*hash]
+			if (pb == nil || pb.proof == nil) && !proofRequested {
+				peerState.requestedUtreexoProofs[*hash] = struct{}{}
 
-					// If we still have ttls left to download, then we only
-					// need the utreexo proof data since we're in swiftsync ibd.
-					msg := wire.MsgGetUtreexoProof{BlockHash: *hash}
-					if sm.committedTTLAcc != nil &&
-						h <= int32(sm.committedTTLAcc.NumLeaves)-1 {
-						msg.SetLeafDataRequestBit()
-					} else {
-						// If not, we need all the data.
-						msg.SetTargetRequestBit()
-						msg.SetProofHashRequestBit()
-						msg.SetLeafDataRequestBit()
-					}
-
-					reqPeer.QueueMessage(&msg, nil)
+				// If we still have ttls left to download, then we only
+				// need the utreexo proof data since we're in swiftsync ibd.
+				msg := wire.MsgGetUtreexoProof{BlockHash: *hash}
+				if sm.committedTTLAcc != nil &&
+					h <= int32(sm.committedTTLAcc.NumLeaves)-1 {
+					msg.SetLeafDataRequestBit()
+				} else {
+					// If not, we need all the data.
+					msg.SetTargetRequestBit()
+					msg.SetProofHashRequestBit()
+					msg.SetLeafDataRequestBit()
 				}
+
+				reqPeer.QueueMessage(&msg, nil)
 			}
 		}
 
