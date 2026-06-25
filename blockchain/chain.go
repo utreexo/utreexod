@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -961,6 +960,32 @@ func countSpentOutputs(block *btcutil.Block) int {
 	return numSpent
 }
 
+// rebuildUtreexoViewFromState replaces the live accumulator with the stored
+// state at the given main chain block. The stored state stands alone, so the
+// rebuilt accumulator holds no cached nodes that could disagree with its
+// roots.
+//
+// This function MUST be called with the chain state lock held (for writes).
+func (b *BlockChain) rebuildUtreexoViewFromState(blockHash *chainhash.Hash) error {
+	var uView *UtreexoViewpoint
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		uView, err = dbFetchUtreexoView(dbTx, blockHash)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if uView == nil {
+		return AssertError(fmt.Sprintf("no stored utreexo state for main "+
+			"chain block %s", blockHash))
+	}
+
+	b.utreexoView.accumulator = uView.accumulator
+	b.utreexoView.agg = uView.agg
+	return nil
+}
+
 // reorganizeChain reorganizes the block chain by disconnecting the nodes in the
 // detachNodes list and connecting the nodes in the attach list.  It expects
 // that the lists are already in the correct order and are in sync with the
@@ -997,6 +1022,25 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	// Make a viewpoint for the disconnect/attach that'll happen below.
 	view := NewUtxoViewpoint()
 
+	// For a utreexo node, set the accumulator to the stored state at the
+	// fork point and replay the attached blocks from there. The stored
+	// state stands alone, while the live accumulator's cached nodes can go
+	// stale and fail proof ingestion for hashes the cache claims to hold.
+	// The cached leaves are lost, which only costs proof bandwidth until
+	// the cache warms back up.
+	if b.utreexoView != nil {
+		var forkHash *chainhash.Hash
+		if detachNodes.Len() > 0 {
+			forkHash = &detachNodes.Back().Value.(*blockNode).parent.hash
+		} else {
+			forkHash = &attachNodes.Front().Value.(*blockNode).parent.hash
+		}
+		err := b.rebuildUtreexoViewFromState(forkHash)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Disconnect blocks from the main chain.
 	for i, e := 0, detachNodes.Front(); e != nil; i, e = i+1, e.Next() {
 		n := e.Value.(*blockNode)
@@ -1013,44 +1057,6 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 				return err
 			}
 		} else {
-			var uView *UtreexoViewpoint
-			err = b.db.View(func(dbTx database.Tx) error {
-				uView, err = dbFetchUtreexoView(dbTx, &block.MsgBlock().Header.PrevBlock)
-				if err != nil {
-					return err
-				}
-				return nil
-			})
-
-			// Generate the skips.
-			_, outCount, inskip, outskip := DedupeBlock(block)
-
-			// Generate the deleted hashes.
-			dels, err := BlockToDelLeaves(detachSpentTxOuts[i], b, block, inskip)
-			if err != nil {
-				return err
-			}
-			delHashes := make([]utreexo.Hash, len(dels))
-			for i := range delHashes {
-				delHashes[i] = dels[i].LeafHash()
-			}
-
-			// Generate the adds.
-			adds := BlockToAddLeaves(block, outskip, outCount)
-			addHashes := make([]utreexo.Hash, len(adds))
-			for i := range addHashes {
-				addHashes[i] = adds[i].LeafHash()
-			}
-
-			// Undo the utreexoView.
-			// NOTE: Undoing instead of replacing the utreexoview with the roots in the database
-			// allows the cached leaves to stay cached.
-			err = b.utreexoView.accumulator.Undo(addHashes,
-				block.UtreexoData().AccProof, delHashes, uView.accumulator.GetRoots())
-			if err != nil {
-				return err
-			}
-
 			err = view.BlockToUtxoView(block)
 			if err != nil {
 				return err
@@ -1097,13 +1103,11 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		} else {
 			err := b.utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
-				return fmt.Errorf("reorganizeChain fail while attaching "+
-					"block %s. Error: %v", block.Hash().String(), err)
+				return ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 			}
 			err = b.utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
-				return fmt.Errorf("reorganizeChain fail while attaching "+
-					"block %s. Error: %v", block.Hash().String(), err)
+				return ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 			}
 
 			err = view.BlockToUtxoView(block)
@@ -1263,8 +1267,8 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			if err != nil {
 				return nil, nil, nil,
 					fmt.Errorf("verifyReorganizationValidity fail "+
-						"while detaching block %s. Error: %v"+
-						block.Hash().String(), err)
+						"while detaching block %s. Error: %v",
+						block.Hash(), err)
 			}
 
 			// Load all of the utxos referenced by the block that aren't
@@ -1335,6 +1339,13 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			// hashes.
 			b.bestChain.setTip(n)
 
+			// A stored block can lack a proof when it was processed
+			// without one attached.
+			if block.UtreexoData() == nil {
+				return nil, nil, nil, fmt.Errorf("verifyReorganizationValidity fail: "+
+					"no utreexo proof stored for block %s", block.Hash())
+			}
+
 			// Reconstruct the utreexo data as it's stored in the compact state.
 			_, _, inskip, _ := DedupeBlock(block)
 			_, err := reconstructUData(block.UtreexoData(), block, b.bestChain, inskip)
@@ -1365,16 +1376,12 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 				err := utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
 				if err != nil {
 					return nil, nil, nil,
-						fmt.Errorf("verifyReorganizationValidity fail "+
-							"while attaching block %s. Error %v",
-							block.Hash().String(), err)
+						ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 				}
 				err = utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 				if err != nil {
 					return nil, nil, nil,
-						fmt.Errorf("verifyReorganizationValidity fail "+
-							"while attaching block %s. Error %v",
-							block.Hash().String(), err)
+						ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 				}
 
 				err = view.BlockToUtxoView(block)
@@ -1413,9 +1420,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			err = utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
 				return nil, nil, nil,
-					fmt.Errorf("verifyReorganizationValidity fail "+
-						"while attaching block %s. Error %v",
-						block.Hash().String(), err)
+					ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 			}
 		}
 		b.index.SetStatusFlags(n, statusValid)
@@ -1510,8 +1515,28 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 			// Update the accumulator.
 			err := b.utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
-				return false, fmt.Errorf("connectBestChain fail on block %s. "+
-					"Error: %v", block.Hash().String(), err)
+				// A proof that verifies can still fail to process when
+				// the live accumulator's cached nodes have gone stale,
+				// and a failed attempt can leave the accumulator
+				// partially modified. The stored state at the parent
+				// is authoritative, so rebuild from it and retry
+				// before treating the block as unconnectable.
+				rebuildErr := b.rebuildUtreexoViewFromState(parentHash)
+				if rebuildErr != nil {
+					return false, fmt.Errorf("connectBestChain fail on block %s. "+
+						"Error: %v. Rebuilding the accumulator from the stored "+
+						"state also failed: %v", block.Hash().String(), err,
+						rebuildErr)
+				}
+				log.Warnf("Rebuilt the utreexo accumulator from the stored "+
+					"state at %v after a process failure on block %v: %v",
+					parentHash, block.Hash(), err)
+
+				err = b.utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
+				if err != nil {
+					return false, fmt.Errorf("connectBestChain fail on block %s. "+
+						"Error: %v", block.Hash().String(), err)
+				}
 			}
 			view := NewUtxoViewpoint()
 			view.SetBestHash(parentHash)
@@ -1897,12 +1922,7 @@ func (b *BlockChain) IsValidHeader(blockHash *chainhash.Hash) bool {
 		return false
 	}
 
-	if node.status == statusValidateFailed ||
-		node.status == statusInvalidAncestor {
-		return false
-	}
-
-	return true
+	return !b.index.NodeStatus(node).KnownInvalid()
 }
 
 // LatestBlockLocatorByHeader returns a block locator for the latest known tip of the

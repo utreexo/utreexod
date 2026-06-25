@@ -196,14 +196,20 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 	blockHash := block.Hash()
 	log.Tracef("Processing block %v", blockHash)
 
-	// The block must not already exist in the main chain or side chains.
+	// The block must not already be known valid or known invalid. A block
+	// whose data is stored but which has never fully validated is allowed
+	// through for another attempt: for a utreexo node a connect failure can
+	// be caused by a bad or missing accumulator proof rather than by the
+	// block itself, and the block becomes connectable once a good proof is
+	// attached.
 	exists, err := b.blockExists(blockHash)
 	if err != nil {
 		return false, false, err
 	}
 	if exists {
 		node := b.index.LookupNode(blockHash)
-		if node.status != statusNone {
+		status := b.index.NodeStatus(node)
+		if status.KnownValid() || status.KnownInvalid() {
 			str := fmt.Sprintf("already have block %v", blockHash)
 			return false, false, ruleError(ErrDuplicateBlock, str)
 		}
