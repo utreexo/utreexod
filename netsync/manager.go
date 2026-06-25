@@ -7,6 +7,7 @@ package netsync
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"math/rand"
 	"net"
 	"os"
@@ -1086,6 +1087,15 @@ func (sm *SyncManager) attributeConnectFailure(pb *pendingBlock,
 	}
 
 	log.Errorf("Failed to process block %v: %v", blockHash, err)
+
+	// A reorganization that fails while attaching a different block says
+	// nothing about the halves this pair's peers supplied, so nobody is
+	// punished. The named block's stored data heals through the fetch pass
+	// re-requesting its proof.
+	var reorgErr blockchain.ReorgAttachError
+	if errors.As(err, &reorgErr) && !reorgErr.BlockHash.IsEqual(blockHash) {
+		return
+	}
 
 	// A block half loaded from the local store is hash-bound data that
 	// passed proof of work and merkle checks, so when only the proof came

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -1920,6 +1921,35 @@ func TestCSNStoredBlockProofRefetch(t *testing.T) {
 	}
 	require.Equal(t, int32(n), sm.chain.BestSnapshot().Height)
 	require.Empty(t, sm.pending)
+}
+
+// TestCSNReorgAncestorFailureBlamesNobody proves that a connect failure
+// caused by a reorganization failing on a different block does not punish the
+// peers that supplied the fed pair: their halves were not the ones that
+// failed.
+func TestCSNReorgAncestorFailureBlamesNobody(t *testing.T) {
+	t.Parallel()
+
+	sm, tearDown, p, blocks := setupCSNChain(t, 1)
+	defer tearDown()
+
+	blockHash := blocks[0].Hash()
+	ancestorHash := chainhash.Hash{0x01}
+	pb := &pendingBlock{block: blocks[0], blockPeer: p, proofPeer: p}
+
+	sm.attributeConnectFailure(pb, blockHash, blockchain.ReorgAttachError{
+		BlockHash: ancestorHash,
+		Err:       errors.New("node hash deadbeef not found"),
+	})
+	assertConnected(t, p)
+
+	// A reorganization failing on the fed block itself is attributed
+	// normally: the pair came from one peer, so that peer is disconnected.
+	sm.attributeConnectFailure(pb, blockHash, blockchain.ReorgAttachError{
+		BlockHash: *blockHash,
+		Err:       errors.New("node hash deadbeef not found"),
+	})
+	assertDisconnected(t, p)
 }
 
 // TestCSNStoredBlockBadProofDisconnects proves that when the block half came
