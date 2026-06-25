@@ -1958,6 +1958,91 @@ func TestCSNStoredBlockBadProofDisconnects(t *testing.T) {
 	assertDisconnected(t, p)
 }
 
+// TestCSNPoisonedSideChainProofHeals covers proof replacement end to end.  A
+// side chain block's proof is not verified when the block is stored, so a
+// peer can poison the stored copy with a garbage proof and the
+// reorganization onto that branch fails when it reads the proof back.  A
+// fresh fetch pass must reuse the stored branch blocks, request fresh
+// proofs, and the reprocessing must replace the stored proofs so the
+// reorganization succeeds.
+func TestCSNPoisonedSideChainProofHeals(t *testing.T) {
+	t.Parallel()
+
+	const n = 2
+
+	sm, tearDown, p, blocks := setupCSNChain(t, n)
+	defer tearDown()
+	st := sm.peerStates[p]
+	sm.headersFirstMode = true
+
+	// Connect the initial branch: genesis -> a1 -> a2.
+	for _, b := range blocks {
+		deliverProof(sm, p, *b.Hash())
+		deliverBlock(sm, p, b)
+	}
+	require.Equal(t, int32(n), sm.chain.BestSnapshot().Height)
+
+	// Build a heavier branch and process its headers.
+	params := sm.chainParams
+	branch := generateTestBranch(t, params, params.GenesisHash,
+		params.GenesisBlock.Header.Timestamp, 0, n+1, time.Minute)
+	for _, b := range branch {
+		_, err := sm.chain.ProcessBlockHeader(
+			&b.MsgBlock().Header, blockchain.BFNone)
+		require.NoError(t, err)
+	}
+	for _, b := range branch {
+		st.requestedBlocks[*b.Hash()] = struct{}{}
+		st.requestedUtreexoProofs[*b.Hash()] = struct{}{}
+	}
+
+	// b1 arrives with a poisoned proof and is stored as a side chain block
+	// without verification.
+	deliverBlock(sm, p, branch[0])
+	sm.handleUtreexoProofMsg(&utreexoProofMsg{
+		proof: &wire.MsgUtreexoProof{
+			BlockHash: *branch[0].Hash(),
+			Targets:   []uint64{0},
+		},
+		peer: p,
+	})
+	have, err := sm.chain.HaveBlock(branch[0].Hash())
+	require.NoError(t, err)
+	require.True(t, have, "the poisoned block should be stored")
+
+	// b2 and b3 arrive with good proofs.  b3 makes the branch heaviest and
+	// triggers the reorganization, which fails when it reads back b1's
+	// poisoned proof.
+	for _, b := range branch[1:] {
+		deliverProof(sm, p, *b.Hash())
+		deliverBlock(sm, p, b)
+	}
+	require.Equal(t, int32(n), sm.chain.BestSnapshot().Height,
+		"the reorganization must fail on the poisoned proof")
+	require.Equal(t, *blocks[n-1].Hash(), sm.chain.BestSnapshot().Hash)
+
+	// A fresh fetch pass reuses the stored branch blocks and requests
+	// fresh proofs.
+	st.requestedBlocks = make(map[chainhash.Hash]struct{})
+	st.requestedUtreexoProofs = make(map[chainhash.Hash]struct{})
+	sm.fetchHeaderBlocks(nil)
+	for _, b := range branch {
+		require.NotContains(t, st.requestedBlocks, *b.Hash(),
+			"stored branch blocks must not be re-requested")
+		require.Contains(t, st.requestedUtreexoProofs, *b.Hash(),
+			"fresh proofs must be requested for the stored branch")
+	}
+
+	// The fresh proofs replace the stored ones as the blocks reprocess,
+	// and the reorganization succeeds.
+	for _, b := range branch {
+		deliverProof(sm, p, *b.Hash())
+	}
+	require.Equal(t, int32(n+1), sm.chain.BestSnapshot().Height,
+		"the reorganization should succeed with the replaced proof")
+	require.Equal(t, *branch[n].Hash(), sm.chain.BestSnapshot().Hash)
+}
+
 // TestOrphanBlockReachesChain proves that a block whose parent header is
 // unknown is handed to the chain, which classifies it as an orphan, rather
 // than being held in the pending pool waiting for a parent that was never
