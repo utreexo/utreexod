@@ -99,8 +99,9 @@ type utreexoProofMsg struct {
 
 // pendingBlock holds the halves of a block that must be assembled before the
 // block can connect. A compact state node needs both the block and its utreexo
-// proof, which arrive as separate messages and may come from different peers. A
-// full node only needs the block, so proof and proofPeer stay nil.
+// proof, which the sync peer sends as separate messages, though the block half
+// can instead come from the local store. A full node only needs the block, so
+// proof and proofPeer stay nil.
 type pendingBlock struct {
 	block     *btcutil.Block
 	proof     *wire.MsgUtreexoProof
@@ -260,8 +261,8 @@ type SyncManager struct {
 
 	// pending holds blocks and utreexo proofs that have arrived but cannot
 	// connect yet because a half is missing or the parent is not the tip. It
-	// is keyed by blockhash so the two halves are matched regardless of
-	// arrival order or which peer delivered them.
+	// is keyed by blockhash so the two halves are matched regardless of which
+	// arrives first.
 	pending map[chainhash.Hash]*pendingBlock
 
 	// heldBlocks is the number of pending entries that hold a full block in
@@ -1109,9 +1110,9 @@ func (sm *SyncManager) connectPendingBlock(pb *pendingBlock) {
 }
 
 // attributeConnectFailure assigns blame for a failed block connection without
-// punishing a peer for the half it did not send. A block and its utreexo proof
-// can arrive from different peers, and a combined verification failure is not
-// always attributable to one half.
+// punishing a peer for a half it did not supply. The block half can come from
+// the local store rather than a peer, and a combined verification failure is
+// not always attributable to one half.
 func (sm *SyncManager) attributeConnectFailure(pb *pendingBlock,
 	blockHash *chainhash.Hash, err error) {
 
@@ -1126,7 +1127,7 @@ func (sm *SyncManager) attributeConnectFailure(pb *pendingBlock,
 	log.Errorf("Failed to process block %v: %v", blockHash, err)
 
 	// A reorganization that fails while attaching a different block says
-	// nothing about the halves this pair's peers supplied, so nobody is
+	// nothing about the halves supplied for this block, so nobody is
 	// punished. The named block's stored data heals through the fetch pass
 	// re-requesting its proof.
 	var reorgErr blockchain.ReorgAttachError
@@ -1145,11 +1146,12 @@ func (sm *SyncManager) attributeConnectFailure(pb *pendingBlock,
 		return
 	}
 
-	// When the block and proof came from different peers the bad half cannot be
-	// identified, so drop both halves and re-fetch the pair from the sync peer
-	// rather than rejecting an innocent peer. The block and proof were already
-	// removed from the request maps on arrival, so a normal fetch re-requests
-	// both, and the next failure then comes from a single peer.
+	// A proof re-requested after a stall can arrive from a different peer than
+	// the block half, and then the bad half cannot be identified, so drop both
+	// halves and re-fetch the pair from the sync peer rather than rejecting an
+	// innocent peer. The block and proof were already removed from the request
+	// maps on arrival, so a normal fetch re-requests both, and the next failure
+	// then comes from a single peer.
 	if pb.proofPeer != nil && pb.proofPeer != pb.blockPeer {
 		sm.fetchHeaderBlocks(nil)
 		return
