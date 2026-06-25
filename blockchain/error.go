@@ -6,6 +6,8 @@ package blockchain
 
 import (
 	"fmt"
+
+	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // DeploymentError identifies an error that indicates a deployment ID was
@@ -304,4 +306,23 @@ func (e RuleError) Error() string {
 // ruleError creates an RuleError given a set of arguments.
 func ruleError(c ErrorCode, desc string) RuleError {
 	return RuleError{ErrorCode: c, Description: desc}
+}
+
+// ReorgAttachError describes the failure to attach a specific block while
+// reorganizing the chain. The block named here can differ from the block
+// whose processing triggered the reorganization.
+type ReorgAttachError struct {
+	BlockHash chainhash.Hash
+	Err       error
+}
+
+// Error satisfies the error interface and prints human-readable errors.
+func (e ReorgAttachError) Error() string {
+	return fmt.Sprintf("failed to attach block %s while reorganizing: %v",
+		e.BlockHash, e.Err)
+}
+
+// Unwrap returns the underlying attach failure.
+func (e ReorgAttachError) Unwrap() error {
+	return e.Err
 }
