@@ -1192,13 +1192,11 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		} else {
 			err := b.utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
-				return fmt.Errorf("reorganizeChain fail while attaching "+
-					"block %s. Error: %v", block.Hash().String(), err)
+				return ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 			}
 			err = b.utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
-				return fmt.Errorf("reorganizeChain fail while attaching "+
-					"block %s. Error: %v", block.Hash().String(), err)
+				return ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 			}
 
 			err = view.BlockToUtxoView(block)
@@ -1358,8 +1356,8 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			if err != nil {
 				return nil, nil, nil,
 					fmt.Errorf("verifyReorganizationValidity fail "+
-						"while detaching block %s. Error: %v"+
-						block.Hash().String(), err)
+						"while detaching block %s. Error: %v",
+						block.Hash(), err)
 			}
 
 			// Load all of the utxos referenced by the block that aren't
@@ -1476,16 +1474,12 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 				err := utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
 				if err != nil {
 					return nil, nil, nil,
-						fmt.Errorf("verifyReorganizationValidity fail "+
-							"while attaching block %s. Error %v",
-							block.Hash().String(), err)
+						ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 				}
 				err = utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 				if err != nil {
 					return nil, nil, nil,
-						fmt.Errorf("verifyReorganizationValidity fail "+
-							"while attaching block %s. Error %v",
-							block.Hash().String(), err)
+						ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 				}
 
 				err = view.BlockToUtxoView(block)
@@ -1524,9 +1518,7 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 			err = utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
 				return nil, nil, nil,
-					fmt.Errorf("verifyReorganizationValidity fail "+
-						"while attaching block %s. Error %v",
-						block.Hash().String(), err)
+					ReorgAttachError{BlockHash: *block.Hash(), Err: err}
 			}
 		}
 		b.index.SetStatusFlags(n, statusValid)
@@ -1630,7 +1622,9 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 				rebuildErr := b.rebuildUtreexoViewFromState(parentHash)
 				if rebuildErr != nil {
 					return false, fmt.Errorf("connectBestChain fail on block %s. "+
-						"Error: %v", block.Hash().String(), err)
+						"Error: %v. Rebuilding the accumulator from the stored "+
+						"state also failed: %v", block.Hash().String(), err,
+						rebuildErr)
 				}
 				log.Warnf("Rebuilt the utreexo accumulator from the stored "+
 					"state at %v after a process failure on block %v: %v",
