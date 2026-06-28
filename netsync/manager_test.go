@@ -87,11 +87,12 @@ func chainSetup(t *testing.T, params *chaincfg.Params) (
 
 	// Create the main chain instance.
 	chain, err := blockchain.New(&blockchain.Config{
-		DB:          db,
-		Checkpoints: paramsCopy.Checkpoints,
-		ChainParams: &paramsCopy,
-		TimeSource:  blockchain.NewMedianTime(),
-		SigCache:    txscript.NewSigCache(1000),
+		DB:                 db,
+		Checkpoints:        paramsCopy.Checkpoints,
+		ChainParams:        &paramsCopy,
+		TimeSource:         blockchain.NewMedianTime(),
+		SigCache:           txscript.NewSigCache(1000),
+		AssumeUtreexoPoint: paramsCopy.AssumeUtreexoPoint,
 	})
 	if err != nil {
 		teardown()
@@ -1297,4 +1298,62 @@ func TestBlockConnectedCleansMempool(t *testing.T) {
 	// The mempool tx must have been evicted, even though we were not current.
 	require.False(t, txPool.HaveTransaction(mempoolTx.Hash()),
 		"mempool should have removed the double-spending tx on block connect")
+}
+
+func TestCheckUtreexoHash(t *testing.T) {
+
+	const assumepointHeight = int32(2)
+
+	tests := []struct {
+		name      string
+		numBlocks int
+		hashFunc  func([]*btcutil.Block) *chainhash.Hash
+		wantErr   bool
+	}{
+		{
+			name:      "success: hash at assumepointHeight matches",
+			numBlocks: 5,
+			hashFunc:  func(b []*btcutil.Block) *chainhash.Hash { return b[1].Hash() },
+			wantErr:   false,
+		},
+		{
+			name:      "mismatch: hash at assumepointHeight differs",
+			numBlocks: 5,
+			hashFunc:  func(b []*btcutil.Block) *chainhash.Hash { return &chainhash.Hash{} },
+			wantErr:   true,
+		},
+		{
+			name:      "fetch error: assumeHeight not in bestHeader",
+			numBlocks: 5,
+			hashFunc:  func(b []*btcutil.Block) *chainhash.Hash { return &chainhash.Hash{} },
+			wantErr:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			//setup
+			params := chaincfg.RegressionNetParams
+			params.Checkpoints = nil
+			blocks := generateTestBlocks(t, &params, tc.numBlocks)
+			params.AssumeUtreexoPoint = chaincfg.AssumeUtreexo{
+				BlockHash:   tc.hashFunc(blocks),
+				BlockHeight: assumepointHeight,
+			}
+			sm, tearDown := makeMockSyncManager(t, &params)
+			defer tearDown()
+			for _, block := range blocks {
+				_, err := sm.chain.ProcessBlockHeader(&block.MsgBlock().Header, blockchain.BFNone)
+				require.NoError(t, err)
+			}
+			//assert
+			err := sm.checkAssumeUtreexoHash()
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
