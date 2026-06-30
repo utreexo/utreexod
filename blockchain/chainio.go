@@ -28,6 +28,11 @@ const (
 	// latestUtxoSetBucketVersion is the current version of the utxo set
 	// bucket that is used to track all unspent outputs.
 	latestUtxoSetBucketVersion = 2
+
+	// utreexoProofStoreVersion is the current version of the out-of-band
+	// utreexo proof store.  A database at this version keeps validated proofs
+	// in the proof store rather than inline with the block bytes.
+	utreexoProofStoreVersion = 1
 )
 
 var (
@@ -54,6 +59,12 @@ var (
 	// utxoSetVersionKeyName is the name of the db key used to store the
 	// version of the utxo set currently in the database.
 	utxoSetVersionKeyName = []byte("utxosetversion")
+
+	// utreexoProofStoreVersionKeyName is the name of the db key used to store
+	// the version of the out-of-band utreexo proof store.  Version 0 (the key
+	// absent) means proofs are still serialized inline with the block bytes
+	// and have not been backfilled into the proof store.
+	utreexoProofStoreVersionKeyName = []byte("utreexoproofstoreversion")
 
 	// utxoSetBucketName is the name of the db bucket used to house the
 	// unspent transaction output set.
@@ -1307,6 +1318,14 @@ func (b *BlockChain) createChainState() error {
 			if err != nil {
 				return err
 			}
+
+			// A fresh utreexo database already uses the out-of-band proof
+			// store, so record the current proof store version to skip the
+			// one-time backfill that upgrades pre-existing databases.
+			err = dbPutVersion(dbTx, utreexoProofStoreVersionKeyName, utreexoProofStoreVersion)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Store empty spend journal for the genesis block.  This is needed
@@ -1544,8 +1563,9 @@ func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, e
 
 // dbFetchBlockByNode uses an existing database transaction to retrieve the
 // raw block for the provided node, deserialize it, and return a btcutil.Block
-// with the height set.  When isUtreexo is true the serialized utreexo proof
-// data stored alongside the block is also parsed.
+// with the height set.  When isUtreexo is true the utreexo proof is attached
+// from the out-of-band proof store, falling back to the proof serialized
+// inline by older versions.
 func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*btcutil.Block, error) {
 	// Load the raw block bytes from the database.
 	blockBytes, err := dbTx.FetchBlock(&node.hash)
@@ -1560,9 +1580,23 @@ func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*btc
 	}
 	block.SetHeight(node.height)
 
-	// Only utreexo CSN nodes store proof data alongside the block.
+	// Only utreexo CSN nodes have proof data for the block.  Prefer the
+	// out-of-band proof store; fall back to the proof serialized inline with
+	// the block bytes by versions that predate the proof store.
 	if isUtreexo {
-		block.ParseUtreexoData()
+		proofBytes, err := dbTx.FetchUtreexoProof(&node.hash)
+		if err != nil {
+			return nil, err
+		}
+		if proofBytes != nil {
+			ud := new(wire.UData)
+			if err := ud.Deserialize(bytes.NewReader(proofBytes)); err != nil {
+				return nil, err
+			}
+			block.SetUtreexoData(ud)
+		} else {
+			block.ParseUtreexoData()
+		}
 	}
 
 	return block, nil

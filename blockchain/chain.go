@@ -6,6 +6,7 @@
 package blockchain
 
 import (
+	"bytes"
 	"container/list"
 	"fmt"
 	"sync"
@@ -747,6 +748,21 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 			if err != nil {
 				return err
 			}
+
+			// Persist the block's utreexo proof out of band, in the same
+			// atomic update as the accumulator state.  This runs only after
+			// the proof has been verified and ingested, so a bogus proof is
+			// never written to disk.
+			if block.UtreexoData() != nil {
+				var buf bytes.Buffer
+				if err := block.UtreexoData().Serialize(&buf); err != nil {
+					return err
+				}
+				err = dbTx.StoreUtreexoProof(&node.hash, buf.Bytes())
+				if err != nil {
+					return err
+				}
+			}
 		} else {
 			// Update the utxo set using the state of the utxo view.  This
 			// entails removing all of the utxos spent and adding the new
@@ -1424,6 +1440,67 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	return detachBlocks, attachBlocks, detachSpentTxOuts, nil
 }
 
+// storeSideChainUtreexoProof verifies a side chain block's accumulator proof
+// against the stored accumulator state as of the block's parent and, on
+// success, persists the validated proof together with the accumulator state
+// after the block.  A side chain block never reaches connectBlock, where a
+// main chain block's proof is written, so without this its proof would be
+// dropped.  Verifying here keeps the invariant that only a proof that
+// validated is written to disk, storing the per-block state lets a deeper side
+// chain block verify against its parent in turn, and storing the proof makes
+// it available to a later reorganization that attaches this block.
+//
+// This function MUST be called with the chain state lock held (for writes).
+func (b *BlockChain) storeSideChainUtreexoProof(node *blockNode, block *btcutil.Block) error {
+	parentHash := &block.MsgBlock().Header.PrevBlock
+
+	// Load the accumulator state as of the parent.  A freshly loaded state
+	// holds only roots and a leaf count and stands alone, so the proof can be
+	// verified and ingested even though the block is not on the main chain.
+	var parentView *UtreexoViewpoint
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		parentView, err = dbFetchUtreexoView(dbTx, parentHash)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if parentView == nil {
+		return AssertError(fmt.Sprintf("no stored utreexo state for parent "+
+			"block %s of side chain block %s", parentHash, &node.hash))
+	}
+
+	// A chain view over this block's own branch so the leaf commitments
+	// resolve to the side chain's block hashes rather than the main chain's.
+	sideChain := newChainView(node)
+
+	// Verify the proof against the parent state, then advance a copy of that
+	// state past this block to record where the accumulator stands after it.
+	workView := parentView.CopyWithRoots()
+	err = workView.VerifyUData(block, sideChain, block.UtreexoData())
+	if err != nil {
+		return err
+	}
+	err = workView.ProcessUData(block, sideChain, block.UtreexoData())
+	if err != nil {
+		return err
+	}
+
+	// Persist the validated proof and the resulting accumulator state in a
+	// single atomic update.
+	var buf bytes.Buffer
+	if err := block.UtreexoData().Serialize(&buf); err != nil {
+		return err
+	}
+	return b.db.Update(func(dbTx database.Tx) error {
+		if err := dbPutUtreexoView(dbTx, workView, &node.hash); err != nil {
+			return err
+		}
+		return dbTx.StoreUtreexoProof(&node.hash, buf.Bytes())
+	})
+}
+
 // connectBestChain handles connecting the passed block to the chain while
 // respecting proper chain selection according to the chain with the most
 // proof of work.  In the typical case, the new block simply extends the main
@@ -1562,6 +1639,18 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 	if fastAdd {
 		log.Warnf("fastAdd set in the side chain case? %v\n",
 			block.Hash())
+	}
+
+	// For a utreexo node, verify and store the block's accumulator proof
+	// while it is still on the side chain.  This runs before the work
+	// comparison so it covers both a block that stays on the side chain and
+	// one that goes on to trigger a reorganization, ensuring the reorg finds
+	// a validated proof already on disk for every block it attaches.
+	if b.utreexoView != nil && block.UtreexoData() != nil {
+		err := b.storeSideChainUtreexoProof(node, block)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	// We're extending (or creating) a side chain, but the cumulative
