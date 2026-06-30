@@ -357,8 +357,9 @@ type dbCache struct {
 	// ldb is the underlying leveldb DB for metadata.
 	ldb *leveldb.DB
 
-	blkStore *blockStore
-	sjStore  *blockStore
+	blkStore   *blockStore
+	sjStore    *blockStore
+	proofStore *blockStore
 
 	// The following fields are related to flushing the cache to persistent
 	// storage.  Note that all flushing is performed in an opportunistic
@@ -496,6 +497,9 @@ func (c *dbCache) flush() error {
 		return err
 	}
 	if err := c.sjStore.syncBlocks(); err != nil {
+		return err
+	}
+	if err := c.proofStore.syncBlocks(); err != nil {
 		return err
 	}
 
@@ -656,11 +660,12 @@ func (c *dbCache) Close() error {
 // leveldb instance.  The cache will be flushed to leveldb when the max size
 // exceeds the provided value or it has been longer than the provided interval
 // since the last flush.
-func newDbCache(ldb *leveldb.DB, blkStore, sjStore *blockStore, maxSize uint64, flushIntervalSecs uint32) *dbCache {
+func newDbCache(ldb *leveldb.DB, blkStore, sjStore, proofStore *blockStore, maxSize uint64, flushIntervalSecs uint32) *dbCache {
 	return &dbCache{
 		ldb:           ldb,
 		blkStore:      blkStore,
 		sjStore:       sjStore,
+		proofStore:    proofStore,
 		maxSize:       maxSize,
 		flushInterval: time.Second * time.Duration(flushIntervalSecs),
 		lastFlush:     time.Now(),

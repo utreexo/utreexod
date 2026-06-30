@@ -413,6 +413,29 @@ type Tx interface {
 	//   - ErrCorruption if the database has somehow become corrupted
 	FetchSpendJournal(hash *chainhash.Hash) ([]byte, error)
 
+	// StoreUtreexoProof stores the provided serialized utreexo proof for the
+	// block identified by blockHash.  It is written atomically with the
+	// transaction and rolled back if the transaction does not commit.  A
+	// validated proof for a block never changes, so the store is effectively
+	// write-once per hash.
+	//
+	// The interface contract guarantees at least the following errors will
+	// be returned (other implementation-specific errors are possible):
+	//   - ErrTxNotWritable if attempted against a read-only transaction
+	//   - ErrTxClosed if the transaction has already been closed
+	StoreUtreexoProof(blockHash *chainhash.Hash, proof []byte) error
+
+	// FetchUtreexoProof returns the raw serialized utreexo proof for the
+	// block identified by the given hash, or (nil, nil) when no proof is
+	// stored for it.  The raw bytes are in the format specified by the
+	// blockchain package.
+	//
+	// The interface contract guarantees at least the following errors will
+	// be returned (other implementation-specific errors are possible):
+	//   - ErrTxClosed if the transaction has already been closed
+	//   - ErrCorruption if the database has somehow become corrupted
+	FetchUtreexoProof(hash *chainhash.Hash) ([]byte, error)
+
 	// BeenPruned returns if the block storage has ever been pruned.
 	//
 	// Implementation specific errors are possible.

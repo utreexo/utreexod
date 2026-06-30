@@ -61,6 +61,10 @@ func reconcileDB(pdb *db, create bool) (database.DB, error) {
 	// Load the current write cursor position from the metadata.
 	var blkCurFileNum, blkCurOffset uint32
 	var sjCurFileNum, sjCurOffset uint32
+	// The proof cursor defaults to (0, 0): databases created before the
+	// utreexo proof store existed have no proofWriteLocKeyName, and a fresh
+	// proof store starts at the origin, so a missing key is not corruption.
+	var proofCurFileNum, proofCurOffset uint32
 	err := pdb.View(func(tx database.Tx) error {
 		// Get write row for blocks.
 		blkWriteRow := tx.Metadata().Get(blkWriteLocKeyName)
@@ -85,6 +89,16 @@ func reconcileDB(pdb *db, create bool) (database.DB, error) {
 		sjCurFileNum, sjCurOffset, err = deserializeWriteRow(sjWriteRow)
 		if err != nil {
 			return err
+		}
+
+		// Get write row for utreexo proofs.  A missing key means this
+		// database predates the proof store; leave the cursor at the origin.
+		proofWriteRow := tx.Metadata().Get(proofWriteLocKeyName)
+		if proofWriteRow != nil {
+			proofCurFileNum, proofCurOffset, err = deserializeWriteRow(proofWriteRow)
+			if err != nil {
+				return err
+			}
 		}
 
 		return err
@@ -154,9 +168,31 @@ func reconcileDB(pdb *db, create bool) (database.DB, error) {
 		return nil, makeDbErr(database.ErrCorruption, str, nil)
 	}
 
+	// Same thing for utreexo proof files.
+	proofWC := pdb.proofStore.writeCursor
+	if proofWC.curFileNum > proofCurFileNum || (proofWC.curFileNum == proofCurFileNum &&
+		proofWC.curOffset > proofCurOffset) {
+
+		log.Info("Detected unclean shutdown for utreexo proof files - Repairing...")
+		log.Debugf("Metadata claims file %d, offset %d. Utreexo proof data is "+
+			"at file %d, offset %d", proofCurFileNum, proofCurOffset,
+			proofWC.curFileNum, proofWC.curOffset)
+		needsRollBack = true
+	}
+	if proofWC.curFileNum < proofCurFileNum || (proofWC.curFileNum == proofCurFileNum &&
+		proofWC.curOffset < proofCurOffset) {
+
+		str := fmt.Sprintf("metadata claims file %d, offset %d, but "+
+			"utreexo proof data is at file %d, offset %d", proofCurFileNum,
+			proofCurOffset, proofWC.curFileNum, proofWC.curOffset)
+		log.Warnf("***Database corruption detected***: %v", str)
+		return nil, makeDbErr(database.ErrCorruption, str, nil)
+	}
+
 	if needsRollBack {
 		pdb.blkStore.handleRollback(blkCurFileNum, blkCurOffset)
 		pdb.sjStore.handleRollback(sjCurFileNum, sjCurOffset)
+		pdb.proofStore.handleRollback(proofCurFileNum, proofCurOffset)
 		log.Infof("Database sync complete")
 	}
 
