@@ -68,14 +68,14 @@ func (b *Block) Bytes() ([]byte, error) {
 		return b.serializedBlock, nil
 	}
 
-	// Serialize the MsgBlock.
-	size := b.msgBlock.SerializeSize() + b.utreexoDataSerializeSize()
+	// Serialize the MsgBlock.  The utreexo proof is no longer appended here:
+	// it is stored out of band in the database's proof store, written only
+	// after it validates.  ParseUtreexoData still reads the trailing proof of
+	// blocks stored by older versions.
+	size := b.msgBlock.SerializeSize()
 	w := bytes.NewBuffer(make([]byte, 0, size))
 	err := b.msgBlock.Serialize(w)
 	if err != nil {
-		return nil, err
-	}
-	if err := b.appendSerializedUtreexoData(w); err != nil {
 		return nil, err
 	}
 	serializedBlock := w.Bytes()
@@ -407,26 +407,6 @@ func (b *Block) ensureUtreexoData() *blockUtreexoData {
 // regenerated on the next call to Bytes().
 func (b *Block) invalidateSerializedBlock() {
 	b.serializedBlock = nil
-}
-
-// utreexoDataSerializeSize returns the number of bytes needed to serialize the
-// cached Utreexo data.
-func (b *Block) utreexoDataSerializeSize() int {
-	ud := b.UtreexoData()
-	if ud == nil {
-		return 0
-	}
-	return ud.SerializeSize()
-}
-
-// appendSerializedUtreexoData writes the serialized Utreexo data to the writer
-// if any is cached on the block.
-func (b *Block) appendSerializedUtreexoData(w io.Writer) error {
-	ud := b.UtreexoData()
-	if ud == nil {
-		return nil
-	}
-	return ud.Serialize(w)
 }
 
 // attachUtreexoDataFromSerialized attempts to read serialized Utreexo data
