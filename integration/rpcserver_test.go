@@ -10,15 +10,21 @@ package integration
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime/debug"
+	"strings"
 	"testing"
 
+	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/integration/rpctest"
 	"github.com/utreexo/utreexod/rpcclient"
+	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/wire"
 )
 
 func testGetBestBlock(r *rpctest.Harness, t *testing.T) {
@@ -208,4 +214,229 @@ func TestRpcServer(t *testing.T) {
 
 		currentTestNum++
 	}
+}
+
+// newHarness creates a node with the given args, sets up its test chain, and
+// registers teardown.
+func newHarness(t *testing.T, args ...string) *rpctest.Harness {
+	t.Helper()
+
+	h, err := rpctest.New(&chaincfg.RegressionNetParams, nil, args, "")
+	if err != nil {
+		t.Fatalf("unable to create harness: %v", err)
+	}
+	if err := h.SetUp(true, 0); err != nil {
+		t.Fatalf("unable to set up harness: %v", err)
+	}
+	t.Cleanup(func() { h.TearDown() })
+	return h
+}
+
+// getUtreexoProofErr issues getutreexoproof through the low-level RawRequest so
+// the actual RPC error is returned.  The typed GetUtreexoProof client wrapper
+// masks server errors behind a generic JSON decode error.
+func getUtreexoProofErr(t *testing.T, harness *rpctest.Harness, hash *chainhash.Hash) error {
+	t.Helper()
+
+	hashParam, err := json.Marshal(hash.String())
+	if err != nil {
+		t.Fatalf("unable to marshal hash param: %v", err)
+	}
+	verbosityParam, err := json.Marshal(1)
+	if err != nil {
+		t.Fatalf("unable to marshal verbosity param: %v", err)
+	}
+
+	_, err = harness.Client.RawRequest("getutreexoproof",
+		[]json.RawMessage{hashParam, verbosityParam})
+	return err
+}
+
+// buildChainWithSpends mines enough blocks for the coinbase outputs to mature
+// and then mines numSpendBlocks blocks that each include a spend, so the
+// resulting blocks carry non-empty utreexo proofs.  It returns the ordered
+// hashes of every block above genesis.
+func buildChainWithSpends(t *testing.T, bridge *rpctest.Harness, numSpendBlocks int) []*chainhash.Hash {
+	t.Helper()
+
+	const numMaturityBlocks = 110
+	allHashes, err := bridge.Client.Generate(numMaturityBlocks)
+	if err != nil {
+		t.Fatalf("unable to generate maturity blocks: %v", err)
+	}
+
+	for i := 0; i < numSpendBlocks; i++ {
+		addr, err := bridge.NewAddress()
+		if err != nil {
+			t.Fatalf("unable to get new address: %v", err)
+		}
+		addrScript, err := txscript.PayToAddrScript(addr)
+		if err != nil {
+			t.Fatalf("unable to generate pkscript: %v", err)
+		}
+		output := wire.NewTxOut(int64(btcutil.SatoshiPerBitcoin), addrScript)
+		if _, err := bridge.SendOutputs([]*wire.TxOut{output}, 10); err != nil {
+			t.Fatalf("unable to send outputs: %v", err)
+		}
+
+		spendHashes, err := bridge.Client.Generate(1)
+		if err != nil {
+			t.Fatalf("unable to generate block with spend: %v", err)
+		}
+		allHashes = append(allHashes, spendHashes...)
+	}
+
+	return allHashes
+}
+
+// TestBuildChainWithSpends checks that buildChainWithSpends actually mines a
+// spend.  The proof comparisons rely on it to produce non-empty proofs, which
+// would otherwise silently pass comparing only empty (coinbase only) proofs.
+func TestBuildChainWithSpends(t *testing.T) {
+	node := newHarness(t, "--noutreexo", "--nobdkwallet")
+
+	sawSpend := false
+	for _, blockHash := range buildChainWithSpends(t, node, 1) {
+		block, err := node.Client.GetBlock(blockHash)
+		if err != nil {
+			t.Fatalf("unable to get block %s: %v", blockHash, err)
+		}
+		// A block with no spends holds only the coinbase, so any additional
+		// transaction is a spend.
+		if len(block.Transactions) > 1 {
+			sawSpend = true
+			break
+		}
+	}
+
+	if !sawSpend {
+		t.Fatal("buildChainWithSpends produced no block with a spend")
+	}
+}
+
+// assertProofsMatch checks that each harness in others serves the same proof as
+// ref for every block.
+func assertProofsMatch(t *testing.T, blockHashes []*chainhash.Hash,
+	ref *rpctest.Harness, others map[string]*rpctest.Harness) {
+
+	t.Helper()
+
+	for i, blockHash := range blockHashes {
+		want, err := ref.Client.GetUtreexoProof(blockHash)
+		if err != nil {
+			t.Fatalf("reference GetUtreexoProof failed at height %d: %v", i+1, err)
+		}
+
+		for name, h := range others {
+			got, err := h.Client.GetUtreexoProof(blockHash)
+			if err != nil {
+				t.Fatalf("%s GetUtreexoProof failed at height %d: %v", name, i+1, err)
+			}
+			if !reflect.DeepEqual(want, got) {
+				t.Fatalf("%s proof mismatch at height %d.\nwant: %+v\ngot:  %+v",
+					name, i+1, want, got)
+			}
+		}
+	}
+}
+
+// TestGetUtreexoProof checks that a utreexoproofindex node, a
+// flatutreexoproofindex node, and a compact state node all serve the same
+// proof.  The index paths guard against regressions and the CSN path fetches
+// straight from the utreexo view.
+func TestGetUtreexoProof(t *testing.T) {
+	utreexoProofNode := newHarness(t, "--utreexoproofindex", "--noutreexo", "--nobdkwallet", "--prune=0")
+	flatUtreexoProofNode := newHarness(t, "--flatutreexoproofindex", "--noutreexo", "--nobdkwallet", "--prune=0")
+	csn := newHarness(t, "--nobdkwallet")
+
+	// The flatutreexoproofindex node generates the chain (with spends so the
+	// proofs aren't all empty) and the other two nodes are synced from it.
+	blockHashes := buildChainWithSpends(t, flatUtreexoProofNode, 10)
+	blocks, udatas, err := fetchBlocks(blockHashes, flatUtreexoProofNode)
+	if err != nil {
+		t.Fatalf("unable to fetch blocks with udata: %v", err)
+	}
+	for i, block := range blocks {
+		if err := utreexoProofNode.Client.SubmitBlock(block, nil); err != nil {
+			t.Fatalf("unable to submit block %d to the utreexo proof node: %v", i+1, err)
+		}
+		if err := csn.Client.SubmitBlockAndUtreexoProof(block, udatas[i]); err != nil {
+			t.Fatalf("unable to submit block %d to the csn: %v", i+1, err)
+		}
+	}
+
+	assertProofsMatch(t, blockHashes, flatUtreexoProofNode, map[string]*rpctest.Harness{
+		"utreexoproofindex": utreexoProofNode,
+		"csn":               csn,
+	})
+
+	// Genesis has no proof and an unknown block isn't in the chain.  Both must
+	// return a clean error rather than panic.
+	genesisHash, err := flatUtreexoProofNode.Client.GetBlockHash(0)
+	if err != nil {
+		t.Fatalf("unable to get genesis hash: %v", err)
+	}
+	var unknownHash chainhash.Hash
+	for _, h := range []*rpctest.Harness{utreexoProofNode, flatUtreexoProofNode, csn} {
+		if err := getUtreexoProofErr(t, h, genesisHash); err == nil ||
+			!strings.Contains(err.Error(), "genesis") {
+			t.Fatalf("expected a genesis error but got: %v", err)
+		}
+		if err := getUtreexoProofErr(t, h, &unknownHash); err == nil ||
+			!strings.Contains(err.Error(), "couldn't be fetched") {
+			t.Fatalf("expected a height lookup error but got: %v", err)
+		}
+	}
+}
+
+// TestGetUtreexoProofDisabled checks that getutreexoproof is rejected on a node
+// that has neither a utreexo proof index nor an active utreexo view.
+func TestGetUtreexoProofDisabled(t *testing.T) {
+	fullNode := newHarness(t, "--noutreexo", "--nobdkwallet")
+
+	// The guard runs before the block lookup, so any hash triggers it.
+	genesisHash, err := fullNode.Client.GetBlockHash(0)
+	if err != nil {
+		t.Fatalf("unable to get genesis hash: %v", err)
+	}
+	if err := getUtreexoProofErr(t, fullNode, genesisHash); err == nil ||
+		!strings.Contains(err.Error(), "must be enabled") {
+		t.Fatalf("expected the disabled error but got: %v", err)
+	}
+}
+
+// TestGetUtreexoProofPrunedCSN checks that a compact state node running with
+// pruning enabled still serves the same proofs as an archival bridge for the
+// blocks it retains.  It does not exercise the deleted block path: no block is
+// actually pruned at this block count, since ffldb only deletes whole 128 MiB
+// block files and always keeps the last 288 blocks.  The deleted block behavior
+// that getutreexoproof relies on is covered by blockchain.TestBlockByHashPruned.
+func TestGetUtreexoProofPrunedCSN(t *testing.T) {
+	bridge := newHarness(t, "--flatutreexoproofindex", "--noutreexo", "--nobdkwallet", "--prune=0")
+	prunedCSN := newHarness(t, "--nobdkwallet", "--prune=550")
+
+	// This only confirms the node came up with pruning enabled.  Nothing is
+	// deleted at this scale.
+	info, err := prunedCSN.Client.GetBlockChainInfo()
+	if err != nil {
+		t.Fatalf("unable to get chain info: %v", err)
+	}
+	if !info.Pruned {
+		t.Fatal("expected the csn to have pruning enabled")
+	}
+
+	blockHashes := buildChainWithSpends(t, bridge, 10)
+	blocks, udatas, err := fetchBlocks(blockHashes, bridge)
+	if err != nil {
+		t.Fatalf("unable to fetch blocks with udata: %v", err)
+	}
+	for i, block := range blocks {
+		if err := prunedCSN.Client.SubmitBlockAndUtreexoProof(block, udatas[i]); err != nil {
+			t.Fatalf("unable to submit block %d to the pruned csn: %v", i+1, err)
+		}
+	}
+
+	assertProofsMatch(t, blockHashes, bridge, map[string]*rpctest.Harness{
+		"pruned csn": prunedCSN,
+	})
 }
