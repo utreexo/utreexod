@@ -300,47 +300,63 @@ func TestBlockErrors(t *testing.T) {
 	}
 }
 
-// TestNewBlockFromBytesWithUtreexoData ensures that NewBlockFromBytes does not
-// automatically attach utreexo data, and that ParseUtreexoData can be used by
-// utreexo nodes to explicitly attach it.
-func TestNewBlockFromBytesWithUtreexoData(t *testing.T) {
-	block := btcutil.NewBlock(&Block100000)
-	want := testWireUData()
-	block.SetUtreexoData(want)
+// oldFormatBlockBytes returns the serialization an older version produced for a
+// block carrying a utreexo proof: the base block followed by the inline proof.
+// The proof store replaced this inline format, but ParseUtreexoData must still
+// read it for backwards compatibility.
+func oldFormatBlockBytes(t *testing.T, ud *wire.UData) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := Block100000.Serialize(&buf); err != nil {
+		t.Fatalf("Serialize: unexpected error: %v", err)
+	}
+	if err := ud.Serialize(&buf); err != nil {
+		t.Fatalf("UData Serialize: unexpected error: %v", err)
+	}
+	return buf.Bytes()
+}
 
+// TestNewBlockFromBytesWithUtreexoData ensures Bytes no longer serializes the
+// utreexo proof and that ParseUtreexoData still reads the inline proof written
+// by older versions.
+func TestNewBlockFromBytesWithUtreexoData(t *testing.T) {
+	// Bytes must no longer embed the proof; it is stored out of band now.
+	block := btcutil.NewBlock(&Block100000)
+	block.SetUtreexoData(testWireUData())
 	serialized, err := block.Bytes()
 	if err != nil {
 		t.Fatalf("Bytes: unexpected error: %v", err)
 	}
-
-	newBlock, err := btcutil.NewBlockFromBytes(serialized)
+	roundTrip, err := btcutil.NewBlockFromBytes(serialized)
 	if err != nil {
 		t.Fatalf("NewBlockFromBytes: unexpected error: %v", err)
 	}
+	roundTrip.ParseUtreexoData()
+	if roundTrip.UtreexoData() != nil {
+		t.Fatalf("Bytes must not serialize the utreexo proof anymore")
+	}
 
-	// Constructors must not auto-attach utreexo data.
-	if newBlock.UtreexoData() != nil {
+	// ParseUtreexoData must still read the inline proof of an old-format
+	// block, and constructors must not auto-attach it.
+	want := testWireUData()
+	oldBlock, err := btcutil.NewBlockFromBytes(oldFormatBlockBytes(t, want))
+	if err != nil {
+		t.Fatalf("NewBlockFromBytes: unexpected error: %v", err)
+	}
+	if oldBlock.UtreexoData() != nil {
 		t.Fatalf("expected nil UtreexoData before ParseUtreexoData")
 	}
-
-	// Explicit call attaches the data (utreexo CSN path).
-	newBlock.ParseUtreexoData()
-	assertUDataEqual(t, newBlock.UtreexoData(), want)
+	oldBlock.ParseUtreexoData()
+	assertUDataEqual(t, oldBlock.UtreexoData(), want)
 }
 
-// TestNewBlockFromReaderWithUtreexoData ensures that NewBlockFromReader does
-// not automatically attach utreexo data.
+// TestNewBlockFromReaderWithUtreexoData ensures NewBlockFromReader does not
+// auto-attach utreexo data and that ParseUtreexoData reads an old-format
+// inline proof captured from the reader.
 func TestNewBlockFromReaderWithUtreexoData(t *testing.T) {
-	block := btcutil.NewBlock(&Block100000)
 	want := testWireUData()
-	block.SetUtreexoData(want)
-
-	serialized, err := block.Bytes()
-	if err != nil {
-		t.Fatalf("Bytes: unexpected error: %v", err)
-	}
-
-	newBlock, err := btcutil.NewBlockFromReader(bytes.NewReader(serialized))
+	newBlock, err := btcutil.NewBlockFromReader(
+		bytes.NewReader(oldFormatBlockBytes(t, want)))
 	if err != nil {
 		t.Fatalf("NewBlockFromReader: unexpected error: %v", err)
 	}
@@ -350,14 +366,14 @@ func TestNewBlockFromReaderWithUtreexoData(t *testing.T) {
 		t.Fatalf("expected nil UtreexoData from NewBlockFromReader")
 	}
 
-	// Explicit call attaches the data (utreexo CSN path).
+	// Explicit call attaches the inline data (utreexo CSN read path).
 	newBlock.ParseUtreexoData()
 	assertUDataEqual(t, newBlock.UtreexoData(), want)
 }
 
-// TestSetUtreexoDataInvalidatesCache ensures cached serialization is rebuilt
-// once the Utreexo data changes.
-func TestSetUtreexoDataInvalidatesCache(t *testing.T) {
+// TestSetUtreexoDataNotSerialized ensures the utreexo proof is no longer part
+// of the block's serialization; it lives out of band in the proof store.
+func TestSetUtreexoDataNotSerialized(t *testing.T) {
 	block := btcutil.NewBlock(&Block100000)
 	base, err := block.Bytes()
 	if err != nil {
@@ -370,8 +386,8 @@ func TestSetUtreexoDataInvalidatesCache(t *testing.T) {
 		t.Fatalf("Bytes (with utreexo data): unexpected error: %v", err)
 	}
 
-	if bytes.Equal(base, withProof) {
-		t.Fatalf("expected serialized block to change once utreexo data added")
+	if !bytes.Equal(base, withProof) {
+		t.Fatalf("serialized block must not change when utreexo data is set")
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/wire"
@@ -601,5 +602,117 @@ func (b *BlockChain) maybeUpgradeDbBuckets(interrupt <-chan struct{}) error {
 		}
 	}
 
+	// Backfill the out-of-band utreexo proof store from the proofs serialized
+	// inline with the block bytes by older versions.  Only utreexo nodes have
+	// proofs; the version defaults to 0 (absent) for databases that predate
+	// the proof store.
+	if b.utreexoView != nil {
+		var proofStoreVersion uint32
+		err := b.db.Update(func(dbTx database.Tx) error {
+			var err error
+			proofStoreVersion, err = dbFetchOrCreateVersion(dbTx,
+				utreexoProofStoreVersionKeyName, 0)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+
+		if proofStoreVersion < utreexoProofStoreVersion {
+			if err := b.upgradeUtreexoProofStoreToV1(interrupt); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
+}
+
+// upgradeUtreexoProofStoreToV1 backfills the out-of-band utreexo proof store by
+// copying each main chain block's proof, serialized inline with the block bytes
+// by older versions, into the proof store.  It is idempotent and resumable: a
+// block whose proof is already in the store is skipped, so an interrupted
+// migration simply continues on the next start.  The version is bumped only
+// after the whole chain has been backfilled.
+func (b *BlockChain) upgradeUtreexoProofStoreToV1(interrupt <-chan struct{}) error {
+	bestHeight := b.bestChain.Tip().height
+	if bestHeight < 1 {
+		// Nothing to backfill (only the genesis block, which has no proof).
+		return b.db.Update(func(dbTx database.Tx) error {
+			return dbPutVersion(dbTx, utreexoProofStoreVersionKeyName,
+				utreexoProofStoreVersion)
+		})
+	}
+
+	log.Infof("Backfilling the utreexo proof store from inline block proofs "+
+		"up to height %d. This is a one-time database migration and may take "+
+		"a while...", bestHeight)
+
+	const maxPerBatch = 500
+	height := int32(1) // The genesis block carries no proof.
+	for height <= bestHeight {
+		end := height + maxPerBatch
+		if end > bestHeight+1 {
+			end = bestHeight + 1
+		}
+		err := b.db.Update(func(dbTx database.Tx) error {
+			for ; height < end; height++ {
+				if interruptRequested(interrupt) {
+					return errInterruptRequested
+				}
+
+				node := b.bestChain.nodeByHeight(height)
+				if node == nil {
+					continue
+				}
+				hash := node.hash
+
+				// Skip blocks whose proof is already in the store so the
+				// migration can resume after an interruption.
+				existing, err := dbTx.FetchUtreexoProof(&hash)
+				if err != nil {
+					return err
+				}
+				if existing != nil {
+					continue
+				}
+
+				// Read the block and parse the proof serialized inline with
+				// its bytes by older versions.
+				blockBytes, err := dbTx.FetchBlock(&hash)
+				if err != nil {
+					return err
+				}
+				blk, err := btcutil.NewBlockFromBytes(blockBytes)
+				if err != nil {
+					return err
+				}
+				blk.ParseUtreexoData()
+				ud := blk.UtreexoData()
+				if ud == nil {
+					continue
+				}
+
+				var buf bytes.Buffer
+				if err := ud.Serialize(&buf); err != nil {
+					return err
+				}
+				if err := dbTx.StoreUtreexoProof(&hash, buf.Bytes()); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		log.Infof("Backfilled utreexo proofs through height %d/%d",
+			height-1, bestHeight)
+	}
+
+	// The whole chain is backfilled; record the new version.
+	return b.db.Update(func(dbTx database.Tx) error {
+		return dbPutVersion(dbTx, utreexoProofStoreVersionKeyName,
+			utreexoProofStoreVersion)
+	})
 }

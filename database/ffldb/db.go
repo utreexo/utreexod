@@ -94,6 +94,18 @@ var (
 
 	// blockHeightKeyName is the key used to store the heights for each file.
 	blockHeightKeyName = []byte("ffldb-blockheight")
+
+	// proofIdxBucketName is the bucket used internally to track utreexo proof
+	// metadata.  Unlike the block and spend journal index buckets it is NOT a
+	// reserved fixed-ID bucket: existing databases already assign the low
+	// bucket IDs (4 and up) to blockchain buckets, so a fixed reserved ID
+	// would collide with them.  It is instead created lazily as a normal
+	// dynamically-numbered metadata bucket on the first proof write.
+	proofIdxBucketName = []byte("ffldb-proofidx")
+
+	// proofWriteLocKeyName is the key used to store the current utreexo proof
+	// write file location.
+	proofWriteLocKeyName = []byte("ffldb-proofwriteloc")
 )
 
 // Common error strings.
@@ -1002,6 +1014,11 @@ type transaction struct {
 	pendingSpendJournals    map[chainhash.Hash]int
 	pendingSpendJournalData []pendingData
 
+	// Utreexo proofs that need to be stored on commit.  The pendingProofs map
+	// is kept to allow quick lookups of pending proofs by block hash.
+	pendingProofs    map[chainhash.Hash]int
+	pendingProofData []pendingData
+
 	// Keys that need to be stored or deleted on commit.
 	pendingKeys   *treap.Mutable
 	pendingRemove *treap.Mutable
@@ -1712,12 +1729,20 @@ func (tx *transaction) writePendingAndCommit() error {
 	oldSJOffset := sjWC.curOffset
 	sjWC.RUnlock()
 
+	// Do the same for the utreexo proof write cursor.
+	proofWC := tx.db.proofStore.writeCursor
+	proofWC.RLock()
+	oldProofFileNum := proofWC.curFileNum
+	oldProofOffset := proofWC.curOffset
+	proofWC.RUnlock()
+
 	// rollback is a closure that is used to rollback all writes to the
 	// block files.
 	rollback := func() {
 		// Rollback any modifications made to the block files if needed.
 		tx.db.blkStore.handleRollback(oldBlkFileNum, oldBlkOffset)
 		tx.db.sjStore.handleRollback(oldSJFileNum, oldSJOffset)
+		tx.db.proofStore.handleRollback(oldProofFileNum, oldProofOffset)
 	}
 
 	// Loop through all of the pending blocks to store and write them.
@@ -1797,6 +1822,31 @@ func (tx *transaction) writePendingAndCommit() error {
 		}
 	}
 
+	// Loop through all of the pending utreexo proofs and write them.  Proof
+	// files are numbered independently of block files, so the proof is simply
+	// appended at the current proof write cursor (no giveLoc alignment).  The
+	// proof index bucket was created by StoreUtreexoProof when the first proof
+	// was queued.
+	if len(tx.pendingProofData) > 0 {
+		proofIdx := tx.metaBucket.Bucket(proofIdxBucketName)
+		for _, proofData := range tx.pendingProofData {
+			log.Tracef("Storing utreexo proof %s", proofData.hash)
+			location, err := tx.db.proofStore.writeBlock(proofData.bytes, nil)
+			if err != nil {
+				rollback()
+				return err
+			}
+
+			// Add a record in the proof index for the proof.
+			proofRow := serializeBlockLoc(location)
+			err = proofIdx.Put(proofData.hash[:], proofRow)
+			if err != nil {
+				rollback()
+				return err
+			}
+		}
+	}
+
 	// Update the metadata for the current write block file and offset.
 	blkWriteRow := serializeWriteRow(blkWC.curFileNum, blkWC.curOffset)
 	if err := tx.metaBucket.Put(blkWriteLocKeyName, blkWriteRow); err != nil {
@@ -1810,6 +1860,14 @@ func (tx *transaction) writePendingAndCommit() error {
 	if err := tx.metaBucket.Put(sjWriteLocKeyName, sjWriteRow); err != nil {
 		rollback()
 		return convertErr("failed to store spend journal write cursor", err)
+	}
+
+	// Do the same and update the metadata for the current write utreexo proof
+	// file and offset.
+	proofWriteRow := serializeWriteRow(proofWC.curFileNum, proofWC.curOffset)
+	if err := tx.metaBucket.Put(proofWriteLocKeyName, proofWriteRow); err != nil {
+		rollback()
+		return convertErr("failed to store utreexo proof write cursor", err)
 	}
 
 	// Atomically update the database cache.  The cache automatically
@@ -1892,6 +1950,96 @@ func (tx *transaction) FetchSpendJournal(hash *chainhash.Hash) ([]byte, error) {
 	}
 
 	return sjBytes, nil
+}
+
+// StoreUtreexoProof stores the provided serialized utreexo proof for the block
+// identified by blockHash in the flat-file proof store.  It is written
+// atomically with the transaction and rolled back if the transaction does not
+// commit.  A validated proof for a given block never changes, so the store is
+// effectively write-once per hash.
+//
+// The interface contract guarantees at least the following errors will be
+// returned (other implementation-specific errors are possible):
+//   - ErrTxNotWritable if attempted against a read-only transaction
+//   - ErrTxClosed if the transaction has already been closed
+//
+// This function is part of the database.Tx interface implementation.
+func (tx *transaction) StoreUtreexoProof(blockHash *chainhash.Hash, proof []byte) error {
+	// Ensure transaction state is valid.
+	if err := tx.checkClosed(); err != nil {
+		return err
+	}
+
+	// Ensure the transaction is writable.
+	if !tx.writable {
+		str := "store utreexo proof requires a writable database transaction"
+		return makeDbErr(database.ErrTxNotWritable, str, nil)
+	}
+
+	// Ensure the proof index bucket exists.  It is created lazily as a normal
+	// dynamically-numbered bucket so it never collides with the blockchain
+	// buckets that existing databases already assigned the low IDs to.
+	if _, err := tx.metaBucket.CreateBucketIfNotExists(proofIdxBucketName); err != nil {
+		return err
+	}
+
+	if tx.pendingProofs == nil {
+		tx.pendingProofs = make(map[chainhash.Hash]int)
+	}
+	tx.pendingProofs[*blockHash] = len(tx.pendingProofData)
+	tx.pendingProofData = append(tx.pendingProofData, pendingData{
+		hash:  blockHash,
+		bytes: proof,
+	})
+	log.Tracef("Added utreexo proof for block %s to pending proofs", blockHash)
+
+	return nil
+}
+
+// FetchUtreexoProof returns the raw serialized utreexo proof for the block
+// identified by hash, or (nil, nil) when no proof is stored for it.  Callers
+// rely on the nil return to fall back to other proof sources (e.g. the inline
+// proof of an old block).  The returned bytes are only valid for the lifetime
+// of the transaction.
+//
+// The interface contract guarantees at least the following errors will be
+// returned (other implementation-specific errors are possible):
+//   - ErrTxClosed if the transaction has already been closed
+//   - ErrCorruption if the database has somehow become corrupted
+//
+// This function is part of the database.Tx interface implementation.
+func (tx *transaction) FetchUtreexoProof(hash *chainhash.Hash) ([]byte, error) {
+	// Ensure transaction state is valid.
+	if err := tx.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// When the proof is pending to be written on commit return it directly.
+	if idx, exists := tx.pendingProofs[*hash]; exists {
+		return tx.pendingProofData[idx].bytes, nil
+	}
+
+	// The proof index bucket is absent until the first proof is stored (e.g. a
+	// non-utreexo or not-yet-migrated database), in which case there is no
+	// proof to return.
+	proofIdx := tx.metaBucket.Bucket(proofIdxBucketName)
+	if proofIdx == nil {
+		return nil, nil
+	}
+	proofRow := proofIdx.Get(hash[:])
+	if proofRow == nil {
+		return nil, nil
+	}
+	location := deserializeBlockLoc(proofRow)
+
+	// Read the proof from the appropriate location.  readBlock also performs a
+	// checksum over the data to detect corruption.
+	proofBytes, err := tx.db.proofStore.readBlock(hash, location)
+	if err != nil {
+		return nil, err
+	}
+
+	return proofBytes, nil
 }
 
 // BeenPruned returns if the block storage has ever been pruned.
@@ -2114,12 +2262,13 @@ func (tx *transaction) removeHeightInfo(fileNum uint32) error {
 // the database.DB interface.  All database access is performed through
 // transactions which are obtained through the specific Namespace.
 type db struct {
-	writeLock sync.Mutex   // Limit to one write transaction at a time.
-	closeLock sync.RWMutex // Make database close block while txns active.
-	closed    bool         // Is the database closed?
-	blkStore  *blockStore  // Handles read/writing blocks to flat files.
-	sjStore   *blockStore  // Handles read/writing spend journals to flat files.
-	cache     *dbCache     // Cache layer which wraps underlying leveldb DB.
+	writeLock  sync.Mutex   // Limit to one write transaction at a time.
+	closeLock  sync.RWMutex // Make database close block while txns active.
+	closed     bool         // Is the database closed?
+	blkStore   *blockStore  // Handles read/writing blocks to flat files.
+	sjStore    *blockStore  // Handles read/writing spend journals to flat files.
+	proofStore *blockStore  // Handles read/writing utreexo proofs to flat files.
+	cache      *dbCache     // Cache layer which wraps underlying leveldb DB.
 }
 
 // Enforce db implements the database.DB interface.
@@ -2357,6 +2506,18 @@ func (db *db) Close() error {
 	db.sjStore.openBlocksLRU.Init()
 	db.sjStore.fileNumToLRUElem = nil
 
+	wc = db.proofStore.writeCursor
+	if wc.curFile.file != nil {
+		_ = wc.curFile.file.Close()
+		wc.curFile.file = nil
+	}
+	for _, proofFile := range db.proofStore.openBlockFiles {
+		_ = proofFile.file.Close()
+	}
+	db.proofStore.openBlockFiles = nil
+	db.proofStore.openBlocksLRU.Init()
+	db.proofStore.fileNumToLRUElem = nil
+
 	return closeErr
 }
 
@@ -2380,6 +2541,9 @@ func initDB(ldb *leveldb.DB) error {
 		serializeWriteRow(0, 0))
 
 	batch.Put(bucketizedKey(metadataBucketID, sjWriteLocKeyName),
+		serializeWriteRow(0, 0))
+
+	batch.Put(bucketizedKey(metadataBucketID, proofWriteLocKeyName),
 		serializeWriteRow(0, 0))
 
 	// Create block index bucket and set the current bucket id.
@@ -2450,9 +2614,13 @@ func openDB(dbPath string, network wire.BitcoinNet, create bool) (database.DB, e
 	if err != nil {
 		return nil, fmt.Errorf("couldn't make a new spend journal store. Err: %v", err)
 	}
+	proofStore, err := newProofStore(dbPath, network)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't make a new utreexo proof store. Err: %v", err)
+	}
 
-	cache := newDbCache(ldb, blkStore, sjStore, defaultCacheSize, defaultFlushSecs)
-	pdb := &db{blkStore: blkStore, sjStore: sjStore, cache: cache}
+	cache := newDbCache(ldb, blkStore, sjStore, proofStore, defaultCacheSize, defaultFlushSecs)
+	pdb := &db{blkStore: blkStore, sjStore: sjStore, proofStore: proofStore, cache: cache}
 
 	// Perform any reconciliation needed between the block and metadata as
 	// well as database initialization, if needed.
