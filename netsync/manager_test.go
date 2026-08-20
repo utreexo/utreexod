@@ -151,6 +151,51 @@ func makeMockSyncManager(t *testing.T,
 	return sm, tearDown
 }
 
+// makeMockSyncManagerUtreexo returns a SyncManager whose underlying chain has
+// an empty utreexo viewpoint installed, so chain.IsUtreexoViewActive() reports
+// true. fetchHeaderBlocks's queue-reuse branches only fire in this mode.
+func makeMockSyncManagerUtreexo(t *testing.T,
+	params *chaincfg.Params) (*SyncManager, func()) {
+
+	t.Helper()
+
+	db, teardown, err := dbSetup(t, params)
+	require.NoError(t, err)
+
+	paramsCopy := *params
+	for i := range paramsCopy.Deployments {
+		d := &paramsCopy.Deployments[i]
+		if s, ok := d.DeploymentStarter.(*chaincfg.MedianTimeDeploymentStarter); ok {
+			d.DeploymentStarter = chaincfg.NewMedianTimeDeploymentStarter(
+				s.StartTime())
+		}
+		if e, ok := d.DeploymentEnder.(*chaincfg.MedianTimeDeploymentEnder); ok {
+			d.DeploymentEnder = chaincfg.NewMedianTimeDeploymentEnder(
+				e.EndTime())
+		}
+	}
+
+	chain, err := blockchain.New(&blockchain.Config{
+		DB:          db,
+		Checkpoints: paramsCopy.Checkpoints,
+		ChainParams: &paramsCopy,
+		TimeSource:  blockchain.NewMedianTime(),
+		SigCache:    txscript.NewSigCache(1000),
+		UtreexoView: blockchain.NewUtreexoViewpoint(),
+	})
+	require.NoError(t, err)
+
+	sm, err := New(&Config{
+		PeerNotifier: noopPeerNotifier{},
+		Chain:        chain,
+		ChainParams:  &paramsCopy,
+		MaxPeers:     8,
+	})
+	require.NoError(t, err)
+
+	return sm, teardown
+}
+
 func TestCheckHeadersList(t *testing.T) {
 	// Set params to mainnet with a checkpoint at block 11.
 	params := chaincfg.MainNetParams
@@ -1297,4 +1342,525 @@ func TestBlockConnectedCleansMempool(t *testing.T) {
 	// The mempool tx must have been evicted, even though we were not current.
 	require.False(t, txPool.HaveTransaction(mempoolTx.Hash()),
 		"mempool should have removed the double-spending tx on block connect")
+}
+
+// pendingEntry returns the pending block for h, creating it if needed, so a
+// test can seed either half.
+func pendingEntry(sm *SyncManager, h chainhash.Hash) *pendingBlock {
+	pb := sm.pending[h]
+	if pb == nil {
+		pb = &pendingBlock{}
+		sm.pending[h] = pb
+	}
+	return pb
+}
+
+// queueBlock parks a block half in sm.pending under the block's hash so the
+// test can simulate a partial delivery from a previous sync peer.
+func queueBlock(sm *SyncManager, p *peer.Peer, b *btcutil.Block) {
+	pb := pendingEntry(sm, *b.Hash())
+	pb.block = b
+	pb.blockPeer = p
+}
+
+// queueProof parks a synthetic proof half in sm.pending.
+func queueProof(sm *SyncManager, p *peer.Peer, h chainhash.Hash) {
+	pb := pendingEntry(sm, h)
+	pb.proof = &wire.MsgUtreexoProof{BlockHash: h}
+	pb.proofPeer = p
+}
+
+// deliverProof drives an empty proof for h through handleUtreexoProofMsg
+// as if peer p had just responded to a MsgGetUtreexoProof.
+func deliverProof(sm *SyncManager, p *peer.Peer, h chainhash.Hash) {
+	sm.handleUtreexoProofMsg(&utreexoProofMsg{
+		proof: &wire.MsgUtreexoProof{BlockHash: h},
+		peer:  p,
+	})
+}
+
+// deliverBlock drives b through handleBlockMsg as if peer p had just
+// responded to a getdata.
+func deliverBlock(sm *SyncManager, p *peer.Peer, b *btcutil.Block) {
+	sm.handleBlockMsg(&blockMsg{
+		block: b, peer: p, reply: make(chan struct{}, 1),
+	})
+}
+
+// TestFetchHeaderBlocksReusesQueuedData covers the path where a sync peer
+// disconnects mid-IBD with blocks and/or proofs already in the queues. The
+// next sync peer should not re-download what we already have.
+//
+// Each sub-test exercises one of the four reuse cases: both halves queued,
+// block only, proof only, or neither. The sub-test asserts fetchHeaderBlocks's
+// request decisions and then drives the case through to chain advancement so
+// the reused payloads are shown to validate.
+func TestFetchHeaderBlocksReusesQueuedData(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	cases := []struct {
+		name      string
+		seedBlock bool
+		seedProof bool
+	}{
+		{name: "both halves queued", seedBlock: true, seedProof: true},
+		{name: "only block queued", seedBlock: true, seedProof: false},
+		{name: "only proof queued", seedBlock: false, seedProof: true},
+		{name: "neither queued", seedBlock: false, seedProof: false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+			defer tearDown()
+
+			block := generateTestBlocks(t, &params, 1)[0]
+			hash := *block.Hash()
+
+			// Run outside headers-first mode so handleHeadersMsg
+			// drives fetchHeaderBlocks without needing
+			// sm.syncPeer.LastBlock().
+			sm.headersFirstMode = false
+
+			// Seed peer1's partial delivery, then disconnect.
+			peer1 := newSyncCandidate(t, sm, 1)
+			if c.seedBlock {
+				queueBlock(sm, peer1, block)
+			}
+			if c.seedProof {
+				queueProof(sm, peer1, hash)
+			}
+			sm.handleDonePeerMsg(peer1)
+
+			// peer2 announces the header; fetchHeaderBlocks should
+			// decide what to reuse vs ask for.
+			peer2 := newSyncCandidate(t, sm, 1)
+			headers := wire.NewMsgHeaders()
+			require.NoError(t, headers.AddBlockHeader(
+				&block.MsgBlock().Header))
+			sm.handleHeadersMsg(&headersMsg{
+				headers: headers,
+				peer:    peer2,
+			})
+			peer2State := sm.peerStates[peer2]
+
+			if c.seedBlock {
+				require.NotContains(t, peer2State.requestedBlocks, hash,
+					"queued block should not be marked requested")
+			} else {
+				require.Contains(t, peer2State.requestedBlocks, hash,
+					"block should be marked requested for peer2")
+			}
+			if c.seedProof {
+				require.NotContains(t,
+					peer2State.requestedUtreexoProofs, hash,
+					"proof should not be re-requested")
+			} else {
+				require.Contains(t,
+					peer2State.requestedUtreexoProofs, hash,
+					"proof should be re-requested")
+			}
+
+			// Drive the case through to chain advancement.
+			switch {
+			case c.seedBlock && c.seedProof:
+				// The test pre-seeded both halves without going through
+				// the normal block/proof handlers, so drain explicitly.
+				sm.connectReadyBlocks()
+			case c.seedBlock:
+				deliverProof(sm, peer2, hash)
+			case c.seedProof:
+				deliverBlock(sm, peer2, block)
+			default:
+				deliverProof(sm, peer2, hash)
+				deliverBlock(sm, peer2, block)
+			}
+
+			best := sm.chain.BestSnapshot()
+			require.Equal(t, int32(1), best.Height,
+				"chain should advance to height 1")
+			require.Equal(t, hash, best.Hash,
+				"chain tip should be the test block's hash")
+			require.NotContains(t, sm.pending, hash,
+				"pending must be cleared after success")
+		})
+	}
+}
+
+// setupCSNChain builds a utreexo sync manager, a sync peer, and n coinbase-only
+// blocks with their headers already known to the chain. Every block and proof is
+// marked requested on the peer so the delivery handlers accept them.
+// headersFirstMode is left off so deliveries drive the pending pool directly
+// without triggering refills.
+func setupCSNChain(t *testing.T, n int) (
+	*SyncManager, func(), *peer.Peer, []*btcutil.Block) {
+
+	t.Helper()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+
+	blocks := generateTestBlocks(t, &params, n)
+	for _, b := range blocks {
+		_, err := sm.chain.ProcessBlockHeader(
+			&b.MsgBlock().Header, blockchain.BFNone)
+		require.NoError(t, err)
+	}
+
+	p := newSyncCandidate(t, sm, int32(n))
+	sm.syncPeer = p
+	st := sm.peerStates[p]
+	for _, b := range blocks {
+		st.requestedBlocks[*b.Hash()] = struct{}{}
+		st.requestedUtreexoProofs[*b.Hash()] = struct{}{}
+	}
+
+	return sm, tearDown, p, blocks
+}
+
+// TestCSNAssemblyOrdering proves that block and proof halves assemble and connect
+// in chain order regardless of the order in which the two messages arrive.
+func TestCSNAssemblyOrdering(t *testing.T) {
+	t.Parallel()
+
+	const n = 4
+
+	// ev is a single delivery: a block half or a proof half for blocks[i].
+	type ev struct {
+		proof bool
+		i     int
+	}
+
+	strict := func() []ev {
+		s := make([]ev, 0, 2*n)
+		for i := 0; i < n; i++ {
+			s = append(s, ev{false, i}, ev{true, i})
+		}
+		return s
+	}
+	proofFirst := func() []ev {
+		s := make([]ev, 0, 2*n)
+		for i := 0; i < n; i++ {
+			s = append(s, ev{true, i}, ev{false, i})
+		}
+		return s
+	}
+	allBlocksThenProofs := func() []ev {
+		s := make([]ev, 0, 2*n)
+		for i := 0; i < n; i++ {
+			s = append(s, ev{false, i})
+		}
+		for i := 0; i < n; i++ {
+			s = append(s, ev{true, i})
+		}
+		return s
+	}
+	allProofsThenBlocks := func() []ev {
+		s := make([]ev, 0, 2*n)
+		for i := 0; i < n; i++ {
+			s = append(s, ev{true, i})
+		}
+		for i := 0; i < n; i++ {
+			s = append(s, ev{false, i})
+		}
+		return s
+	}
+	shuffled := func() []ev {
+		return []ev{
+			{false, 2}, {false, 0}, {true, 1}, {false, 1},
+			{true, 0}, {true, 2}, {false, 3}, {true, 3},
+		}
+	}
+
+	cases := []struct {
+		name  string
+		order func() []ev
+	}{
+		{"strict", strict},
+		{"proof first per block", proofFirst},
+		{"all blocks then all proofs", allBlocksThenProofs},
+		{"all proofs then all blocks", allProofsThenBlocks},
+		{"shuffled", shuffled},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm, tearDown, p, blocks := setupCSNChain(t, n)
+			defer tearDown()
+
+			prevHeight := int32(0)
+			for _, e := range c.order() {
+				if e.proof {
+					deliverProof(sm, p, *blocks[e.i].Hash())
+				} else {
+					deliverBlock(sm, p, blocks[e.i])
+				}
+
+				// The tip must never skip a height: it either stays
+				// put or advances one block at a time.
+				h := sm.chain.BestSnapshot().Height
+				require.GreaterOrEqual(t, h, prevHeight)
+				prevHeight = h
+			}
+
+			require.Equal(t, int32(n), sm.chain.BestSnapshot().Height,
+				"chain should reach the tip for order %q", c.name)
+			require.Empty(t, sm.pending,
+				"pending should be empty for order %q", c.name)
+		})
+	}
+}
+
+// TestCSNSilentProofDrop is the primary regression: a single proof never arrives,
+// yet every block does. The pipeline must not wedge, and delivering the missing
+// proof must let the chain catch up.
+func TestCSNSilentProofDrop(t *testing.T) {
+	t.Parallel()
+
+	const n = 5
+	const gap = 2 // index of the block whose proof is dropped
+
+	sm, tearDown, p, blocks := setupCSNChain(t, n)
+	defer tearDown()
+	st := sm.peerStates[p]
+
+	for _, b := range blocks {
+		deliverBlock(sm, p, b)
+	}
+	for i, b := range blocks {
+		if i == gap {
+			continue
+		}
+		deliverProof(sm, p, *b.Hash())
+	}
+
+	require.Equal(t, int32(gap), sm.chain.BestSnapshot().Height,
+		"tip should stop just below the missing proof")
+	require.Empty(t, st.requestedBlocks,
+		"every block arrived so none should remain outstanding")
+	require.Contains(t, st.requestedUtreexoProofs, *blocks[gap].Hash(),
+		"the dropped proof should still be outstanding for re-request")
+	require.NotEmpty(t, sm.pending,
+		"downstream halves should remain pending")
+
+	// Delivering the missing proof unblocks the whole downstream chain.
+	deliverProof(sm, p, *blocks[gap].Hash())
+
+	require.Equal(t, int32(n), sm.chain.BestSnapshot().Height,
+		"chain should catch up once the gap is filled")
+	require.Empty(t, sm.pending, "pending should drain")
+}
+
+// TestCSNMissingBlock is the mirror of the proof-drop case: every proof arrives
+// but one block lags, then arrives and unblocks the chain.
+func TestCSNMissingBlock(t *testing.T) {
+	t.Parallel()
+
+	const n = 5
+	const gap = 2
+
+	sm, tearDown, p, blocks := setupCSNChain(t, n)
+	defer tearDown()
+
+	for _, b := range blocks {
+		deliverProof(sm, p, *b.Hash())
+	}
+	for i, b := range blocks {
+		if i == gap {
+			continue
+		}
+		deliverBlock(sm, p, b)
+	}
+
+	require.Equal(t, int32(gap), sm.chain.BestSnapshot().Height,
+		"tip should stop just below the missing block")
+
+	deliverBlock(sm, p, blocks[gap])
+
+	require.Equal(t, int32(n), sm.chain.BestSnapshot().Height,
+		"chain should catch up once the block arrives")
+	require.Empty(t, sm.pending, "pending should drain")
+}
+
+// TestCSNDuplicateBlockHalf proves a block delivered twice connects once and the
+// unrequested second copy (which has no proof) is handled without panicking.
+func TestCSNDuplicateBlockHalf(t *testing.T) {
+	t.Parallel()
+
+	sm, tearDown, p, blocks := setupCSNChain(t, 1)
+	defer tearDown()
+	block := blocks[0]
+	hash := *block.Hash()
+
+	// First, requested copy parks the block half in pending.
+	deliverBlock(sm, p, block)
+	// Second copy is unrequested; in regtest it is fed straight to the chain
+	// without a proof and must not connect or panic.
+	deliverBlock(sm, p, block)
+
+	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height,
+		"block must not connect without its proof")
+
+	// The proof completes the originally parked half.
+	deliverProof(sm, p, hash)
+	require.Equal(t, int32(1), sm.chain.BestSnapshot().Height,
+		"block connects once its proof arrives")
+	require.Empty(t, sm.pending)
+}
+
+// TestCSNPendingCapStopsFetch verifies that fetchHeaderBlocks stops requesting
+// once the block pipeline reaches maxPendingBlocks, bounding memory when proofs
+// lag behind blocks.
+func TestCSNPendingCapStopsFetch(t *testing.T) {
+	// Not parallel: it temporarily lowers the package-level cap.
+	defer func(orig int) { maxPendingBlocks = orig }(maxPendingBlocks)
+	maxPendingBlocks = 3
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+	defer tearDown()
+
+	const n = 6
+	blocks := generateTestBlocks(t, &params, n)
+	for _, b := range blocks {
+		_, err := sm.chain.ProcessBlockHeader(
+			&b.MsgBlock().Header, blockchain.BFNone)
+		require.NoError(t, err)
+	}
+
+	p := newSyncCandidate(t, sm, n)
+	sm.syncPeer = p
+	sm.headersFirstMode = true
+
+	sm.fetchHeaderBlocks(nil)
+
+	st := sm.peerStates[p]
+	require.Len(t, st.requestedBlocks, maxPendingBlocks,
+		"fetch must request exactly up to the pending cap")
+}
+
+// assertDisconnected fails unless Disconnect was called on the peer.
+func assertDisconnected(t *testing.T, p *peer.Peer) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { p.WaitForDisconnect(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("peer should have been disconnected")
+	}
+}
+
+// assertConnected fails if Disconnect was called on the peer.
+func assertConnected(t *testing.T, p *peer.Peer) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { p.WaitForDisconnect(); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("peer was unexpectedly disconnected")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestCSNCrossPeerAttribution proves that when a block and a bad proof come from
+// different peers, the unattributable failure punishes neither peer and drops the
+// pair for re-fetch.
+func TestCSNCrossPeerAttribution(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+	defer tearDown()
+
+	block := generateTestBlocks(t, &params, 1)[0]
+	hash := *block.Hash()
+	_, err := sm.chain.ProcessBlockHeader(
+		&block.MsgBlock().Header, blockchain.BFNone)
+	require.NoError(t, err)
+
+	peerA := newSyncCandidate(t, sm, 1) // sends the good block
+	peerB := newSyncCandidate(t, sm, 1) // sends the bad proof
+	sm.syncPeer = peerA
+	sm.peerStates[peerA].requestedBlocks[hash] = struct{}{}
+	sm.peerStates[peerB].requestedUtreexoProofs[hash] = struct{}{}
+
+	deliverBlock(sm, peerA, block)
+
+	// A target with no matching deletion fails verification with a non-rule
+	// error, so the bad half can't be pinned on either peer.
+	sm.handleUtreexoProofMsg(&utreexoProofMsg{
+		proof: &wire.MsgUtreexoProof{BlockHash: hash, Targets: []uint64{0}},
+		peer:  peerB,
+	})
+
+	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height,
+		"the bad pair must not connect")
+	assertConnected(t, peerA)
+	assertConnected(t, peerB)
+	require.NotContains(t, sm.pending, hash,
+		"the unattributable pair should be dropped for re-fetch")
+}
+
+// TestCSNSelfInconsistentPairDisconnects proves that a single peer supplying a
+// block and a proof that fail to validate together is disconnected.
+func TestCSNSelfInconsistentPairDisconnects(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+	defer tearDown()
+
+	block := generateTestBlocks(t, &params, 1)[0]
+	hash := *block.Hash()
+	_, err := sm.chain.ProcessBlockHeader(
+		&block.MsgBlock().Header, blockchain.BFNone)
+	require.NoError(t, err)
+
+	p := newSyncCandidate(t, sm, 1)
+	sm.syncPeer = p
+	sm.peerStates[p].requestedBlocks[hash] = struct{}{}
+	sm.peerStates[p].requestedUtreexoProofs[hash] = struct{}{}
+
+	deliverBlock(sm, p, block)
+	sm.handleUtreexoProofMsg(&utreexoProofMsg{
+		proof: &wire.MsgUtreexoProof{BlockHash: hash, Targets: []uint64{0}},
+		peer:  p,
+	})
+
+	require.Equal(t, int32(0), sm.chain.BestSnapshot().Height,
+		"the bad pair must not connect")
+	assertDisconnected(t, p)
+}
+
+// TestClearRequestedStateClearsProofs verifies that a peer reset clears its
+// outstanding utreexo proof requests so they can be re-requested.
+func TestClearRequestedStateClearsProofs(t *testing.T) {
+	t.Parallel()
+
+	params := chaincfg.RegressionNetParams
+	sm, tearDown := makeMockSyncManagerUtreexo(t, &params)
+	defer tearDown()
+
+	p := newSyncCandidate(t, sm, 1)
+	st := sm.peerStates[p]
+	st.requestedUtreexoProofs[chainhash.Hash{0x01}] = struct{}{}
+
+	sm.clearRequestedState(st)
+
+	require.Empty(t, st.requestedUtreexoProofs,
+		"clearRequestedState should clear outstanding proof requests")
 }
