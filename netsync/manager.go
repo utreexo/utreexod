@@ -7,6 +7,7 @@ package netsync
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"math/rand"
 	"net"
 	"os"
@@ -1236,13 +1237,11 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 
 	bestHash, bestHeight := sm.chain.BestHeader()
 	if sm.headersBuildMode && bestHeight >= sm.chain.AssumeUtreexoHeight() {
-		assumeUtreexoHash := sm.chain.AssumeUtreexoHash()
-		if !bestHash.IsEqual(&assumeUtreexoHash) {
-			log.Warnf("The node had hash %v hardcoded in but the valid proof-of-work "+
-				"chain has the hash %v at height %v. The user should not trust this "+
-				"software as genuine and there may be attempts to steal funds. The user "+
-				"should delete the datadir", sm.chain.AssumeUtreexoHash().String(),
-				bestHash.String(), bestHeight)
+		if err := sm.checkAssumeUtreexoHash(); err != nil {
+			log.Warnf("The hardcoded assume utreexo hash did not match the valid "+
+				"proof-of-work chain. The user should not trust this software as "+
+				"genuine and there may be attempts to steal funds. The user should "+
+				"delete the data dir: %v", err)
 			os.Exit(1)
 		}
 
@@ -1287,6 +1286,26 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		hmsg.peer.PushGetHeadersMsg(locator, &stopHash)
 		return
 	}
+}
+
+// checkAssumeUtreexoHash returns an error if the header hash at the assume
+// utreexo height does not match the hardcoded value in the chain params
+// or if the hash cannot be fetched.
+func (sm *SyncManager) checkAssumeUtreexoHash() error {
+	assumeHeight := sm.chain.AssumeUtreexoHeight()
+	assumeUtreexoHash := sm.chain.AssumeUtreexoHash()
+	headerHash, err := sm.chain.HeaderHashByHeight(assumeHeight)
+
+	if err != nil {
+		return fmt.Errorf("could not find header at assume utreexo height %d"+
+			"in the downloaded best proof-of-work chain: %v", assumeHeight, err)
+	}
+	if !headerHash.IsEqual(&assumeUtreexoHash) {
+		return fmt.Errorf("hardcoded assume utreexo hash %s does not match "+
+			"the valid proof-of-work chain hash %s at height %d",
+			assumeUtreexoHash, headerHash, assumeHeight)
+	}
+	return nil
 }
 
 // handleUtreexoProofMsg queues the utreexo proof and if we already have the block,
