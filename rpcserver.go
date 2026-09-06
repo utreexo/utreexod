@@ -3324,11 +3324,13 @@ func handleProveUtxoChainTipInclusion(s *rpcServer, cmd interface{}, closeChan <
 func handleGetUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (
 	interface{}, error) {
 	// Before doing anything, check that one of the indexes are active.
-	if s.cfg.UtreexoProofIndex == nil && s.cfg.FlatUtreexoProofIndex == nil {
+	if s.cfg.UtreexoProofIndex == nil && s.cfg.FlatUtreexoProofIndex == nil &&
+		!s.cfg.Chain.IsUtreexoViewActive() {
+
 		return nil, &btcjson.RPCError{
 			Code: btcjson.ErrRPCMisc,
-			Message: "A utreexo proof index must be enabled. " +
-				"(--utreexoproofindex) or (--flatutreexoproofindex).",
+			Message: "A utreexo proof index or utreexo must be enabled. " +
+				"(--utreexoproofindex) or (--flatutreexoproofindex) or (--utreexo)",
 		}
 	}
 	c := cmd.(*btcjson.GetUtreexoProofCmd)
@@ -3360,7 +3362,26 @@ func handleGetUtreexoProof(s *rpcServer, cmd interface{}, closeChan <-chan struc
 	// We already checked that at least one index is active.  Pick one and
 	// generate the inclusion proof.
 	var udata *wire.UData
-	if s.cfg.UtreexoProofIndex != nil {
+	if s.cfg.Chain.IsUtreexoViewActive() {
+		block, err := s.cfg.Chain.BlockByHash(blockHash)
+		if err != nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Couldn't fetch the proof for blockhash %s from "+
+					"the database. Error: %v", c.BlockHash, err),
+			}
+		}
+		// A block may not carry any utreexo data, in which case there's
+		// no proof to serve.
+		udata = block.UtreexoData()
+		if udata == nil {
+			return nil, &btcjson.RPCError{
+				Code: btcjson.ErrRPCMisc,
+				Message: fmt.Sprintf("Block %s has no utreexo data to fetch "+
+					"the proof from.", c.BlockHash),
+			}
+		}
+	} else if s.cfg.UtreexoProofIndex != nil {
 		udata, err = s.cfg.UtreexoProofIndex.FetchUtreexoProof(blockHash)
 		if err != nil {
 			return nil, &btcjson.RPCError{
