@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -12,7 +13,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain"
+	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
@@ -251,6 +254,101 @@ func TestCheckHeadersList(t *testing.T) {
 		isCheckpoint, gotFlags := sm.checkHeadersList(block)
 		require.Equal(t, test.isCheckpointBlock, isCheckpoint)
 		require.Equal(t, test.behaviorFlags, gotFlags)
+	}
+}
+
+// TestQueuedUtreexoTTLs ensures rejected blocks can reuse their queued TTLs.
+// Connected blocks consume their TTLs even when index flushing fails.
+func TestQueuedUtreexoTTLs(t *testing.T) {
+	tests := []struct {
+		name     string
+		flushErr error
+	}{
+		{name: "connected block"},
+		{name: "connected block with flush error", flushErr: errors.New("index flush failure")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Boilerplate setup: create a compact-state chain and sync peer.
+			params := chaincfg.RegressionNetParams
+			db, tearDown, err := dbSetup(t, &params)
+			require.NoError(t, err)
+			defer tearDown()
+
+			var indexManager blockchain.IndexManager
+			var flushErr error
+			var failedFlush bool
+			if test.flushErr != nil {
+				// A one byte cache budget forces a flush when the block connects.
+				idx, err := indexers.NewUtreexoProofIndex(db, false, 1,
+					&params, t.TempDir(), func() error {
+						if flushErr != nil {
+							failedFlush = true
+							return flushErr
+						}
+						return db.Flush()
+					})
+				require.NoError(t, err)
+				indexManager = indexers.NewManager(db, []indexers.Indexer{idx})
+				defer idx.CloseUtreexoState()
+			}
+			chain, err := blockchain.New(&blockchain.Config{
+				DB:           db,
+				ChainParams:  &params,
+				TimeSource:   blockchain.NewMedianTime(),
+				UtreexoView:  blockchain.NewUtreexoViewpoint(),
+				IndexManager: indexManager,
+			})
+			require.NoError(t, err)
+			sm, err := New(&Config{
+				PeerNotifier: noopPeerNotifier{},
+				Chain:        chain,
+				ChainParams:  &params,
+			})
+			require.NoError(t, err)
+			p := newSyncCandidate(t, sm, 1)
+			sm.syncPeer = p
+			sm.headersFirstMode = true
+			sm.committedTTLAcc = &utreexo.Stump{NumLeaves: 2}
+
+			// Test setup: request a block whose verified TTL is already queued.
+			block := generateTestBlocks(t, &params, 1)[0]
+			ttl := wire.UtreexoTTL{
+				BlockHeight: 1,
+				TTLs:        make([]wire.TTLInfo, len(blockchain.ExtractAccumulatorAdds(block))),
+			}
+			sm.queuedTTLs[1] = ttl
+			headers := wire.NewMsgHeaders()
+			require.NoError(t, headers.AddBlockHeader(&block.MsgBlock().Header))
+			sm.handleHeadersMsg(&headersMsg{peer: p, headers: headers})
+			require.Contains(t, sm.peerStates[p].requestedBlocks, *block.Hash())
+			proof := &utreexoProofMsg{
+				peer:  p,
+				proof: &wire.MsgUtreexoProof{BlockHash: *block.Hash()},
+			}
+
+			// Test: an invalid block body must leave the TTL available for retry.
+			sm.handleUtreexoProofMsg(proof)
+			invalid := btcutil.NewBlock(&wire.MsgBlock{Header: block.MsgBlock().Header})
+			sm.handleBlockMsg(&blockMsg{peer: p, block: invalid})
+			require.Equal(t, &ttl, invalid.UtreexoTTLs())
+			require.Equal(t, int32(0), chain.BestSnapshot().Height)
+			haveBlock, err := chain.HaveBlock(block.Hash())
+			require.NoError(t, err)
+			require.False(t, haveBlock)
+			require.Equal(t, ttl, sm.queuedTTLs[1])
+
+			// A connected block consumes the TTL even if a later flush fails.
+			sm.fetchHeaderBlocks(p)
+			require.Contains(t, sm.peerStates[p].requestedBlocks, *block.Hash())
+			sm.handleUtreexoProofMsg(proof)
+			flushErr = test.flushErr
+			sm.handleBlockMsg(&blockMsg{peer: p, block: block})
+			require.Equal(t, *block.Hash(), chain.BestSnapshot().Hash)
+			require.Equal(t, &ttl, block.UtreexoTTLs())
+			require.Empty(t, sm.queuedTTLs)
+			require.Equal(t, test.flushErr != nil, failedFlush)
+		})
 	}
 }
 

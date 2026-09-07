@@ -756,9 +756,6 @@ func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
 	ttls, found := sm.queuedTTLs[height]
 	if found {
 		block.SetUtreexoTTLs(&ttls)
-
-		// Remove the no longer needed ttl.
-		delete(sm.queuedTTLs, height)
 	}
 
 	checkpoint := sm.findNextHeaderCheckpoint(height - 1)
@@ -848,6 +845,12 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// Process the block to include validation, best chain selection, orphan
 	// handling, etc.
 	_, isOrphan, err := sm.chain.ProcessBlock(bmsg.block, behaviorFlags)
+	// Keep the TTLs for a retry until the block is in the main chain.
+	// ProcessBlock can return an index flush error after connecting it.
+	if ttls := bmsg.block.UtreexoTTLs(); ttls != nil &&
+		sm.chain.MainChainHasBlock(blockHash) {
+		delete(sm.queuedTTLs, int32(ttls.BlockHeight))
+	}
 	if err != nil {
 		// When the error is a rule error, it means the block was simply
 		// rejected as opposed to something actually going wrong, so log
