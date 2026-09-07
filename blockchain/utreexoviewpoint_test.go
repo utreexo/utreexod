@@ -10,8 +10,59 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/btcutil"
+	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
 )
+
+func TestProcessUDataTTLCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		ttls    []wire.TTLInfo
+		wantErr bool
+	}{
+		{name: "empty", wantErr: true},
+		{name: "too few", ttls: []wire.TTLInfo{{DeathHeight: 2}}, wantErr: true},
+		{name: "too many", ttls: []wire.TTLInfo{{DeathHeight: 2}, {}, {}}, wantErr: true},
+		{name: "matching count", ttls: []wire.TTLInfo{{DeathHeight: 2}, {}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Setup: a coinbase with two accumulator additions.
+			block := btcutil.NewBlock(&wire.MsgBlock{
+				Transactions: []*wire.MsgTx{{
+					TxIn: []*wire.TxIn{{PreviousOutPoint: wire.OutPoint{Index: wire.MaxPrevOutIndex}}},
+					TxOut: []*wire.TxOut{
+						{Value: 1, PkScript: []byte{txscript.OP_TRUE}},
+						{Value: 2, PkScript: []byte{txscript.OP_TRUE}},
+					},
+				}},
+			})
+			block.SetHeight(1)
+			block.SetUtreexoTTLs(&wire.UtreexoTTL{BlockHeight: 1, TTLs: test.ttls})
+			view := NewUtreexoViewpoint()
+			view.accumulator = *utreexo.InitWithStump(utreexo.Stump{
+				Roots: []utreexo.Hash{{1}}, NumLeaves: 1,
+			})
+			view.agg.InitFromBytes([64]byte{1})
+			before := view.CopyWithRoots()
+
+			// A mismatched count must be rejected before changing either
+			// the accumulator or the aggregator for the spent addition.
+			err := view.ProcessUData(block, nil, &wire.UData{})
+			if test.wantErr {
+				require.Error(t, err)
+				require.Equal(t, before.accumulator.GetStump(), view.accumulator.GetStump())
+				require.Equal(t, before.agg, view.agg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, uint64(3), view.NumLeaves())
+		})
+	}
+}
 
 func TestChainTipProofSerialize(t *testing.T) {
 	t.Parallel()

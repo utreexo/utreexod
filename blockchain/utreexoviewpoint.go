@@ -57,6 +57,12 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 
 	ttls := block.UtreexoTTLs()
 	if ttls != nil {
+		// Check the count before spent additions change the aggregator.
+		if len(ttls.TTLs) != len(adds) {
+			return fmt.Errorf("block has %d accumulator additions but %d ttls",
+				len(adds), len(ttls.TTLs))
+		}
+
 		// Generate the addHashes. Add empty hashes if the utxo has already been
 		// spent.
 		addHashes := make([]utreexo.Hash, len(adds))
