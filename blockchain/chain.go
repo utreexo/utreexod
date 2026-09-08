@@ -1431,8 +1431,9 @@ func (b *BlockChain) verifyReorganizationValidity(detachNodes, attachNodes *list
 	return detachBlocks, attachBlocks, detachSpentTxOuts, nil
 }
 
-// storeUtreexoProof persists the proof attached to block.
-func (b *BlockChain) storeUtreexoProof(block *btcutil.Block) error {
+// dbStoreUtreexoProof uses the caller's transaction so the block and proof are
+// committed together.
+func dbStoreUtreexoProof(dbTx database.Tx, block *btcutil.Block) error {
 	ud := block.UtreexoData()
 	if ud == nil {
 		return AssertError(fmt.Sprintf("no utreexo proof for block %s",
@@ -1443,9 +1444,7 @@ func (b *BlockChain) storeUtreexoProof(block *btcutil.Block) error {
 	if err := ud.Serialize(&buf); err != nil {
 		return err
 	}
-	return b.db.Update(func(dbTx database.Tx) error {
-		return dbTx.StoreUtreexoProof(block.Hash(), buf.Bytes())
-	})
+	return dbTx.StoreUtreexoProof(block.Hash(), buf.Bytes())
 }
 
 // reconstructUtreexoViewForParent returns the accumulator state immediately
@@ -1525,6 +1524,40 @@ func (b *BlockChain) reconstructUtreexoViewForParent(node *blockNode,
 	}
 
 	return workView, nil
+}
+
+// checkUtreexoContext validates the block's utreexo data against its parent's
+// accumulator state.
+//
+// This function MUST be called with the chain state lock held (for writes).
+func (b *BlockChain) checkUtreexoContext(node *blockNode,
+	block *btcutil.Block) error {
+
+	if b.utreexoView == nil {
+		return nil
+	}
+
+	ttls := block.UtreexoTTLs()
+	if ttls != nil {
+		addCount := len(ExtractAccumulatorAdds(block))
+		if len(ttls.TTLs) != addCount {
+			return fmt.Errorf("block has %d accumulator additions but %d ttls",
+				addCount, len(ttls.TTLs))
+		}
+	}
+
+	// A side-chain proof must be checked against its parent's accumulator
+	// state, which is reconstructed from the fork point.
+	if node.parent != b.bestChain.Tip() {
+		return b.validateUtreexoProof(node, block)
+	}
+	if ttls != nil {
+		// TTL processing needs valid leaf data even though it skips proof
+		// verification.
+		_, err := ExtractAccumulatorDels(block, b.bestChain)
+		return err
+	}
+	return b.utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
 }
 
 // validateUtreexoProof verifies and applies the proof attached to block against
@@ -1614,31 +1647,6 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 
 		stxos := make([]SpentTxOut, 0, countSpentOutputs(block))
 		if b.utreexoView != nil {
-			if fastAdd {
-				// Only attempt to verify the udata if we don't have utreexo ttls.
-				// If we have ttls, it means that we're still on the swiftsync part
-				// of the ibd and we do not need to verify the proof as we don't
-				// perform deletions.
-				if block.UtreexoTTLs() == nil {
-					// Check that the block txOuts are valid by checking the utreexo proof and
-					// the leaf data.
-					err := b.utreexoView.VerifyUData(block, b.bestChain, block.UtreexoData())
-					if err != nil {
-						return false, fmt.Errorf("connectBestChain fail on block %s. "+
-							"Error: %v", block.Hash().String(), err)
-					}
-				}
-			}
-
-			// Persist the proof before updating the accumulator so a
-			// persistence failure leaves the in-memory state unchanged.  The
-			// proof has already passed the applicable validation above.
-			if block.UtreexoData() != nil {
-				if err := b.storeUtreexoProof(block); err != nil {
-					return false, err
-				}
-			}
-
 			// Update the accumulator.
 			err := b.utreexoView.ProcessUData(block, b.bestChain, block.UtreexoData())
 			if err != nil {
@@ -1695,19 +1703,6 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 	if fastAdd {
 		log.Warnf("fastAdd set in the side chain case? %v\n",
 			block.Hash())
-	}
-
-	// Validate and store the proof before the work comparison so a
-	// reorganization can load it for every block it attaches.
-	if b.utreexoView != nil && block.UtreexoData() != nil {
-		err := b.validateUtreexoProof(node, block)
-		if err != nil {
-			return false, err
-		}
-		err = b.storeUtreexoProof(block)
-		if err != nil {
-			return false, err
-		}
 	}
 
 	// We're extending (or creating) a side chain, but the cumulative

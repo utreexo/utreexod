@@ -46,6 +46,20 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 		return false, err
 	}
 
+	// Get the block node before validating the proof since side-chain proof
+	// validation needs the node's ancestry.
+	node := b.index.LookupNode(block.Hash())
+	isNewNode := node == nil
+	if isNewNode {
+		node = newBlockNode(&block.MsgBlock().Header, prevNode)
+	}
+
+	// Validate before storage because the proof store is write-once per hash.
+	err = b.checkUtreexoContext(node, block)
+	if err != nil {
+		return false, err
+	}
+
 	// Insert the block into the database if it's not already there.  Even
 	// though it is possible the block will ultimately fail to connect, it
 	// has already passed all proof-of-work and validity tests which means
@@ -56,24 +70,22 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
 	err = b.db.Update(func(dbTx database.Tx) error {
-		return dbStoreBlock(dbTx, block)
+		if err := dbStoreBlock(dbTx, block); err != nil {
+			return err
+		}
+		if b.utreexoView != nil {
+			return dbStoreUtreexoProof(dbTx, block)
+		}
+		return nil
 	})
 	if err != nil {
 		return false, err
 	}
 
-	// Check to see if we already have the blocknode in our index.
-	node := b.index.LookupNode(block.Hash())
-	if node == nil {
-		// Create a new block node for the block and add it to the node index. Even
-		// if the block ultimately gets connected to the main chain, it starts out
-		// on a side chain.
-		blockHeader := &block.MsgBlock().Header
-		newNode := newBlockNode(blockHeader, prevNode)
-		newNode.status = statusDataStored
-
-		b.index.AddNode(newNode)
-		node = newNode
+	if isNewNode {
+		// Add the block node only after its data is stored.
+		node.status = statusDataStored
+		b.index.AddNode(node)
 	} else {
 		// If we already have it, then just set the status as data stored.
 		b.index.SetStatusFlags(node, statusDataStored)

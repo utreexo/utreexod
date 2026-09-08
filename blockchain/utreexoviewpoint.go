@@ -306,6 +306,13 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 
 	_, _, inskip, _ := DedupeBlock(block)
 
+	// Reconstruction indexes one leaf data for each outpoint needing a proof.
+	OPsToProve := BlockToDelOPs(block)
+	if len(OPsToProve) != len(ud.LeafDatas) {
+		return nil, fmt.Errorf("ExtractAccumulatorDels(): expected %d leaf datas, got %d",
+			len(OPsToProve), len(ud.LeafDatas))
+	}
+
 	// Make slice of hashes from the LeafDatas. These are the hash commitments
 	// to be proven.
 	//
@@ -320,9 +327,7 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 		}
 	}
 
-	// Grab the outpoints that need their existence proven and check that
-	// the udata matches up.
-	OPsToProve := BlockToDelOPs(block)
+	// Check that the reconstructed udata matches the outpoints.
 	err := ProofSanity(ud, OPsToProve)
 	if err != nil {
 		return nil, err

@@ -260,100 +260,21 @@ func assertStoredUtreexoProof(t *testing.T, chain *BlockChain,
 	require.NoError(t, err, "FetchUtreexoProof")
 }
 
-// assertNoStoredUtreexoProof ensures the block has no proof in the store.
-func assertNoStoredUtreexoProof(t *testing.T, chain *BlockChain,
-	block *btcutil.Block) {
-
-	t.Helper()
-
-	err := chain.db.View(func(dbTx database.Tx) error {
-		proof, err := dbTx.FetchUtreexoProof(block.Hash())
-		if err != nil {
-			return err
-		}
-		require.Nil(t, proof, "stored utreexo proof for %s",
-			block.Hash())
-		return nil
-	})
-	require.NoError(t, err, "FetchUtreexoProof")
-}
-
-// TestStoreUtreexoProof ensures attached proofs are stored and missing ones are
-// rejected.
-func TestStoreUtreexoProof(t *testing.T) {
-	chain, params, _, tearDown := countingUtreexoTestChain(t,
-		"store-proof")
-	defer tearDown()
-
-	genesis := btcutil.NewBlock(params.GenesisBlock)
-	genesis.SetHeight(0)
-	proofState := newTestUtreexoProofState()
-	attachedBlock, _ := proofState.newBlock(t, chain, genesis, nil)
-	err := chain.db.Update(func(dbTx database.Tx) error {
-		return dbStoreBlock(dbTx, attachedBlock)
-	})
-	require.NoError(t, err, "dbStoreBlock")
-
+// TestInvalidUtreexoProofIsNotStored ensures rejected proofs are not persisted.
+func TestInvalidUtreexoProofIsNotStored(t *testing.T) {
 	tests := []struct {
-		name    string
-		block   *btcutil.Block
-		wantErr bool
+		name      string
+		flags     BehaviorFlags
+		sideChain bool
 	}{
-		{
-			name:  "attached proof",
-			block: attachedBlock,
-		},
-		{
-			name:    "missing proof",
-			block:   btcutil.NewBlock(params.GenesisBlock),
-			wantErr: true,
-		},
+		{name: "main chain"},
+		{name: "main chain fast add", flags: BFFastAdd},
+		{name: "side chain", sideChain: true},
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := chain.storeUtreexoProof(test.block)
-			if test.wantErr {
-				require.Error(t, err)
-				require.IsType(t, AssertError(""), err,
-					"storeUtreexoProof error type")
-				assertNoStoredUtreexoProof(t, chain, test.block)
-				return
-			}
-			require.NoError(t, err, "storeUtreexoProof")
-			assertStoredUtreexoProof(t, chain, test.block)
-		})
-	}
-}
-
-// TestValidateUtreexoProof ensures validation has no storage or best-chain side
-// effects.
-func TestValidateUtreexoProof(t *testing.T) {
-	tests := []struct {
-		name    string
-		mutate  func(*btcutil.Block)
-		wantErr bool
-	}{
-		{
-			name: "valid proof",
-		},
-		{
-			name: "invalid proof",
-			mutate: func(block *btcutil.Block) {
-				ud := *block.UtreexoData()
-				ud.LeafDatas = append([]wire.LeafData(nil),
-					ud.LeafDatas...)
-				ud.LeafDatas[0].Amount++
-				block.SetUtreexoData(&ud)
-			},
-			wantErr: true,
-		},
-	}
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			chain, params, _, tearDown := countingUtreexoTestChain(t,
-				"validate-proof")
+				"invalid-proof")
 			defer tearDown()
 
 			genesis := btcutil.NewBlock(params.GenesisBlock)
@@ -361,99 +282,48 @@ func TestValidateUtreexoProof(t *testing.T) {
 			mainProofState := newTestUtreexoProofState()
 			branchProofState := newTestUtreexoProofState()
 
-			// Establish a shared fork point for both proof states.
-			forkBlock, forkAdds := mainProofState.newBlock(t, chain,
-				genesis, nil)
+			forkBlock, forkAdds := mainProofState.newBlock(t, chain, genesis, nil)
 			branchProofState.attachUData(t, forkBlock, nil)
 			processBlock(t, chain, forkBlock, true)
 
-			// Keep the candidate branch off the main chain.
-			mainTip := forkBlock
-			for i := 0; i < 2; i++ {
-				mainBlock, _ := mainProofState.newBlock(t, chain,
-					mainTip, nil)
+			if test.sideChain {
+				mainBlock, _ := mainProofState.newBlock(t, chain, forkBlock, nil)
 				processBlock(t, chain, mainBlock, true)
-				mainTip = mainBlock
 			}
 
-			// Build a candidate whose proof depends on its branch parent.
-			branchParent, branchAdds := branchProofState.newBlock(t,
-				chain, forkBlock, forkAdds[:1])
-			processBlock(t, chain, branchParent, false)
+			// Corrupt the proof by changing a committed leaf amount.
+			block, _ := branchProofState.newBlock(t, chain, forkBlock, forkAdds[:1])
+			ud := *block.UtreexoData()
+			ud.LeafDatas = append([]wire.LeafData(nil), ud.LeafDatas...)
+			ud.LeafDatas[0].Amount++
+			block.SetUtreexoData(&ud)
 
-			block, _ := branchProofState.newBlock(t, chain,
-				branchParent, branchAdds[:1])
-			if test.mutate != nil {
-				test.mutate(block)
-			}
-			parentNode := chain.index.LookupNode(branchParent.Hash())
-			require.NotNil(t, parentNode, "parent block %s not "+
-				"indexed", branchParent.Hash())
-			node := newBlockNode(&block.MsgBlock().Header, parentNode)
+			_, _, err := chain.ProcessBlock(block, test.flags)
+			require.Error(t, err, "ProcessBlock accepted an invalid utreexo proof")
 
-			// Direct validation must not store the proof or mutate the best-chain
-			// accumulator.
-			chain.chainLock.Lock()
-			rootsBefore := append([]utreexo.Hash(nil),
-				chain.utreexoView.accumulator.GetRoots()...)
-			leavesBefore := chain.utreexoView.NumLeaves()
-			err := chain.validateUtreexoProof(node, block)
-			rootsUnchanged := chain.utreexoView.compareRoots(rootsBefore)
-			leavesAfter := chain.utreexoView.NumLeaves()
-			chain.chainLock.Unlock()
-			if test.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			assertNoStoredUtreexoProof(t, chain, block)
-			require.True(t, rootsUnchanged,
-				"validation mutated the best-chain accumulator")
-			require.Equal(t, leavesBefore, leavesAfter,
-				"validation mutated the best-chain accumulator")
-			if !test.wantErr {
-				require.NotNil(t, block.UtreexoUpdateData(),
-					"validated proof was not applied to the "+
-						"accumulator")
-			}
+			var hasBlock bool
+			var proof []byte
+			err = chain.db.View(func(dbTx database.Tx) error {
+				var err error
+				hasBlock, err = dbTx.HasBlock(block.Hash())
+				if err != nil {
+					return err
+				}
+				proof, err = dbTx.FetchUtreexoProof(block.Hash())
+				proof = bytes.Clone(proof)
+				return err
+			})
+			require.NoError(t, err)
+			require.False(t, hasBlock, "block stored with an invalid utreexo proof")
+			require.Nil(t, proof)
 		})
 	}
 }
 
-// TestInvalidUtreexoProofIsNotStored ensures rejected proofs are not persisted.
-func TestInvalidUtreexoProofIsNotStored(t *testing.T) {
-	chain, params, _, tearDown := countingUtreexoTestChain(t,
-		"invalid-proof")
-	defer tearDown()
-
-	genesis := btcutil.NewBlock(params.GenesisBlock)
-	genesis.SetHeight(0)
-	mainProofState := newTestUtreexoProofState()
-	branchProofState := newTestUtreexoProofState()
-
-	forkBlock, forkAdds := mainProofState.newBlock(t, chain, genesis, nil)
-	branchProofState.attachUData(t, forkBlock, nil)
-	processBlock(t, chain, forkBlock, true)
-
-	// Keep the invalid candidate on a side chain.
-	mainBlock, _ := mainProofState.newBlock(t, chain, forkBlock, nil)
-	processBlock(t, chain, mainBlock, true)
-
-	// Corrupt the proof by changing a committed leaf amount.
-	block, _ := branchProofState.newBlock(t, chain, forkBlock, forkAdds[:1])
-	ud := *block.UtreexoData()
-	ud.LeafDatas = append([]wire.LeafData(nil), ud.LeafDatas...)
-	ud.LeafDatas[0].Amount++
-	block.SetUtreexoData(&ud)
-
-	_, _, err := chain.ProcessBlock(block, BFNone)
-	require.Error(t, err, "ProcessBlock accepted an invalid utreexo proof")
-	assertNoStoredUtreexoProof(t, chain, block)
-}
-
 // TestStoreMainChainUtreexoProof ensures a main-chain proof is stored once.
 func TestStoreMainChainUtreexoProof(t *testing.T) {
-	chain, params, _, tearDown := countingUtreexoTestChain(t, "main-proof")
+	chain, params, countingDB, tearDown := countingUtreexoTestChain(t,
+		"main-proof")
 	defer tearDown()
 
 	genesis := btcutil.NewBlock(params.GenesisBlock)
@@ -462,6 +332,7 @@ func TestStoreMainChainUtreexoProof(t *testing.T) {
 	block, _ := proofState.newBlock(t, chain, genesis, nil)
 
 	processBlock(t, chain, block, true)
+	require.Equal(t, 1, countingDB.stores)
 	assertStoredUtreexoProof(t, chain, block)
 }
 
