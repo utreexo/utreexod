@@ -1,11 +1,11 @@
 # Configuration
 
-btcd has a number of [configuration](https://pkg.go.dev/github.com/btcsuite/btcd)
-options, which can be viewed by running: `$ btcd --help`.
+utreexod has a number of [configuration](https://pkg.go.dev/github.com/utreexo/utreexod)
+options, which can be viewed by running: `$ utreexod --help`.
 
 ## Peer server listen interface
 
-btcd allows you to bind to specific interfaces which enables you to setup
+utreexod allows you to bind to specific interfaces which enables you to setup
 configurations with varying levels of complexity.  The listen parameter can be
 specified on the command line as shown below with the -- prefix or in the
 configuration file without the -- prefix (as can all long command line options).
@@ -32,7 +32,7 @@ Command Line Examples:
 |--listen=127.0.0.1:8337 --listen=[::1]:8333|IPv4 localhost on port 8337 and IPv6 localhost on port 8333|
 |--listen=:8333 --listen=:8337|all interfaces on ports 8333 and 8337|
 
-The following config file would configure btcd to only listen on localhost for both IPv4 and IPv6:
+The following config file would configure utreexod to only listen on localhost for both IPv4 and IPv6:
 
 ```text
 [Application Options]
@@ -41,17 +41,17 @@ listen=127.0.0.1:8333
 listen=[::1]:8333
 ```
 
-In addition, if you are starting btcd with TLS and want to make it
+In addition, if you are starting utreexod with TLS and want to make it
 available via a hostname, then you will need to generate the TLS
 certificates for that host. For example,
 
 ```
-gencerts --host=myhostname.example.com --directory=/home/me/.btcd/
+gencerts --host=myhostname.example.com --directory=/home/me/.utreexod/
 ```
 
 ## RPC server listen interface
 
-btcd allows you to bind the RPC server to specific interfaces which enables you
+utreexod allows you to bind the RPC server to specific interfaces which enables you
 to setup configurations with varying levels of complexity.  The `rpclisten`
 parameter can be specified on the command line as shown below with the -- prefix
 or in the configuration file without the -- prefix (as can all long command line
@@ -92,7 +92,7 @@ Command Line Examples:
 |--rpclisten=127.0.0.1:8337 --listen=[::1]:8334|IPv4 localhost on port 8337 and IPv6 localhost on port 8334|
 |--rpclisten=:8334 --listen=:8337|all interfaces on ports 8334 and 8337|
 
-The following config file would configure the btcd RPC server to listen to all interfaces on the default port, including external interfaces, for both IPv4 and IPv6:
+The following config file would configure the utreexod RPC server to listen to all interfaces on the default port, including external interfaces, for both IPv4 and IPv6:
 
 ```text
 [Application Options]
@@ -102,15 +102,15 @@ rpclisten=
 
 ## Default ports
 
-While btcd is highly configurable when it comes to the network configuration,
+While utreexod is highly configurable when it comes to the network configuration,
 the following is intended to be a quick reference for the default ports used so
 port forwarding can be configured as required.
 
-btcd provides a `--upnp` flag which can be used to automatically map the bitcoin
+utreexod provides a `--upnp` flag which can be used to automatically map the bitcoin
 peer-to-peer listening port if your router supports UPnP.  If your router does
 not support UPnP, or you don't wish to use it, please note that only the bitcoin
 peer-to-peer port should be forwarded unless you specifically want to allow RPC
-access to your btcd from external sources such as in more advanced network
+access to your utreexod from external sources such as in more advanced network
 configurations.
 
 |Name|Port|
@@ -129,7 +129,7 @@ on the last time it was updated.
 See [this](https://bitcointalk.org/index.php?topic=145386.0) thread on
 bitcointalk for more details.
 
-**NOTE:** Using bootstrap.dat is entirely optional.  Btcd will download the
+**NOTE:** Using bootstrap.dat is entirely optional.  utreexod will download the
 block chain from other peers through the Bitcoin protocol with no extra
 configuration needed.
 
@@ -165,14 +165,14 @@ checkpoints for the known-good block chain at periodic intervals.  This ensures
 that not only is it a valid chain, but it is the same chain that everyone else
 is using.
 
-### How do I use bootstrap.dat with btcd?
+### How do I use bootstrap.dat with utreexod?
 
-btcd comes with a separate utility named `addblock` which can be used to import
+utreexod comes with a separate utility named `addblock` which can be used to import
 `bootstrap.dat`.  This approach is used since the import is a one-time operation
 and we prefer to keep the daemon itself as lightweight as possible.
 
-1. Stop btcd if it is already running.  This is required since addblock needs to
-   access the database used by btcd and it will be locked if btcd is using it.
+1. Stop utreexod if it is already running.  This is required since addblock needs to
+   access the database used by utreexod and it will be locked if utreexod is using it.
 2. Note the path to the downloaded bootstrap.dat file.
 3. Run the addblock utility with the `-i` argument pointing to the location of
    boostrap.dat:
@@ -180,7 +180,7 @@ and we prefer to keep the daemon itself as lightweight as possible.
 **Windows:**
 
 ```bat
-"%PROGRAMFILES%\Btcd Suite\Btcd\addblock" -i C:\Path\To\bootstrap.dat
+"%PROGRAMFILES%\utreexod Suite\utreexod\addblock" -i C:\Path\To\bootstrap.dat
 ```
 
 **Linux/Unix/BSD/POSIX:**
