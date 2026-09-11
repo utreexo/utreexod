@@ -96,7 +96,7 @@ var (
 // LeafDataExtras is all the leaf data plus all other data that an electrum server
 // would need for a relevant txo.
 type LeafDataExtras struct {
-	// LeafData is the The underlying leaf data.
+	// LeafData is the underlying leaf data.
 	LeafData wire.LeafData `json:"leafdata"`
 
 	// BlockIdx is the in block position of the tx of the leafdata. Coinbases
@@ -171,7 +171,7 @@ type RelevantTxData struct {
 	// Tx is the raw tx of for this tx.
 	Tx *wire.MsgTx `json:"tx"`
 
-	// MerkleProof is the hashes needed to hash to the merkle root commited
+	// MerkleProof is the hashes needed to hash to the Merkle root committed
 	// in the block.
 	MerkleProof []*chainhash.Hash `json:"merkleproof"`
 }
