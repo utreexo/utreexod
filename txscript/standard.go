@@ -49,7 +49,8 @@ const (
 		ScriptVerifyTaproot |
 		ScriptVerifyDiscourageUpgradeableTaprootVersion |
 		ScriptVerifyDiscourageOpSuccess |
-		ScriptVerifyDiscourageUpgradeablePubkeyType
+		ScriptVerifyDiscourageUpgradeablePubkeyType |
+		ScriptVerifyConstScriptCode
 )
 
 // ScriptClass is an enumeration for the list of standard types of script.
