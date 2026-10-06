@@ -1400,7 +1400,7 @@ func (mp *TxPool) RawMempoolVerbose() map[string]*btcjson.GetRawMempoolVerboseRe
 		// input transactions can't be found for some reason.
 		tx := desc.Tx
 		var currentPriority float64
-		if mp.cfg.IsUtreexoViewActive == nil && !mp.cfg.IsUtreexoViewActive() {
+		if mp.cfg.IsUtreexoViewActive == nil || !mp.cfg.IsUtreexoViewActive() {
 			utxos, err := mp.fetchInputUtxos(tx)
 			if err == nil {
 				currentPriority = mining.CalcPriority(tx.MsgTx(), utxos,
