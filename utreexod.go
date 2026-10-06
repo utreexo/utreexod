@@ -16,11 +16,11 @@ import (
 	"runtime/pprof"
 	"runtime/trace"
 
+	"github.com/btcsuite/btcd/limits"
 	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/database"
-	"github.com/utreexo/utreexod/limits"
 )
 
 const (
