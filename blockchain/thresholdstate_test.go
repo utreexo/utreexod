@@ -7,7 +7,7 @@ package blockchain
 import (
 	"testing"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // TestThresholdStateStringer tests the stringized output for the

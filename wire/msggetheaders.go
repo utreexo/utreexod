@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // MsgGetHeaders implements the Message interface and represents a bitcoin

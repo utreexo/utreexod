@@ -7,7 +7,7 @@ package wire
 import (
 	"io"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // MsgGetUtreexoRoot implements the Message interface and represents a bitcoin

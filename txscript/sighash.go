@@ -13,7 +13,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -191,7 +191,8 @@ func calcSignatureHash(sigScript []byte, hashType SigHashType, tx *wire.MsgTx, i
 	var bHashType [4]byte
 	binary.LittleEndian.PutUint32(bHashType[:], uint32(hashType))
 	sigHash.Write(bHashType[:])
-	return chainhash.DoubleHashRaw(sigHash)
+	doubleHash := sha256.Sum256(sigHash.Sum(nil))
+	return doubleHash[:]
 }
 
 // calcWitnessSignatureHashRaw computes the sighash digest of a transaction's
@@ -306,7 +307,8 @@ func calcWitnessSignatureHashRaw(scriptSig []byte, sigHashes *TxSigHashes,
 	binary.LittleEndian.PutUint32(bHashType[:], uint32(hashType))
 	sigHash.Write(bHashType[:])
 
-	return chainhash.DoubleHashRaw(sigHash), nil
+	doubleHash := sha256.Sum256(sigHash.Sum(nil))
+	return doubleHash[:], nil
 }
 
 // CalcWitnessSigHash computes the sighash digest for the specified input of

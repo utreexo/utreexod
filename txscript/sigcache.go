@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"sync"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // sigCacheEntry represents an entry in the SigCache. Entries within the

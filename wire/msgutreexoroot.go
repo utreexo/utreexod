@@ -8,8 +8,8 @@ import (
 	"io"
 	"math"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // MaxUtreexoRootMsgSize is the very maximum size of a utreexo root message.

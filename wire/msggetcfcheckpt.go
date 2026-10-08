@@ -7,7 +7,7 @@ package wire
 import (
 	"io"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // MsgGetCFCheckpt is a request for filter headers at evenly spaced intervals

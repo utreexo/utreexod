@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 var genesisHash = chainhash.Hash([chainhash.HashSize]byte{ // Make go vet happy.

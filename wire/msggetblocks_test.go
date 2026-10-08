@@ -10,8 +10,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // TestGetBlocks tests the MsgGetBlocks API.

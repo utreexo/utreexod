@@ -9,7 +9,7 @@ import (
 	"crypto/sha512"
 	"io"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 var (

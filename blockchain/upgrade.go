@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/wire"
 )

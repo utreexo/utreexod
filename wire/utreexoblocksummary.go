@@ -7,7 +7,7 @@ package wire
 import (
 	"io"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // MaxPossibleInputsPerBlock is the maximum possible inputs you can have per block.

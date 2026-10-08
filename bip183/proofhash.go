@@ -10,7 +10,7 @@ import (
 	"encoding/binary"
 	"math"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // Uint64sToPackedHashes packs the passed in uint64s into the 32 byte hashes. 4 uint64s are packed into

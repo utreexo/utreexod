@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/database"
 )
 

@@ -8,11 +8,11 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/sstable"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/utreexobackends"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // nodeLength is the length of a seriailzed node. 4 because the remember bit is

@@ -8,9 +8,9 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 func TestUtreexoProofSerialize(t *testing.T) {

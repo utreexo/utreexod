@@ -13,8 +13,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/bip182"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // newHashFromStr converts the passed big-endian hex string into a

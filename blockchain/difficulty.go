@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 var (

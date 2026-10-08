@@ -7,8 +7,8 @@ package wire
 import (
 	"io"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // maxSupportedRows is the maximum number of rows in the utreexo tree that

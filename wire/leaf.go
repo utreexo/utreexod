@@ -14,8 +14,8 @@ import (
 	"io"
 	"sync"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/bip182"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 const (

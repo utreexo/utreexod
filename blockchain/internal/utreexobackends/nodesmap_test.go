@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 func TestNodesMapSliceMaxCacheElems(t *testing.T) {
