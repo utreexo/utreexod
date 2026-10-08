@@ -14,7 +14,9 @@ import (
 	"testing"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -855,5 +857,79 @@ func TestUtreexoViewSerialize(t *testing.T) {
 			t.Fatalf("serializeUtreexoView #%d (%s) unexpected aggregator "+
 				"state - got %x, want %x", i, test.name, gotAgg, wantAgg)
 		}
+	}
+}
+
+// TestBlockByHashPruned checks that BlockByHash errors, rather than returning
+// an empty block, when the block is still in the main chain but its body has
+// been pruned.  The getutreexoproof RPC on a pruned compact state node relies
+// on this: it looks the height up first and then fetches the block, so a pruned
+// block must surface as a clean error.
+func TestBlockByHashPruned(t *testing.T) {
+	chain, tearDown, err := ChainSetup("TestBlockByHashPruned", &chaincfg.MainNetParams)
+	if err != nil {
+		t.Fatalf("error loading blockchain with database: %v", err)
+	}
+	defer tearDown()
+
+	// Keep the utxo cache large so it only flushes on prunes, and set the
+	// max block file size and the prune target small so pruning is triggered
+	// after only a handful of blocks.
+	chain.utxoCache.maxTotalMemoryUsage = 10 * 1024 * 1024
+	chain.utxoCache.cachedEntries.maxTotalMemoryUsage = chain.utxoCache.maxTotalMemoryUsage
+	maxBlockFileSize := uint32(8192)
+	chain.pruneTarget = uint64(maxBlockFileSize) * 2
+
+	// Load blocks from the file.  Index 0 is the genesis block which is
+	// already in the chain from ChainSetup.
+	blocks, err := loadBlocks("blk_0_to_14131.dat")
+	if err != nil {
+		t.Fatalf("failed to read blocks from file. %v", err)
+	}
+
+	// Only connect enough blocks to comfortably exceed the prune target while
+	// staying well above the 288 block window that pruning always keeps.
+	const numBlocks = 1000
+	if len(blocks) < numBlocks {
+		t.Fatalf("test needs at least %d blocks but only have %d", numBlocks, len(blocks))
+	}
+
+	syncBlocks := func() {
+		for i := 1; i < numBlocks; i++ {
+			_, _, err := chain.ProcessBlock(blocks[i], BFNone)
+			if err != nil {
+				t.Fatalf("failed to process block %v(%v). %v",
+					blocks[i].Hash(), blocks[i].Height(), err)
+			}
+		}
+	}
+	ffldb.TstRunWithMaxBlockFileSize(chain.db, maxBlockFileSize, syncBlocks)
+
+	// The first block above genesis is far outside the kept window so its body
+	// must have been pruned.
+	prunedHash := blocks[1].Hash()
+
+	// The block is still part of the main chain, so the height lookup that the
+	// RPC handler does first still succeeds.
+	if _, err := chain.BlockHeightByHash(prunedHash); err != nil {
+		t.Fatalf("expected the pruned block %s to still be in the main chain "+
+			"but the height lookup failed: %v", prunedHash, err)
+	}
+
+	// Fetching the pruned block's body, however, must fail cleanly.
+	if _, err := chain.BlockByHash(prunedHash); err == nil {
+		t.Fatalf("expected an error fetching the pruned block %s but got none",
+			prunedHash)
+	}
+
+	// A recent block that wasn't pruned must still be fetchable.
+	tipHash := blocks[numBlocks-1].Hash()
+	block, err := chain.BlockByHash(tipHash)
+	if err != nil {
+		t.Fatalf("expected to fetch the retained block %s but got error: %v",
+			tipHash, err)
+	}
+	if !block.Hash().IsEqual(tipHash) {
+		t.Fatalf("expected to fetch block %s but got %s", tipHash, block.Hash())
 	}
 }
