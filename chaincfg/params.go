@@ -969,6 +969,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 
 	assumeUtreexoPoint := AssumeUtreexo{}
 	checkPoints := []Checkpoint{}
+	ttlState := TTLState{}
 	if bytes.Equal(challenge, DefaultSignetChallenge) {
 		assumeUtreexoPoint = AssumeUtreexo{
 			BlockHash:   newHashFromStr("0000000d0ffcda2be44be940b3f2ba0b9e1a5e60dde6d074a7dd749ef2af2061"),
@@ -1010,6 +1011,25 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 			{270_566, newHashFromStr("00000004d85480599a5997038d256ea2a31a8e9dca48b1e4c0298063cb016fd6")},
 			{signetLastCheckpointHeight, newHashFromStr("000000057858aabfe204e2e2005c33567c6e310c90467d49bea36e4343f18d53")},
 		}
+
+		ttlState = TTLState{
+			Stump: []utreexo.Stump{
+				{
+					Roots: []utreexo.Hash{
+						newUtreexoHashFromStr("d2d236de5dfc51f6d19e6032051e23d17190a163bd141e20fec95245daf5aeb3"),
+						newUtreexoHashFromStr("c162ca415897569c3587a9ed27ae2c048ae5b7beb00a7d85516b1977ef82ff5d"),
+						newUtreexoHashFromStr("6513784f8fa270f944d6141c7c4767b24ad41c0c8aa932ee88191b47ab9c8b24"),
+						newUtreexoHashFromStr("95239c0dc67fa634b46349d24ac16c4120196931a7b17022a49a71be276ab435"),
+						newUtreexoHashFromStr("b37dc4d51ce269e4f2510a35492d36a0fd589b5b92806af6ffa4cd9d240ef9cf"),
+						newUtreexoHashFromStr("d172d80ceff3674bbc94676db958cf5664d561f1424077bbf9ae16d870e474ae"),
+						newUtreexoHashFromStr("dfd16dcf4320b308358e878ebf55b5ea35a6e24b3db76d098e055160bf552adf"),
+						newUtreexoHashFromStr("291a2a4595f158eecbbf791fde3f12605671eaa091dec625eaae0684cff39809"),
+						newUtreexoHashFromStr("56ce0aa0aaa20f8d0f3f6480ffb8f9f80d7a530d549e50a889d430d51db91b3f"),
+					},
+					NumLeaves: signetTTLNumLeaves,
+				},
+			},
+		}
 	}
 
 	// We use little endian encoding of the hash prefix to be in line with
@@ -1043,24 +1063,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 
 		AssumeUtreexoPoint: assumeUtreexoPoint,
 
-		TTL: TTLState{
-			Stump: []utreexo.Stump{
-				{
-					Roots: []utreexo.Hash{
-						newUtreexoHashFromStr("d2d236de5dfc51f6d19e6032051e23d17190a163bd141e20fec95245daf5aeb3"),
-						newUtreexoHashFromStr("c162ca415897569c3587a9ed27ae2c048ae5b7beb00a7d85516b1977ef82ff5d"),
-						newUtreexoHashFromStr("6513784f8fa270f944d6141c7c4767b24ad41c0c8aa932ee88191b47ab9c8b24"),
-						newUtreexoHashFromStr("95239c0dc67fa634b46349d24ac16c4120196931a7b17022a49a71be276ab435"),
-						newUtreexoHashFromStr("b37dc4d51ce269e4f2510a35492d36a0fd589b5b92806af6ffa4cd9d240ef9cf"),
-						newUtreexoHashFromStr("d172d80ceff3674bbc94676db958cf5664d561f1424077bbf9ae16d870e474ae"),
-						newUtreexoHashFromStr("dfd16dcf4320b308358e878ebf55b5ea35a6e24b3db76d098e055160bf552adf"),
-						newUtreexoHashFromStr("291a2a4595f158eecbbf791fde3f12605671eaa091dec625eaae0684cff39809"),
-						newUtreexoHashFromStr("56ce0aa0aaa20f8d0f3f6480ffb8f9f80d7a530d549e50a889d430d51db91b3f"),
-					},
-					NumLeaves: signetTTLNumLeaves,
-				},
-			},
-		},
+		TTL: ttlState,
 
 		// Consensus rule change deployments.
 		//
