@@ -19,6 +19,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/utreexo/utreexod/mining"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -2016,4 +2017,31 @@ func TestRemoveTransactionPrunesUtreexoAccumulator(t *testing.T) {
 	harness.txPool.RemoveTransaction(otherTx, false)
 	require.Len(t, pruned, 1,
 		"PruneFromAccumulator should not fire when no leaves are cached")
+}
+
+// TestRawMempoolVerboseCurrentPriority ensures that RawMempoolVerbose looks up
+// the inputs of a transaction in the utxo set when the utreexo view is not
+// active, as on bridge nodes, and reports the resulting current priority.
+func TestRawMempoolVerboseCurrentPriority(t *testing.T) {
+	t.Parallel()
+
+	harness, outputs, err := newPoolHarness(&chaincfg.MainNetParams)
+	require.NoError(t, err, "unable to create test pool")
+
+	ctx := &testContext{t, harness}
+
+	// The harness pool has the utreexo view inactive and no entries in
+	// poolLeaves, so the inputs of the transaction are only in the utxo
+	// set.
+	tx := ctx.addSignedTx(outputs, 1, 0, false, false)
+
+	utxos, err := harness.chain.FetchUtxoView(tx)
+	require.NoError(t, err)
+	want := mining.CalcPriority(tx.MsgTx(), utxos,
+		harness.chain.BestHeight()+1)
+	require.NotZero(t, want, "transaction should have a nonzero priority")
+
+	result := harness.txPool.RawMempoolVerbose()
+	require.Contains(t, result, tx.Hash().String())
+	require.Equal(t, want, result[tx.Hash().String()].CurrentPriority)
 }
