@@ -22,9 +22,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/decred/dcrd/lru"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/addrmgr"
 	"github.com/utreexo/utreexod/bdkwallet"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcutil"
@@ -32,7 +34,6 @@ import (
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/connmgr"
-	"github.com/decred/dcrd/lru"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/electrum"
 	"github.com/utreexo/utreexod/mempool"
@@ -1891,7 +1892,7 @@ func (s *server) pushUtreexoTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPo
 		// Packed positions may be nil or of a length 0 if the
 		// peer already has all the necessary proof hashes cached.
 		if packedPositions != nil || len(packedPositions) == 0 {
-			positions := chainhash.PackedHashesToUint64(packedPositions)
+			positions := bip183.PackedHashesToUint64(packedPositions)
 			ud, err := s.chain.GenerateUDataPartial(leafDatas, positions)
 			if err != nil {
 				chanLog.Errorf(err.Error())
@@ -1921,7 +1922,7 @@ func (s *server) pushUtreexoTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPo
 				return err
 			}
 
-			positions := chainhash.PackedHashesToUint64(packedPositions)
+			positions := bip183.PackedHashesToUint64(packedPositions)
 			ud, err := s.utreexoProofIndex.GenerateUDataPartial(leafDatas, positions)
 			if err != nil {
 				chanLog.Errorf(err.Error())
@@ -1947,7 +1948,7 @@ func (s *server) pushUtreexoTxMsg(sp *serverPeer, hash *chainhash.Hash, packedPo
 				}
 				return err
 			}
-			positions := chainhash.PackedHashesToUint64(packedPositions)
+			positions := bip183.PackedHashesToUint64(packedPositions)
 			ud, err := s.flatUtreexoProofIndex.GenerateUDataPartial(leafDatas, positions)
 			if err != nil {
 				chanLog.Errorf(err.Error())
@@ -2340,10 +2341,10 @@ func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
 		// Pick a proof index that's not nil.
 		if s.utreexoProofIndex != nil {
 			positions := s.utreexoProofIndex.GetLeafHashPositions(leafHashes)
-			packedPositions = chainhash.Uint64sToPackedHashes(positions)
+			packedPositions = bip183.Uint64sToPackedHashes(positions)
 		} else {
 			positions := s.flatUtreexoProofIndex.GetLeafHashPositions(leafHashes)
-			packedPositions = chainhash.Uint64sToPackedHashes(positions)
+			packedPositions = bip183.Uint64sToPackedHashes(positions)
 		}
 	default:
 		// Get the leaf datas to figure out the positions needed to send

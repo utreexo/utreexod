@@ -6,11 +6,8 @@ package chainhash
 
 import (
 	"bytes"
-	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
-	"io"
-	"reflect"
 	"testing"
 )
 
@@ -221,56 +218,5 @@ func TestHashJsonMarshal(t *testing.T) {
 
 	if !hash.IsEqual(&newHash) {
 		t.Errorf("String: wrong hash string - got %v, want %v", newHash.String(), hashStr)
-	}
-}
-
-func TestPackedHashes(t *testing.T) {
-	tests := []struct {
-		uints []uint64
-	}{
-		{uints: []uint64{0, 1, 2, 3}},
-		{uints: []uint64{0, 1, 2, 3, 4}},
-		{uints: []uint64{0, 1, 2, 3, 4, 5}},
-		{uints: []uint64{0, 1, 2, 3, 4, 5, 6}},
-		{uints: []uint64{0, 1, 2, 3, 4, 5, 6, 7}},
-		{uints: []uint64{11, 22, 33, 44, 55}},
-	}
-
-	for _, test := range tests {
-		hashes := Uint64sToPackedHashes(test.uints)
-		got := PackedHashesToUint64(hashes)
-
-		if !reflect.DeepEqual(test.uints, got) {
-			t.Fatalf("expected %v but got %v", test.uints, got)
-		}
-	}
-}
-
-func TestTaggedHash512_256(t *testing.T) {
-	tests := []struct {
-		tagStr string
-		msg    string
-	}{
-		{tagStr: "UtreexoV1", msg: "hi"},
-		{tagStr: "UtreexoV1", msg: "12354561654"},
-		{tagStr: "hi", msg: "12354561654"},
-	}
-
-	for _, test := range tests {
-		var serialized bytes.Buffer
-		tag, found := precomputedUtreexoTags[test.tagStr]
-		if !found {
-			tag = sha512.Sum512([]byte(test.tagStr))
-		}
-		serialized.Write(tag[:])
-		serialized.Write(tag[:])
-		serialized.Write([]byte(test.msg))
-
-		expect := sha512.Sum512_256(serialized.Bytes())
-
-		got := TaggedHash512_256([]byte(test.tagStr), func(w io.Writer) { w.Write([]byte(test.msg)) })
-		if !bytes.Equal(got[:], expect[:]) {
-			t.Fatalf("expected %s, got %s", hex.EncodeToString(expect[:]), hex.EncodeToString(got[:]))
-		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
@@ -182,7 +183,7 @@ func (lh *LeafHasher) HashLeaf(l *LeafData) [32]byte {
 	d := lh.digest
 	d.Reset()
 
-	d.Write(chainhash.UTREEXO_TAG_V1_APPEND[:])
+	d.Write(bip182.UTREEXO_TAG_V1_APPEND[:])
 
 	// Inline serialization to avoid sync.Pool in Serialize/WriteOutPoint/WriteVarInt.
 	// BlockHash (32 bytes)

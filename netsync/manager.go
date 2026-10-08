@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -1760,7 +1761,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 
 					log.Debugf("for tx %s(%v), got %v packed positions, which are %v",
 						iv.Hash, iv.Type.String(),
-						targetPositions, chainhash.PackedHashesToUint64(targetPositions))
+						targetPositions, bip183.PackedHashesToUint64(targetPositions))
 
 					// Check that the proof invs+the current tx inv and all
 					// other requested invs do not go over the max inv per
@@ -1774,7 +1775,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 						neededPositions = sm.chain.GetNeededPositions(targetPositions)
 					}
 
-					log.Debugf("need %v to prove tx %v", chainhash.PackedHashesToUint64(neededPositions), iv.Hash)
+					log.Debugf("need %v to prove tx %v", bip183.PackedHashesToUint64(neededPositions), iv.Hash)
 
 					limitAdd(sm.requestedTxns, iv.Hash, maxRequestedTxns)
 					limitAdd(state.requestedTxns, iv.Hash, maxRequestedTxns)
