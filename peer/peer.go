@@ -19,13 +19,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/v2transport"
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/decred/dcrd/lru"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/v2transport"
 	"github.com/utreexo/utreexod/wire"
 )
 

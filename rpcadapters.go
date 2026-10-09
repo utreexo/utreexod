@@ -7,9 +7,9 @@ package main
 import (
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/netsync"
 	"github.com/utreexo/utreexod/peer"

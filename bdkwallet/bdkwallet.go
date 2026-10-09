@@ -14,10 +14,10 @@ import "C"
 import (
 	"bytes"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/bdkwallet/bdkgo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/wire"
 )

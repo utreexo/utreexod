@@ -12,8 +12,8 @@ import (
 	"testing"
 	"testing/quick"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 type testData struct {

@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/wire"

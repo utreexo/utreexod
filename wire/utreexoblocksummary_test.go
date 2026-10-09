@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 func TestUtreexoBlockHeaderSerialize(t *testing.T) {

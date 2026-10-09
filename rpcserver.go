@@ -31,6 +31,7 @@ import (
 	cryptorand "crypto/rand"
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/websocket"
 	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/blockchain"
@@ -38,7 +39,6 @@ import (
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/mining"

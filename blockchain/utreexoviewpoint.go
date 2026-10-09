@@ -12,10 +12,11 @@ import (
 	"io"
 	"sort"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain/internal/aggregator"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
@@ -1072,7 +1073,7 @@ func (b *BlockChain) PruneFromAccumulator(leaves []wire.LeafData) error {
 // This function is NOT safe for concurrent access.
 func (b *BlockChain) packedPositions(leafHashes []utreexo.Hash) []chainhash.Hash {
 	positions := b.utreexoView.accumulator.GetLeafHashPositions(leafHashes)
-	return chainhash.Uint64sToPackedHashes(positions)
+	return bip183.Uint64sToPackedHashes(positions)
 }
 
 // PackedPositions fetches and returns the positions of the leafHashes as chainhash.Hash.
@@ -1110,9 +1111,9 @@ func (b *BlockChain) GetNeededPositions(packedPositions []chainhash.Hash) []chai
 	b.chainLock.RLock()
 	defer b.chainLock.RUnlock()
 
-	positions := chainhash.PackedHashesToUint64(packedPositions)
+	positions := bip183.PackedHashesToUint64(packedPositions)
 	missing := b.utreexoView.accumulator.GetMissingPositions(positions)
-	return chainhash.Uint64sToPackedHashes(missing)
+	return bip183.Uint64sToPackedHashes(missing)
 }
 
 // FetchUtreexoViewpoint returns the utreexo viewpoint at the given block hash.

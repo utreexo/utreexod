@@ -13,7 +13,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/utreexo/utreexod/bip182"
 )
 
 // newHashFromStr converts the passed big-endian hex string into a
@@ -609,7 +610,7 @@ func TestLeafHash(t *testing.T) {
 
 	// Just a hash func for sanity checking here.
 	hashFunc := func(ld LeafData) [32]byte {
-		shaTag := sha512.Sum512(chainhash.TagUtreexoV1)
+		shaTag := sha512.Sum512(bip182.TagUtreexoV1)
 		preimage := make([]byte, 0, (64*2)+ld.SerializeSize())
 		preimage = append(preimage, shaTag[:]...)
 		preimage = append(preimage, shaTag[:]...)

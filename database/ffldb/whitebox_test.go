@@ -18,11 +18,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/syndtr/goleveldb/leveldb"
 	ldberrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/wire"
 )

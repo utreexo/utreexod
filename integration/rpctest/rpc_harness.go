@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/rpcclient"
 	"github.com/utreexo/utreexod/wire"
 )

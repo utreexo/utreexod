@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 // mainNetGenesisHash is the hash of the first block in the block chain for the

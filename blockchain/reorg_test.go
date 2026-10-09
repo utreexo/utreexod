@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"

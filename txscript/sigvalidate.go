@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/wire"
 )
 

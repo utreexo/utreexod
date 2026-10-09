@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 const (

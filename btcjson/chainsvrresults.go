@@ -9,7 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/wire"

@@ -7,7 +7,7 @@ package wire
 import (
 	"io"
 
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // maxProofIndexBitMapSize is the bitmap size for MaxProofHashes proof hashes. Ceiling divide.

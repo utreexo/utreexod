@@ -5,8 +5,8 @@ import (
 	"crypto/rand"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/assert"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 func randomBytes(size int) []byte {

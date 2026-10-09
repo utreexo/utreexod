@@ -4,9 +4,9 @@ import (
 	"container/heap"
 	"sync"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/blockchain/internal/sizehelper"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 const (

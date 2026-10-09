@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 	"github.com/utreexo/utreexod/wire"
 )
 

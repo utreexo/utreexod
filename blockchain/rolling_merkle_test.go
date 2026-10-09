@@ -3,8 +3,8 @@ package blockchain
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
-	"github.com/utreexo/utreexod/chaincfg/chainhash"
 )
 
 func TestRollingMerkleAdd(t *testing.T) {
