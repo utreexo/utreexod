@@ -6,9 +6,9 @@
 package btcdwire
 
 // COPIED FROM BTCD'S WIRE PACKAGE. These are wire's ReadMessageWithEncodingN,
-// ReadV2MessageN, and WriteV2MessageN, changed to take the messages wire
-// doesn't define as parameters and to use encoding/binary where wire uses
-// unexported helpers.
+// WriteMessageWithEncodingN, ReadV2MessageN, and WriteV2MessageN, changed to
+// take the messages wire doesn't define as parameters and to use
+// encoding/binary where wire uses unexported helpers.
 
 import (
 	"bytes"
@@ -110,6 +110,69 @@ func ReadMessageWithEncodingN(r io.Reader, pver uint32, btcnet wire.BitcoinNet,
 	}
 
 	return totalBytes, msg, payload, nil
+}
+
+// WriteMessageWithEncodingN writes a bitcoin Message to w including the
+// necessary header information and returns the number of bytes written.
+// newMsg returns an empty message for the commands written here and nil for
+// every other command, which is written with wire.WriteMessageWithEncodingN.
+func WriteMessageWithEncodingN(w io.Writer, msg wire.Message, pver uint32,
+	btcnet wire.BitcoinNet, encoding wire.MessageEncoding,
+	newMsg func(command string) wire.Message) (int, error) {
+
+	cmd := msg.Command()
+	if newMsg(cmd) == nil {
+		return wire.WriteMessageWithEncodingN(w, msg, pver, btcnet,
+			encoding)
+	}
+
+	// Encode the message payload.
+	var bw bytes.Buffer
+	err := msg.BtcEncode(&bw, pver, encoding)
+	if err != nil {
+		return 0, err
+	}
+	payload := bw.Bytes()
+	lenp := len(payload)
+
+	// Enforce maximum overall message payload.
+	if lenp > wire.MaxMessagePayload {
+		str := fmt.Sprintf("message payload is too large - encoded "+
+			"%d bytes, but maximum message payload is %d bytes",
+			lenp, wire.MaxMessagePayload)
+		return 0, NewMessageError("WriteMessage", str)
+	}
+
+	// Enforce maximum message payload based on the message type.
+	mpl := msg.MaxPayloadLength(pver)
+	if uint32(lenp) > mpl {
+		str := fmt.Sprintf("message payload is too large - encoded "+
+			"%d bytes, but maximum message payload size for "+
+			"messages of type [%s] is %d.", lenp, cmd, mpl)
+		return 0, NewMessageError("WriteMessage", str)
+	}
+
+	// Create the header for the message.
+	var hdr [wire.MessageHeaderSize]byte
+	binary.LittleEndian.PutUint32(hdr[0:4], uint32(btcnet))
+	copy(hdr[4:4+wire.CommandSize], cmd)
+	binary.LittleEndian.PutUint32(hdr[16:20], uint32(lenp))
+	copy(hdr[20:24], chainhash.DoubleHashB(payload)[0:4])
+
+	// Write header.
+	totalBytes, err := w.Write(hdr[:])
+	if err != nil {
+		return totalBytes, err
+	}
+
+	// Only write the payload if there is one.
+	if len(payload) > 0 {
+		n, err := w.Write(payload)
+		totalBytes += n
+		return totalBytes, err
+	}
+
+	return totalBytes, nil
 }
 
 // ReadV2MessageN takes the passed plaintext and attempts to construct a

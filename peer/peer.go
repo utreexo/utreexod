@@ -1185,7 +1185,7 @@ func (p *Peer) writeMessage(msg wire.Message, enc wire.MessageEncoding) error {
 
 		_, n, err = p.V2Transport.V2EncPacket(buf.Bytes(), nil, false)
 	} else {
-		n, err = wire.WriteMessageWithEncodingN(
+		n, err = bip183.WriteMessageWithEncodingN(
 			p.conn, msg, p.ProtocolVersion(), p.cfg.ChainParams.Net, enc,
 		)
 	}
