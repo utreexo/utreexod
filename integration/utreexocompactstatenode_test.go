@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
@@ -54,14 +55,14 @@ func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
 
 // jsonToUData converts the JSON utreexo proof result to bip183.UData.
 func jsonToUData(utreexoProof *btcjson.GetUtreexoProofVerboseResult) (*bip183.UData, error) {
-	lds := []wire.LeafData{}
+	lds := []bip182.LeafData{}
 	for _, ldString := range utreexoProof.TargetPreimages {
 		raw, err := hex.DecodeString(ldString)
 		if err != nil {
 			return nil, err
 		}
 
-		ld := new(wire.LeafData)
+		ld := new(bip182.LeafData)
 		err = ld.Deserialize(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
