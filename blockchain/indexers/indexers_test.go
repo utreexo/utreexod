@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -29,14 +27,11 @@ const (
 	// testDbType is the database backend type to use for the tests.
 	testDbType = "ffldb"
 
-	// testDbRoot is the root directory used to create all test databases.
-	testDbRoot = "testdbs"
-
 	// blockDataNet is the expected network in the test block data.
 	blockDataNet = wire.MainNet
 )
 
-func createDB(dbName string) (database.DB, string, error) {
+func createDB(t *testing.T) (database.DB, string, error) {
 	if !blockchain.IsSupportedDbType(testDbType) {
 		return nil, "", fmt.Errorf("unsupported db type %v", testDbType)
 	}
@@ -52,18 +47,8 @@ func createDB(dbName string) (database.DB, string, error) {
 		}
 		db = ndb
 	} else {
-		// Create the root directory for test databases.
-		if !blockchain.FileExists(testDbRoot) {
-			if err := os.MkdirAll(testDbRoot, 0700); err != nil {
-				err := fmt.Errorf("unable to create test db "+
-					"root: %v", err)
-				return nil, "", err
-			}
-		}
-
 		// Create a new database to store the accepted blocks into.
-		dbPath = filepath.Join(testDbRoot, dbName)
-		_ = os.RemoveAll(dbPath)
+		dbPath = t.TempDir()
 		ndb, err := database.Create(testDbType, dbPath, blockDataNet)
 		if err != nil {
 			return nil, "", fmt.Errorf("error creating db: %v", err)
@@ -95,18 +80,35 @@ func initIndexes(dbPath string, db database.DB, params *chaincfg.Params) (
 	return indexManager, indexes, nil
 }
 
-func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
+// regtestParams returns a copy of the regression test network parameters with
+// its own deployment starters and enders. A plain copy shares their pointers,
+// and blockchain.New stores its chain in them, so parallel tests would race.
+func regtestParams() chaincfg.Params {
 	params := chaincfg.RegressionNetParams
 	params.CoinbaseMaturity = 1
+	for i := range params.Deployments {
+		deployment := &params.Deployments[i]
+		if starter, ok := deployment.DeploymentStarter.(*chaincfg.MedianTimeDeploymentStarter); ok {
+			deployment.DeploymentStarter = chaincfg.NewMedianTimeDeploymentStarter(
+				starter.StartTime())
+		}
+		if ender, ok := deployment.DeploymentEnder.(*chaincfg.MedianTimeDeploymentEnder); ok {
+			deployment.DeploymentEnder = chaincfg.NewMedianTimeDeploymentEnder(
+				ender.EndTime())
+		}
+	}
+	return params
+}
 
-	db, dbPath, err := createDB(testName)
+func indexersTestChain(t *testing.T) (*blockchain.BlockChain, []Indexer, *chaincfg.Params, *Manager, func()) {
+	params := regtestParams()
+
+	db, dbPath, err := createDB(t)
 	tearDown := func() {
 		db.Close()
-		os.RemoveAll(dbPath)
 	}
 	if err != nil {
 		tearDown()
-		os.RemoveAll(testDbRoot)
 		panic(fmt.Errorf("error creating database: %v", err))
 	}
 
@@ -114,7 +116,6 @@ func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *cha
 	indexManager, indexes, err := initIndexes(dbPath, db, &params)
 	if err != nil {
 		tearDown()
-		os.RemoveAll(testDbRoot)
 		panic(fmt.Errorf("error creating indexes: %v", err))
 	}
 
@@ -130,7 +131,6 @@ func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *cha
 	})
 	if err != nil {
 		tearDown()
-		os.RemoveAll(testDbRoot)
 		panic(fmt.Errorf("failed to create chain instance: %v", err))
 	}
 
@@ -138,14 +138,12 @@ func indexersTestChain(testName string) (*blockchain.BlockChain, []Indexer, *cha
 }
 
 // csnTestChain creates a chain using the compact utreexo state.
-func csnTestChain(testName string) (*blockchain.BlockChain, *chaincfg.Params, func(), error) {
-	params := chaincfg.RegressionNetParams
-	params.CoinbaseMaturity = 1
+func csnTestChain(t *testing.T) (*blockchain.BlockChain, *chaincfg.Params, func(), error) {
+	params := regtestParams()
 
-	db, dbPath, err := createDB(testName)
+	db, _, err := createDB(t)
 	tearDown := func() {
 		db.Close()
-		os.RemoveAll(dbPath)
 	}
 	if err != nil {
 		return nil, nil, tearDown, err
@@ -470,14 +468,13 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 // TestProveUtxos tests that the utxos that are proven by the utreexo proof index are verifiable
 // by the compact state nodes.
 func TestProveUtxos(t *testing.T) {
-	// Always remove the root on return.
-	defer os.RemoveAll(testDbRoot)
+	t.Parallel()
 
 	timenow := time.Now().UnixNano()
 	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
-	chain, indexes, params, _, tearDown := indexersTestChain("TestProveUtxos")
+	chain, indexes, params, _, tearDown := indexersTestChain(t)
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -520,7 +517,7 @@ func TestProveUtxos(t *testing.T) {
 
 	// Create a chain that consumes the data from the indexes and test that this
 	// chain is able to consume the data properly.
-	csnChain, _, csnTearDown, err := csnTestChain("TestProveUtxos-CsnChain")
+	csnChain, _, csnTearDown, err := csnTestChain(t)
 	defer csnTearDown()
 	if err != nil {
 		t.Fatalf("timenow:%v. %v", timenow, err)
@@ -608,14 +605,13 @@ func TestProveUtxos(t *testing.T) {
 }
 
 func TestUtreexoProofIndex(t *testing.T) {
-	// Always remove the root on return.
-	defer os.RemoveAll(testDbRoot)
+	t.Parallel()
 
 	timenow := time.Now().UnixNano()
 	source := rand.NewSource(timenow)
 	rand := rand.New(source)
 
-	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoProofIndex")
+	chain, indexes, params, _, tearDown := indexersTestChain(t)
 	defer tearDown()
 
 	tip := btcutil.NewBlock(params.GenesisBlock)
@@ -674,7 +670,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 
 	// Create a chain that consumes the data from the indexes and test that this
 	// chain is able to consume the data properly.
-	csnChain, _, csnTearDown, err := csnTestChain("TestUtreexoProofIndex-CsnChain")
+	csnChain, _, csnTearDown, err := csnTestChain(t)
 	defer csnTearDown()
 	if err != nil {
 		t.Fatalf("timenow:%v. %v", timenow, err)
@@ -733,10 +729,9 @@ func TestUtreexoProofIndex(t *testing.T) {
 }
 
 func TestBridgeNodePruneUndoDataGen(t *testing.T) {
-	// Always remove the root on return.
-	defer os.RemoveAll(testDbRoot)
+	t.Parallel()
 
-	chain, indexes, params, indexManager, tearDown := indexersTestChain("TestBridgeNodePruneUndoDataGen")
+	chain, indexes, params, indexManager, tearDown := indexersTestChain(t)
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -1108,10 +1103,9 @@ func compareUtreexoRootsState(indexes []Indexer, blockHash *chainhash.Hash) erro
 }
 
 func TestUtreexoRootsAndSummaryState(t *testing.T) {
-	// Always remove the root on return.
-	defer os.RemoveAll(testDbRoot)
+	t.Parallel()
 
-	chain, indexes, params, _, tearDown := indexersTestChain("TestUtreexoRootsState")
+	chain, indexes, params, _, tearDown := indexersTestChain(t)
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -1292,10 +1286,9 @@ func checkTTLRoots(t *testing.T, maxHeight int32, expected []utreexo.Stump, inde
 }
 
 func TestTTLs(t *testing.T) {
-	// Always remove the root on return.
-	defer os.RemoveAll(testDbRoot)
+	t.Parallel()
 
-	chain, indexes, params, _, tearDown := indexersTestChain("TestTTLs")
+	chain, indexes, params, _, tearDown := indexersTestChain(t)
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -1482,10 +1475,9 @@ func TestIndexFlushFailurePreservesConnectedState(t *testing.T) {
 }
 
 func TestBridgeNodeSSTableFlush(t *testing.T) {
-	// Always remove the root on return.
-	defer os.RemoveAll(testDbRoot)
+	t.Parallel()
 
-	chain, indexes, params, indexManager, tearDown := indexersTestChain("TestBridgeNodeSSTableFlush")
+	chain, indexes, params, indexManager, tearDown := indexersTestChain(t)
 	defer tearDown()
 
 	var allSpends []*blockchain.SpendableOut
@@ -1594,9 +1586,9 @@ func (c *cfIndexClosingInterrupt) ConnectBlock(dbTx database.Tx, block *btcutil.
 // catching up. If it did, initConsistentUtreexoState would try to re-apply
 // already-applied blocks on the next start and corrupt the forest.
 func TestCatchupPreservesUtreexoConsistencyHash(t *testing.T) {
-	defer os.RemoveAll(testDbRoot)
-	chain, indexes, params, mgr, tearDown := indexersTestChain(
-		"TestCatchupPreservesUtreexoConsistencyHash")
+	t.Parallel()
+
+	chain, indexes, params, mgr, tearDown := indexersTestChain(t)
 	defer tearDown()
 
 	// Mine one block so that the utreexo index is now at block 1.
