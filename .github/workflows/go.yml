@@ -59,7 +59,7 @@ jobs:
       run: make build-bdk
 
     - name: Test
-      run: go test -short -race -timeout=20m -tags="rpctest" -tags="bdkwallet" ./...
+      run: go test -short -race -timeout=20m -tags="rpctest bdkwallet" ./...
 
   lint:
     runs-on: ubuntu-latest
