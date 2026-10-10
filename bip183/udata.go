@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"encoding/hex"
@@ -10,6 +10,8 @@ import (
 	"io"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/internal/btcdwire"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // UData contains data needed to prove the existence and validity of all inputs
@@ -20,7 +22,7 @@ type UData struct {
 	AccProof utreexo.Proof
 
 	// LeafDatas are the tx validation data for every input.
-	LeafDatas []LeafData
+	LeafDatas []wire.LeafData
 }
 
 // Copy creates a deep copy of the utreexo data so the original does not get modified
@@ -35,7 +37,7 @@ func (ud *UData) Copy() *UData {
 
 	newUD := UData{
 		AccProof:  proofCopy,
-		LeafDatas: make([]LeafData, len(ud.LeafDatas)),
+		LeafDatas: make([]wire.LeafData, len(ud.LeafDatas)),
 	}
 
 	for i := range newUD.LeafDatas {
@@ -54,7 +56,7 @@ func (ud *UData) SerializeAccSize() int {
 // SerializeUtxoDataSize returns the number of bytes it would take to serialize the
 // utxo data size.
 func (ud *UData) SerializeUtxoDataSize() int {
-	size := VarIntSerializeSize(uint64(len(ud.LeafDatas)))
+	size := wire.VarIntSerializeSize(uint64(len(ud.LeafDatas)))
 	for _, l := range ud.LeafDatas {
 		size += l.SerializeSizeCompact()
 	}
@@ -77,7 +79,7 @@ func (ud *UData) SerializeSize() int {
 // [<accumulator proof><leaf datas>]
 //
 // Accumulator proof serialization follows the batchproof serialization found
-// in wire/batchproof.go.
+// in batchproof.go.
 //
 // LeafData compact serialization can be found in wire/leaf.go.
 //
@@ -102,9 +104,9 @@ func (ud *UData) Serialize(w io.Writer) error {
 
 // SerializeUtxoData encodes the passed in leafdatas using the compact serialization
 // format.
-func SerializeUtxoData(w io.Writer, leafDatas []LeafData) error {
+func SerializeUtxoData(w io.Writer, leafDatas []wire.LeafData) error {
 	// Write the size of the leaf datas.
-	err := WriteVarInt(w, 0, uint64(len(leafDatas)))
+	err := wire.WriteVarInt(w, 0, uint64(len(leafDatas)))
 	if err != nil {
 		return err
 	}
@@ -133,9 +135,9 @@ func (ud *UData) Deserialize(r io.Reader) error {
 }
 
 // DeserializeUtxoData decodes the leaf datas from the reader.
-func DeserializeUtxoData(r io.Reader) ([]LeafData, error) {
+func DeserializeUtxoData(r io.Reader) ([]wire.LeafData, error) {
 	// Read the size of the leaf datas.
-	txInCount, err := ReadVarInt(r, 0)
+	txInCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -145,12 +147,12 @@ func DeserializeUtxoData(r io.Reader) ([]LeafData, error) {
 	if txInCount > MaxPossibleInputsPerBlock {
 		str := fmt.Sprintf("leaf data count exceeds max allowed "+
 			"per block [count %d, max %d]", txInCount, MaxPossibleInputsPerBlock)
-		return nil, messageError("DeserializeUtxoData", str)
+		return nil, btcdwire.NewMessageError("DeserializeUtxoData", str)
 	}
 
-	lds := make([]LeafData, 0, txInCount)
+	lds := make([]wire.LeafData, 0, txInCount)
 	for i := 0; i < int(txInCount); i++ {
-		ld := LeafData{}
+		ld := wire.LeafData{}
 		err = ld.DeserializeCompact(r)
 		if err != nil {
 			return nil, err
@@ -163,7 +165,7 @@ func DeserializeUtxoData(r io.Reader) ([]LeafData, error) {
 
 // HashesFromLeafDatas hashes the passed in leaf datas. Returns an error if a
 // leaf data is compact as you can't generate the correct hash.
-func HashesFromLeafDatas(leafDatas []LeafData) ([]utreexo.Hash, error) {
+func HashesFromLeafDatas(leafDatas []wire.LeafData) ([]utreexo.Hash, error) {
 	// make slice of hashes from leafdata
 	delHashes := make([]utreexo.Hash, 0, len(leafDatas))
 	for _, ld := range leafDatas {
@@ -184,7 +186,7 @@ func HashesFromLeafDatas(leafDatas []LeafData) ([]utreexo.Hash, error) {
 // to get a batched inclusion proof from the accumulator. It then adds on the leaf data,
 // to create a block proof which both proves inclusion and gives all utxo data
 // needed for transaction verification.
-func GenerateUData(txIns []LeafData, pollard utreexo.Utreexo) (
+func GenerateUData(txIns []wire.LeafData, pollard utreexo.Utreexo) (
 	*UData, error) {
 
 	ud := new(UData)

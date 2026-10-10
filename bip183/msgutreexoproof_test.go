@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/wire"
 )
 
 func TestUtreexoProofSerialize(t *testing.T) {
@@ -25,7 +26,7 @@ func TestUtreexoProofSerialize(t *testing.T) {
 					{0xff, 0x1, 0xd, 0xdf},
 				},
 				Targets: []uint64{1254548, 481754},
-				LeafDatas: []LeafData{
+				LeafDatas: []wire.LeafData{
 					{
 						Height:     784611,
 						IsCoinBase: true,
@@ -45,7 +46,7 @@ func TestUtreexoProofSerialize(t *testing.T) {
 
 	for _, test := range tests {
 		var buf bytes.Buffer
-		err := test.data.BtcEncode(&buf, 0, LatestEncoding)
+		err := test.data.BtcEncode(&buf, 0, wire.LatestEncoding)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,7 +56,7 @@ func TestUtreexoProofSerialize(t *testing.T) {
 		// Check data.
 		r := bytes.NewBuffer(b)
 		got := MsgUtreexoProof{}
-		err = got.BtcDecode(r, 0, LatestEncoding)
+		err = got.BtcDecode(r, 0, wire.LatestEncoding)
 		if err != nil {
 			t.Fatal(err)
 		}

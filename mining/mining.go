@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -286,7 +287,7 @@ type BlockTemplate struct {
 	// UData is the utreexo data for the block. This is only set when the
 	// node is a CSN (Compact State Node) and is needed to attach utreexo
 	// proofs to mined blocks.
-	UData *wire.UData
+	UData *bip183.UData
 }
 
 // mergeUtxoView adds all of the entries in viewB to viewA.  The result is that
@@ -916,7 +917,7 @@ mempoolLoop:
 	// If this is a utreexo CSN node, generate the utreexo proof data for
 	// the block. This is needed because checkConnectBlock requires UData
 	// when the utreexo view is active.
-	var udata *wire.UData
+	var udata *bip183.UData
 	if g.chain.IsUtreexoViewActive() {
 		// Use DedupeBlock to identify same-block spends (inputs
 		// spending outputs created in the same block). These are

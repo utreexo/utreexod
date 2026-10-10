@@ -2,12 +2,13 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // MaxPossibleInputsPerBlock is the maximum possible inputs you can have per block.
@@ -19,10 +20,10 @@ const MaxPossibleInputsPerBlock = 24_386
 
 // MaxUtreexoBlockSummaryPayload the amount of inputs a block can possibly have multiplied by the size
 // of a max varint.
-const MaxUtreexoBlockSummaryPayload = (MaxPossibleInputsPerBlock * MaxVarIntPayload)
+const MaxUtreexoBlockSummaryPayload = (MaxPossibleInputsPerBlock * wire.MaxVarIntPayload)
 
 // BlockHash + numadds + length of block targets + MaxUtreexoBlockSummarySize.
-const MaxUtreexoBlockSummarySize = chainhash.HashSize + MaxVarIntPayload + MaxVarIntPayload + MaxUtreexoBlockSummaryPayload
+const MaxUtreexoBlockSummarySize = chainhash.HashSize + wire.MaxVarIntPayload + wire.MaxVarIntPayload + MaxUtreexoBlockSummaryPayload
 
 // UtreexoBlockSummary implements the Message interface and represents a bitcoin
 // utreexo block header message. It's used to provide the positions of the inputs
@@ -36,9 +37,9 @@ type UtreexoBlockSummary struct {
 // SerializeSize returns the number of bytes it would take to serialize the
 // utreexo block summary.
 func (h *UtreexoBlockSummary) SerializeSize() int {
-	n := chainhash.HashSize + VarIntSerializeSize(h.NumAdds) + VarIntSerializeSize(uint64(len(h.BlockTargets)))
+	n := chainhash.HashSize + wire.VarIntSerializeSize(h.NumAdds) + wire.VarIntSerializeSize(uint64(len(h.BlockTargets)))
 	for _, target := range h.BlockTargets {
-		n += VarIntSerializeSize(target)
+		n += wire.VarIntSerializeSize(target)
 	}
 
 	return n
@@ -72,19 +73,19 @@ func readUtreexoBlockSummary(r io.Reader, _ uint32, bh *UtreexoBlockSummary) err
 		return err
 	}
 
-	bh.NumAdds, err = ReadVarInt(r, 0)
+	bh.NumAdds, err = wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
 
-	count, err := ReadVarInt(r, 0)
+	count, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
 
 	bh.BlockTargets = make([]uint64, count)
 	for i := range bh.BlockTargets {
-		bh.BlockTargets[i], err = ReadVarInt(r, 0)
+		bh.BlockTargets[i], err = wire.ReadVarInt(r, 0)
 		if err != nil {
 			return err
 		}
@@ -100,18 +101,18 @@ func writeUtreexoBlockSummary(w io.Writer, _ uint32, bh *UtreexoBlockSummary) er
 		return err
 	}
 
-	err = WriteVarInt(w, 0, bh.NumAdds)
+	err = wire.WriteVarInt(w, 0, bh.NumAdds)
 	if err != nil {
 		return err
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(bh.BlockTargets)))
+	err = wire.WriteVarInt(w, 0, uint64(len(bh.BlockTargets)))
 	if err != nil {
 		return err
 	}
 
 	for _, t := range bh.BlockTargets {
-		err = WriteVarInt(w, 0, t)
+		err = wire.WriteVarInt(w, 0, t)
 		if err != nil {
 			return err
 		}
