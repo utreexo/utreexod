@@ -7,9 +7,9 @@ package bip183
 import (
 	"io"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip182"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // MsgUtreexoTx implements the Message interface and represents a bitcoin utreexo

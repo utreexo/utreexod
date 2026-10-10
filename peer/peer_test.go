@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/peer"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // conn mocks a network connection by implementing the net.Conn interface.  It

@@ -1,4 +1,4 @@
-// Copyright (c) 2013-2016 The btcsuite developers
+// Copyright (c) 2013-2024 The btcsuite developers
 // Copyright (c) 2026 The utreexo developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
@@ -8,8 +8,10 @@ package btcdwire
 // COPIED FROM BTCD'S WIRE PACKAGE. These are wire's ReadMessageWithEncodingN,
 // WriteMessageWithEncodingN, ReadV2MessageN, and WriteV2MessageN and the
 // helpers they call, changed to take the messages wire doesn't define as
-// parameters, to hand every other message to wire, and to use encoding/binary
-// where wire uses unexported helpers.
+// parameters, to hand every other message to wire, to bound BIP-183 messages
+// by wire.MaxMessagePayload since they can exceed
+// wire.MaxProtocolMessageLength, and to use encoding/binary where wire uses
+// unexported helpers.
 
 import (
 	"bytes"
@@ -19,7 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // messageHeader defines the header structure for all bitcoin protocol messages.
@@ -238,7 +240,8 @@ func ReadV2MessageN(plaintext []byte, pver uint32, enc wire.MessageEncoding,
 	wire.Message, []byte, error) {
 
 	if len(plaintext) == 0 {
-		return nil, nil, fmt.Errorf("invalid plaintext length")
+		return nil, nil, NewMessageError("ReadV2MessageN",
+			"invalid plaintext length")
 	}
 
 	// Keep the whole plaintext to hand to wire if newMsg returns nil for
@@ -251,7 +254,8 @@ func ReadV2MessageN(plaintext []byte, pver uint32, enc wire.MessageEncoding,
 	// message this is.
 	if plaintext[0] == 0x00 {
 		if len(plaintext) < wire.CommandSize+1 {
-			return nil, nil, fmt.Errorf("invalid plaintext length")
+			return nil, nil, NewMessageError("ReadV2MessageN",
+				"invalid plaintext length")
 		}
 
 		// Slice off the first 0x00 and the trailing 0x00 bytes.
@@ -273,15 +277,33 @@ func ReadV2MessageN(plaintext []byte, pver uint32, enc wire.MessageEncoding,
 		return wire.ReadV2MessageN(full, pver, enc)
 	}
 
+	// Enforce maximum message payload.
+	if len(plaintext) > wire.MaxMessagePayload {
+		str := fmt.Sprintf("message payload is too large - "+
+			"%d bytes, but max message payload is %d bytes",
+			len(plaintext), wire.MaxMessagePayload)
+		return nil, nil, NewMessageError("ReadV2MessageN", str)
+	}
+
+	// Check for maximum length based on the message type.
 	mpl := msg.MaxPayloadLength(pver)
 	if len(plaintext) > int(mpl) {
-		return nil, nil, fmt.Errorf("payload exceeds max length")
+		str := fmt.Sprintf("payload exceeds max length - "+
+			"%d bytes, but max payload size for messages of "+
+			"type [%v] is %v.", len(plaintext), msgCmd, mpl)
+		return nil, nil, NewMessageError("ReadV2MessageN", str)
 	}
 
 	buf := bytes.NewBuffer(plaintext)
 	err := msg.BtcDecode(buf, pver, enc)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if buf.Len() > 0 {
+		str := fmt.Sprintf("message payload has %d extra bytes "+
+			"after decode", buf.Len())
+		return nil, nil, NewMessageError("ReadV2MessageN", str)
 	}
 
 	return msg, plaintext, nil
@@ -386,9 +408,10 @@ func readMessageWithEncodingNInternal(r io.Reader, pver uint32,
 		return totalBytes, nil, nil, err
 	}
 
-	// Ensure the entire payload was consumed by BtcDecode. Trailing
-	// bytes would pass checksum validation but are not part of the
-	// decoded message.
+	// Reject messages where the payload was not fully consumed by
+	// BtcDecode. A peer could otherwise append arbitrary trailing bytes
+	// to an otherwise valid message, which would be silently accepted
+	// and persisted (e.g., in the block database).
 	if pr.Len() > 0 {
 		str := fmt.Sprintf("message payload has %d extra bytes "+
 			"after decode", pr.Len())

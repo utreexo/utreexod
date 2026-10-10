@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
@@ -20,7 +21,6 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator

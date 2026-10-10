@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/decred/dcrd/lru"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/addrmgr"
@@ -44,7 +45,6 @@ import (
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wallet"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (

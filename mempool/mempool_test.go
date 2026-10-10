@@ -15,6 +15,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
@@ -23,7 +24,6 @@ import (
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/mining"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // fakeChain is used by the pool harness to provide generated test utxos and

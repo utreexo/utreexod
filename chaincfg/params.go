@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // These variables are the chain proof-of-work limit parameters for each default

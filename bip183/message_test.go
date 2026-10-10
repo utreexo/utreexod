@@ -10,10 +10,10 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip182"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // TestMessage ensures the BIP-183 messages are read and written on v1 and v2
@@ -220,15 +220,80 @@ func TestReadMessageErrors(t *testing.T) {
 	}
 }
 
-// TestReadV2MessageErrors ensures BIP-183 messages over their max payload
-// length are rejected on v2 connections.
+// TestReadV2MessageErrors ensures BIP-183 messages are rejected on v2
+// connections when their payload is invalid.
 func TestReadV2MessageErrors(t *testing.T) {
-	msg := NewMsgGetUtreexoRoot(chainhash.Hash{0x01})
-	mpl := msg.MaxPayloadLength(wire.ProtocolVersion)
+	root := NewMsgGetUtreexoRoot(chainhash.Hash{0x01})
+	mpl := root.MaxPayloadLength(wire.ProtocolVersion)
 
-	plaintext := append([]byte{v2Messages[msg.Command()]},
-		make([]byte, mpl+1)...)
-	_, _, err := ReadV2MessageN(plaintext, wire.ProtocolVersion,
+	proof := &MsgGetUtreexoProof{
+		BlockHash:        chainhash.Hash{0x01},
+		RequestBitMap:    1,
+		ProofIndexBitMap: []byte{0x01},
+		LeafIndexBitMap:  []byte{0x01},
+	}
+	var payload bytes.Buffer
+	require.NoError(t, proof.BtcEncode(&payload, wire.ProtocolVersion,
+		wire.BaseEncoding))
+
+	tests := []struct {
+		name      string
+		plaintext []byte
+	}{
+		{
+			name: "payload over the max length for the message",
+			plaintext: append([]byte{v2Messages[root.Command()]},
+				make([]byte, mpl+1)...),
+		},
+		{
+			name: "extra bytes after decode",
+			plaintext: append(append([]byte{v2Messages[proof.Command()]},
+				payload.Bytes()...), 0x00),
+		},
+	}
+
+	for _, test := range tests {
+		_, _, err := ReadV2MessageN(test.plaintext, wire.ProtocolVersion,
+			wire.BaseEncoding)
+		var msgErr *wire.MessageError
+		require.ErrorAs(t, err, &msgErr, test.name)
+	}
+}
+
+// TestLargeMessage ensures BIP-183 messages larger than
+// wire.MaxProtocolMessageLength, which wire rejects, are written and read on
+// v1 and v2 connections.
+func TestLargeMessage(t *testing.T) {
+	msg := &MsgUtreexoProof{
+		BlockHash: chainhash.Hash{0x01},
+		ProofHashes: make([]utreexo.Hash,
+			wire.MaxProtocolMessageLength/chainhash.HashSize+1),
+		Targets:   []uint64{},
+		LeafDatas: []bip182.LeafData{},
+	}
+
+	var buf bytes.Buffer
+	_, err := wire.WriteMessageWithEncodingN(&buf, msg, wire.ProtocolVersion,
+		wire.MainNet, wire.BaseEncoding)
+	require.Error(t, err)
+
+	buf.Reset()
+	_, err = WriteMessageWithEncodingN(&buf, msg, wire.ProtocolVersion,
+		wire.MainNet, wire.BaseEncoding)
+	require.NoError(t, err)
+
+	_, got, _, err := ReadMessageWithEncodingN(&buf, wire.ProtocolVersion,
+		wire.MainNet, wire.BaseEncoding)
+	require.NoError(t, err)
+	require.Equal(t, msg, got)
+
+	buf.Reset()
+	_, err = WriteV2MessageN(&buf, msg, wire.ProtocolVersion,
 		wire.BaseEncoding)
-	require.ErrorContains(t, err, "payload exceeds max length")
+	require.NoError(t, err)
+
+	got, _, err = ReadV2MessageN(buf.Bytes(), wire.ProtocolVersion,
+		wire.BaseEncoding)
+	require.NoError(t, err)
+	require.Equal(t, msg, got)
 }

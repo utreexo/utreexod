@@ -10,10 +10,10 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // OutOfRangeError describes an error due to accessing an element that is out
