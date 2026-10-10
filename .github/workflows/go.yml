@@ -35,8 +35,44 @@ jobs:
     - name: Build
       run: make all
 
+    - name: Test
+      run: cargo test
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: "1.25"
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: 1.81.0 # As specified in rust-toolchain
+        override: true
+        profile: minimal
+
+    - name: Build BDK
+      run: make build-bdk
+
+    - name: Test
+      run: go test -short -race -timeout=20m -tags="rpctest bdkwallet" ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: "1.25"
+
     - name: Install Linters
       run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
 
-    - name: Test
-      run: make test
+    - name: Lint
+      run: golangci-lint run
