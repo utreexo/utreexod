@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (

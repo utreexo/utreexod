@@ -9,7 +9,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // ScratchPool holds buffers that the read and write helpers use as scratch
@@ -65,17 +65,27 @@ func WriteUint64(w io.Writer, buf []byte, val uint64) error {
 	return err
 }
 
-// ReadOutPoint reads the hash and index of an outpoint from r.
-func ReadOutPoint(r io.Reader, op *wire.OutPoint) error {
+// ReadOutPoint reads the hash and index of an outpoint from r using buf as
+// scratch space.
+func ReadOutPoint(r io.Reader, buf []byte, op *wire.OutPoint) error {
 	_, err := io.ReadFull(r, op.Hash[:])
 	if err != nil {
 		return err
 	}
 
-	buf := ScratchPool.Get().(*[8]byte)
-	op.Index, err = ReadUint32(r, buf[:])
-	ScratchPool.Put(buf)
+	op.Index, err = ReadUint32(r, buf)
 	return err
+}
+
+// WriteOutPoint writes the hash and index of an outpoint to w using buf as
+// scratch space.
+func WriteOutPoint(w io.Writer, buf []byte, op *wire.OutPoint) error {
+	_, err := w.Write(op.Hash[:])
+	if err != nil {
+		return err
+	}
+
+	return WriteUint32(w, buf, op.Index)
 }
 
 // NewMessageError creates an error for the given function and description.

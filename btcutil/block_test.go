@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // TestBlock tests the API for Block.

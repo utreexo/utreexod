@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/internal/btcdwire"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // MsgGetUtreexoTTLs implements the Message interface and represents a bitcoin

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
@@ -23,7 +24,6 @@ import (
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/mempool"
 	peerpkg "github.com/utreexo/utreexod/peer"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (

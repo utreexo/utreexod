@@ -7,8 +7,8 @@ package bip183
 import (
 	"io"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/internal/btcdwire"
-	"github.com/utreexo/utreexod/wire"
 )
 
 var (

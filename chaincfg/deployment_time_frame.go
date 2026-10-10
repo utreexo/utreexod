@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 var (
