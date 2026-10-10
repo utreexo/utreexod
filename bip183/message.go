@@ -78,6 +78,17 @@ func ReadMessageWithEncodingN(r io.Reader, pver uint32, btcnet wire.BitcoinNet,
 		makeEmptyMessage)
 }
 
+// WriteMessageWithEncodingN writes a bitcoin Message to w including the
+// necessary header information and returns the number of bytes written.
+// Every message other than the BIP-183 messages is written with
+// wire.WriteMessageWithEncodingN.
+func WriteMessageWithEncodingN(w io.Writer, msg wire.Message, pver uint32,
+	btcnet wire.BitcoinNet, encoding wire.MessageEncoding) (int, error) {
+
+	return btcdwire.WriteMessageWithEncodingN(w, msg, pver, btcnet,
+		encoding, makeEmptyMessage)
+}
+
 // ReadV2MessageN takes the passed plaintext and attempts to construct a
 // Message from the bytes using the bip324 v2 encoding.  Every message other
 // than the BIP-183 messages is parsed with wire.ReadV2MessageN.

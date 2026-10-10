@@ -98,8 +98,8 @@ func TestMessage(t *testing.T) {
 		cmd := test.msg.Command()
 
 		var buf bytes.Buffer
-		nw, err := wire.WriteMessageN(&buf, test.msg, wire.ProtocolVersion,
-			wire.MainNet)
+		nw, err := WriteMessageWithEncodingN(&buf, test.msg,
+			wire.ProtocolVersion, wire.MainNet, wire.BaseEncoding)
 		require.NoError(t, err, cmd)
 		require.Equal(t, test.bytes, nw, cmd)
 
