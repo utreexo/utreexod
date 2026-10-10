@@ -19,7 +19,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // An opcode defines the information related to a txscript opcode.  opfunc, if

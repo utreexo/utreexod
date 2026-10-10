@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // randAddr generates a *wire.NetAddressV2 backed by a random IPv4/IPv6

@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // proofStoreUpgradeFixture holds a database laid out in the legacy format,
@@ -66,7 +67,7 @@ func newProofStoreUpgradeFixture(t *testing.T) *proofStoreUpgradeFixture {
 
 	// Build a minimal height 1 block along with the utreexo proof that
 	// older versions serialized inline with it.
-	want := &wire.UData{
+	want := &bip183.UData{
 		AccProof: utreexo.Proof{
 			Targets: []uint64{1, 2, 3},
 			Proof:   []utreexo.Hash{{0x01}, {0x02}, {0x03}},

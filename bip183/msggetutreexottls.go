@@ -1,0 +1,188 @@
+// Copyright (c) 2025 The utreexo developers
+// Use of this source code is governed by an ISC
+// license that can be found in the LICENSE file.
+
+package bip183
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/internal/btcdwire"
+)
+
+// MsgGetUtreexoTTLs implements the Message interface and represents a bitcoin
+// getutreexottls message. It's used to request the utreexo ttls from the given
+// start height.
+type MsgGetUtreexoTTLs struct {
+	// Version is the height of the committed ttl accumulator. It's used to
+	// specify which accumulator the ttl should be proved against.
+	Version uint32
+
+	// StartHeight is the first block which the ttl message will be provided for.
+	StartHeight uint32
+
+	// MaxReceiveExponent denotes how many ttls should be provided. The provided ttl
+	// count will be 2**MaxReceiveExponent.
+	MaxReceiveExponent uint8
+}
+
+// BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
+// This is part of the Message interface implementation.
+func (msg *MsgGetUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEncoding) error {
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
+
+	var err error
+	msg.Version, err = btcdwire.ReadUint32(r, buf[:])
+	if err != nil {
+		return err
+	}
+
+	msg.StartHeight, err = btcdwire.ReadUint32(r, buf[:])
+	if err != nil {
+		return err
+	}
+
+	msg.MaxReceiveExponent, err = btcdwire.ReadUint8(r, buf[:])
+	if err != nil {
+		return err
+	}
+
+	if msg.Version < msg.StartHeight {
+		str := fmt.Sprintf("version cannot be lower than startheight "+
+			"[version %v, startheight %v]",
+			msg.Version, msg.StartHeight)
+		return btcdwire.NewMessageError("MsgGetUtreexoTTLs.BtcDecode", str)
+	}
+
+	if msg.MaxReceiveExponent > MaxUtreexoTTLExponent {
+		str := fmt.Sprintf("exponent too high in message [max %v, got %v]",
+			MaxUtreexoTTLExponent, msg.MaxReceiveExponent)
+		return btcdwire.NewMessageError("MsgGetUtreexoTTLs.BtcDecode", str)
+	}
+
+	return nil
+}
+
+// BtcEncode encodes the receiver to w using the bitcoin protocol encoding.
+// This is part of the Message interface implementation.
+func (msg *MsgGetUtreexoTTLs) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEncoding) error {
+	if msg.MaxReceiveExponent > MaxUtreexoTTLExponent {
+		str := fmt.Sprintf("exponent too high in message [max %v, got %v]",
+			MaxUtreexoTTLExponent, msg.MaxReceiveExponent)
+		return btcdwire.NewMessageError("MsgGetUtreexoTTLs.BtcEncode", str)
+	}
+
+	if msg.Version < msg.StartHeight {
+		str := fmt.Sprintf("version cannot be lower than startheight "+
+			"[version %v, startheight %v]",
+			msg.Version, msg.StartHeight)
+		return btcdwire.NewMessageError("MsgGetUtreexoTTLs.BtcEncode", str)
+	}
+
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
+
+	err := btcdwire.WriteUint32(w, buf[:], msg.Version)
+	if err != nil {
+		return err
+	}
+
+	err = btcdwire.WriteUint32(w, buf[:], msg.StartHeight)
+	if err != nil {
+		return err
+	}
+
+	return btcdwire.WriteUint8(w, buf[:], msg.MaxReceiveExponent)
+}
+
+// Command returns the protocol command string for the message.  This is part
+// of the Message interface implementation.
+func (msg *MsgGetUtreexoTTLs) Command() string {
+	return CmdGetUtreexoTTLs
+}
+
+// MaxPayloadLength returns the maximum length the payload can be for the
+// receiver.  This is part of the Message interface implementation.
+func (msg *MsgGetUtreexoTTLs) MaxPayloadLength(pver uint32) uint32 {
+	return 9
+}
+
+// NewMsgGetUtreexoTTLs returns a new bitcoin getutreexottls message that conforms to
+// the Message interface.  See MsgGetUtreexoTTLs for details.
+func NewMsgGetUtreexoTTLs(version, startHeight uint32, maxReceiveExponent uint8) *MsgGetUtreexoTTLs {
+	return &MsgGetUtreexoTTLs{
+		Version:            version,
+		StartHeight:        startHeight,
+		MaxReceiveExponent: maxReceiveExponent,
+	}
+}
+
+// GetUtreexoTTLHeights returns the heights of the blocks that we can serve based on the startBlock
+// and the exponent. The returned heights are such that they always minimize the proof size.
+func GetUtreexoTTLHeights(startBlock, bestHeight int32, exponent uint8) ([]int32, error) {
+	count := int32(1 << exponent)
+	numLeaves := uint64(bestHeight + 1)
+
+	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves, utreexo.TreeRows(numLeaves))
+	heights := make([]int32, 0, count)
+	for i := int32(0); i < count; i++ {
+		position := i + startBlock
+		if position > bestHeight {
+			break
+		}
+		got, _, _, _ := utreexo.DetectOffset(uint64(position), numLeaves, utreexo.TreeRows(numLeaves))
+		if got != subtree {
+			break
+		}
+		heights = append(heights, position)
+	}
+
+	return heights, nil
+}
+
+// getUtreexoExponent is a function that returns the ideal exponent to minimize the proof size
+// while requesting as much as possible with the given arguments.
+func getUtreexoExponent(startBlock, endHeight, bestHeight int32, maxExp uint8) uint8 {
+	numLeaves := uint64(bestHeight + 1)
+	subtree, _, _, _ := utreexo.DetectOffset(uint64(startBlock), numLeaves, utreexo.TreeRows(numLeaves))
+
+	exponent := uint8(0)
+	for ; exponent < maxExp; exponent++ {
+		height := uint64(startBlock + (1 << exponent))
+		if height > uint64(endHeight) {
+			break
+		}
+		gotSubTree, _, _, _ := utreexo.DetectOffset(height, numLeaves, utreexo.TreeRows(numLeaves))
+		if subtree != gotSubTree {
+			break
+		}
+	}
+
+	return exponent
+}
+
+// GetUtreexoTTLsExponent returns the ideal exponent to minimize the proof size for the given arguments
+// while also not going over the endHeight for a get utreexo ttls message.
+func GetUtreexoTTLsExponent(startBlock, endHeight, bestHeight int32) uint8 {
+	return getUtreexoExponent(startBlock, endHeight, bestHeight, MaxUtreexoTTLExponent)
+}
+
+// CalculateGetUtreexoTTLMsgs returns the required get ttl messages needed to fetch the given
+// heights.
+//
+// NOTE: endHeight cannot be larger than the version. If it is, it'll just use the version as the
+// endHeight.
+func CalculateGetUtreexoTTLMsgs(version uint32, startHeight, endHeight int32) MsgGetUtreexoTTLs {
+	exp := GetUtreexoTTLsExponent(startHeight, endHeight, int32(version)-1)
+	msg := MsgGetUtreexoTTLs{
+		Version:            version,
+		StartHeight:        uint32(startHeight),
+		MaxReceiveExponent: exp,
+	}
+
+	return msg
+}

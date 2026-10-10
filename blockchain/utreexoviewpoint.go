@@ -13,13 +13,14 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain/internal/aggregator"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator
@@ -50,7 +51,7 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 
 // ProcessUData updates the underlying accumulator. It does NOT check if the verification passes.
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
-	bestChain *chainView, ud *wire.UData) error {
+	bestChain *chainView, ud *bip183.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
@@ -132,7 +133,7 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 // VerifyUData checks the accumulator proof to ensure that the leaf preimages exist in the
 // accumulator.
 func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
-	bestChain *chainView, ud *wire.UData) error {
+	bestChain *chainView, ud *bip183.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
@@ -182,7 +183,7 @@ func (uview *UtreexoViewpoint) AddProof(delHashes []utreexo.Hash, accProof *utre
 // are the leaves passed in.
 //
 // This function is NOT safe for concurrent access.
-func (uview *UtreexoViewpoint) Modify(ud *wire.UData,
+func (uview *UtreexoViewpoint) Modify(ud *bip183.UData,
 	adds []utreexo.Leaf, dels []utreexo.Hash) (*utreexo.UpdateData, error) {
 
 	addHashes := make([]utreexo.Hash, len(adds))
@@ -338,7 +339,7 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 }
 
 // ExtractAccumulatorAdds extracts the additions that will beused to modify the utreexo accumulator.
-func ExtractAccumulatorAdds(block *btcutil.Block) []wire.LeafData {
+func ExtractAccumulatorAdds(block *btcutil.Block) []bip182.LeafData {
 	// outskip is all the txOuts that are referenced by a txIn in the same block
 	// outCount is the count of all outskips.
 	_, outCount, _, outskip := DedupeBlock(block)
@@ -355,7 +356,7 @@ func sortUint32s(s []uint32) {
 
 // ProofSanity checks that the UData that was given proves the same outPoints that
 // is included in the corresponding block.
-func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
+func ProofSanity(ud *bip183.UData, outPoints []wire.OutPoint) error {
 	// Check that the length is the same.
 	if len(outPoints) != len(ud.LeafDatas) {
 		err := fmt.Errorf("ProofSanity error. %d outpoints need proofs but %d proven\n",
@@ -383,7 +384,7 @@ func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
 // block in a side chain.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) ReconstructUData(ud *wire.UData, blockHash chainhash.Hash) ([]utreexo.Hash, error) {
+func (b *BlockChain) ReconstructUData(ud *bip183.UData, blockHash chainhash.Hash) ([]utreexo.Hash, error) {
 	block, err := b.BlockByHash(&blockHash)
 	if err != nil {
 		return nil, err
@@ -403,7 +404,7 @@ func (b *BlockChain) ReconstructUData(ud *wire.UData, blockHash chainhash.Hash) 
 // that were commited into the accumulator.
 //
 // This function is safe for concurrent access.
-func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView,
+func reconstructUData(ud *bip183.UData, block *btcutil.Block, chainView *chainView,
 	inskip []uint32) ([]utreexo.Hash, error) {
 	if chainView == nil {
 		return nil, fmt.Errorf("Passed in chainView is nil. Cannot make compact udata to full")
@@ -447,7 +448,7 @@ func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView
 // ReconstructLeafDatas reconstruct the passed in leaf datas with the given txIns.
 //
 // NOTE: the length of the leafdatas MUST match the TxIns. Otherwise it'll return an error.
-func (b *BlockChain) ReconstructLeafDatas(lds []wire.LeafData, txIns []*wire.TxIn) ([]wire.LeafData, error) {
+func (b *BlockChain) ReconstructLeafDatas(lds []bip182.LeafData, txIns []*wire.TxIn) ([]bip182.LeafData, error) {
 	if len(lds) == 0 {
 		return lds, nil
 	}
@@ -474,7 +475,7 @@ func (b *BlockChain) ReconstructLeafDatas(lds []wire.LeafData, txIns []*wire.TxI
 }
 
 // reconstructLeafData reconstructs a single leafdata given the associated txIn and the chainview.
-func reconstructLeafData(ld *wire.LeafData, txIn *wire.TxIn, chainView *chainView) (*wire.LeafData, error) {
+func reconstructLeafData(ld *bip182.LeafData, txIn *wire.TxIn, chainView *chainView) (*bip182.LeafData, error) {
 	// Get BlockHash.
 	blockNode := chainView.NodeByHeight(ld.Height)
 	if blockNode == nil {
@@ -486,19 +487,19 @@ func reconstructLeafData(ld *wire.LeafData, txIn *wire.TxIn, chainView *chainVie
 	// Get OutPoint.
 	ld.OutPoint = txIn.PreviousOutPoint
 
-	if ld.ReconstructablePkType != wire.OtherTy &&
+	if ld.ReconstructablePkType != bip182.OtherTy &&
 		ld.PkScript == nil {
 
 		var class txscript.ScriptClass
 
 		switch ld.ReconstructablePkType {
-		case wire.PubKeyHashTy:
+		case bip182.PubKeyHashTy:
 			class = txscript.PubKeyHashTy
-		case wire.ScriptHashTy:
+		case bip182.ScriptHashTy:
 			class = txscript.ScriptHashTy
-		case wire.WitnessV0PubKeyHashTy:
+		case bip182.WitnessV0PubKeyHashTy:
 			class = txscript.WitnessV0PubKeyHashTy
-		case wire.WitnessV0ScriptHashTy:
+		case bip182.WitnessV0ScriptHashTy:
 			class = txscript.WitnessV0ScriptHashTy
 		}
 
@@ -534,10 +535,10 @@ func IsUnspendable(o *wire.TxOut) bool {
 // included in the slice. For example, if [0, 3, 11] is given as the skiplist,
 // then utxos that appear in the 0th, 3rd, and 11th in the block will
 // be skipped over.
-func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []wire.LeafData {
+func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []bip182.LeafData {
 	// We're overallocating a little bit since all the unspendables
 	// won't be appended. It's ok though for the pre-allocation savings.
-	leaves := make([]wire.LeafData, 0, outCount-len(skiplist))
+	leaves := make([]bip182.LeafData, 0, outCount-len(skiplist))
 
 	var txonum uint32
 	for coinbase, tx := range block.Transactions() {
@@ -559,7 +560,7 @@ func BlockToAddLeaves(block *btcutil.Block, skiplist []uint32, outCount int) []w
 				Index: uint32(outIdx),
 			}
 
-			var leaf = wire.LeafData{
+			var leaf = bip182.LeafData{
 				BlockHash:  *block.Hash(),
 				OutPoint:   op,
 				Amount:     txOut.Value,
@@ -597,7 +598,7 @@ type ExcludedUtxo struct {
 //
 // NOTE To opt out of the optional arguments inskip, just pass nil.
 func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Block,
-	inskip []uint32) (delLeaves []wire.LeafData, err error) {
+	inskip []uint32) (delLeaves []bip182.LeafData, err error) {
 
 	if chain == nil {
 		return nil, fmt.Errorf("Passed in chain is nil. Cannot make delLeaves")
@@ -635,29 +636,29 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 					stxo.Height)
 			}
 
-			var pkType wire.PkType
+			var pkType bip182.PkType
 
 			scriptType, err := txscript.GetReconstructScriptType(
 				txIn.SignatureScript, stxo.PkScript, txIn.Witness)
 			if err != nil {
 				log.Debugf("GetReconstructScriptType error. %v. "+
-					"Defaulting to wire.OtherTy", err)
+					"Defaulting to bip182.OtherTy", err)
 				scriptType = txscript.NonStandardTy
 			}
 			switch scriptType {
 			case txscript.PubKeyHashTy:
-				pkType = wire.PubKeyHashTy
+				pkType = bip182.PubKeyHashTy
 			case txscript.WitnessV0PubKeyHashTy:
-				pkType = wire.WitnessV0PubKeyHashTy
+				pkType = bip182.WitnessV0PubKeyHashTy
 			case txscript.ScriptHashTy:
-				pkType = wire.ScriptHashTy
+				pkType = bip182.ScriptHashTy
 			case txscript.WitnessV0ScriptHashTy:
-				pkType = wire.WitnessV0ScriptHashTy
+				pkType = bip182.WitnessV0ScriptHashTy
 			default:
-				pkType = wire.OtherTy
+				pkType = bip182.OtherTy
 			}
 
-			var leaf = wire.LeafData{
+			var leaf = bip182.LeafData{
 				BlockHash:             *blockHash,
 				OutPoint:              op,
 				Amount:                stxo.Amount,
@@ -678,7 +679,7 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 // TxToDelLeaves takes a tx and generates the leaf datas for all the inputs.  The
 // leaf datas represent a utxoviewpoinnt just for the tx, along with the accumulator
 // proof that proves all the txIns' inclusion.
-func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]wire.LeafData, error) {
+func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]bip182.LeafData, error) {
 	confirmedUtxoView, err := chain.FetchUtxoView(tx)
 	if err != nil {
 		return nil, err
@@ -704,7 +705,7 @@ func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]wire.LeafData, error) {
 
 	// Prep the UDatas to be sent over.  These will also be
 	// used to generate the accumulator proofs.
-	leafDatas := make([]wire.LeafData, 0, viewLen)
+	leafDatas := make([]bip182.LeafData, 0, viewLen)
 	for _, txIn := range tx.MsgTx().TxIn {
 		entry := confirmedUtxoView.LookupEntry(txIn.PreviousOutPoint)
 		// Only initialize with height of -1 to mark that this
@@ -712,7 +713,7 @@ func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]wire.LeafData, error) {
 		if entry == nil {
 			log.Debugf("Marking %s as uncomfirmed for tx %s",
 				txIn.PreviousOutPoint.String(), tx.Hash().String())
-			ld := wire.LeafData{}
+			ld := bip182.LeafData{}
 			ld.SetUnconfirmed()
 			leafDatas = append(leafDatas, ld)
 			continue
@@ -735,29 +736,29 @@ func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]wire.LeafData, error) {
 			return nil, err
 		}
 
-		var pkType wire.PkType
+		var pkType bip182.PkType
 
 		scriptType, err := txscript.GetReconstructScriptType(
 			txIn.SignatureScript, entry.PkScript(), txIn.Witness)
 		if err != nil {
 			log.Debugf("GetReconstructScriptType error. %v. "+
-				"Defaulting to wire.OtherTy", err)
+				"Defaulting to bip182.OtherTy", err)
 			scriptType = txscript.NonStandardTy
 		}
 		switch scriptType {
 		case txscript.PubKeyHashTy:
-			pkType = wire.PubKeyHashTy
+			pkType = bip182.PubKeyHashTy
 		case txscript.WitnessV0PubKeyHashTy:
-			pkType = wire.WitnessV0PubKeyHashTy
+			pkType = bip182.WitnessV0PubKeyHashTy
 		case txscript.ScriptHashTy:
-			pkType = wire.ScriptHashTy
+			pkType = bip182.ScriptHashTy
 		case txscript.WitnessV0ScriptHashTy:
-			pkType = wire.WitnessV0ScriptHashTy
+			pkType = bip182.WitnessV0ScriptHashTy
 		default:
-			pkType = wire.OtherTy
+			pkType = bip182.OtherTy
 		}
 
-		leaf := wire.LeafData{
+		leaf := bip182.LeafData{
 			BlockHash:             *blockHash,
 			OutPoint:              txIn.PreviousOutPoint,
 			Amount:                entry.Amount(),
@@ -929,7 +930,7 @@ func (b *BlockChain) IsAssumeUtreexo() bool {
 //
 // This function does not modify the underlying UtreexoViewpoint.
 // This function is safe for concurrent access.
-func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bool) error {
+func (b *BlockChain) VerifyUData(ud *bip183.UData, txIns []*wire.TxIn, remember bool) error {
 	// Nothing to prove.
 	if len(txIns) == 0 {
 		return nil
@@ -985,11 +986,11 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 // It leaves out the full proof hashes and only fetches the requested positions.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*wire.UData, error) {
+func (b *BlockChain) GenerateUDataPartial(dels []bip182.LeafData, positions []uint64) (*bip183.UData, error) {
 	b.chainLock.RLock()
 	defer b.chainLock.RUnlock()
 
-	ud := new(wire.UData)
+	ud := new(bip183.UData)
 	ud.LeafDatas = dels
 
 	delHashes := make([]utreexo.Hash, 0, len(dels))
@@ -1020,11 +1021,11 @@ func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint
 // GenerateUData generates a utreexo data based on the current state of the utreexo viewpoint.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
+func (b *BlockChain) GenerateUData(dels []bip182.LeafData) (*bip183.UData, error) {
 	b.chainLock.RLock()
 	defer b.chainLock.RUnlock()
 
-	ud, err := wire.GenerateUData(dels, &b.utreexoView.accumulator)
+	ud, err := bip183.GenerateUData(dels, &b.utreexoView.accumulator)
 	if err != nil {
 		return nil, err
 	}
@@ -1034,7 +1035,7 @@ func (b *BlockChain) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
 
 // PruneFromAccumulator uncaches the given hashes from the accumulator.  No action is taken
 // if the hashes are not already cached.
-func (b *BlockChain) PruneFromAccumulator(leaves []wire.LeafData) error {
+func (b *BlockChain) PruneFromAccumulator(leaves []bip182.LeafData) error {
 	if b.utreexoView == nil {
 		return fmt.Errorf("This blockchain instance doesn't have an " +
 			"accumulator. Cannot prune leaves")
@@ -1162,7 +1163,7 @@ func (ctp *ChainTipProof) Serialize(w io.Writer) error {
 		return err
 	}
 
-	err = wire.BatchProofSerialize(w, ctp.AccProof)
+	err = bip183.BatchProofSerialize(w, ctp.AccProof)
 	if err != nil {
 		return err
 	}
@@ -1195,7 +1196,7 @@ func (ctp *ChainTipProof) Deserialize(r io.Reader) error {
 
 	ctp.ProvedAtHash = &provedAtHash
 
-	bp, err := wire.BatchProofDeserialize(r)
+	bp, err := bip183.BatchProofDeserialize(r)
 	if err != nil {
 		return err
 	}

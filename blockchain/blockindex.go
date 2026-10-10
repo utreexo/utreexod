@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // blockStatus is a bit field representing the validation state of the block.

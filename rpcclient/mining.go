@@ -11,9 +11,10 @@ import (
 	"errors"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // FutureGenerateResult is a future promise to deliver the result of a
@@ -492,7 +493,7 @@ func (r FutureSubmitBlockAndUtreexoProofResult) Receive() error {
 // SubmitBlockAndUtreexoProofAsync returns an instance of a type that can be used to get
 // the result of the RPC at some future time by invoking the Receive function on the
 // returned instance.
-func (c *Client) SubmitBlockAndUtreexoProofAsync(block *btcutil.Block, udata *wire.UData) FutureSubmitBlockAndUtreexoProofResult {
+func (c *Client) SubmitBlockAndUtreexoProofAsync(block *btcutil.Block, udata *bip183.UData) FutureSubmitBlockAndUtreexoProofResult {
 	if block == nil {
 		return newFutureError(errors.New("block must not be nil"))
 	}
@@ -507,13 +508,13 @@ func (c *Client) SubmitBlockAndUtreexoProofAsync(block *btcutil.Block, udata *wi
 	}
 
 	var proofBuf bytes.Buffer
-	err = wire.BatchProofSerialize(&proofBuf, &udata.AccProof)
+	err = bip183.BatchProofSerialize(&proofBuf, &udata.AccProof)
 	if err != nil {
 		return newFutureError(err)
 	}
 
 	var leafBuf bytes.Buffer
-	err = wire.SerializeUtxoData(&leafBuf, udata.LeafDatas)
+	err = bip183.SerializeUtxoData(&leafBuf, udata.LeafDatas)
 	if err != nil {
 		return newFutureError(err)
 	}
@@ -528,7 +529,7 @@ func (c *Client) SubmitBlockAndUtreexoProofAsync(block *btcutil.Block, udata *wi
 
 // SubmitBlockAndUtreexoProof attempts to submit a new block and its associated
 // utreexo proof into the bitcoin network.
-func (c *Client) SubmitBlockAndUtreexoProof(block *btcutil.Block, udata *wire.UData) error {
+func (c *Client) SubmitBlockAndUtreexoProof(block *btcutil.Block, udata *bip183.UData) error {
 	return c.SubmitBlockAndUtreexoProofAsync(block, udata).Receive()
 }
 

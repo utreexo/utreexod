@@ -15,11 +15,11 @@ import (
 	"bytes"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/bdkwallet/bdkgo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/mempool"
-	"github.com/utreexo/utreexod/wire"
 )
 
 func init() {

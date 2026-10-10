@@ -6,9 +6,9 @@ package bloom
 
 import (
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // merkleBlock is used to house intermediate information needed to generate a

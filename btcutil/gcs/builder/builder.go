@@ -11,9 +11,9 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/btcutil/gcs"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (

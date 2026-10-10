@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 var (

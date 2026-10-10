@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcjson"
@@ -21,7 +24,6 @@ import (
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/mining"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (
@@ -98,10 +100,10 @@ type Config struct {
 	// VerifyUData defines the function to use to verify the utreexo
 	// data.  This is only used when the node is run with the UtreexoView
 	// activated.
-	VerifyUData func(ud *wire.UData, txIns []*wire.TxIn, remember bool) error
+	VerifyUData func(ud *bip183.UData, txIns []*wire.TxIn, remember bool) error
 
 	// PruneFromAccumulator uncaches the given hashes from the accumulator.
-	PruneFromAccumulator func(hashes []wire.LeafData) error
+	PruneFromAccumulator func(hashes []bip182.LeafData) error
 
 	// SigCache defines a signature cache to use.
 	SigCache *txscript.SigCache
@@ -193,9 +195,9 @@ type TxPool struct {
 	mtx           sync.RWMutex
 	cfg           Config
 	pool          map[chainhash.Hash]*TxDesc
-	poolLeaves    map[chainhash.Hash][]wire.LeafData
+	poolLeaves    map[chainhash.Hash][]bip182.LeafData
 	orphans       map[chainhash.Hash]*orphanTx
-	orphanUData   map[chainhash.Hash]*wire.UData
+	orphanUData   map[chainhash.Hash]*bip183.UData
 	orphansByPrev map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx
 	outpoints     map[wire.OutPoint]*btcutil.Tx
 	pennyTotal    float64 // exponentially decaying total for penny spends.
@@ -353,7 +355,7 @@ func (mp *TxPool) limitNumOrphans() error {
 // addOrphan adds an orphan transaction to the orphan pool.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) addOrphan(tx *btcutil.Tx, utreexoData *wire.UData, tag Tag) {
+func (mp *TxPool) addOrphan(tx *btcutil.Tx, utreexoData *bip183.UData, tag Tag) {
 	// Nothing to do if no orphans are allowed.
 	if mp.cfg.Policy.MaxOrphanTxs <= 0 {
 		return
@@ -390,7 +392,7 @@ func (mp *TxPool) addOrphan(tx *btcutil.Tx, utreexoData *wire.UData, tag Tag) {
 // maybeAddOrphan potentially adds an orphan to the orphan pool.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) maybeAddOrphan(tx *btcutil.Tx, utreexoData *wire.UData, tag Tag) error {
+func (mp *TxPool) maybeAddOrphan(tx *btcutil.Tx, utreexoData *bip183.UData, tag Tag) error {
 	// Ignore orphan transactions that are too large.  This helps avoid
 	// a memory exhaustion attack based on sending a lot of really large
 	// orphans.  In the case there is a valid transaction larger than this,
@@ -616,7 +618,7 @@ func (mp *TxPool) addTransaction(utxoView *blockchain.UtxoViewpoint, tx *btcutil
 // It should not be called directly as it doesn't perform any validation.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) addUtreexoData(tx *btcutil.Tx, udata *wire.UData) error {
+func (mp *TxPool) addUtreexoData(tx *btcutil.Tx, udata *bip183.UData) error {
 	// Ingest the proof. Shouldn't error out with the proof being invalid
 	// here since we've already verified it above.
 	err := mp.cfg.VerifyUData(udata, tx.MsgTx().TxIn, true)
@@ -894,7 +896,7 @@ func (mp *TxPool) fetchInputUtxos(tx *btcutil.Tx) (*blockchain.UtxoViewpoint, er
 // transaction pool.
 //
 // This function MUST be called with the mempool lock held (for reads).
-func (mp *TxPool) fetchInputUtxosFromLeaves(tx *btcutil.Tx, leaves []wire.LeafData) *blockchain.UtxoViewpoint {
+func (mp *TxPool) fetchInputUtxosFromLeaves(tx *btcutil.Tx, leaves []bip182.LeafData) *blockchain.UtxoViewpoint {
 	utxoView := blockchain.NewUtxoViewpoint()
 	viewEntries := utxoView.Entries()
 
@@ -953,7 +955,7 @@ func (mp *TxPool) FetchTransaction(txHash *chainhash.Hash) (*btcutil.Tx, error) 
 
 // FetchLeafDatas returns the leafdatas for the given tx.  Returns an error if
 // the leaves for the given tx is not in the pool.
-func (mp *TxPool) FetchLeafDatas(txHash *chainhash.Hash) ([]wire.LeafData, error) {
+func (mp *TxPool) FetchLeafDatas(txHash *chainhash.Hash) ([]bip182.LeafData, error) {
 	// Protect concurrent access.
 	mp.mtx.RLock()
 	leaves, exists := mp.poolLeaves[*txHash]
@@ -1065,7 +1067,7 @@ func (mp *TxPool) validateReplacement(tx *btcutil.Tx,
 // more details.
 //
 // This function MUST be called with the mempool lock held (for writes).
-func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, utreexoData *wire.UData, isNew, rateLimit,
+func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, utreexoData *bip183.UData, isNew, rateLimit,
 	rejectDupOrphans bool) ([]*chainhash.Hash, *TxDesc, error) {
 
 	txHash := tx.Hash()
@@ -1131,7 +1133,7 @@ func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, utreexoData *wire.UData
 // be added to the orphan pool.
 //
 // This function is safe for concurrent access.
-func (mp *TxPool) MaybeAcceptTransaction(tx *btcutil.Tx, utreexoData *wire.UData,
+func (mp *TxPool) MaybeAcceptTransaction(tx *btcutil.Tx, utreexoData *bip183.UData,
 	isNew, rateLimit bool) ([]*chainhash.Hash, *TxDesc, error) {
 
 	// Protect concurrent access.
@@ -1178,7 +1180,7 @@ func (mp *TxPool) processOrphans(acceptedTx *btcutil.Tx) []*TxDesc {
 
 			// Potentially accept an orphan into the tx pool.
 			for _, tx := range orphans {
-				var uData *wire.UData
+				var uData *bip183.UData
 				if mp.cfg.IsUtreexoViewActive() {
 					var found bool
 					uData, found = mp.orphanUData[*tx.Hash()]
@@ -1264,7 +1266,7 @@ func (mp *TxPool) ProcessOrphans(acceptedTx *btcutil.Tx) []*TxDesc {
 // the passed one being accepted.
 //
 // This function is safe for concurrent access.
-func (mp *TxPool) ProcessTransaction(tx *btcutil.Tx, utreexoData *wire.UData, allowOrphan, rateLimit bool, tag Tag) ([]*TxDesc, error) {
+func (mp *TxPool) ProcessTransaction(tx *btcutil.Tx, utreexoData *bip183.UData, allowOrphan, rateLimit bool, tag Tag) ([]*TxDesc, error) {
 	log.Tracef("Processing transaction %v", tx.Hash())
 
 	// Protect concurrent access.
@@ -1506,7 +1508,7 @@ func (mp *TxPool) CheckMempoolAcceptance(tx *btcutil.Tx) (
 // checkMempoolAcceptance performs a series of validations on the given
 // transaction. It returns an error when the transaction fails to meet the
 // mempool policy, otherwise a `mempoolAcceptResult` is returned.
-func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx, utreexoData *wire.UData,
+func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx, utreexoData *bip183.UData,
 	isNew, rateLimit, rejectDupOrphans bool) (*MempoolAcceptResult, error) {
 
 	txHash := tx.Hash()
@@ -1941,9 +1943,9 @@ func New(cfg *Config) *TxPool {
 	return &TxPool{
 		cfg:            *cfg,
 		pool:           make(map[chainhash.Hash]*TxDesc),
-		poolLeaves:     make(map[chainhash.Hash][]wire.LeafData),
+		poolLeaves:     make(map[chainhash.Hash][]bip182.LeafData),
 		orphans:        make(map[chainhash.Hash]*orphanTx),
-		orphanUData:    make(map[chainhash.Hash]*wire.UData),
+		orphanUData:    make(map[chainhash.Hash]*bip183.UData),
 		orphansByPrev:  make(map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx),
 		nextExpireScan: time.Now().Add(orphanExpireScanInterval),
 		outpoints:      make(map[wire.OutPoint]*btcutil.Tx),

@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // TestBlock tests the API for Block.
@@ -320,7 +322,7 @@ func TestSetUtreexoDataNotSerialized(t *testing.T) {
 	}
 }
 
-func assertUDataEqual(t *testing.T, got, want *wire.UData) {
+func assertUDataEqual(t *testing.T, got, want *bip183.UData) {
 	t.Helper()
 
 	switch {
@@ -470,9 +472,9 @@ func testOldFormatUData(proof *utreexo.Proof) []byte {
 	wire.WriteVarInt(&buf, 0, 0)
 	wire.WriteVarInt(&buf, 0, 1)
 	// Write a batch proof.
-	wire.BatchProofSerialize(&buf, proof)
+	bip183.BatchProofSerialize(&buf, proof)
 	// Write non-compact leaf data (count + full Serialize per leaf).
-	ld := wire.LeafData{
+	ld := bip182.LeafData{
 		BlockHash: chainhash.Hash{0xaa, 0xbb},
 		OutPoint:  wire.OutPoint{Hash: chainhash.Hash{0xcc}, Index: 0},
 		Height:    100,
@@ -484,8 +486,8 @@ func testOldFormatUData(proof *utreexo.Proof) []byte {
 	return buf.Bytes()
 }
 
-func testWireUData() *wire.UData {
-	return &wire.UData{
+func testWireUData() *bip183.UData {
+	return &bip183.UData{
 		AccProof: utreexo.Proof{
 			Targets: []uint64{1, 2, 3},
 			Proof: []utreexo.Hash{

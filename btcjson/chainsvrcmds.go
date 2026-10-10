@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // AddNodeSubCmd defines the type used in the addnode JSON-RPC command for the

@@ -8,11 +8,12 @@ import (
 	"crypto/sha256"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 func TestProcessUDataTTLCount(t *testing.T) {
@@ -20,13 +21,13 @@ func TestProcessUDataTTLCount(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		ttls    []wire.TTLInfo
+		ttls    []bip183.TTLInfo
 		wantErr bool
 	}{
 		{name: "empty", wantErr: true},
-		{name: "too few", ttls: []wire.TTLInfo{{DeathHeight: 2}}, wantErr: true},
-		{name: "too many", ttls: []wire.TTLInfo{{DeathHeight: 2}, {}, {}}, wantErr: true},
-		{name: "matching count", ttls: []wire.TTLInfo{{DeathHeight: 2}, {}}},
+		{name: "too few", ttls: []bip183.TTLInfo{{DeathHeight: 2}}, wantErr: true},
+		{name: "too many", ttls: []bip183.TTLInfo{{DeathHeight: 2}, {}, {}}, wantErr: true},
+		{name: "matching count", ttls: []bip183.TTLInfo{{DeathHeight: 2}, {}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -41,7 +42,7 @@ func TestProcessUDataTTLCount(t *testing.T) {
 				}},
 			})
 			block.SetHeight(1)
-			block.SetUtreexoTTLs(&wire.UtreexoTTL{BlockHeight: 1, TTLs: test.ttls})
+			block.SetUtreexoTTLs(&bip183.UtreexoTTL{BlockHeight: 1, TTLs: test.ttls})
 			view := NewUtreexoViewpoint()
 			view.accumulator = *utreexo.InitWithStump(utreexo.Stump{
 				Roots: []utreexo.Hash{{1}}, NumLeaves: 1,
@@ -51,7 +52,7 @@ func TestProcessUDataTTLCount(t *testing.T) {
 
 			// A mismatched count must be rejected before changing either
 			// the accumulator or the aggregator for the spent addition.
-			err := view.ProcessUData(block, nil, &wire.UData{})
+			err := view.ProcessUData(block, nil, &bip183.UData{})
 			if test.wantErr {
 				require.Error(t, err)
 				require.Equal(t, before.accumulator.GetStump(), view.accumulator.GetStump())
@@ -220,7 +221,7 @@ func TestCopyWithRootsAppliesProof(t *testing.T) {
 		h := sha256.Sum256([]byte{byte(i)})
 		leaves[i] = utreexo.Leaf{Hash: utreexo.Hash(h), Remember: true}
 	}
-	_, err := orig.Modify(&wire.UData{}, leaves, nil)
+	_, err := orig.Modify(&bip183.UData{}, leaves, nil)
 	require.NoError(t, err, "Modify to seed accumulator")
 
 	// Prove a deletion against the original, which still holds the full

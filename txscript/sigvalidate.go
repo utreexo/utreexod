@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // signatureVerifier is an abstract interface that allows the op code execution
