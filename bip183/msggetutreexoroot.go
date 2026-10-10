@@ -2,12 +2,13 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // MsgGetUtreexoRoot implements the Message interface and represents a bitcoin
@@ -19,7 +20,7 @@ type MsgGetUtreexoRoot struct {
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
 // This is part of the Message interface implementation.
-func (msg *MsgGetUtreexoRoot) BtcDecode(r io.Reader, _ uint32, _ MessageEncoding) error {
+func (msg *MsgGetUtreexoRoot) BtcDecode(r io.Reader, _ uint32, _ wire.MessageEncoding) error {
 	_, err := io.ReadFull(r, msg.BlockHash[:])
 	if err != nil {
 		return err
@@ -29,7 +30,7 @@ func (msg *MsgGetUtreexoRoot) BtcDecode(r io.Reader, _ uint32, _ MessageEncoding
 
 // BtcEncode encodes the receiver to w using the bitcoin protocol encoding.
 // This is part of the Message interface implementation.
-func (msg *MsgGetUtreexoRoot) BtcEncode(w io.Writer, _ uint32, _ MessageEncoding) error {
+func (msg *MsgGetUtreexoRoot) BtcEncode(w io.Writer, _ uint32, _ wire.MessageEncoding) error {
 	_, err := w.Write(msg.BlockHash[:])
 	return err
 }

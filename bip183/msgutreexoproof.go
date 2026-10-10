@@ -2,13 +2,14 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // maxSupportedRows is the maximum number of rows in the utreexo tree that
@@ -27,16 +28,16 @@ const MaxProofHashes = (maxSupportedRows-15)*MaxPossibleInputsPerBlock + (1<<15 
 // MaxUtreexoProofSize is blockhash + len proofhashes + proofhashes + len targets +
 // targets + len leafdatas + pkscript size + leafdata overhead of 12 bytes.
 const MaxUtreexoProofSize = chainhash.HashSize +
-	MaxVarIntPayload +
+	wire.MaxVarIntPayload +
 	MaxProofHashes*chainhash.HashSize +
-	MaxVarIntPayload +
-	MaxVarIntPayload*MaxPossibleInputsPerBlock +
-	MaxVarIntPayload +
-	MaxBlockPayload +
+	wire.MaxVarIntPayload +
+	wire.MaxVarIntPayload*MaxPossibleInputsPerBlock +
+	wire.MaxVarIntPayload +
+	wire.MaxBlockPayload +
 	MaxPossibleInputsPerBlock*12
 
 // Enforce that the MaxUtreexoProofSize is smaller than the max message payload.
-var _ [MaxMessagePayload - MaxUtreexoProofSize]struct{}
+var _ [wire.MaxMessagePayload - MaxUtreexoProofSize]struct{}
 
 // MsgUtreexoProof is a utreexo proof for a given block that includes the rest of the data not
 // communicated by the utreexo header. It may or may not include all the data needed to prove
@@ -52,20 +53,20 @@ type MsgUtreexoProof struct {
 	Targets []uint64
 
 	// LeafDatas are the tx validation data for every input.
-	LeafDatas []LeafData
+	LeafDatas []wire.LeafData
 }
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
 // This is part of the Message interface implementation.
 // See Deserialize for decoding transactions stored to disk, such as in a
 // database, as opposed to decoding transactions from the wire.
-func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
+func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEncoding) error {
 	_, err := r.Read(msg.BlockHash[:])
 	if err != nil {
 		return err
 	}
 
-	proofCount, err := ReadVarInt(r, 0)
+	proofCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
@@ -78,25 +79,25 @@ func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEncod
 		}
 	}
 
-	targetCount, err := ReadVarInt(r, 0)
+	targetCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
 
 	msg.Targets = make([]uint64, targetCount)
 	for i := range msg.Targets {
-		msg.Targets[i], err = ReadVarInt(r, 0)
+		msg.Targets[i], err = wire.ReadVarInt(r, 0)
 		if err != nil {
 			return err
 		}
 	}
 
-	leafCount, err := ReadVarInt(r, 0)
+	leafCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
 
-	msg.LeafDatas = make([]LeafData, leafCount)
+	msg.LeafDatas = make([]wire.LeafData, leafCount)
 	for i := range msg.LeafDatas {
 		err = msg.LeafDatas[i].DeserializeCompact(r)
 		if err != nil {
@@ -111,13 +112,13 @@ func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEncod
 // This is part of the Message interface implementation.
 // See Serialize for encoding transactions to be stored to disk, such as in a
 // database, as opposed to encoding transactions for the wire.
-func (msg *MsgUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
+func (msg *MsgUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEncoding) error {
 	_, err := w.Write(msg.BlockHash[:])
 	if err != nil {
 		return err
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(msg.ProofHashes)))
+	err = wire.WriteVarInt(w, 0, uint64(len(msg.ProofHashes)))
 	if err != nil {
 		return err
 	}
@@ -129,20 +130,20 @@ func (msg *MsgUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEncod
 		}
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(msg.Targets)))
+	err = wire.WriteVarInt(w, 0, uint64(len(msg.Targets)))
 	if err != nil {
 		return err
 	}
 
 	for _, target := range msg.Targets {
-		err = WriteVarInt(w, 0, target)
+		err = wire.WriteVarInt(w, 0, target)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Write the size of the leaf datas.
-	err = WriteVarInt(w, 0, uint64(len(msg.LeafDatas)))
+	err = wire.WriteVarInt(w, 0, uint64(len(msg.LeafDatas)))
 	if err != nil {
 		return err
 	}

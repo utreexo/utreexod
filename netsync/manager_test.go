@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcutil"
@@ -313,9 +314,9 @@ func TestQueuedUtreexoTTLs(t *testing.T) {
 
 			// Test setup: request a block whose verified TTL is already queued.
 			block := generateTestBlocks(t, &params, 1)[0]
-			ttl := wire.UtreexoTTL{
+			ttl := bip183.UtreexoTTL{
 				BlockHeight: 1,
-				TTLs:        make([]wire.TTLInfo, len(blockchain.ExtractAccumulatorAdds(block))),
+				TTLs:        make([]bip183.TTLInfo, len(blockchain.ExtractAccumulatorAdds(block))),
 			}
 			sm.queuedTTLs[1] = ttl
 			headers := wire.NewMsgHeaders()
@@ -324,7 +325,7 @@ func TestQueuedUtreexoTTLs(t *testing.T) {
 			require.Contains(t, sm.peerStates[p].requestedBlocks, *block.Hash())
 			proof := &utreexoProofMsg{
 				peer:  p,
-				proof: &wire.MsgUtreexoProof{BlockHash: *block.Hash()},
+				proof: &bip183.MsgUtreexoProof{BlockHash: *block.Hash()},
 			}
 
 			// Test: an invalid block body must leave the TTL available for retry.
@@ -401,7 +402,7 @@ func TestIsInHeadersFirstMode(t *testing.T) {
 					requestedBlocks:           make(map[chainhash.Hash]struct{}),
 					requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
 					requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
-					requestedUtreexoTTLs:      make(map[wire.MsgGetUtreexoTTLs]struct{}),
+					requestedUtreexoTTLs:      make(map[bip183.MsgGetUtreexoTTLs]struct{}),
 				}
 				return ps
 			}(),
@@ -422,7 +423,7 @@ func TestIsInHeadersFirstMode(t *testing.T) {
 					requestedBlocks:           make(map[chainhash.Hash]struct{}),
 					requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
 					requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
-					requestedUtreexoTTLs:      make(map[wire.MsgGetUtreexoTTLs]struct{}),
+					requestedUtreexoTTLs:      make(map[bip183.MsgGetUtreexoTTLs]struct{}),
 				}
 				return ps
 			}(),
@@ -447,7 +448,7 @@ func TestIsInHeadersFirstMode(t *testing.T) {
 					requestedBlocks:           make(map[chainhash.Hash]struct{}),
 					requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
 					requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
-					requestedUtreexoTTLs:      make(map[wire.MsgGetUtreexoTTLs]struct{}),
+					requestedUtreexoTTLs:      make(map[bip183.MsgGetUtreexoTTLs]struct{}),
 				}
 				return ps
 			}(),
@@ -474,7 +475,7 @@ func TestIsInHeadersFirstMode(t *testing.T) {
 					requestedBlocks:           make(map[chainhash.Hash]struct{}),
 					requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
 					requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
-					requestedUtreexoTTLs:      make(map[wire.MsgGetUtreexoTTLs]struct{}),
+					requestedUtreexoTTLs:      make(map[bip183.MsgGetUtreexoTTLs]struct{}),
 				}
 				return ps
 			}(),
@@ -796,7 +797,7 @@ func newSyncCandidate(t *testing.T, sm *SyncManager,
 		requestedBlocks:           make(map[chainhash.Hash]struct{}),
 		requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
 		requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
-		requestedUtreexoTTLs:      make(map[wire.MsgGetUtreexoTTLs]struct{}),
+		requestedUtreexoTTLs:      make(map[bip183.MsgGetUtreexoTTLs]struct{}),
 	}
 	return p
 }
@@ -1110,7 +1111,7 @@ func TestStartSyncBlockFallback(t *testing.T) {
 		requestedBlocks:           make(map[chainhash.Hash]struct{}),
 		requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
 		requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
-		requestedUtreexoTTLs:      make(map[wire.MsgGetUtreexoTTLs]struct{}),
+		requestedUtreexoTTLs:      make(map[bip183.MsgGetUtreexoTTLs]struct{}),
 	}
 
 	sm.startSync()

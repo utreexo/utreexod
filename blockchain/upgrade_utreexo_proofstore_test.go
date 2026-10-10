@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
@@ -66,7 +67,7 @@ func newProofStoreUpgradeFixture(t *testing.T) *proofStoreUpgradeFixture {
 
 	// Build a minimal height 1 block along with the utreexo proof that
 	// older versions serialized inline with it.
-	want := &wire.UData{
+	want := &bip183.UData{
 		AccProof: utreexo.Proof{
 			Targets: []uint64{1, 2, 3},
 			Proof:   []utreexo.Hash{{0x01}, {0x02}, {0x03}},

@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -820,7 +821,7 @@ func (wm *WatchOnlyWalletManager) GetTx(txHash chainhash.Hash) *wire.MsgTx {
 }
 
 // ProveTx generates a udata that will prove the given tx to another utreexo node.
-func (wm *WatchOnlyWalletManager) ProveTx(tx *btcutil.Tx) (*wire.UData, error) {
+func (wm *WatchOnlyWalletManager) ProveTx(tx *btcutil.Tx) (*bip183.UData, error) {
 	targetsToProve := []uint64{}
 	leaves := []wire.LeafData{}
 	leafHashes := []utreexo.Hash{}
@@ -857,7 +858,7 @@ func (wm *WatchOnlyWalletManager) ProveTx(tx *btcutil.Tx) (*wire.UData, error) {
 		return nil, fmt.Errorf("Couldn't grab the utreexo proof for tx "+
 			"%s. Error: %v", tx.Hash(), err)
 	}
-	ud := wire.UData{
+	ud := bip183.UData{
 		AccProof:  proof,
 		LeafDatas: leaves,
 	}

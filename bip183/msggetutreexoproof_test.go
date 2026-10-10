@@ -1,4 +1,4 @@
-package wire
+package bip183
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/utreexo/utreexod/wire"
 )
 
 func randomBytes(size int) []byte {
@@ -81,14 +82,14 @@ func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
 		pver := uint32(70015) // Example protocol version
 
 		// Encode the message
-		err := tc.msg.BtcEncode(&buf, pver, LatestEncoding)
+		err := tc.msg.BtcEncode(&buf, pver, wire.LatestEncoding)
 		assert.NoError(t, err, "BtcEncode should not return an error")
 
 		assert.LessOrEqual(t, uint32(len(buf.Bytes())), tc.msg.MaxPayloadLength(0))
 
 		// Decode into a new message
 		var decodedMsg MsgGetUtreexoProof
-		err = decodedMsg.BtcDecode(&buf, pver, LatestEncoding)
+		err = decodedMsg.BtcDecode(&buf, pver, wire.LatestEncoding)
 		assert.NoError(t, err, "BtcDecode should not return an error")
 
 		// Verify the decoded message matches the original

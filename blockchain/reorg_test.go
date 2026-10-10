@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
@@ -195,7 +196,7 @@ func (s *testUtreexoProofState) attachUData(t *testing.T, block *btcutil.Block,
 
 	t.Helper()
 
-	udata, err := wire.GenerateUData(spends, &s.uView.accumulator)
+	udata, err := bip183.GenerateUData(spends, &s.uView.accumulator)
 	require.NoError(t, err, "GenerateUData")
 	block.SetUtreexoData(udata)
 

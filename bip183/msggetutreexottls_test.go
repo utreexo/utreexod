@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/utreexo/utreexod/wire"
 )
 
 func TestMsgGetUtreexoTTLsEncode(t *testing.T) {
@@ -80,7 +81,7 @@ func TestMsgGetUtreexoTTLsEncode(t *testing.T) {
 
 		// Encode.
 		var buf bytes.Buffer
-		err := beforeMsg.BtcEncode(&buf, 0, LatestEncoding)
+		err := beforeMsg.BtcEncode(&buf, 0, wire.LatestEncoding)
 		if err != nil {
 			if !testCase.shouldErr {
 				t.Fatal(err)
@@ -96,7 +97,7 @@ func TestMsgGetUtreexoTTLsEncode(t *testing.T) {
 
 		afterMsg := MsgGetUtreexoTTLs{}
 		r := bytes.NewReader(serialized)
-		err = afterMsg.BtcDecode(r, 0, LatestEncoding)
+		err = afterMsg.BtcDecode(r, 0, wire.LatestEncoding)
 		if err != nil {
 			t.Fatal(err)
 		}
