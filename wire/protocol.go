@@ -107,16 +107,6 @@ const (
 	// SFNodeP2PV2 is a flag used to indicate a peer supports BIP324 v2
 	// connections.
 	SFNodeP2PV2 = 1 << 11
-
-	// SFNodeUtreexo is a flag used to indicate a peer supports serving
-	// utreexo inclusion proofs for new blocks, transactions as defined
-	// in BIP-0183.
-	SFNodeUtreexo = 1 << 12
-
-	// SFNodeUtreexoArchive is a flag used to indicate a peer supports
-	// serving historical inclusion proofs for past blocks as defined in
-	// BIP-0183.
-	SFNodeUtreexoArchive = 1 << 13
 )
 
 // Map of service flags back to their constant names for pretty printing.
@@ -131,8 +121,6 @@ var sfStrings = map[ServiceFlag]string{
 	SFNodeCF:             "SFNodeCF",
 	SFNode2X:             "SFNode2X",
 	SFNodeP2PV2:          "SFNodeP2PV2",
-	SFNodeUtreexo:        "SFNodeUtreexo",
-	SFNodeUtreexoArchive: "SFNodeUtreexoArchive",
 }
 
 // orderedSFStrings is an ordered list of service flags from highest to
@@ -148,8 +136,6 @@ var orderedSFStrings = []ServiceFlag{
 	SFNode2X,
 	SFNodeNetworkLimited,
 	SFNodeP2PV2,
-	SFNodeUtreexo,
-	SFNodeUtreexoArchive,
 }
 
 // HasFlag returns a bool indicating if the service has the given flag.

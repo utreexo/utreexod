@@ -526,7 +526,7 @@ func (sp *serverPeer) OnVersion(_ *peer.Peer, msg *wire.MsgVersion) *wire.MsgRej
 	// Also reject outbound peers that aren't utreexo nodes if we're a utreexo csn.
 	var wantServices wire.ServiceFlag
 	if sp.server.chain.IsUtreexoViewActive() {
-		wantServices |= wire.SFNodeUtreexo
+		wantServices |= bip183.SFNodeUtreexo
 	}
 	if !isInbound && !hasServices(msg.Services, wantServices) {
 		missingServices := wantServices & ^msg.Services
@@ -802,14 +802,14 @@ func (sp *serverPeer) OnGetData(_ *peer.Peer, msg *wire.MsgGetData) {
 			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.WitnessEncoding)
 		case wire.InvTypeTx:
 			err = sp.server.pushTxMsg(sp, &iv.Hash, c, waitChan, wire.BaseEncoding)
-		case wire.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
 			fallthrough
-		case wire.InvTypeUtreexoTx:
+		case bip183.InvTypeUtreexoTx:
 			// Extract all the packed positions. They're appended to the tx inv.
 			packedPositions := make([]chainhash.Hash, 0, len(msg.InvList)-(i+1))
 			if i+1 < len(msg.InvList) {
 				for j := i + 1; j < len(msg.InvList); j++ {
-					if msg.InvList[j].Type == wire.InvTypeUtreexoProofHash {
+					if msg.InvList[j].Type == bip183.InvTypeUtreexoProofHash {
 						packedPositions = append(packedPositions, msg.InvList[j].Hash)
 						msg.InvList = append(msg.InvList[:j], msg.InvList[j+1:]...)
 						j--
@@ -1697,9 +1697,9 @@ func (sp *serverPeer) OnNotFound(p *peer.Peer, msg *wire.MsgNotFound) {
 			numTxns++
 		case wire.InvTypeWitnessTx:
 			numTxns++
-		case wire.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
 			numTxns++
-		case wire.InvTypeUtreexoTx:
+		case bip183.InvTypeUtreexoTx:
 			numTxns++
 		default:
 			peerLog.Debugf("Invalid inv type '%d' in notfound message from %s",
@@ -2303,8 +2303,8 @@ func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
 	switch msg.invVect.Type {
 	case wire.InvTypeTx:
 	case wire.InvTypeWitnessTx:
-	case wire.InvTypeUtreexoTx:
-	case wire.InvTypeWitnessUtreexoTx:
+	case bip183.InvTypeUtreexoTx:
+	case bip183.InvTypeWitnessUtreexoTx:
 	default:
 		// Not a tx so just return.
 		return
@@ -2383,7 +2383,7 @@ func (s *server) relayUtreexoTxInv(sp *serverPeer, msg relayMsg) {
 	invVects = append(invVects, msg.invVect)
 	for i := range packedPositions {
 		invVects = append(invVects,
-			wire.NewInvVect(wire.InvTypeUtreexoProofHash, &packedPositions[i]))
+			wire.NewInvVect(bip183.InvTypeUtreexoProofHash, &packedPositions[i]))
 	}
 
 	// Queue the inventory.
@@ -2822,7 +2822,7 @@ func (s *server) peerHandler() {
 	if !cfg.DisableDNSSeed {
 		requiredServices := defaultRequiredServices
 		if !cfg.NoUtreexo {
-			requiredServices |= wire.SFNodeUtreexo
+			requiredServices |= bip183.SFNodeUtreexo
 		}
 		// Add peers discovered through DNS to the address manager.
 		connmgr.SeedFromDNS(activeNetParams.Params, requiredServices,
@@ -3415,10 +3415,10 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		services &^= wire.SFNodeP2PV2
 	}
 	if !cfg.NoUtreexo || cfg.UtreexoProofIndex || cfg.FlatUtreexoProofIndex {
-		services |= wire.SFNodeUtreexo
+		services |= bip183.SFNodeUtreexo
 
 		if cfg.Prune == 0 {
-			services |= wire.SFNodeUtreexoArchive
+			services |= bip183.SFNodeUtreexoArchive
 		}
 	}
 

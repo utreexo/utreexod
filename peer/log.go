@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btclog"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -97,9 +98,9 @@ func invSummary(invList []*wire.InvVect) string {
 			return fmt.Sprintf("block %s", iv.Hash)
 		case wire.InvTypeWitnessTx:
 			return fmt.Sprintf("witness tx %s", iv.Hash)
-		case wire.InvTypeUtreexoTx:
+		case bip183.InvTypeUtreexoTx:
 			return fmt.Sprintf("utreexo tx %s", iv.Hash)
-		case wire.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
 			return fmt.Sprintf("witness utreexo tx %s", iv.Hash)
 		case wire.InvTypeTx:
 			return fmt.Sprintf("tx %s", iv.Hash)
