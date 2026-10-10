@@ -28,44 +28,37 @@ const MaxMessagePayload = (1024 * 1024 * 32) // 32MB
 
 // Commands used in bitcoin message headers which describe the type of message.
 const (
-	CmdVersion         = "version"
-	CmdVerAck          = "verack"
-	CmdGetAddr         = "getaddr"
-	CmdAddr            = "addr"
-	CmdAddrV2          = "addrv2"
-	CmdGetBlocks       = "getblocks"
-	CmdInv             = "inv"
-	CmdGetData         = "getdata"
-	CmdNotFound        = "notfound"
-	CmdBlock           = "block"
-	CmdTx              = "tx"
-	CmdUtreexoTx       = "utreexotx"
-	CmdGetHeaders      = "getheaders"
-	CmdGetUtreexoTTLs  = "getuttls"
-	CmdHeaders         = "headers"
-	CmdUtreexoTTLs     = "uttls"
-	CmdPing            = "ping"
-	CmdPong            = "pong"
-	CmdAlert           = "alert"
-	CmdMemPool         = "mempool"
-	CmdFilterAdd       = "filteradd"
-	CmdFilterClear     = "filterclear"
-	CmdFilterLoad      = "filterload"
-	CmdMerkleBlock     = "merkleblock"
-	CmdReject          = "reject"
-	CmdSendHeaders     = "sendheaders"
-	CmdFeeFilter       = "feefilter"
-	CmdGetCFilters     = "getcfilters"
-	CmdGetCFHeaders    = "getcfheaders"
-	CmdGetCFCheckpt    = "getcfcheckpt"
-	CmdCFilter         = "cfilter"
-	CmdCFHeaders       = "cfheaders"
-	CmdCFCheckpt       = "cfcheckpt"
-	CmdSendAddrV2      = "sendaddrv2"
-	CmdUtreexoProof    = "uproof"
-	CmdGetUtreexoProof = "getuproof"
-	CmdUtreexoRoot     = "uroot"
-	CmdGetUtreexoRoot  = "geturoot"
+	CmdVersion      = "version"
+	CmdVerAck       = "verack"
+	CmdGetAddr      = "getaddr"
+	CmdAddr         = "addr"
+	CmdAddrV2       = "addrv2"
+	CmdGetBlocks    = "getblocks"
+	CmdInv          = "inv"
+	CmdGetData      = "getdata"
+	CmdNotFound     = "notfound"
+	CmdBlock        = "block"
+	CmdTx           = "tx"
+	CmdGetHeaders   = "getheaders"
+	CmdHeaders      = "headers"
+	CmdPing         = "ping"
+	CmdPong         = "pong"
+	CmdAlert        = "alert"
+	CmdMemPool      = "mempool"
+	CmdFilterAdd    = "filteradd"
+	CmdFilterClear  = "filterclear"
+	CmdFilterLoad   = "filterload"
+	CmdMerkleBlock  = "merkleblock"
+	CmdReject       = "reject"
+	CmdSendHeaders  = "sendheaders"
+	CmdFeeFilter    = "feefilter"
+	CmdGetCFilters  = "getcfilters"
+	CmdGetCFHeaders = "getcfheaders"
+	CmdGetCFCheckpt = "getcfcheckpt"
+	CmdCFilter      = "cfilter"
+	CmdCFHeaders    = "cfheaders"
+	CmdCFCheckpt    = "cfcheckpt"
+	CmdSendAddrV2   = "sendaddrv2"
 )
 
 var (
@@ -95,13 +88,6 @@ var (
 		26: CmdGetCFCheckpt,
 		27: CmdCFCheckpt,
 		28: CmdAddrV2,
-		29: CmdUtreexoProof,
-		30: CmdGetUtreexoProof,
-		31: CmdUtreexoTTLs,
-		32: CmdGetUtreexoTTLs,
-		34: CmdUtreexoTx,
-		35: CmdUtreexoRoot,
-		36: CmdGetUtreexoRoot,
 	}
 
 	v2Messages = map[string]uint8{
@@ -123,21 +109,14 @@ var (
 		CmdPong:        19,
 		// 20 is sendcmpct per BIP 324 but we don't implement compact blocks.
 		// sendaddrv2 has no BIP 324 short ID; it uses the long-form encoding.
-		CmdTx:              21,
-		CmdGetCFilters:     22,
-		CmdCFilter:         23,
-		CmdGetCFHeaders:    24,
-		CmdCFHeaders:       25,
-		CmdGetCFCheckpt:    26,
-		CmdCFCheckpt:       27,
-		CmdAddrV2:          28,
-		CmdUtreexoProof:    29,
-		CmdGetUtreexoProof: 30,
-		CmdUtreexoTTLs:     31,
-		CmdGetUtreexoTTLs:  32,
-		CmdUtreexoTx:       34,
-		CmdUtreexoRoot:     35,
-		CmdGetUtreexoRoot:  36,
+		CmdTx:           21,
+		CmdGetCFilters:  22,
+		CmdCFilter:      23,
+		CmdGetCFHeaders: 24,
+		CmdCFHeaders:    25,
+		CmdGetCFCheckpt: 26,
+		CmdCFCheckpt:    27,
+		CmdAddrV2:       28,
 	}
 )
 
@@ -218,9 +197,6 @@ func makeEmptyMessage(command string) (Message, error) {
 	case CmdTx:
 		msg = &MsgTx{}
 
-	case CmdUtreexoTx:
-		msg = &MsgUtreexoTx{}
-
 	case CmdPing:
 		msg = &MsgPing{}
 
@@ -230,26 +206,8 @@ func makeEmptyMessage(command string) (Message, error) {
 	case CmdGetHeaders:
 		msg = &MsgGetHeaders{}
 
-	case CmdGetUtreexoTTLs:
-		msg = &MsgGetUtreexoTTLs{}
-
 	case CmdHeaders:
 		msg = &MsgHeaders{}
-
-	case CmdUtreexoTTLs:
-		msg = &MsgUtreexoTTLs{}
-
-	case CmdUtreexoProof:
-		msg = &MsgUtreexoProof{}
-
-	case CmdGetUtreexoProof:
-		msg = &MsgGetUtreexoProof{}
-
-	case CmdUtreexoRoot:
-		msg = &MsgUtreexoRoot{}
-
-	case CmdGetUtreexoRoot:
-		msg = &MsgGetUtreexoRoot{}
 
 	case CmdAlert:
 		msg = &MsgAlert{}

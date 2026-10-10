@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/decred/dcrd/lru"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/wire"
@@ -123,7 +124,7 @@ type MessageListeners struct {
 	OnTx func(p *Peer, msg *wire.MsgTx)
 
 	// OnUtreexoTx is invoked when a peer receives a utreexo tx bitcoin message.
-	OnUtreexoTx func(p *Peer, msg *wire.MsgUtreexoTx)
+	OnUtreexoTx func(p *Peer, msg *bip183.MsgUtreexoTx)
 
 	// OnBlock is invoked when a peer receives a block bitcoin message.
 	OnBlock func(p *Peer, msg *wire.MsgBlock, buf []byte)
@@ -146,16 +147,16 @@ type MessageListeners struct {
 	OnHeaders func(p *Peer, msg *wire.MsgHeaders)
 
 	// OnUtreexoProof is invoked when a peer receives a utreexo proof bitcoin message.
-	OnUtreexoProof func(p *Peer, msg *wire.MsgUtreexoProof)
+	OnUtreexoProof func(p *Peer, msg *bip183.MsgUtreexoProof)
 
 	// OnGetUtreexoProof is invoked when a peer receives a utreexo proof bitcoin message.
-	OnGetUtreexoProof func(p *Peer, msg *wire.MsgGetUtreexoProof)
+	OnGetUtreexoProof func(p *Peer, msg *bip183.MsgGetUtreexoProof)
 
 	// OnUtreexoTTLs is invoked when a peer receives a utreexo ttls bitcoin message.
-	OnUtreexoTTLs func(p *Peer, msg *wire.MsgUtreexoTTLs)
+	OnUtreexoTTLs func(p *Peer, msg *bip183.MsgUtreexoTTLs)
 
 	// OnGetUtreexoTTLs is invoked when a peer receives a get utreexo ttls bitcoin message.
-	OnGetUtreexoTTLs func(p *Peer, msg *wire.MsgGetUtreexoTTLs)
+	OnGetUtreexoTTLs func(p *Peer, msg *bip183.MsgGetUtreexoTTLs)
 
 	// OnNotFound is invoked when a peer receives a notfound bitcoin
 	// message.
@@ -174,7 +175,7 @@ type MessageListeners struct {
 
 	// OnGetUtreexoRoot is invoked when a peer receives a getutreexoroot bitcoin
 	// message.
-	OnGetUtreexoRoot func(p *Peer, msg *wire.MsgGetUtreexoRoot)
+	OnGetUtreexoRoot func(p *Peer, msg *bip183.MsgGetUtreexoRoot)
 
 	// OnGetCFilters is invoked when a peer receives a getcfilters bitcoin
 	// message.
@@ -1120,7 +1121,7 @@ func (p *Peer) readMessage(encoding wire.MessageEncoding, partial bool) (
 			return nil, nil, err
 		}
 
-		msg, buf, err = wire.ReadV2MessageN(
+		msg, buf, err = bip183.ReadV2MessageN(
 			plaintext, p.ProtocolVersion(), encoding,
 		)
 		n = len(plaintext)
@@ -1130,7 +1131,7 @@ func (p *Peer) readMessage(encoding wire.MessageEncoding, partial bool) (
 			p.V2Transport.ReceivedPrefix(),
 		)
 	} else {
-		n, msg, buf, err = wire.ReadMessageWithEncodingN(
+		n, msg, buf, err = bip183.ReadMessageWithEncodingN(
 			p.conn, p.ProtocolVersion(), p.cfg.ChainParams.Net, encoding,
 		)
 	}
@@ -1180,7 +1181,7 @@ func (p *Peer) writeMessage(msg wire.Message, enc wire.MessageEncoding) error {
 	)
 
 	if p.cfg.UsingV2Conn {
-		_, err = wire.WriteV2MessageN(&buf, msg, p.ProtocolVersion(), enc)
+		_, err = bip183.WriteV2MessageN(&buf, msg, p.ProtocolVersion(), enc)
 		if err != nil {
 			return err
 		}
@@ -1296,7 +1297,7 @@ func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd st
 		pendingResponses[wire.CmdBlock] = deadline
 		pendingResponses[wire.CmdMerkleBlock] = deadline
 		pendingResponses[wire.CmdTx] = deadline
-		pendingResponses[wire.CmdUtreexoTx] = deadline
+		pendingResponses[bip183.CmdUtreexoTx] = deadline
 		pendingResponses[wire.CmdNotFound] = deadline
 
 	case wire.CmdGetHeaders:
@@ -1356,13 +1357,13 @@ out:
 					fallthrough
 				case wire.CmdTx:
 					fallthrough
-				case wire.CmdUtreexoTx:
+				case bip183.CmdUtreexoTx:
 					fallthrough
 				case wire.CmdNotFound:
 					delete(pendingResponses, wire.CmdBlock)
 					delete(pendingResponses, wire.CmdMerkleBlock)
 					delete(pendingResponses, wire.CmdTx)
-					delete(pendingResponses, wire.CmdUtreexoTx)
+					delete(pendingResponses, bip183.CmdUtreexoTx)
 					delete(pendingResponses, wire.CmdNotFound)
 
 				default:
@@ -1595,7 +1596,7 @@ out:
 				p.cfg.Listeners.OnTx(p, msg)
 			}
 
-		case *wire.MsgUtreexoTx:
+		case *bip183.MsgUtreexoTx:
 			if p.cfg.Listeners.OnUtreexoTx != nil {
 				p.cfg.Listeners.OnUtreexoTx(p, msg)
 			}
@@ -1615,22 +1616,22 @@ out:
 				p.cfg.Listeners.OnHeaders(p, msg)
 			}
 
-		case *wire.MsgUtreexoProof:
+		case *bip183.MsgUtreexoProof:
 			if p.cfg.Listeners.OnUtreexoProof != nil {
 				p.cfg.Listeners.OnUtreexoProof(p, msg)
 			}
 
-		case *wire.MsgGetUtreexoProof:
+		case *bip183.MsgGetUtreexoProof:
 			if p.cfg.Listeners.OnGetUtreexoProof != nil {
 				p.cfg.Listeners.OnGetUtreexoProof(p, msg)
 			}
 
-		case *wire.MsgGetUtreexoTTLs:
+		case *bip183.MsgGetUtreexoTTLs:
 			if p.cfg.Listeners.OnGetUtreexoTTLs != nil {
 				p.cfg.Listeners.OnGetUtreexoTTLs(p, msg)
 			}
 
-		case *wire.MsgUtreexoTTLs:
+		case *bip183.MsgUtreexoTTLs:
 			if p.cfg.Listeners.OnUtreexoTTLs != nil {
 				p.cfg.Listeners.OnUtreexoTTLs(p, msg)
 			}
@@ -1655,7 +1656,7 @@ out:
 				p.cfg.Listeners.OnGetHeaders(p, msg)
 			}
 
-		case *wire.MsgGetUtreexoRoot:
+		case *bip183.MsgGetUtreexoRoot:
 			if p.cfg.Listeners.OnGetUtreexoRoot != nil {
 				p.cfg.Listeners.OnGetUtreexoRoot(p, msg)
 			}
@@ -2416,14 +2417,14 @@ func (p *Peer) waitToFinishNegotiation(pver uint32) error {
 // peer. The events should occur in the following order, otherwise an error is
 // returned:
 //
-//   1. Remote peer sends their version.
-//   2. We send our version.
-//   3. We send sendaddrv2 if their version is >= 70016.
-//   4. We send our verack.
-//   5. Wait until sendaddrv2 or verack is received. Unknown messages are
-//      skipped as it could be wtxidrelay or a different message in the future
-//      that btcd does not implement but bitcoind does.
-//   6. If remote peer sent sendaddrv2 above, wait until receipt of verack.
+//  1. Remote peer sends their version.
+//  2. We send our version.
+//  3. We send sendaddrv2 if their version is >= 70016.
+//  4. We send our verack.
+//  5. Wait until sendaddrv2 or verack is received. Unknown messages are
+//     skipped as it could be wtxidrelay or a different message in the future
+//     that btcd does not implement but bitcoind does.
+//  6. If remote peer sent sendaddrv2 above, wait until receipt of verack.
 func (p *Peer) negotiateInboundProtocol() error {
 	// We may be anticipating a v2 connection, but if the initiating peer
 	// sends us a v1 version message, we need to note down that we've
@@ -2490,13 +2491,13 @@ func (p *Peer) negotiateInboundProtocol() error {
 // peer. The events should occur in the following order, otherwise an error is
 // returned:
 //
-//   1. We send our version.
-//   2. Remote peer sends their version.
-//   3. We send sendaddrv2 if their version is >= 70016.
-//   4. We send our verack.
-//   5. We wait to receive sendaddrv2 or verack, skipping unknown messages as
-//      in the inbound case.
-//   6. If sendaddrv2 was received, wait for receipt of verack.
+//  1. We send our version.
+//  2. Remote peer sends their version.
+//  3. We send sendaddrv2 if their version is >= 70016.
+//  4. We send our verack.
+//  5. We wait to receive sendaddrv2 or verack, skipping unknown messages as
+//     in the inbound case.
+//  6. If sendaddrv2 was received, wait for receipt of verack.
 func (p *Peer) negotiateOutboundProtocol() error {
 	if p.cfg.UsingV2Conn {
 		// Note that it's possible that the v2 handshake fails because

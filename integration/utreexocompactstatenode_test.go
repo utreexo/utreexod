@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -22,10 +23,10 @@ import (
 // returns the blocks and their corresponding UData separately. This is needed for
 // testing SubmitBlockAndUtreexoProof which takes block and UData as separate parameters.
 func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
-	[]*btcutil.Block, []*wire.UData, error) {
+	[]*btcutil.Block, []*bip183.UData, error) {
 
 	blocks := make([]*btcutil.Block, 0, len(blockhashes))
-	udatas := make([]*wire.UData, 0, len(blockhashes))
+	udatas := make([]*bip183.UData, 0, len(blockhashes))
 
 	for _, blockhash := range blockhashes {
 		msgBlock, err := harness.Client.GetBlock(blockhash)
@@ -51,8 +52,8 @@ func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
 	return blocks, udatas, nil
 }
 
-// jsonToUData converts the JSON utreexo proof result to wire.UData.
-func jsonToUData(utreexoProof *btcjson.GetUtreexoProofVerboseResult) (*wire.UData, error) {
+// jsonToUData converts the JSON utreexo proof result to bip183.UData.
+func jsonToUData(utreexoProof *btcjson.GetUtreexoProofVerboseResult) (*bip183.UData, error) {
 	lds := []wire.LeafData{}
 	for _, ldString := range utreexoProof.TargetPreimages {
 		raw, err := hex.DecodeString(ldString)
@@ -78,7 +79,7 @@ func jsonToUData(utreexoProof *btcjson.GetUtreexoProofVerboseResult) (*wire.UDat
 	}
 	accProof := utreexo.Proof{Targets: utreexoProof.ProofTargets, Proof: proofHashes}
 
-	udata := wire.UData{
+	udata := bip183.UData{
 		AccProof:  accProof,
 		LeafDatas: lds,
 	}

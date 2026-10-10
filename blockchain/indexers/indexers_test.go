@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -173,7 +174,7 @@ func compareUtreexoIdx(start, end int32, pruned bool, chain *blockchain.BlockCha
 	for b := start; b <= end; b++ {
 		// Declare the utreexo data and the undo blocks that we'll be
 		// comparing.
-		var utreexoUD, flatUD *wire.UData
+		var utreexoUD, flatUD *bip183.UData
 		var stump, flatStump utreexo.Stump
 		var numAdds, flatNumAdds uint64
 		var proof, flatProof *utreexo.Proof
@@ -282,7 +283,7 @@ func syncCsnChain(start, end int32, chainToSyncFrom, csnChain *blockchain.BlockC
 			return str
 		}
 
-		var flatUD, ud *wire.UData
+		var flatUD, ud *bip183.UData
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
@@ -327,7 +328,7 @@ func testUtreexoProof(block *btcutil.Block, chain *blockchain.BlockChain, indexe
 	}
 
 	// Fetch the proofs from each of the indexes.
-	var flatUD, ud *wire.UData
+	var flatUD, ud *bip183.UData
 	var stump, flatStump utreexo.Stump
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
@@ -995,7 +996,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 	}
 }
 
-func compareSummary(this, other *wire.UtreexoBlockSummary) error {
+func compareSummary(this, other *bip183.UtreexoBlockSummary) error {
 	if !this.BlockHash.IsEqual(&other.BlockHash) {
 		return fmt.Errorf("expected %v, got %v", this.BlockHash, other.BlockHash)
 	}
@@ -1018,8 +1019,8 @@ func compareSummary(this, other *wire.UtreexoBlockSummary) error {
 
 func compareBlockSummaryState(indexes []Indexer, blockHash *chainhash.Hash) error {
 	var err error
-	var flatMsg *wire.UtreexoBlockSummary
-	var msg *wire.UtreexoBlockSummary
+	var flatMsg *bip183.UtreexoBlockSummary
+	var msg *bip183.UtreexoBlockSummary
 
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
@@ -1051,8 +1052,8 @@ func compareBlockSummaryState(indexes []Indexer, blockHash *chainhash.Hash) erro
 
 func compareUtreexoRootsState(indexes []Indexer, blockHash *chainhash.Hash) error {
 	var err error
-	var flatMsg *wire.MsgUtreexoRoot
-	var msg *wire.MsgUtreexoRoot
+	var flatMsg *bip183.MsgUtreexoRoot
+	var msg *bip183.MsgUtreexoRoot
 	for _, indexer := range indexes {
 		switch idxType := indexer.(type) {
 		case *FlatUtreexoProofIndex:
@@ -1175,7 +1176,7 @@ func TestUtreexoRootsAndSummaryState(t *testing.T) {
 }
 
 // checkTTLsAfterUndo undoes 20 blocks and checks that the ttls match up against the expected values.
-func checkTTLsAfterUndo(t *testing.T, expected [][]wire.TTLInfo, indexes []Indexer, chain *blockchain.BlockChain) {
+func checkTTLsAfterUndo(t *testing.T, expected [][]bip183.TTLInfo, indexes []Indexer, chain *blockchain.BlockChain) {
 	hashes := make([]chainhash.Hash, 0, len(expected))
 
 	bestSnapshot := chain.BestSnapshot()
@@ -1298,7 +1299,7 @@ func TestTTLs(t *testing.T) {
 	maxHeight := int32(420)
 
 	expectedStumps := make([]utreexo.Stump, 0, maxHeight)
-	expectAfterUndoTTLs := make([][]wire.TTLInfo, 0, maxHeight)
+	expectAfterUndoTTLs := make([][]bip183.TTLInfo, 0, maxHeight)
 
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
 	for i := int32(1); i <= maxHeight; i++ {
@@ -1337,7 +1338,7 @@ func TestTTLs(t *testing.T) {
 				stump := utreexo.Stump{}
 
 				// Add block 0 ttls.
-				emptyTTL := wire.UtreexoTTL{}
+				emptyTTL := bip183.UtreexoTTL{}
 				buf := bytes.NewBuffer(make([]byte, 0, emptyTTL.SerializeSize()))
 				err = emptyTTL.Serialize(buf)
 				if err != nil {
@@ -1354,7 +1355,7 @@ func TestTTLs(t *testing.T) {
 						t.Fatal(err)
 					}
 
-					ttl := wire.UtreexoTTL{
+					ttl := bip183.UtreexoTTL{
 						BlockHeight: uint32(h),
 						TTLs:        ttls,
 					}

@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -1894,14 +1895,14 @@ func TestRBFUtreexoDataFailure(t *testing.T) {
 	// remember=true call, simulating the accumulator state changing
 	// between the initial proof check and the ingestion.
 	harness.txPool.cfg.IsUtreexoViewActive = func() bool { return true }
-	harness.txPool.cfg.VerifyUData = func(ud *wire.UData, txIns []*wire.TxIn, remember bool) error {
+	harness.txPool.cfg.VerifyUData = func(ud *bip183.UData, txIns []*wire.TxIn, remember bool) error {
 		if remember {
 			return fmt.Errorf("simulated accumulator state change")
 		}
 		return nil
 	}
 
-	udata := &wire.UData{
+	udata := &bip183.UData{
 		LeafDatas: []wire.LeafData{{
 			OutPoint: replacementTx.MsgTx().TxIn[0].PreviousOutPoint,
 			Amount:   coinbase.MsgTx().TxOut[0].Value,

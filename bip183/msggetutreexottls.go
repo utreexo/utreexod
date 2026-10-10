@@ -2,13 +2,15 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"fmt"
 	"io"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/internal/btcdwire"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // MsgGetUtreexoTTLs implements the Message interface and represents a bitcoin
@@ -29,22 +31,22 @@ type MsgGetUtreexoTTLs struct {
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
 // This is part of the Message interface implementation.
-func (msg *MsgGetUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
-	bs := newSerializer()
-	defer bs.free()
+func (msg *MsgGetUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEncoding) error {
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
 
 	var err error
-	msg.Version, err = bs.Uint32(r, littleEndian)
+	msg.Version, err = btcdwire.ReadUint32(r, buf[:])
 	if err != nil {
 		return err
 	}
 
-	msg.StartHeight, err = bs.Uint32(r, littleEndian)
+	msg.StartHeight, err = btcdwire.ReadUint32(r, buf[:])
 	if err != nil {
 		return err
 	}
 
-	msg.MaxReceiveExponent, err = bs.Uint8(r)
+	msg.MaxReceiveExponent, err = btcdwire.ReadUint8(r, buf[:])
 	if err != nil {
 		return err
 	}
@@ -53,13 +55,13 @@ func (msg *MsgGetUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc MessageEnc
 		str := fmt.Sprintf("version cannot be lower than startheight "+
 			"[version %v, startheight %v]",
 			msg.Version, msg.StartHeight)
-		return messageError("MsgGetUtreexoTTLs.BtcDecode", str)
+		return btcdwire.NewMessageError("MsgGetUtreexoTTLs.BtcDecode", str)
 	}
 
 	if msg.MaxReceiveExponent > MaxUtreexoTTLExponent {
 		str := fmt.Sprintf("exponent too high in message [max %v, got %v]",
 			MaxUtreexoTTLExponent, msg.MaxReceiveExponent)
-		return messageError("MsgGetUtreexoTTLs.BtcDecode", str)
+		return btcdwire.NewMessageError("MsgGetUtreexoTTLs.BtcDecode", str)
 	}
 
 	return nil
@@ -67,34 +69,34 @@ func (msg *MsgGetUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc MessageEnc
 
 // BtcEncode encodes the receiver to w using the bitcoin protocol encoding.
 // This is part of the Message interface implementation.
-func (msg *MsgGetUtreexoTTLs) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
+func (msg *MsgGetUtreexoTTLs) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEncoding) error {
 	if msg.MaxReceiveExponent > MaxUtreexoTTLExponent {
 		str := fmt.Sprintf("exponent too high in message [max %v, got %v]",
 			MaxUtreexoTTLExponent, msg.MaxReceiveExponent)
-		return messageError("MsgGetUtreexoTTLs.BtcEncode", str)
+		return btcdwire.NewMessageError("MsgGetUtreexoTTLs.BtcEncode", str)
 	}
 
 	if msg.Version < msg.StartHeight {
 		str := fmt.Sprintf("version cannot be lower than startheight "+
 			"[version %v, startheight %v]",
 			msg.Version, msg.StartHeight)
-		return messageError("MsgGetUtreexoTTLs.BtcEncode", str)
+		return btcdwire.NewMessageError("MsgGetUtreexoTTLs.BtcEncode", str)
 	}
 
-	bs := newSerializer()
-	defer bs.free()
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
 
-	err := bs.PutUint32(w, littleEndian, msg.Version)
+	err := btcdwire.WriteUint32(w, buf[:], msg.Version)
 	if err != nil {
 		return err
 	}
 
-	err = bs.PutUint32(w, littleEndian, msg.StartHeight)
+	err = btcdwire.WriteUint32(w, buf[:], msg.StartHeight)
 	if err != nil {
 		return err
 	}
 
-	return bs.PutUint8(w, msg.MaxReceiveExponent)
+	return btcdwire.WriteUint8(w, buf[:], msg.MaxReceiveExponent)
 }
 
 // Command returns the protocol command string for the message.  This is part

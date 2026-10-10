@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"io"
@@ -10,17 +10,18 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // MaxUtreexoRootMsgSize is the very maximum size of a utreexo root message.
-const MaxUtreexoRootMsgSize = (MaxVarIntPayload * 2) + chainhash.HashSize + maxRootSize + maxProofSize
+const MaxUtreexoRootMsgSize = (wire.MaxVarIntPayload * 2) + chainhash.HashSize + maxRootSize + maxProofSize
 
 // maxRoots is 63 because that's the maximum roots there can be with numleaves as uint64.
-const maxRootSize = (63 * chainhash.HashSize) + MaxVarIntPayload
+const maxRootSize = (63 * chainhash.HashSize) + wire.MaxVarIntPayload
 
 // maxProofSize is just the proof count * the hashsize. Proof count is calculated from
 // the max accumulator height which is represented as an uint8.
-const maxProofSize = (math.MaxUint8 * chainhash.HashSize) + MaxVarIntPayload
+const maxProofSize = (math.MaxUint8 * chainhash.HashSize) + wire.MaxVarIntPayload
 
 // MsgUtreexoRoots implements the Message interface and represents a bitcoin
 // utreexo root message. It's used to deliver the roots and the optional proof
@@ -37,14 +38,14 @@ type MsgUtreexoRoot struct {
 // This is part of the Message interface implementation.
 // See Deserialize for decoding transactions stored to disk, such as in a
 // database, as opposed to decoding transactions from the wire.
-func (msg *MsgUtreexoRoot) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
+func (msg *MsgUtreexoRoot) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEncoding) error {
 	var err error
-	msg.NumLeaves, err = ReadVarInt(r, pver)
+	msg.NumLeaves, err = wire.ReadVarInt(r, pver)
 	if err != nil {
 		return err
 	}
 
-	msg.Target, err = ReadVarInt(r, pver)
+	msg.Target, err = wire.ReadVarInt(r, pver)
 	if err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func (msg *MsgUtreexoRoot) BtcDecode(r io.Reader, pver uint32, enc MessageEncodi
 		return err
 	}
 
-	rootCount, err := ReadVarInt(r, 0)
+	rootCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
@@ -66,7 +67,7 @@ func (msg *MsgUtreexoRoot) BtcDecode(r io.Reader, pver uint32, enc MessageEncodi
 		}
 	}
 
-	proofCount, err := ReadVarInt(r, 0)
+	proofCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
@@ -85,12 +86,12 @@ func (msg *MsgUtreexoRoot) BtcDecode(r io.Reader, pver uint32, enc MessageEncodi
 // This is part of the Message interface implementation.
 // See Serialize for encoding blocks to be stored to disk, such as in a
 // database, as opposed to encoding blocks for the wire.
-func (msg *MsgUtreexoRoot) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
-	err := WriteVarInt(w, 0, (msg.NumLeaves))
+func (msg *MsgUtreexoRoot) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEncoding) error {
+	err := wire.WriteVarInt(w, 0, (msg.NumLeaves))
 	if err != nil {
 		return err
 	}
-	err = WriteVarInt(w, 0, msg.Target)
+	err = wire.WriteVarInt(w, 0, msg.Target)
 	if err != nil {
 		return err
 	}
@@ -99,7 +100,7 @@ func (msg *MsgUtreexoRoot) BtcEncode(w io.Writer, pver uint32, enc MessageEncodi
 		return err
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(msg.Roots)))
+	err = wire.WriteVarInt(w, 0, uint64(len(msg.Roots)))
 	if err != nil {
 		return err
 	}
@@ -110,7 +111,7 @@ func (msg *MsgUtreexoRoot) BtcEncode(w io.Writer, pver uint32, enc MessageEncodi
 		}
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(msg.Proof)))
+	err = wire.WriteVarInt(w, 0, uint64(len(msg.Proof)))
 	if err != nil {
 		return err
 	}

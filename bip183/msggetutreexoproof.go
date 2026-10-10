@@ -2,12 +2,13 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // maxProofIndexBitMapSize is the bitmap size for MaxProofHashes proof hashes. Ceiling divide.
@@ -20,13 +21,13 @@ const maxLeafIndexBitMapSize = (MaxPossibleInputsPerBlock + 7) / 8
 // leafindex bitmap len + maxLeafIndexBitMapSize.
 const MaxGetUtreexoProofSize = chainhash.HashSize +
 	1 +
-	MaxVarIntPayload +
+	wire.MaxVarIntPayload +
 	maxProofIndexBitMapSize +
-	MaxVarIntPayload +
+	wire.MaxVarIntPayload +
 	maxLeafIndexBitMapSize
 
 // Enforce that the MaxGetUtreexoProofSize is smaller than the max message payload.
-var _ [MaxMessagePayload - MaxGetUtreexoProofSize]struct{}
+var _ [wire.MaxMessagePayload - MaxGetUtreexoProofSize]struct{}
 
 // MsgGetUtreexoProof encodes uint64s in varints to request specifics indexes of a
 // utreexoproof from a peer.
@@ -51,7 +52,7 @@ type MsgGetUtreexoProof struct {
 // This is part of the Message interface implementation.
 // See Deserialize for decoding transactions stored to disk, such as in a
 // database, as opposed to decoding transactions from the wire.
-func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
+func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEncoding) error {
 	_, err := r.Read(msg.BlockHash[:])
 	if err != nil {
 		return err
@@ -64,7 +65,7 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEn
 	}
 	msg.RequestBitMap = b[0]
 
-	proofCount, err := ReadVarInt(r, 0)
+	proofCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
@@ -75,7 +76,7 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEn
 		return err
 	}
 
-	leafCount, err := ReadVarInt(r, 0)
+	leafCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
@@ -93,7 +94,7 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc MessageEn
 // This is part of the Message interface implementation.
 // See Serialize for encoding transactions to be stored to disk, such as in a
 // database, as opposed to encoding transactions for the wire.
-func (msg *MsgGetUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
+func (msg *MsgGetUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEncoding) error {
 	_, err := w.Write(msg.BlockHash[:])
 	if err != nil {
 		return err
@@ -104,7 +105,7 @@ func (msg *MsgGetUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEn
 		return err
 	}
 
-	err = WriteVarInt(w, pver, uint64(len(msg.ProofIndexBitMap)))
+	err = wire.WriteVarInt(w, pver, uint64(len(msg.ProofIndexBitMap)))
 	if err != nil {
 		return err
 	}
@@ -114,7 +115,7 @@ func (msg *MsgGetUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc MessageEn
 		return err
 	}
 
-	err = WriteVarInt(w, pver, uint64(len(msg.LeafIndexBitMap)))
+	err = wire.WriteVarInt(w, pver, uint64(len(msg.LeafIndexBitMap)))
 	if err != nil {
 		return err
 	}

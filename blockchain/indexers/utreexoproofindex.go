@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
@@ -156,7 +157,7 @@ func (idx *UtreexoProofIndex) initBlockSummaryState(bestHeight int32) error {
 			return err
 		}
 
-		blockHeader := wire.UtreexoBlockSummary{
+		blockHeader := bip183.UtreexoBlockSummary{
 			BlockHash:    *blockHash,
 			NumAdds:      numAdds,
 			BlockTargets: make([]uint64, len(proof.AccProof.Targets)),
@@ -262,7 +263,7 @@ func (idx *UtreexoProofIndex) Init(chain *blockchain.BlockChain,
 			return err
 		}
 
-		ud := new(wire.UData)
+		ud := new(bip183.UData)
 		err = idx.db.View(func(dbTx database.Tx) error {
 			proofBytes, err := dbFetchUtreexoProofEntry(dbTx, block.Hash())
 			if err != nil {
@@ -377,7 +378,7 @@ func (idx *UtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Bloc
 	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 	idx.mtx.RLock()
-	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
+	ud, err := bip183.GenerateUData(dels, idx.utreexoState.state)
 	idx.mtx.RUnlock()
 	if err != nil {
 		return err
@@ -536,12 +537,12 @@ func (idx *UtreexoProofIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.B
 }
 
 // FetchUtreexoProof returns the Utreexo proof data for the given block hash.
-func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*wire.UData, error) {
+func (idx *UtreexoProofIndex) FetchUtreexoProof(hash *chainhash.Hash) (*bip183.UData, error) {
 	if idx.config.Pruned {
 		return nil, fmt.Errorf("Cannot fetch historical proof as the node is pruned")
 	}
 
-	ud := new(wire.UData)
+	ud := new(bip183.UData)
 	err := idx.db.View(func(dbTx database.Tx) error {
 		proofBytes, err := dbFetchUtreexoProofEntry(dbTx, hash)
 		if err != nil {
@@ -579,11 +580,11 @@ func (idx *UtreexoProofIndex) GetLeafHashPositions(delHashes []utreexo.Hash) []u
 
 // GenerateUDataPartial generates a utreexo data based on the current state of the accumulator.
 // It leaves out the full proof hashes and only fetches the requested positions.
-func (idx *UtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*wire.UData, error) {
+func (idx *UtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*bip183.UData, error) {
 	idx.mtx.RLock()
 	defer idx.mtx.RUnlock()
 
-	ud := new(wire.UData)
+	ud := new(bip183.UData)
 	ud.LeafDatas = dels
 
 	delHashes := make([]utreexo.Hash, 0, len(dels))
@@ -618,9 +619,9 @@ func (idx *UtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positio
 // GenerateUData generates utreexo data for the dels passed in.  Height passed in
 // should either be of block height of where the deletions are happening or just
 // the lastest block height for mempool tx proof generation.
-func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
+func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*bip183.UData, error) {
 	idx.mtx.RLock()
-	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
+	ud, err := bip183.GenerateUData(dels, idx.utreexoState.state)
 	idx.mtx.RUnlock()
 	if err != nil {
 		return nil, err
@@ -727,7 +728,7 @@ func (idx *UtreexoProofIndex) updateRootsState() error {
 
 // updateBlockSummaryState updates the block summary accumulator state with the given inputs.
 func (idx *UtreexoProofIndex) updateBlockSummaryState(numAdds uint64, blockHash *chainhash.Hash, proof utreexo.Proof) error {
-	summary := wire.UtreexoBlockSummary{
+	summary := bip183.UtreexoBlockSummary{
 		BlockHash:    *blockHash,
 		NumAdds:      numAdds,
 		BlockTargets: make([]uint64, len(proof.Targets)),
@@ -778,7 +779,7 @@ func (idx *UtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, lastK
 	return idx.Flush(&bestHash, blockchain.FlushRequired, true)
 }
 
-func (idx *UtreexoProofIndex) fetchBlockSummary(blockHash, prevHash *chainhash.Hash) (*wire.UtreexoBlockSummary, error) {
+func (idx *UtreexoProofIndex) fetchBlockSummary(blockHash, prevHash *chainhash.Hash) (*bip183.UtreexoBlockSummary, error) {
 	ud, err := idx.FetchUtreexoProof(blockHash)
 	if err != nil {
 		return nil, err
@@ -812,7 +813,7 @@ func (idx *UtreexoProofIndex) fetchBlockSummary(blockHash, prevHash *chainhash.H
 
 	numAdds := stump.NumLeaves - prevStump.NumLeaves
 
-	return &wire.UtreexoBlockSummary{
+	return &bip183.UtreexoBlockSummary{
 		BlockHash:    *blockHash,
 		NumAdds:      numAdds,
 		BlockTargets: ud.AccProof.Targets,
@@ -832,7 +833,7 @@ func (idx *UtreexoProofIndex) FetchSummariesRoots() (utreexo.Stump, chainhash.Ha
 }
 
 // FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.
-func (idx *UtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*wire.MsgUtreexoRoot, error) {
+func (idx *UtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*bip183.MsgUtreexoRoot, error) {
 	var stump utreexo.Stump
 	err := idx.db.View(func(dbTx database.Tx) error {
 		var err error
@@ -854,7 +855,7 @@ func (idx *UtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*w
 		return nil, err
 	}
 
-	msg := &wire.MsgUtreexoRoot{
+	msg := &bip183.MsgUtreexoRoot{
 		NumLeaves: stump.NumLeaves,
 		Target:    proof.Targets[0],
 		BlockHash: *blockHash,
@@ -905,7 +906,7 @@ func DropUtreexoProofIndex(db database.DB, dataDir string, interrupt <-chan stru
 
 // Stores the utreexo proof in the database.
 // TODO Use the compact serialization.
-func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *wire.UData) error {
+func dbStoreUtreexoProof(dbTx database.Tx, hash *chainhash.Hash, ud *bip183.UData) error {
 	// Pre-allocated the needed buffer.
 	udSize := ud.SerializeSize()
 	buf := bytes.NewBuffer(make([]byte, 0, udSize))

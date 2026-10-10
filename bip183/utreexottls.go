@@ -2,15 +2,20 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
-import "io"
+import (
+	"io"
+
+	"github.com/utreexo/utreexod/internal/btcdwire"
+	"github.com/utreexo/utreexod/wire"
+)
 
 // MaxUtreexoTTLSize is:
 // height 4 bytes +
 // varint len of ttls +
 // (death height&death block index * max outputs per block)
-const MaxUtreexoTTLSize = 4 + MaxVarIntPayload + (99_984 * (4 + 4))
+const MaxUtreexoTTLSize = 4 + wire.MaxVarIntPayload + (99_984 * (4 + 4))
 
 // TTLInfo is the ttl of the leaf this represents.
 type TTLInfo struct {
@@ -28,7 +33,7 @@ type UtreexoTTL struct {
 // SerializeSize returns how many bytes would be required to serialize the utreexo ttl.
 func (ut *UtreexoTTL) SerializeSize() int {
 	// Size of the BlockHeight and length of TTLs.
-	size := 4 + VarIntSerializeSize(uint64(len(ut.TTLs)))
+	size := 4 + wire.VarIntSerializeSize(uint64(len(ut.TTLs)))
 
 	// Size of DeathHeight & DeathBlkIndex for all the TTLs.
 	size += len(ut.TTLs) * (4 + 4)
@@ -38,28 +43,28 @@ func (ut *UtreexoTTL) SerializeSize() int {
 
 // Deserialize constructs a utreexo ttl from the given reader.
 func (ut *UtreexoTTL) Deserialize(r io.Reader) error {
-	bs := newSerializer()
-	defer bs.free()
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
 
 	var err error
-	ut.BlockHeight, err = bs.Uint32(r, littleEndian)
+	ut.BlockHeight, err = btcdwire.ReadUint32(r, buf[:])
 	if err != nil {
 		return err
 	}
 
-	count, err := ReadVarInt(r, 0)
+	count, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
 	}
 
 	ut.TTLs = make([]TTLInfo, count)
 	for i := range ut.TTLs {
-		ut.TTLs[i].DeathHeight, err = bs.Uint32(r, littleEndian)
+		ut.TTLs[i].DeathHeight, err = btcdwire.ReadUint32(r, buf[:])
 		if err != nil {
 			return err
 		}
 
-		ut.TTLs[i].DeathBlkIndex, err = bs.Uint32(r, littleEndian)
+		ut.TTLs[i].DeathBlkIndex, err = btcdwire.ReadUint32(r, buf[:])
 		if err != nil {
 			return err
 		}
@@ -70,26 +75,26 @@ func (ut *UtreexoTTL) Deserialize(r io.Reader) error {
 
 // Serialize serializes the utreexo ttl to the writer.
 func (ut *UtreexoTTL) Serialize(w io.Writer) error {
-	bs := newSerializer()
-	defer bs.free()
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
 
-	err := bs.PutUint32(w, littleEndian, ut.BlockHeight)
+	err := btcdwire.WriteUint32(w, buf[:], ut.BlockHeight)
 	if err != nil {
 		return err
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(ut.TTLs)))
+	err = wire.WriteVarInt(w, 0, uint64(len(ut.TTLs)))
 	if err != nil {
 		return err
 	}
 
 	for _, ttl := range ut.TTLs {
-		err = bs.PutUint32(w, littleEndian, ttl.DeathHeight)
+		err = btcdwire.WriteUint32(w, buf[:], ttl.DeathHeight)
 		if err != nil {
 			return err
 		}
 
-		err = bs.PutUint32(w, littleEndian, ttl.DeathBlkIndex)
+		err = btcdwire.WriteUint32(w, buf[:], ttl.DeathBlkIndex)
 		if err != nil {
 			return err
 		}

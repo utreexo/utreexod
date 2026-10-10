@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -48,7 +49,7 @@ type Block struct {
 type blockUtreexoData struct {
 	updateData *utreexo.UpdateData // Utreexo update data for this block.
 	adds       []utreexo.Hash      // Hashes of the utreexo leaves being added.
-	leafTTLs   *wire.UtreexoTTL    // The ttls of the leaves created in this block.
+	leafTTLs   *bip183.UtreexoTTL  // The ttls of the leaves created in this block.
 	leafDatas  []wire.LeafData     // The leaves of the inputs in this block.
 	proofData  *utreexo.Proof      // Utreexo proof for this block.
 }
@@ -233,17 +234,17 @@ func (b *Block) SetHeight(height int32) {
 }
 
 // SetUtreexoData stores the serialized Utreexo proof data for this block.
-func (b *Block) SetUtreexoData(data *wire.UData) {
+func (b *Block) SetUtreexoData(data *bip183.UData) {
 	b.setUtreexoDataInternal(data)
 }
 
 // UtreexoData returns the serialized Utreexo proof data for the block.
-func (b *Block) UtreexoData() *wire.UData {
+func (b *Block) UtreexoData() *bip183.UData {
 	if b.utreexoData == nil || b.utreexoData.proofData == nil {
 		return nil
 	}
 
-	return &wire.UData{
+	return &bip183.UData{
 		AccProof:  *b.utreexoData.proofData,
 		LeafDatas: b.utreexoData.leafDatas,
 	}
@@ -280,12 +281,12 @@ func (b *Block) UtreexoAdds() []utreexo.Hash {
 }
 
 // SetUtreexoTTLs sets the ttls for this block.
-func (b *Block) SetUtreexoTTLs(ttls *wire.UtreexoTTL) {
+func (b *Block) SetUtreexoTTLs(ttls *bip183.UtreexoTTL) {
 	b.ensureUtreexoData().leafTTLs = ttls
 }
 
 // UtreexoTTLs returns the ttls for this block.
-func (b *Block) UtreexoTTLs() *wire.UtreexoTTL {
+func (b *Block) UtreexoTTLs() *bip183.UtreexoTTL {
 	if b.utreexoData == nil {
 		return nil
 	}
@@ -414,7 +415,7 @@ func (b *Block) attachUtreexoDataFromSerialized(serialized []byte) {
 	extra := serialized[baseLen:]
 	r := bytes.NewReader(extra)
 
-	ud := new(wire.UData)
+	ud := new(bip183.UData)
 	if err := ud.Deserialize(r); err != nil {
 		return
 	}
@@ -436,7 +437,7 @@ func (b *Block) baseBlockSerializeLen() int {
 }
 
 // setUtreexoDataInternal stores the provided Utreexo data.
-func (b *Block) setUtreexoDataInternal(data *wire.UData) {
+func (b *Block) setUtreexoDataInternal(data *bip183.UData) {
 	if data == nil {
 		b.utreexoData.proofData = nil
 		b.utreexoData.leafDatas = nil

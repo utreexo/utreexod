@@ -50,7 +50,7 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 
 // ProcessUData updates the underlying accumulator. It does NOT check if the verification passes.
 func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
-	bestChain *chainView, ud *wire.UData) error {
+	bestChain *chainView, ud *bip183.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
@@ -132,7 +132,7 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 // VerifyUData checks the accumulator proof to ensure that the leaf preimages exist in the
 // accumulator.
 func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
-	bestChain *chainView, ud *wire.UData) error {
+	bestChain *chainView, ud *bip183.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
@@ -182,7 +182,7 @@ func (uview *UtreexoViewpoint) AddProof(delHashes []utreexo.Hash, accProof *utre
 // are the leaves passed in.
 //
 // This function is NOT safe for concurrent access.
-func (uview *UtreexoViewpoint) Modify(ud *wire.UData,
+func (uview *UtreexoViewpoint) Modify(ud *bip183.UData,
 	adds []utreexo.Leaf, dels []utreexo.Hash) (*utreexo.UpdateData, error) {
 
 	addHashes := make([]utreexo.Hash, len(adds))
@@ -355,7 +355,7 @@ func sortUint32s(s []uint32) {
 
 // ProofSanity checks that the UData that was given proves the same outPoints that
 // is included in the corresponding block.
-func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
+func ProofSanity(ud *bip183.UData, outPoints []wire.OutPoint) error {
 	// Check that the length is the same.
 	if len(outPoints) != len(ud.LeafDatas) {
 		err := fmt.Errorf("ProofSanity error. %d outpoints need proofs but %d proven\n",
@@ -383,7 +383,7 @@ func ProofSanity(ud *wire.UData, outPoints []wire.OutPoint) error {
 // block in a side chain.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) ReconstructUData(ud *wire.UData, blockHash chainhash.Hash) ([]utreexo.Hash, error) {
+func (b *BlockChain) ReconstructUData(ud *bip183.UData, blockHash chainhash.Hash) ([]utreexo.Hash, error) {
 	block, err := b.BlockByHash(&blockHash)
 	if err != nil {
 		return nil, err
@@ -403,7 +403,7 @@ func (b *BlockChain) ReconstructUData(ud *wire.UData, blockHash chainhash.Hash) 
 // that were commited into the accumulator.
 //
 // This function is safe for concurrent access.
-func reconstructUData(ud *wire.UData, block *btcutil.Block, chainView *chainView,
+func reconstructUData(ud *bip183.UData, block *btcutil.Block, chainView *chainView,
 	inskip []uint32) ([]utreexo.Hash, error) {
 	if chainView == nil {
 		return nil, fmt.Errorf("Passed in chainView is nil. Cannot make compact udata to full")
@@ -929,7 +929,7 @@ func (b *BlockChain) IsAssumeUtreexo() bool {
 //
 // This function does not modify the underlying UtreexoViewpoint.
 // This function is safe for concurrent access.
-func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bool) error {
+func (b *BlockChain) VerifyUData(ud *bip183.UData, txIns []*wire.TxIn, remember bool) error {
 	// Nothing to prove.
 	if len(txIns) == 0 {
 		return nil
@@ -985,11 +985,11 @@ func (b *BlockChain) VerifyUData(ud *wire.UData, txIns []*wire.TxIn, remember bo
 // It leaves out the full proof hashes and only fetches the requested positions.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*wire.UData, error) {
+func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*bip183.UData, error) {
 	b.chainLock.RLock()
 	defer b.chainLock.RUnlock()
 
-	ud := new(wire.UData)
+	ud := new(bip183.UData)
 	ud.LeafDatas = dels
 
 	delHashes := make([]utreexo.Hash, 0, len(dels))
@@ -1020,11 +1020,11 @@ func (b *BlockChain) GenerateUDataPartial(dels []wire.LeafData, positions []uint
 // GenerateUData generates a utreexo data based on the current state of the utreexo viewpoint.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
+func (b *BlockChain) GenerateUData(dels []wire.LeafData) (*bip183.UData, error) {
 	b.chainLock.RLock()
 	defer b.chainLock.RUnlock()
 
-	ud, err := wire.GenerateUData(dels, &b.utreexoView.accumulator)
+	ud, err := bip183.GenerateUData(dels, &b.utreexoView.accumulator)
 	if err != nil {
 		return nil, err
 	}
@@ -1162,7 +1162,7 @@ func (ctp *ChainTipProof) Serialize(w io.Writer) error {
 		return err
 	}
 
-	err = wire.BatchProofSerialize(w, ctp.AccProof)
+	err = bip183.BatchProofSerialize(w, ctp.AccProof)
 	if err != nil {
 		return err
 	}
@@ -1195,7 +1195,7 @@ func (ctp *ChainTipProof) Deserialize(r io.Reader) error {
 
 	ctp.ProvedAtHash = &provedAtHash
 
-	bp, err := wire.BatchProofDeserialize(r)
+	bp, err := bip183.BatchProofDeserialize(r)
 	if err != nil {
 		return err
 	}

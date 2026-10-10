@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"fmt"
@@ -11,14 +11,15 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // BatchProofSerializeTargetSize returns how many bytes it would take to serialize all
 // the targets in the batch proof.
 func BatchProofSerializeTargetSize(bp *utreexo.Proof) int {
-	size := VarIntSerializeSize(uint64(len(bp.Targets)))
+	size := wire.VarIntSerializeSize(uint64(len(bp.Targets)))
 	for _, target := range bp.Targets {
-		size += VarIntSerializeSize(target)
+		size += wire.VarIntSerializeSize(target)
 	}
 
 	return size
@@ -27,7 +28,7 @@ func BatchProofSerializeTargetSize(bp *utreexo.Proof) int {
 // BatchProofAccProofSize returns how many bytes it would take to serialize the
 // accumulator proof in the batch proof.
 func BatchProofSerializeAccProofSize(bp *utreexo.Proof) int {
-	size := VarIntSerializeSize(uint64(len(bp.Proof)))
+	size := wire.VarIntSerializeSize(uint64(len(bp.Proof)))
 	size += chainhash.HashSize * len(bp.Proof)
 	return size
 }
@@ -66,13 +67,13 @@ func BatchProofSerializeSize(bp *utreexo.Proof) int {
 
 // ProofTargetsSerialize serializes the targets to w.
 func ProofTargetsSerialize(w io.Writer, targets []uint64) error {
-	err := WriteVarInt(w, 0, uint64(len(targets)))
+	err := wire.WriteVarInt(w, 0, uint64(len(targets)))
 	if err != nil {
 		return err
 	}
 
 	for _, t := range targets {
-		err = WriteVarInt(w, 0, t)
+		err = wire.WriteVarInt(w, 0, t)
 		if err != nil {
 			return err
 		}
@@ -83,7 +84,7 @@ func ProofTargetsSerialize(w io.Writer, targets []uint64) error {
 
 // ProofHashesSerialize serializes the hashes to w.
 func ProofHashesSerialize(w io.Writer, hashes []utreexo.Hash) error {
-	err := WriteVarInt(w, 0, uint64(len(hashes)))
+	err := wire.WriteVarInt(w, 0, uint64(len(hashes)))
 	if err != nil {
 		return err
 	}
@@ -113,7 +114,7 @@ func BatchProofSerialize(w io.Writer, bp *utreexo.Proof) error {
 // ProofTargetsDeserialize deserializes r to targets using the BatchProof
 // serialization format.
 func ProofTargetsDeserialize(r io.Reader) ([]uint64, error) {
-	targetCount, err := ReadVarInt(r, 0)
+	targetCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +124,7 @@ func ProofTargetsDeserialize(r io.Reader) ([]uint64, error) {
 
 	targets := make([]uint64, 0, targetCount)
 	for i := 0; i < int(targetCount); i++ {
-		target, err := ReadVarInt(r, 0)
+		target, err := wire.ReadVarInt(r, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -137,7 +138,7 @@ func ProofTargetsDeserialize(r io.Reader) ([]uint64, error) {
 // ProofHashesDeserialize deserializes r to proof hashes using the BatchProof
 // serialization format.
 func ProofHashesDeserialize(r io.Reader) ([]utreexo.Hash, error) {
-	proofCount, err := ReadVarInt(r, 0)
+	proofCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return nil, err
 	}

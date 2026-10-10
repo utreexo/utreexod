@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"fmt"
@@ -11,6 +11,8 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/internal/btcdwire"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // MaxUtreexoTTLExponent is the maximum exponent you can ask for in a bitcoin getutreexosummaries
@@ -21,11 +23,11 @@ const MaxUtreexoTTLExponent = 5
 const MaxUtreexoTTLsPerMsg = 1 << MaxUtreexoTTLExponent
 
 // MaxUtreexoTTLsSize is the maximum size that the MsgUtreexoTTLs can be.
-const MaxUtreexoTTLsSize = (MaxUtreexoTTLsPerMsg * MaxUtreexoTTLSize) + (2 * MaxVarIntPayload) +
+const MaxUtreexoTTLsSize = (MaxUtreexoTTLsPerMsg * MaxUtreexoTTLSize) + (2 * wire.MaxVarIntPayload) +
 	(chainhash.HashSize * math.MaxUint8)
 
 // Enforce that the MaxUtreexoTTLsSize is smaller than the max message payload.
-var _ [MaxMessagePayload - MaxUtreexoTTLsSize]struct{}
+var _ [wire.MaxMessagePayload - MaxUtreexoTTLsSize]struct{}
 
 // MsgUtreexoTTLs implements the Message interface and represents a bitcoin
 // utreexottls message. It has the utreexo ttls which is used as a
@@ -41,8 +43,8 @@ type MsgUtreexoTTLs struct {
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
 // This is part of the Message interface implementation.
-func (msg *MsgUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
-	count, err := ReadVarInt(r, pver)
+func (msg *MsgUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEncoding) error {
+	count, err := wire.ReadVarInt(r, pver)
 	if err != nil {
 		return err
 	}
@@ -50,7 +52,7 @@ func (msg *MsgUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc MessageEncodi
 	if count > MaxUtreexoTTLsPerMsg {
 		str := fmt.Sprintf("too many utreexo ttls for message "+
 			"[count %v, max %v]", count, MaxUtreexoTTLsPerMsg)
-		return messageError("MsgUtreexoTTLs.BtcDecode", str)
+		return btcdwire.NewMessageError("MsgUtreexoTTLs.BtcDecode", str)
 	}
 
 	msg.TTLs = make([]UtreexoTTL, count)
@@ -61,7 +63,7 @@ func (msg *MsgUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc MessageEncodi
 		}
 	}
 
-	count, err = ReadVarInt(r, pver)
+	count, err = wire.ReadVarInt(r, pver)
 	if err != nil {
 		return err
 	}
@@ -79,16 +81,16 @@ func (msg *MsgUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc MessageEncodi
 
 // BtcEncode encodes the receiver to w using the bitcoin protocol encoding.
 // This is part of the Message interface implementation.
-func (msg *MsgUtreexoTTLs) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
+func (msg *MsgUtreexoTTLs) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEncoding) error {
 	count := len(msg.TTLs)
 
 	if count > MaxUtreexoTTLsPerMsg {
 		str := fmt.Sprintf("too many utreexo ttls for message "+
 			"[count %v, max %v]", count, MaxUtreexoTTLsPerMsg)
-		return messageError("MsgUtreexoTTLs.BtcEncode", str)
+		return btcdwire.NewMessageError("MsgUtreexoTTLs.BtcEncode", str)
 	}
 
-	err := WriteVarInt(w, 0, uint64(len(msg.TTLs)))
+	err := wire.WriteVarInt(w, 0, uint64(len(msg.TTLs)))
 	if err != nil {
 		return err
 	}
@@ -100,7 +102,7 @@ func (msg *MsgUtreexoTTLs) BtcEncode(w io.Writer, pver uint32, enc MessageEncodi
 		}
 	}
 
-	err = WriteVarInt(w, 0, uint64(len(msg.ProofHashes)))
+	err = wire.WriteVarInt(w, 0, uint64(len(msg.ProofHashes)))
 	if err != nil {
 		return err
 	}

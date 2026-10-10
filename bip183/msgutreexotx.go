@@ -2,12 +2,13 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"io"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/wire"
 )
 
 // MsgUtreexoTx implements the Message interface and represents a bitcoin utreexo
@@ -19,13 +20,13 @@ import (
 // inputs and outputs.
 type MsgUtreexoTx struct {
 	// MsgTx is the underlying Bitcoin transaction message.
-	MsgTx
+	wire.MsgTx
 
 	// AccProof is the utreexo accumulator proof for all the inputs.
 	AccProof utreexo.Proof
 
 	// LeafDatas are the tx validation data for every input.
-	LeafDatas []LeafData
+	LeafDatas []wire.LeafData
 }
 
 // Copy creates a deep copy of a transaction so that the original does not get
@@ -42,7 +43,7 @@ func (msg *MsgUtreexoTx) Copy() *MsgUtreexoTx {
 	copy(proofCopy.Proof, msg.AccProof.Proof)
 
 	// Copy leaf datas.
-	LeafDatas := make([]LeafData, len(msg.LeafDatas))
+	LeafDatas := make([]wire.LeafData, len(msg.LeafDatas))
 	for i := range LeafDatas {
 		LeafDatas[i] = *msg.LeafDatas[i].Copy()
 	}
@@ -60,7 +61,7 @@ func (msg *MsgUtreexoTx) Copy() *MsgUtreexoTx {
 // This is part of the Message interface implementation.
 // See Deserialize for decoding transactions stored to disk, such as in a
 // database, as opposed to decoding transactions from the wire.
-func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
+func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEncoding) error {
 	// Decode the batchproof.
 	proof, err := BatchProofDeserialize(r)
 	if err != nil {
@@ -69,7 +70,7 @@ func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding
 	msg.AccProof = *proof
 
 	// Decode the MsgTx.
-	var msgTx MsgTx
+	var msgTx wire.MsgTx
 	err = msgTx.BtcDecode(r, pver, enc)
 	if err != nil {
 		return err
@@ -84,12 +85,12 @@ func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding
 
 	// Go through each of the txIn and attempt to deserialize if the
 	// txIn has a leaf data.
-	msg.LeafDatas = make([]LeafData, 0, len(msg.MsgTx.TxIn))
+	msg.LeafDatas = make([]wire.LeafData, 0, len(msg.MsgTx.TxIn))
 	for _, txIn := range msgTx.TxIn {
 		isUnconfirmed := txIn.PreviousOutPoint.Index&1 == 1
 		txIn.PreviousOutPoint.Index >>= 1
 
-		var ld LeafData
+		var ld wire.LeafData
 		ld.OutPoint = txIn.PreviousOutPoint
 
 		// Skip if the txIn is unconfimred because it won't
@@ -124,14 +125,14 @@ func (msg *MsgUtreexoTx) Deserialize(r io.Reader) error {
 	// At the current time, there is no difference between the wire encoding
 	// at protocol version 0 and the stable long-term storage format.  As
 	// a result, make use of BtcDecode.
-	return msg.BtcDecode(r, 0, WitnessEncoding)
+	return msg.BtcDecode(r, 0, wire.WitnessEncoding)
 }
 
 // BtcEncode encodes the receiver to w using the bitcoin protocol encoding.
 // This is part of the Message interface implementation.
 // See Serialize for encoding transactions to be stored to disk, such as in a
 // database, as opposed to encoding transactions for the wire.
-func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
+func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEncoding) error {
 	// Write batch proof.
 	err := BatchProofSerialize(w, &msg.AccProof)
 	if err != nil {
@@ -172,7 +173,7 @@ func (msg *MsgUtreexoTx) Command() string {
 // MaxPayloadLength returns the maximum length the payload can be for the
 // receiver.  This is part of the Message interface implementation.
 func (msg *MsgUtreexoTx) MaxPayloadLength(pver uint32) uint32 {
-	return MaxBlockPayload
+	return wire.MaxBlockPayload
 }
 
 // NewMsgUtreexoTx returns a new bitcoin utreexotx message that conforms to the
@@ -180,6 +181,6 @@ func (msg *MsgUtreexoTx) MaxPayloadLength(pver uint32) uint32 {
 // is initialized to the default values.
 func NewMsgUtreexoTx(version int32) *MsgUtreexoTx {
 	return &MsgUtreexoTx{
-		MsgTx: *NewMsgTx(1),
+		MsgTx: *wire.NewMsgTx(1),
 	}
 }

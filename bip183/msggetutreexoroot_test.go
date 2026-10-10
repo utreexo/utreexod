@@ -2,13 +2,14 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip183
 
 import (
 	"bytes"
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/utreexo/utreexod/wire"
 )
 
 var genesisHash = chainhash.Hash([chainhash.HashSize]byte{ // Make go vet happy.
@@ -32,7 +33,7 @@ func TestMsgGetUtreexoRootEncode(t *testing.T) {
 
 		// Encode.
 		var buf bytes.Buffer
-		err := beforeMsg.BtcEncode(&buf, 0, LatestEncoding)
+		err := beforeMsg.BtcEncode(&buf, 0, wire.LatestEncoding)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +42,7 @@ func TestMsgGetUtreexoRootEncode(t *testing.T) {
 
 		afterMsg := MsgGetUtreexoRoot{}
 		r := bytes.NewReader(serialized)
-		err = afterMsg.BtcDecode(r, 0, LatestEncoding)
+		err = afterMsg.BtcDecode(r, 0, wire.LatestEncoding)
 		if err != nil {
 			t.Fatal(err)
 		}

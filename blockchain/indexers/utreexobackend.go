@@ -14,10 +14,10 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (
@@ -259,7 +259,7 @@ func (idx *FlatUtreexoProofIndex) CloseUtreexoState() error {
 // serializeUndoBlock serializes all the data that's needed for undoing a full utreexo state
 // into a slice of bytes.
 func serializeUndoBlock(proof *utreexo.Proof, delHashes []utreexo.Hash) ([]byte, error) {
-	proofSize := wire.BatchProofSerializeSize(proof)
+	proofSize := bip183.BatchProofSerializeSize(proof)
 	delHashesCountSize := 4
 	delHashesSize := len(delHashes) * chainhash.HashSize
 
@@ -268,7 +268,7 @@ func serializeUndoBlock(proof *utreexo.Proof, delHashes []utreexo.Hash) ([]byte,
 	// Write the proof.
 	//
 	// Proofs are prefixed with the count in uint32.
-	err := wire.BatchProofSerialize(w, proof)
+	err := bip183.BatchProofSerialize(w, proof)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +297,7 @@ func serializeUndoBlock(proof *utreexo.Proof, delHashes []utreexo.Hash) ([]byte,
 func deserializeUndoBlock(serialized []byte) (*utreexo.Proof, []utreexo.Hash, error) {
 	r := bytes.NewReader(serialized)
 
-	proof, err := wire.BatchProofDeserialize(r)
+	proof, err := bip183.BatchProofDeserialize(r)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -387,7 +387,7 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 		}
 		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
-		ud, err := wire.GenerateUData(dels, us.state)
+		ud, err := bip183.GenerateUData(dels, us.state)
 		if err != nil {
 			return err
 		}
