@@ -22,10 +22,6 @@ const (
 	// InvWitnessFlag denotes that the inventory vector type is requesting,
 	// or sending a version which includes witness data.
 	InvWitnessFlag = 1 << 30
-
-	// InvUtreexoFlag denotes that the inventory vector type is requesting,
-	// or sending a version which includes the utreexo accumulator data.
-	InvUtreexoFlag = 1 << 24
 )
 
 // InvType represents the allowed types of inventory vectors.  See InvVect.
@@ -39,11 +35,8 @@ const (
 	InvTypeFilteredBlock        InvType = 3
 	InvTypeCompactBlock         InvType = 4
 	InvTypeWTXIDTx              InvType = 5
-	InvTypeUtreexoProofHash     InvType = 6
 	InvTypeWitnessBlock         InvType = InvTypeBlock | InvWitnessFlag
 	InvTypeWitnessTx            InvType = InvTypeTx | InvWitnessFlag
-	InvTypeUtreexoTx            InvType = InvTypeTx | InvUtreexoFlag
-	InvTypeWitnessUtreexoTx     InvType = InvTypeTx | InvWitnessFlag | InvUtreexoFlag
 	InvTypeFilteredWitnessBlock InvType = InvTypeFilteredBlock | InvWitnessFlag
 )
 
@@ -53,11 +46,8 @@ var ivStrings = map[InvType]string{
 	InvTypeTx:                   "MSG_TX",
 	InvTypeBlock:                "MSG_BLOCK",
 	InvTypeFilteredBlock:        "MSG_FILTERED_BLOCK",
-	InvTypeUtreexoProofHash:     "MSG_UTREEXO_PROOF_HASH",
 	InvTypeWitnessBlock:         "MSG_WITNESS_BLOCK",
 	InvTypeWitnessTx:            "MSG_WITNESS_TX",
-	InvTypeUtreexoTx:            "MSG_UTREEXO_TX",
-	InvTypeWitnessUtreexoTx:     "MSG_WITNESS_UTREEXO_TX",
 	InvTypeFilteredWitnessBlock: "MSG_FILTERED_WITNESS_BLOCK",
 }
 
