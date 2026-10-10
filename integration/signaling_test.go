@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/integration/rpctest"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // peerServices connects nodeA to nodeB and returns the service flags that

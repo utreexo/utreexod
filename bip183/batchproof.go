@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // BatchProofSerializeTargetSize returns how many bytes it would take to serialize all

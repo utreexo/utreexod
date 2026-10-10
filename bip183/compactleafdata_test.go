@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/bip182"
-	"github.com/utreexo/utreexod/wire"
 )
 
 func TestSerializeSizeCompact(t *testing.T) {

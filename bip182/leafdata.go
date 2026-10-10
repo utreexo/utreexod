@@ -16,8 +16,8 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/internal/btcdwire"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (
@@ -319,13 +319,14 @@ func (l *LeafData) Serialize(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	err = wire.WriteOutPoint(w, 0, 0, &l.OutPoint)
-	if err != nil {
-		return err
-	}
 
 	buf := btcdwire.ScratchPool.Get().(*[8]byte)
 	defer btcdwire.ScratchPool.Put(buf)
+
+	err = btcdwire.WriteOutPoint(w, buf[:], &l.OutPoint)
+	if err != nil {
+		return err
+	}
 
 	hcb := l.Height << 1
 	if l.IsCoinBase {
@@ -349,7 +350,7 @@ func (l *LeafData) Serialize(w io.Writer) error {
 		return btcdwire.NewMessageError("LeafData Serialize", desc)
 	}
 
-	return wire.WriteVarBytes(w, 0, l.PkScript)
+	return wire.WriteVarBytesBuf(w, 0, l.PkScript, buf[:])
 }
 
 // Deserialize encodes the LeafData from r using the LeafData serialization format.
@@ -359,15 +360,15 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 		return err
 	}
 
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
+
 	// Deserialize the outpoint.
 	l.OutPoint = wire.OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
-	err = btcdwire.ReadOutPoint(r, &l.OutPoint)
+	err = btcdwire.ReadOutPoint(r, buf[:], &l.OutPoint)
 	if err != nil {
 		return err
 	}
-
-	buf := btcdwire.ScratchPool.Get().(*[8]byte)
-	defer btcdwire.ScratchPool.Put(buf)
 
 	// Deserialize the stxo.
 	height, err := btcdwire.ReadUint32(r, buf[:])
@@ -387,7 +388,8 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 	}
 	l.Amount = int64(amt)
 
-	l.PkScript, err = wire.ReadVarBytes(r, 0, MaxScriptSize, "pkscript size")
+	l.PkScript, err = wire.ReadVarBytesBuf(r, 0, buf[:], MaxScriptSize,
+		"pkscript size")
 	if err != nil {
 		return err
 	}

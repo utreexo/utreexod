@@ -7,8 +7,10 @@ package btcdwire
 
 // COPIED FROM BTCD'S WIRE PACKAGE. These are wire's ReadMessageWithEncodingN,
 // WriteMessageWithEncodingN, ReadV2MessageN, and WriteV2MessageN, changed to
-// take the messages wire doesn't define as parameters and to use
-// encoding/binary where wire uses unexported helpers.
+// take the messages wire doesn't define as parameters, to bound BIP-183
+// messages by wire.MaxMessagePayload since they can exceed
+// wire.MaxProtocolMessageLength, and to use encoding/binary where wire uses
+// unexported helpers.
 
 import (
 	"bytes"
@@ -17,7 +19,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // ReadMessageWithEncodingN reads, validates, and parses the next bitcoin
@@ -207,15 +209,33 @@ func ReadV2MessageN(plaintext []byte, pver uint32, enc wire.MessageEncoding,
 		return wire.ReadV2MessageN(plaintext, pver, enc)
 	}
 
+	// Enforce maximum message payload.
+	if len(payload) > wire.MaxMessagePayload {
+		str := fmt.Sprintf("message payload is too large - "+
+			"%d bytes, but max message payload is %d bytes",
+			len(payload), wire.MaxMessagePayload)
+		return nil, nil, NewMessageError("ReadV2MessageN", str)
+	}
+
+	// Check for maximum length based on the message type.
 	mpl := msg.MaxPayloadLength(pver)
 	if len(payload) > int(mpl) {
-		return nil, nil, fmt.Errorf("payload exceeds max length")
+		str := fmt.Sprintf("payload exceeds max length - "+
+			"%d bytes, but max payload size for messages of "+
+			"type [%v] is %v.", len(payload), command, mpl)
+		return nil, nil, NewMessageError("ReadV2MessageN", str)
 	}
 
 	buf := bytes.NewBuffer(payload)
 	err := msg.BtcDecode(buf, pver, enc)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if buf.Len() > 0 {
+		str := fmt.Sprintf("message payload has %d extra bytes "+
+			"after decode", buf.Len())
+		return nil, nil, NewMessageError("ReadV2MessageN", str)
 	}
 
 	return msg, payload, nil

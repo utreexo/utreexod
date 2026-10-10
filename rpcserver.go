@@ -32,6 +32,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/websocket"
 	"github.com/utreexo/utreexod/bdkwallet"
 	"github.com/utreexo/utreexod/bip183"
@@ -47,7 +48,6 @@ import (
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
 	"github.com/utreexo/utreexod/wallet"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // API version constants

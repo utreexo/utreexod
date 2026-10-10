@@ -13,9 +13,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/database"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // TestErrNotInMainChain ensures the functions related to errNotInMainChain work

@@ -10,9 +10,9 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/internal/btcdwire"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // MaxUtreexoTTLExponent is the maximum exponent you can ask for in a bitcoin getutreexosummaries

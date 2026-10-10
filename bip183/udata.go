@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/internal/btcdwire"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // UData contains data needed to prove the existence and validity of all inputs

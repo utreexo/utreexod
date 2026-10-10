@@ -4,7 +4,7 @@
 
 package bip183
 
-import "github.com/utreexo/utreexod/wire"
+import "github.com/btcsuite/btcd/wire/v2"
 
 const (
 	// InvUtreexoFlag denotes that the inventory vector type is requesting,

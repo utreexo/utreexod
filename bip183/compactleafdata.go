@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/internal/btcdwire"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // -----------------------------------------------------------------------------
@@ -64,7 +64,9 @@ func PkScriptSerializeCompact(w io.Writer, ty bip182.PkType, pkscript []byte) er
 		if err != nil {
 			return err
 		}
-		err = wire.WriteVarBytes(w, 0, pkscript)
+		buf := btcdwire.ScratchPool.Get().(*[8]byte)
+		err = wire.WriteVarBytesBuf(w, 0, pkscript, buf[:])
+		btcdwire.ScratchPool.Put(buf)
 	case bip182.PubKeyHashTy:
 		_, err = w.Write([]byte{0x1})
 	case bip182.WitnessV0PubKeyHashTy:
@@ -93,7 +95,10 @@ func PkScriptDeserializeCompact(r io.Reader) (bip182.PkType, []byte, error) {
 	switch buf[0] {
 	case 0:
 		ty = bip182.OtherTy
-		pkScript, err = wire.ReadVarBytes(r, 0, bip182.MaxScriptSize, "pkScript size")
+		scratch := btcdwire.ScratchPool.Get().(*[8]byte)
+		pkScript, err = wire.ReadVarBytesBuf(r, 0, scratch[:],
+			bip182.MaxScriptSize, "pkScript size")
+		btcdwire.ScratchPool.Put(scratch)
 		if err != nil {
 			return 0, nil, err
 		}
