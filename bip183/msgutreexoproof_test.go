@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -26,7 +27,7 @@ func TestUtreexoProofSerialize(t *testing.T) {
 					{0xff, 0x1, 0xd, 0xdf},
 				},
 				Targets: []uint64{1254548, 481754},
-				LeafDatas: []wire.LeafData{
+				LeafDatas: []bip182.LeafData{
 					{
 						Height:     784611,
 						IsCoinBase: true,

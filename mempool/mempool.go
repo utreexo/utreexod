@@ -14,6 +14,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
@@ -102,7 +103,7 @@ type Config struct {
 	VerifyUData func(ud *bip183.UData, txIns []*wire.TxIn, remember bool) error
 
 	// PruneFromAccumulator uncaches the given hashes from the accumulator.
-	PruneFromAccumulator func(hashes []wire.LeafData) error
+	PruneFromAccumulator func(hashes []bip182.LeafData) error
 
 	// SigCache defines a signature cache to use.
 	SigCache *txscript.SigCache
@@ -194,7 +195,7 @@ type TxPool struct {
 	mtx           sync.RWMutex
 	cfg           Config
 	pool          map[chainhash.Hash]*TxDesc
-	poolLeaves    map[chainhash.Hash][]wire.LeafData
+	poolLeaves    map[chainhash.Hash][]bip182.LeafData
 	orphans       map[chainhash.Hash]*orphanTx
 	orphanUData   map[chainhash.Hash]*bip183.UData
 	orphansByPrev map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx
@@ -895,7 +896,7 @@ func (mp *TxPool) fetchInputUtxos(tx *btcutil.Tx) (*blockchain.UtxoViewpoint, er
 // transaction pool.
 //
 // This function MUST be called with the mempool lock held (for reads).
-func (mp *TxPool) fetchInputUtxosFromLeaves(tx *btcutil.Tx, leaves []wire.LeafData) *blockchain.UtxoViewpoint {
+func (mp *TxPool) fetchInputUtxosFromLeaves(tx *btcutil.Tx, leaves []bip182.LeafData) *blockchain.UtxoViewpoint {
 	utxoView := blockchain.NewUtxoViewpoint()
 	viewEntries := utxoView.Entries()
 
@@ -954,7 +955,7 @@ func (mp *TxPool) FetchTransaction(txHash *chainhash.Hash) (*btcutil.Tx, error) 
 
 // FetchLeafDatas returns the leafdatas for the given tx.  Returns an error if
 // the leaves for the given tx is not in the pool.
-func (mp *TxPool) FetchLeafDatas(txHash *chainhash.Hash) ([]wire.LeafData, error) {
+func (mp *TxPool) FetchLeafDatas(txHash *chainhash.Hash) ([]bip182.LeafData, error) {
 	// Protect concurrent access.
 	mp.mtx.RLock()
 	leaves, exists := mp.poolLeaves[*txHash]
@@ -1942,7 +1943,7 @@ func New(cfg *Config) *TxPool {
 	return &TxPool{
 		cfg:            *cfg,
 		pool:           make(map[chainhash.Hash]*TxDesc),
-		poolLeaves:     make(map[chainhash.Hash][]wire.LeafData),
+		poolLeaves:     make(map[chainhash.Hash][]bip182.LeafData),
 		orphans:        make(map[chainhash.Hash]*orphanTx),
 		orphanUData:    make(map[chainhash.Hash]*bip183.UData),
 		orphansByPrev:  make(map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx),

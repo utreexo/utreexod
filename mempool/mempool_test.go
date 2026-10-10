@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
@@ -1903,7 +1904,7 @@ func TestRBFUtreexoDataFailure(t *testing.T) {
 	}
 
 	udata := &bip183.UData{
-		LeafDatas: []wire.LeafData{{
+		LeafDatas: []bip182.LeafData{{
 			OutPoint: replacementTx.MsgTx().TxIn[0].PreviousOutPoint,
 			Amount:   coinbase.MsgTx().TxOut[0].Value,
 			PkScript: harness.payScript,
@@ -1943,7 +1944,7 @@ func TestRemoveTransactionCleansUtreexoData(t *testing.T) {
 	// Simulate utreexo proof data by writing directly to poolLeaves.
 	// In production this is done by addUtreexoData during ProcessTransaction
 	// on utreexo nodes.
-	fakeLeaves := []wire.LeafData{
+	fakeLeaves := []bip182.LeafData{
 		{
 			OutPoint:   wire.OutPoint{Hash: *tx.Hash(), Index: 0},
 			Height:     1,
@@ -1983,8 +1984,8 @@ func TestRemoveTransactionPrunesUtreexoAccumulator(t *testing.T) {
 
 	// Install a recording PruneFromAccumulator that captures the leaves it
 	// is invoked with.
-	var pruned [][]wire.LeafData
-	harness.txPool.cfg.PruneFromAccumulator = func(leaves []wire.LeafData) error {
+	var pruned [][]bip182.LeafData
+	harness.txPool.cfg.PruneFromAccumulator = func(leaves []bip182.LeafData) error {
 		pruned = append(pruned, leaves)
 		return nil
 	}
@@ -1994,7 +1995,7 @@ func TestRemoveTransactionPrunesUtreexoAccumulator(t *testing.T) {
 	tx := ctx.addSignedTx(outputs, 1, 0, false, false)
 	testPoolMembership(ctx, tx, false, true)
 
-	fakeLeaves := []wire.LeafData{
+	fakeLeaves := []bip182.LeafData{
 		{
 			OutPoint:   wire.OutPoint{Hash: *tx.Hash(), Index: 0},
 			Height:     1,

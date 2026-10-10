@@ -34,6 +34,14 @@ func ReadUint32(r io.Reader, buf []byte) (uint32, error) {
 	return binary.LittleEndian.Uint32(buf[:4]), nil
 }
 
+// ReadUint64 reads a little endian uint64 from r using buf as scratch space.
+func ReadUint64(r io.Reader, buf []byte) (uint64, error) {
+	if _, err := io.ReadFull(r, buf[:8]); err != nil {
+		return 0, err
+	}
+	return binary.LittleEndian.Uint64(buf[:8]), nil
+}
+
 // WriteUint8 writes val to w using buf as scratch space.
 func WriteUint8(w io.Writer, buf []byte, val uint8) error {
 	buf[0] = val
@@ -46,6 +54,27 @@ func WriteUint8(w io.Writer, buf []byte, val uint8) error {
 func WriteUint32(w io.Writer, buf []byte, val uint32) error {
 	binary.LittleEndian.PutUint32(buf[:4], val)
 	_, err := w.Write(buf[:4])
+	return err
+}
+
+// WriteUint64 writes val to w as a little endian uint64 using buf as scratch
+// space.
+func WriteUint64(w io.Writer, buf []byte, val uint64) error {
+	binary.LittleEndian.PutUint64(buf[:8], val)
+	_, err := w.Write(buf[:8])
+	return err
+}
+
+// ReadOutPoint reads the hash and index of an outpoint from r.
+func ReadOutPoint(r io.Reader, op *wire.OutPoint) error {
+	_, err := io.ReadFull(r, op.Hash[:])
+	if err != nil {
+		return err
+	}
+
+	buf := ScratchPool.Get().(*[8]byte)
+	op.Index, err = ReadUint32(r, buf[:])
+	ScratchPool.Put(buf)
 	return err
 }
 
