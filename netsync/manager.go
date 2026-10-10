@@ -1424,9 +1424,9 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 
 		case wire.InvTypeWitnessTx:
 			fallthrough
-		case wire.InvTypeUtreexoTx:
+		case bip183.InvTypeUtreexoTx:
 			fallthrough
-		case wire.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
 			fallthrough
 		case wire.InvTypeTx:
 			if _, exists := state.requestedTxns[inv.Hash]; exists {
@@ -1453,9 +1453,9 @@ func (sm *SyncManager) haveInventory(invVect *wire.InvVect) (bool, error) {
 
 	case wire.InvTypeWitnessTx:
 		fallthrough
-	case wire.InvTypeUtreexoTx:
+	case bip183.InvTypeUtreexoTx:
 		fallthrough
-	case wire.InvTypeWitnessUtreexoTx:
+	case bip183.InvTypeWitnessUtreexoTx:
 		fallthrough
 	case wire.InvTypeTx:
 		// Ask the transaction memory pool if the transaction is known
@@ -1574,9 +1574,9 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeTx:
 		case wire.InvTypeWitnessBlock:
 		case wire.InvTypeWitnessTx:
-		case wire.InvTypeUtreexoTx:
-		case wire.InvTypeWitnessUtreexoTx:
-		case wire.InvTypeUtreexoProofHash:
+		case bip183.InvTypeUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeUtreexoProofHash:
 			// If the inv is a utreexo proof hash, then it means that
 			// we've already skipped/added the tx that it belongs to or
 			// we're in headers first mode.
@@ -1596,7 +1596,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		}
 
 		addIv := *iv
-		addIv.Type &^= wire.InvUtreexoFlag
+		addIv.Type &^= bip183.InvUtreexoFlag
 		// Add the inventory to the cache of known inventory
 		// for the peer.
 		peer.AddKnownInventory(&addIv)
@@ -1633,14 +1633,14 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 				switch iv.Type {
 				case wire.InvTypeTx:
 				case wire.InvTypeWitnessTx:
-				case wire.InvTypeUtreexoTx:
-				case wire.InvTypeWitnessUtreexoTx:
+				case bip183.InvTypeUtreexoTx:
+				case bip183.InvTypeWitnessUtreexoTx:
 				default:
 					continue
 				}
 
 				for j := i + 1; j < len(invVects); j++ {
-					if invVects[j].Type != wire.InvTypeUtreexoProofHash {
+					if invVects[j].Type != bip183.InvTypeUtreexoProofHash {
 						break
 					}
 					state.requestQueue = append(state.requestQueue, invVects[j])
@@ -1721,9 +1721,9 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 
 		case wire.InvTypeWitnessTx:
 			fallthrough
-		case wire.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
 			fallthrough
-		case wire.InvTypeUtreexoTx:
+		case bip183.InvTypeUtreexoTx:
 			fallthrough
 		case wire.InvTypeTx:
 			amUtreexoNode := sm.chain.IsUtreexoViewActive()
@@ -1751,7 +1751,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 					// tx from the request queue. These represent the positions of the
 					// inputs.
 					var targetPositions []chainhash.Hash
-					for len(requestQueue) > 0 && requestQueue[0].Type == wire.InvTypeUtreexoProofHash {
+					for len(requestQueue) > 0 && requestQueue[0].Type == bip183.InvTypeUtreexoProofHash {
 						proofInv := requestQueue[0]
 						targetPositions = append(targetPositions, proofInv.Hash)
 
@@ -1787,21 +1787,21 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 					}
 
 					// Add in the utreexo flag then add the tx inv.
-					iv.Type = wire.InvTypeUtreexoTx
+					iv.Type = bip183.InvTypeUtreexoTx
 					gdmsg.AddInvVect(iv)
 					numRequested++
 
 					// Then add all the packed proof positions inv.
 					for i := range neededPositions {
 						gdmsg.AddInvVect(wire.NewInvVect(
-							wire.InvTypeUtreexoProofHash,
+							bip183.InvTypeUtreexoProofHash,
 							&neededPositions[i]),
 						)
 						numRequested++
 					}
 				}
 			}
-		case wire.InvTypeUtreexoProofHash:
+		case bip183.InvTypeUtreexoProofHash:
 			// Purposely left empty. Utreexo proof hash invs are not useful on their own.
 			continue
 		}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/integration/rpctest"
 	"github.com/utreexo/utreexod/wire"
@@ -130,8 +131,8 @@ func TestUtreexoServiceFlags(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			services := peerServices(t, observer, tc.target)
 
-			hasUtreexo := services.HasFlag(wire.SFNodeUtreexo)
-			hasArchive := services.HasFlag(wire.SFNodeUtreexoArchive)
+			hasUtreexo := services.HasFlag(bip183.SFNodeUtreexo)
+			hasArchive := services.HasFlag(bip183.SFNodeUtreexoArchive)
 
 			require.Equal(t, tc.wantUtreexo, hasUtreexo,
 				"NODE_UTREEXO (bit 12): got %v, want %v (services: %s)",

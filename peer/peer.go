@@ -1811,12 +1811,12 @@ out:
 
 						if iv.Type == wire.InvTypeTx ||
 							iv.Type == wire.InvTypeWitnessTx ||
-							iv.Type == wire.InvTypeUtreexoTx ||
-							iv.Type == wire.InvTypeWitnessUtreexoTx {
+							iv.Type == bip183.InvTypeUtreexoTx ||
+							iv.Type == bip183.InvTypeWitnessUtreexoTx {
 							// Add the inventory that is being relayed to
 							// the known inventory for the peer.
 							p.AddKnownInventory(ivs[i])
-						} else if iv.Type == wire.InvTypeUtreexoProofHash {
+						} else if iv.Type == bip183.InvTypeUtreexoProofHash {
 						} else {
 							continue
 						}
@@ -2079,11 +2079,11 @@ func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
 		ty := invVects[i].Type
 
 		iv := *invVects[i]
-		iv.Type &^= wire.InvUtreexoFlag
+		iv.Type &^= bip183.InvUtreexoFlag
 
 		// Don't add the inventory to the send queue if the peer is already
 		// known to have it.
-		if ty != wire.InvTypeUtreexoProofHash &&
+		if ty != bip183.InvTypeUtreexoProofHash &&
 			p.knownInventory.Contains(iv) {
 
 			invVects = append(invVects[:i], invVects[i+1:]...)
@@ -2094,8 +2094,8 @@ func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
 			switch ty {
 			case wire.InvTypeTx:
 			case wire.InvTypeWitnessTx:
-			case wire.InvTypeUtreexoTx:
-			case wire.InvTypeWitnessUtreexoTx:
+			case bip183.InvTypeUtreexoTx:
+			case bip183.InvTypeWitnessUtreexoTx:
 			default:
 				// Non txs don't have the proof hash invs attached to them.
 				continue
@@ -2103,7 +2103,7 @@ func (p *Peer) QueueInventory(invVects []*wire.InvVect) {
 
 			// Pop off the utreexo proof hash invs.
 			for j := i + 1; j < len(invVects); j++ {
-				if invVects[j].Type == wire.InvTypeUtreexoProofHash {
+				if invVects[j].Type == bip183.InvTypeUtreexoProofHash {
 					invVects = append(invVects[:j], invVects[j+1:]...)
 					j--
 				}
@@ -2225,7 +2225,7 @@ func (p *Peer) readRemoteVersionMsg(readPartial bool) error {
 
 	// Determine if the peer would like to receive witness data with
 	// transactions, or not.
-	if p.services&wire.SFNodeUtreexo == wire.SFNodeUtreexo {
+	if p.services&bip183.SFNodeUtreexo == bip183.SFNodeUtreexo {
 		p.utreexoEnabled = true
 	}
 	p.flagsMtx.Unlock()
