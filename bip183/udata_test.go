@@ -14,13 +14,14 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/wire"
 )
 
 type testData struct {
 	name           string
 	height         int32
-	leavesPerBlock []wire.LeafData
+	leavesPerBlock []bip182.LeafData
 	size           int
 }
 
@@ -31,7 +32,7 @@ func getTestDatas() []testData {
 var mainNetBlock104773 = testData{
 	name:   "Mainnet block 104773",
 	height: 104773,
-	leavesPerBlock: []wire.LeafData{
+	leavesPerBlock: []bip182.LeafData{
 		{
 			BlockHash: *newHashFromStr("000000000002bc1ddaae8ef976adf1c36db878b5f0711ec58c92ec0e4724277b"),
 			OutPoint: wire.OutPoint{
@@ -61,7 +62,7 @@ var mainNetBlock104773 = testData{
 var testNetBlock383 = testData{
 	name:   "Testnet block 383",
 	height: 383,
-	leavesPerBlock: []wire.LeafData{
+	leavesPerBlock: []bip182.LeafData{
 		{
 			BlockHash: *newHashFromStr("00000000ff41b51f43141f3fd198016cead8c92355f7064849c4507f9e8914f8"),
 			OutPoint: wire.OutPoint{
@@ -305,15 +306,15 @@ func TestGenerateUData(t *testing.T) {
 	leafCount := 15
 
 	rand := rand.New(rand.NewSource(0))
-	leafDatas := make([]wire.LeafData, leafCount)
+	leafDatas := make([]bip182.LeafData, leafCount)
 	for i := range leafDatas {
 		// This creates a txo thats not spendable but it's ok for accumulator
 		// testing.
-		leafVal, ok := quick.Value(reflect.TypeOf(wire.LeafData{}), rand)
+		leafVal, ok := quick.Value(reflect.TypeOf(bip182.LeafData{}), rand)
 		if !ok {
 			t.Fatal("Could not create LeafData")
 		}
-		ld := leafVal.Interface().(wire.LeafData)
+		ld := leafVal.Interface().(bip182.LeafData)
 
 		blockHashVal, ok := quick.Value(reflect.TypeOf(chainhash.Hash{}), rand)
 		if !ok {
@@ -342,7 +343,7 @@ func TestGenerateUData(t *testing.T) {
 	firstDelIdx := 4
 	secondDelIdx := 10
 
-	delLeaves := make([]wire.LeafData, delCount)
+	delLeaves := make([]bip182.LeafData, delCount)
 	delLeaves[0] = leafDatas[firstDelIdx]
 	delLeaves[1] = leafDatas[secondDelIdx]
 

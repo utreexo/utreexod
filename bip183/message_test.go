@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -29,7 +30,7 @@ func TestMessage(t *testing.T) {
 				BlockHash:   hash,
 				ProofHashes: []utreexo.Hash{{0x02}},
 				Targets:     []uint64{3},
-				LeafDatas:   []wire.LeafData{},
+				LeafDatas:   []bip182.LeafData{},
 			},
 			bytes:   92,
 			shortID: 29,

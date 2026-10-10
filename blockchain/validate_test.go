@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/wire"
@@ -544,7 +545,7 @@ func TestUtreexoUnspendableBIP0030LeafHashes(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		firstLd := wire.LeafData{
+		firstLd := bip182.LeafData{
 			BlockHash:  test.firstBlockHash,
 			OutPoint:   test.outpoint,
 			Height:     test.firstBlockHeight,
@@ -553,7 +554,7 @@ func TestUtreexoUnspendableBIP0030LeafHashes(t *testing.T) {
 			PkScript:   test.pkScript,
 		}
 
-		secondLd := wire.LeafData{
+		secondLd := bip182.LeafData{
 			BlockHash:  test.secondBlockHash,
 			OutPoint:   test.outpoint,
 			Height:     test.secondBlockHeight,

@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/internal/btcdwire"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -22,7 +23,7 @@ type UData struct {
 	AccProof utreexo.Proof
 
 	// LeafDatas are the tx validation data for every input.
-	LeafDatas []wire.LeafData
+	LeafDatas []bip182.LeafData
 }
 
 // Copy creates a deep copy of the utreexo data so the original does not get modified
@@ -37,7 +38,7 @@ func (ud *UData) Copy() *UData {
 
 	newUD := UData{
 		AccProof:  proofCopy,
-		LeafDatas: make([]wire.LeafData, len(ud.LeafDatas)),
+		LeafDatas: make([]bip182.LeafData, len(ud.LeafDatas)),
 	}
 
 	for i := range newUD.LeafDatas {
@@ -58,7 +59,7 @@ func (ud *UData) SerializeAccSize() int {
 func (ud *UData) SerializeUtxoDataSize() int {
 	size := wire.VarIntSerializeSize(uint64(len(ud.LeafDatas)))
 	for _, l := range ud.LeafDatas {
-		size += l.SerializeSizeCompact()
+		size += LeafDataSerializeSizeCompact(&l)
 	}
 
 	return size
@@ -81,7 +82,7 @@ func (ud *UData) SerializeSize() int {
 // Accumulator proof serialization follows the batchproof serialization found
 // in batchproof.go.
 //
-// LeafData compact serialization can be found in wire/leaf.go.
+// LeafData compact serialization can be found in compactleafdata.go.
 //
 // All together, the serialization looks like so:
 //
@@ -104,7 +105,7 @@ func (ud *UData) Serialize(w io.Writer) error {
 
 // SerializeUtxoData encodes the passed in leafdatas using the compact serialization
 // format.
-func SerializeUtxoData(w io.Writer, leafDatas []wire.LeafData) error {
+func SerializeUtxoData(w io.Writer, leafDatas []bip182.LeafData) error {
 	// Write the size of the leaf datas.
 	err := wire.WriteVarInt(w, 0, uint64(len(leafDatas)))
 	if err != nil {
@@ -113,7 +114,7 @@ func SerializeUtxoData(w io.Writer, leafDatas []wire.LeafData) error {
 
 	// Write the actual leaf datas.
 	for _, ld := range leafDatas {
-		err = ld.SerializeCompact(w)
+		err = LeafDataSerializeCompact(w, &ld)
 		if err != nil {
 			return err
 		}
@@ -135,7 +136,7 @@ func (ud *UData) Deserialize(r io.Reader) error {
 }
 
 // DeserializeUtxoData decodes the leaf datas from the reader.
-func DeserializeUtxoData(r io.Reader) ([]wire.LeafData, error) {
+func DeserializeUtxoData(r io.Reader) ([]bip182.LeafData, error) {
 	// Read the size of the leaf datas.
 	txInCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
@@ -150,10 +151,10 @@ func DeserializeUtxoData(r io.Reader) ([]wire.LeafData, error) {
 		return nil, btcdwire.NewMessageError("DeserializeUtxoData", str)
 	}
 
-	lds := make([]wire.LeafData, 0, txInCount)
+	lds := make([]bip182.LeafData, 0, txInCount)
 	for i := 0; i < int(txInCount); i++ {
-		ld := wire.LeafData{}
-		err = ld.DeserializeCompact(r)
+		ld := bip182.LeafData{}
+		err = LeafDataDeserializeCompact(r, &ld)
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +166,7 @@ func DeserializeUtxoData(r io.Reader) ([]wire.LeafData, error) {
 
 // HashesFromLeafDatas hashes the passed in leaf datas. Returns an error if a
 // leaf data is compact as you can't generate the correct hash.
-func HashesFromLeafDatas(leafDatas []wire.LeafData) ([]utreexo.Hash, error) {
+func HashesFromLeafDatas(leafDatas []bip182.LeafData) ([]utreexo.Hash, error) {
 	// make slice of hashes from leafdata
 	delHashes := make([]utreexo.Hash, 0, len(leafDatas))
 	for _, ld := range leafDatas {
@@ -186,7 +187,7 @@ func HashesFromLeafDatas(leafDatas []wire.LeafData) ([]utreexo.Hash, error) {
 // to get a batched inclusion proof from the accumulator. It then adds on the leaf data,
 // to create a block proof which both proves inclusion and gives all utxo data
 // needed for transaction verification.
-func GenerateUData(txIns []wire.LeafData, pollard utreexo.Utreexo) (
+func GenerateUData(txIns []bip182.LeafData, pollard utreexo.Utreexo) (
 	*UData, error) {
 
 	ud := new(UData)

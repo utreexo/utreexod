@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
@@ -580,7 +581,7 @@ func (idx *UtreexoProofIndex) GetLeafHashPositions(delHashes []utreexo.Hash) []u
 
 // GenerateUDataPartial generates a utreexo data based on the current state of the accumulator.
 // It leaves out the full proof hashes and only fetches the requested positions.
-func (idx *UtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*bip183.UData, error) {
+func (idx *UtreexoProofIndex) GenerateUDataPartial(dels []bip182.LeafData, positions []uint64) (*bip183.UData, error) {
 	idx.mtx.RLock()
 	defer idx.mtx.RUnlock()
 
@@ -619,7 +620,7 @@ func (idx *UtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positio
 // GenerateUData generates utreexo data for the dels passed in.  Height passed in
 // should either be of block height of where the deletions are happening or just
 // the lastest block height for mempool tx proof generation.
-func (idx *UtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*bip183.UData, error) {
+func (idx *UtreexoProofIndex) GenerateUData(dels []bip182.LeafData) (*bip183.UData, error) {
 	idx.mtx.RLock()
 	ud, err := bip183.GenerateUData(dels, idx.utreexoState.state)
 	idx.mtx.RUnlock()
@@ -643,7 +644,7 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 
 	// We'll turn the entries and outpoints into leaves that go in
 	// the accumulator.
-	leaves := make([]wire.LeafData, 0, len(utxos))
+	leaves := make([]bip182.LeafData, 0, len(utxos))
 	for i, utxo := range utxos {
 		if utxo == nil || utxo.IsSpent() {
 			err := fmt.Errorf("Passed in utxo at index %d "+
@@ -660,7 +661,7 @@ func (idx *UtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 				utxo.BlockHeight())
 			return nil, err
 		}
-		leaf := wire.LeafData{
+		leaf := bip182.LeafData{
 			BlockHash:  *blockHash,
 			OutPoint:   (*outpoints)[i],
 			Amount:     utxo.Amount(),

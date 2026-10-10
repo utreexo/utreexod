@@ -2,11 +2,12 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package wire
+package bip182
 
 import (
 	"bytes"
 	"crypto/sha512"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -15,14 +16,15 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/internal/btcdwire"
+	"github.com/utreexo/utreexod/wire"
 )
 
 const (
 	// MaxScriptSize is the maximum allowed length of a raw script.
 	//
 	// TODO: This is a duplicate of MaxScriptSize in package txscript.  However,
-	// importing package txscript to wire will cause a import cycle so this is a
+	// importing package txscript to bip182 will cause a import cycle so this is a
 	// stopgap solution.
 	MaxScriptSize = 10000
 )
@@ -49,7 +51,7 @@ var (
 //     tx verification (script, signatures, etc).
 type LeafData struct {
 	BlockHash             chainhash.Hash
-	OutPoint              OutPoint
+	OutPoint              wire.OutPoint
 	Height                int32
 	IsCoinBase            bool
 	Amount                int64
@@ -136,7 +138,7 @@ func (l *LeafData) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	l.OutPoint = OutPoint{Hash: *txHash, Index: s.Index}
+	l.OutPoint = wire.OutPoint{Hash: *txHash, Index: s.Index}
 
 	l.Height = s.Height
 	l.IsCoinBase = s.IsCoinbase
@@ -183,24 +185,24 @@ func (lh *LeafHasher) HashLeaf(l *LeafData) [32]byte {
 	d := lh.digest
 	d.Reset()
 
-	d.Write(bip182.UTREEXO_TAG_V1_APPEND[:])
+	d.Write(UTREEXO_TAG_V1_APPEND[:])
 
 	// Inline serialization to avoid sync.Pool in Serialize/WriteOutPoint/WriteVarInt.
 	// BlockHash (32 bytes)
 	d.Write(l.BlockHash[:])
 	// OutPoint: Hash (32 bytes) + Index (4 bytes LE)
 	d.Write(l.OutPoint.Hash[:])
-	littleEndian.PutUint32(lh.buf[:4], l.OutPoint.Index)
+	binary.LittleEndian.PutUint32(lh.buf[:4], l.OutPoint.Index)
 	d.Write(lh.buf[:4])
 	// Header code: Height<<1 | IsCoinBase (4 bytes LE)
 	hcb := l.Height << 1
 	if l.IsCoinBase {
 		hcb |= 1
 	}
-	littleEndian.PutUint32(lh.buf[:4], uint32(hcb))
+	binary.LittleEndian.PutUint32(lh.buf[:4], uint32(hcb))
 	d.Write(lh.buf[:4])
 	// Amount (8 bytes LE)
-	littleEndian.PutUint64(lh.buf[:8], uint64(l.Amount))
+	binary.LittleEndian.PutUint64(lh.buf[:8], uint64(l.Amount))
 	d.Write(lh.buf[:8])
 	// PkScript: varint length + bytes
 	lh.writeVarInt(d, uint64(len(l.PkScript)))
@@ -216,16 +218,16 @@ func (lh *LeafHasher) writeVarInt(w io.Writer, val uint64) {
 		w.Write(lh.buf[:1])
 	} else if val <= 0xffff {
 		lh.buf[0] = 0xfd
-		littleEndian.PutUint16(lh.buf[1:3], uint16(val))
+		binary.LittleEndian.PutUint16(lh.buf[1:3], uint16(val))
 		w.Write(lh.buf[:3])
 	} else if val <= 0xffffffff {
 		lh.buf[0] = 0xfe
-		littleEndian.PutUint32(lh.buf[1:5], uint32(val))
+		binary.LittleEndian.PutUint32(lh.buf[1:5], uint32(val))
 		w.Write(lh.buf[:5])
 	} else {
 		lh.buf[0] = 0xff
 		w.Write(lh.buf[:1])
-		littleEndian.PutUint64(lh.buf[:8], val)
+		binary.LittleEndian.PutUint64(lh.buf[:8], val)
 		w.Write(lh.buf[:8])
 	}
 }
@@ -303,7 +305,7 @@ func (l *LeafData) SerializeSize() int {
 	size := 80
 
 	// Add pkscript size.
-	return VarIntSerializeSize(uint64(len(l.PkScript))) +
+	return wire.VarIntSerializeSize(uint64(len(l.PkScript))) +
 		len(l.PkScript) + size
 }
 
@@ -317,37 +319,37 @@ func (l *LeafData) Serialize(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	err = WriteOutPoint(w, 0, 0, &l.OutPoint)
+	err = wire.WriteOutPoint(w, 0, 0, &l.OutPoint)
 	if err != nil {
 		return err
 	}
 
-	bs := newSerializer()
-	defer bs.free()
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
 
 	hcb := l.Height << 1
 	if l.IsCoinBase {
 		hcb |= 1
 	}
-	err = bs.PutUint32(w, littleEndian, uint32(hcb))
+	err = btcdwire.WriteUint32(w, buf[:], uint32(hcb))
 	if err != nil {
 		return err
 	}
 
-	err = bs.PutUint64(w, littleEndian, uint64(l.Amount))
+	err = btcdwire.WriteUint64(w, buf[:], uint64(l.Amount))
 	if err != nil {
 		return err
 	}
 	if uint32(len(l.PkScript)) > MaxScriptSize {
-		return messageError("LeafData Serialize", "pkScript too long")
+		return btcdwire.NewMessageError("LeafData Serialize", "pkScript too long")
 	}
 	if l.ReconstructablePkType != OtherTy && l.PkScript == nil {
 		desc := fmt.Sprintf("pkscript of type %s, has not been reconstructed",
 			l.ReconstructablePkType.String())
-		return messageError("LeafData Serialize", desc)
+		return btcdwire.NewMessageError("LeafData Serialize", desc)
 	}
 
-	return WriteVarBytes(w, 0, l.PkScript)
+	return wire.WriteVarBytes(w, 0, l.PkScript)
 }
 
 // Deserialize encodes the LeafData from r using the LeafData serialization format.
@@ -358,17 +360,17 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 	}
 
 	// Deserialize the outpoint.
-	l.OutPoint = OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
-	err = readOutPoint(r, 0, 0, &l.OutPoint)
+	l.OutPoint = wire.OutPoint{Hash: *(new(chainhash.Hash)), Index: 0}
+	err = btcdwire.ReadOutPoint(r, &l.OutPoint)
 	if err != nil {
 		return err
 	}
 
-	bs := newSerializer()
-	defer bs.free()
+	buf := btcdwire.ScratchPool.Get().(*[8]byte)
+	defer btcdwire.ScratchPool.Put(buf)
 
 	// Deserialize the stxo.
-	height, err := bs.Uint32(r, littleEndian)
+	height, err := btcdwire.ReadUint32(r, buf[:])
 	if err != nil {
 		return err
 	}
@@ -379,50 +381,19 @@ func (l *LeafData) Deserialize(r io.Reader) error {
 	}
 	l.Height >>= 1
 
-	amt, err := bs.Uint64(r, littleEndian)
+	amt, err := btcdwire.ReadUint64(r, buf[:])
 	if err != nil {
 		return err
 	}
 	l.Amount = int64(amt)
 
-	l.PkScript, err = ReadVarBytes(r, 0, MaxScriptSize, "pkscript size")
+	l.PkScript, err = wire.ReadVarBytes(r, 0, MaxScriptSize, "pkscript size")
 	if err != nil {
 		return err
 	}
 
 	return nil
 }
-
-// -----------------------------------------------------------------------------
-// Compact LeafData serialization leaves out duplicate data that is also present
-// in the Bitcoin block.  It's important to note that to genereate the hash
-// commitment for the LeafData, there data left out from the compact serialization
-// is still needed and must be fetched from the Bitcoin block.
-//
-// Also note that the serialization differs for whether this leaf data is for a
-// block or for a transaction.
-//
-// The serialized format for a block is:
-// [<header code><amount><pkscript len><pkscript>]
-//
-// The serialized header code format is:
-//   bit 0 - containing transaction is a coinbase
-//   bits 1-x - height of the block that contains the spent txout
-//
-// It's calculated with:
-//   header_code = <<= 1
-//   if IsCoinBase {
-//       header_code |= 1 // only set the bit 0 if it's a coinbase.
-//   }
-//
-// Field              Type       Size
-// header code        int32      4
-// amount             int64      8
-// pkType             byte       1
-// pkscript length    VLQ        variable
-// pkscript           []byte     variable
-//
-// -----------------------------------------------------------------------------
 
 // PkType is a list of different pkScript types that can be reconstructed.
 // The pkScripts that can not be reconstructed are specified as other. All
@@ -455,157 +426,9 @@ func (ty PkType) String() string {
 	return pkTypeToName[ty]
 }
 
-// PkScriptSerializeSizeCompact returns the number of bytes it would take to
-// serialize the pkScript with the reconstructable method.
-func PkScriptSerializeSizeCompact(ty PkType, pkScript []byte) int {
-	if ty == OtherTy {
-		// pkType 1 byte + varint pkscript len + pkscript
-		return 1 + VarIntSerializeSize(uint64(len(pkScript))) + len(pkScript)
-	}
-	return 1
-}
-
-// PkScriptSerializeCompact encodes the pkScript to w using the pkScript with the
-// reconstructable serialization format.
-func PkScriptSerializeCompact(w io.Writer, ty PkType, pkscript []byte) error {
-	var err error
-	switch ty {
-	case OtherTy:
-		_, err = w.Write([]byte{0x0})
-		if err != nil {
-			return err
-		}
-		err = WriteVarBytes(w, 0, pkscript)
-	case PubKeyHashTy:
-		_, err = w.Write([]byte{0x1})
-	case WitnessV0PubKeyHashTy:
-		_, err = w.Write([]byte{0x2})
-	case ScriptHashTy:
-		_, err = w.Write([]byte{0x3})
-	case WitnessV0ScriptHashTy:
-		_, err = w.Write([]byte{0x4})
-	}
-
-	return err
-}
-
-// PkScriptSerializeCompact encodes the pkScript to w using the pkScript with the
-// reconstructable serialization format.
-func PkScriptDeserializeCompact(r io.Reader) (PkType, []byte, error) {
-	buf := make([]byte, 1)
-	_, err := r.Read(buf)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	var ty PkType
-	var pkScript []byte
-
-	switch buf[0] {
-	case 0:
-		ty = OtherTy
-		pkScript, err = ReadVarBytes(r, 0, MaxScriptSize, "pkScript size")
-		if err != nil {
-			return 0, nil, err
-		}
-	case 1:
-		ty = PubKeyHashTy
-	case 2:
-		ty = WitnessV0PubKeyHashTy
-	case 3:
-		ty = ScriptHashTy
-	case 4:
-		ty = WitnessV0ScriptHashTy
-	default:
-		return 0, nil, fmt.Errorf("%v is not a valid type", buf[0])
-	}
-
-	return ty, pkScript, err
-}
-
-// SerializeSizeCompact returns the number of bytes it would take to serialize the
-// LeafData in the compact serialization format.
-func (l *LeafData) SerializeSizeCompact() int {
-	// If the leaf data corresponds to an unconfirmed tx, we don't
-	// serialize it.
-	if l.IsUnconfirmed() {
-		return 0
-	}
-
-	// header code 4 bytes + amount 8 bytes + pkscript.
-	return 12 + PkScriptSerializeSizeCompact(
-		l.ReconstructablePkType, l.PkScript)
-}
-
-// SerializeCompact encodes the LeafData to w using the compact leaf data serialization format.
-func (l *LeafData) SerializeCompact(w io.Writer) error {
-	if l.IsUnconfirmed() {
-		return nil
-	}
-
-	bs := newSerializer()
-	defer bs.free()
-
-	// Height & IsCoinBase.
-	hcb := l.Height << 1
-	if l.IsCoinBase {
-		hcb |= 1
-	}
-	err := bs.PutUint32(w, littleEndian, uint32(hcb))
-	if err != nil {
-		return err
-	}
-
-	err = bs.PutUint64(w, littleEndian, uint64(l.Amount))
-	if err != nil {
-		return err
-	}
-
-	if uint32(len(l.PkScript)) > MaxScriptSize {
-		return messageError("LeafData SerializeCompact", "pkScript too long")
-	}
-
-	return PkScriptSerializeCompact(w, l.ReconstructablePkType, l.PkScript)
-}
-
-// DeserializeCompact encodes the LeafData to w using the compact leaf serialization format.
-func (l *LeafData) DeserializeCompact(r io.Reader) error {
-	bs := newSerializer()
-	defer bs.free()
-
-	height, err := bs.Uint32(r, littleEndian)
-	if err != nil {
-		return err
-	}
-	l.Height = int32(height)
-
-	if l.Height&1 == 1 {
-		l.IsCoinBase = true
-	}
-	l.Height >>= 1
-
-	amt, err := bs.Uint64(r, littleEndian)
-	if err != nil {
-		return err
-	}
-	l.Amount = int64(amt)
-
-	ty, pkScript, err := PkScriptDeserializeCompact(r)
-	if err != nil {
-		return err
-	}
-	l.ReconstructablePkType = ty
-
-	// NOTE pkScript might be nil depending on if the type of
-	// the script.
-	l.PkScript = pkScript
-
-	return nil
-}
-
 // NewLeafData initializes and returns a zeroed out LeafData.
 func NewLeafData() LeafData {
 	return LeafData{
-		OutPoint: *NewOutPoint(new(chainhash.Hash), 0),
+		OutPoint: *wire.NewOutPoint(new(chainhash.Hash), 0),
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -26,7 +27,7 @@ type MsgUtreexoTx struct {
 	AccProof utreexo.Proof
 
 	// LeafDatas are the tx validation data for every input.
-	LeafDatas []wire.LeafData
+	LeafDatas []bip182.LeafData
 }
 
 // Copy creates a deep copy of a transaction so that the original does not get
@@ -43,7 +44,7 @@ func (msg *MsgUtreexoTx) Copy() *MsgUtreexoTx {
 	copy(proofCopy.Proof, msg.AccProof.Proof)
 
 	// Copy leaf datas.
-	LeafDatas := make([]wire.LeafData, len(msg.LeafDatas))
+	LeafDatas := make([]bip182.LeafData, len(msg.LeafDatas))
 	for i := range LeafDatas {
 		LeafDatas[i] = *msg.LeafDatas[i].Copy()
 	}
@@ -85,12 +86,12 @@ func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEnc
 
 	// Go through each of the txIn and attempt to deserialize if the
 	// txIn has a leaf data.
-	msg.LeafDatas = make([]wire.LeafData, 0, len(msg.MsgTx.TxIn))
+	msg.LeafDatas = make([]bip182.LeafData, 0, len(msg.MsgTx.TxIn))
 	for _, txIn := range msgTx.TxIn {
 		isUnconfirmed := txIn.PreviousOutPoint.Index&1 == 1
 		txIn.PreviousOutPoint.Index >>= 1
 
-		var ld wire.LeafData
+		var ld bip182.LeafData
 		ld.OutPoint = txIn.PreviousOutPoint
 
 		// Skip if the txIn is unconfimred because it won't
@@ -101,7 +102,7 @@ func (msg *MsgUtreexoTx) BtcDecode(r io.Reader, pver uint32, enc wire.MessageEnc
 			continue
 		}
 
-		err = ld.DeserializeCompact(r)
+		err = LeafDataDeserializeCompact(r, &ld)
 		if err != nil {
 			return err
 		}
@@ -155,7 +156,7 @@ func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEnc
 
 	// Write the actual leaf datas.
 	for _, ld := range msg.LeafDatas {
-		err = ld.SerializeCompact(w)
+		err = LeafDataSerializeCompact(w, &ld)
 		if err != nil {
 			return err
 		}

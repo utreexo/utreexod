@@ -27,6 +27,7 @@ import (
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/addrmgr"
 	"github.com/utreexo/utreexod/bdkwallet"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/blockchain/indexers"
@@ -1321,7 +1322,7 @@ func (sp *serverPeer) OnGetUtreexoProof(_ *peer.Peer, msg *bip183.MsgGetUtreexoP
 	}
 
 	// Construct utreexo proof to send.
-	leafDatas := make([]wire.LeafData, 0, len(udata.LeafDatas))
+	leafDatas := make([]bip182.LeafData, 0, len(udata.LeafDatas))
 	for i := 0; i < len(udata.LeafDatas); i++ {
 		if msg.IsEntireLeafDataRequested() || msg.IsLeafDataRequestedAtIdx(i) {
 			leafDatas = append(leafDatas, udata.LeafDatas[i])
@@ -3007,7 +3008,7 @@ func (s *server) UpdateProofBytesRead(msgUtreexoTx *bip183.MsgUtreexoTx) {
 	if s.chain.IsUtreexoViewActive() {
 		var utxoDataSize uint64
 		for _, ld := range msgUtreexoTx.LeafDatas {
-			utxoDataSize += uint64(ld.SerializeSizeCompact())
+			utxoDataSize += uint64(bip183.LeafDataSerializeSizeCompact(&ld))
 		}
 		accSize := uint64(bip183.BatchProofSerializeAccProofSize(&msgUtreexoTx.AccProof))
 
@@ -3022,7 +3023,7 @@ func (s *server) UpdateProofBytesWritten(msgUtreexoTx *bip183.MsgUtreexoTx) {
 	if s.chain.IsUtreexoViewActive() {
 		var utxoDataSize uint64
 		for _, ld := range msgUtreexoTx.LeafDatas {
-			utxoDataSize += uint64(ld.SerializeSizeCompact())
+			utxoDataSize += uint64(bip183.LeafDataSerializeSizeCompact(&ld))
 		}
 		accSize := uint64(bip183.BatchProofSerializeAccProofSize(&msgUtreexoTx.AccProof))
 

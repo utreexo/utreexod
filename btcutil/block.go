@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/wire"
 )
@@ -50,7 +51,7 @@ type blockUtreexoData struct {
 	updateData *utreexo.UpdateData // Utreexo update data for this block.
 	adds       []utreexo.Hash      // Hashes of the utreexo leaves being added.
 	leafTTLs   *bip183.UtreexoTTL  // The ttls of the leaves created in this block.
-	leafDatas  []wire.LeafData     // The leaves of the inputs in this block.
+	leafDatas  []bip182.LeafData   // The leaves of the inputs in this block.
 	proofData  *utreexo.Proof      // Utreexo proof for this block.
 }
 
@@ -294,12 +295,12 @@ func (b *Block) UtreexoTTLs() *bip183.UtreexoTTL {
 }
 
 // SetUtreexoLeafDatas sets the leaf data for the inputs in this block.
-func (b *Block) SetUtreexoLeafDatas(leafDatas []wire.LeafData) {
+func (b *Block) SetUtreexoLeafDatas(leafDatas []bip182.LeafData) {
 	b.ensureUtreexoData().leafDatas = leafDatas
 }
 
 // UtreexoLeafDatas returns the leaf data for the inputs in this block.
-func (b *Block) UtreexoLeafDatas() []wire.LeafData {
+func (b *Block) UtreexoLeafDatas() []bip182.LeafData {
 	if b.utreexoData == nil {
 		return nil
 	}

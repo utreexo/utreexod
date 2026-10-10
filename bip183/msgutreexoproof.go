@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/wire"
 )
 
@@ -53,7 +54,7 @@ type MsgUtreexoProof struct {
 	Targets []uint64
 
 	// LeafDatas are the tx validation data for every input.
-	LeafDatas []wire.LeafData
+	LeafDatas []bip182.LeafData
 }
 
 // BtcDecode decodes r using the bitcoin protocol encoding into the receiver.
@@ -97,9 +98,9 @@ func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc wire.Message
 		return err
 	}
 
-	msg.LeafDatas = make([]wire.LeafData, leafCount)
+	msg.LeafDatas = make([]bip182.LeafData, leafCount)
 	for i := range msg.LeafDatas {
-		err = msg.LeafDatas[i].DeserializeCompact(r)
+		err = LeafDataDeserializeCompact(r, &msg.LeafDatas[i])
 		if err != nil {
 			return err
 		}
@@ -150,7 +151,7 @@ func (msg *MsgUtreexoProof) BtcEncode(w io.Writer, pver uint32, enc wire.Message
 
 	// Write the actual leaf datas.
 	for _, ld := range msg.LeafDatas {
-		err = ld.SerializeCompact(w)
+		err = LeafDataSerializeCompact(w, &ld)
 		if err != nil {
 			return err
 		}

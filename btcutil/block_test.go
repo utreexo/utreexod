@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/wire"
@@ -473,7 +474,7 @@ func testOldFormatUData(proof *utreexo.Proof) []byte {
 	// Write a batch proof.
 	bip183.BatchProofSerialize(&buf, proof)
 	// Write non-compact leaf data (count + full Serialize per leaf).
-	ld := wire.LeafData{
+	ld := bip182.LeafData{
 		BlockHash: chainhash.Hash{0xaa, 0xbb},
 		OutPoint:  wire.OutPoint{Hash: chainhash.Hash{0xcc}, Index: 0},
 		Height:    100,

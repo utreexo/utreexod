@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
@@ -135,7 +136,7 @@ type TxSource interface {
 	// FetchLeafDatas returns the utreexo leaf data for the given
 	// transaction's inputs. This is used by CSN nodes to generate
 	// utreexo proofs for mined blocks.
-	FetchLeafDatas(txHash *chainhash.Hash) ([]wire.LeafData, error)
+	FetchLeafDatas(txHash *chainhash.Hash) ([]bip182.LeafData, error)
 }
 
 // txPrioItem houses a transaction along with extra information that allows the
@@ -928,7 +929,7 @@ mempoolLoop:
 
 		// Collect the leaf datas for all non-coinbase transactions'
 		// inputs from the mempool, skipping same-block spends.
-		var allLeafDatas []wire.LeafData
+		var allLeafDatas []bip182.LeafData
 		var blockInIdx uint32
 		for txIdx, tx := range block.Transactions() {
 			if txIdx == 0 {
