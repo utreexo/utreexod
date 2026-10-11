@@ -6,37 +6,74 @@ on:
   pull_request:
     branches: [ "main" ]
 
+env:
+  GO_VERSION: "1.25"
+  # As specified in rust-toolchain.
+  RUST_TOOLCHAIN: "1.81.0"
+
 jobs:
 
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: ["1.25"]
-        rust:
-          - version: stable
-            clippy: true
-          - version: 1.81.0 # As specified in rust-toolchain
+        rust: [stable, "1.81.0"] # 1.81.0 as specified in rust-toolchain
     steps:
     - uses: actions/checkout@v3
 
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: ${{ matrix.go }}
+        go-version: ${{ env.GO_VERSION }}
 
     - name: Install Rust toolchain
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: ${{ matrix.rust.version }}
+        toolchain: ${{ matrix.rust }}
         override: true
         profile: minimal
 
     - name: Build
       run: make all
 
+    - name: Test
+      run: cargo test
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ env.RUST_TOOLCHAIN }}
+        override: true
+        profile: minimal
+
+    - name: Build BDK
+      run: make build-bdk
+
+    - name: Test
+      run: go test -short -race -timeout=20m -tags="rpctest bdkwallet" ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
     - name: Install Linters
       run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
 
-    - name: Test
-      run: make test
+    - name: Lint
+      run: golangci-lint run
