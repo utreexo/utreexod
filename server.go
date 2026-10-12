@@ -3826,7 +3826,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 
 	if !cfg.NoBdkWallet {
 		if chainParams.Net == wire.SimNet {
-			btcdLog.Infof("Unable to enable bkdwallet as utreexod is in simnet")
+			btcdLog.Infof("Unable to enable bdkwallet as utreexod is in simnet")
 		} else {
 			// Setup BDK wallet if it is enabled.
 			s.bdkWallet, err = bdkwallet.NewManager(bdkwallet.ManagerConfig{
@@ -3839,7 +3839,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 				if err == bdkwallet.ErrNoBDK {
 					s.bdkWallet = nil
 					cfg.NoBdkWallet = true
-					btcdLog.Infof("Unable to enable bkdwallet as utreexod wasn't built with bdkwallet. " +
+					btcdLog.Infof("Unable to enable bdkwallet as utreexod wasn't built with bdkwallet. " +
 						"Starting node without bdkwallet.")
 				} else {
 					return nil, err
