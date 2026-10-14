@@ -9,23 +9,25 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/integration/rpctest"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // fetchBlocks fetches the blocks for the given block hashes and
 // returns the blocks and their corresponding UData separately. This is needed for
 // testing SubmitBlockAndUtreexoProof which takes block and UData as separate parameters.
 func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
-	[]*btcutil.Block, []*wire.UData, error) {
+	[]*btcutil.Block, []*bip183.UData, error) {
 
 	blocks := make([]*btcutil.Block, 0, len(blockhashes))
-	udatas := make([]*wire.UData, 0, len(blockhashes))
+	udatas := make([]*bip183.UData, 0, len(blockhashes))
 
 	for _, blockhash := range blockhashes {
 		msgBlock, err := harness.Client.GetBlock(blockhash)
@@ -51,16 +53,16 @@ func fetchBlocks(blockhashes []*chainhash.Hash, harness *rpctest.Harness) (
 	return blocks, udatas, nil
 }
 
-// jsonToUData converts the JSON utreexo proof result to wire.UData.
-func jsonToUData(utreexoProof *btcjson.GetUtreexoProofVerboseResult) (*wire.UData, error) {
-	lds := []wire.LeafData{}
+// jsonToUData converts the JSON utreexo proof result to bip183.UData.
+func jsonToUData(utreexoProof *btcjson.GetUtreexoProofVerboseResult) (*bip183.UData, error) {
+	lds := []bip182.LeafData{}
 	for _, ldString := range utreexoProof.TargetPreimages {
 		raw, err := hex.DecodeString(ldString)
 		if err != nil {
 			return nil, err
 		}
 
-		ld := new(wire.LeafData)
+		ld := new(bip182.LeafData)
 		err = ld.Deserialize(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
@@ -78,7 +80,7 @@ func jsonToUData(utreexoProof *btcjson.GetUtreexoProofVerboseResult) (*wire.UDat
 	}
 	accProof := utreexo.Proof{Targets: utreexoProof.ProofTargets, Proof: proofHashes}
 
-	udata := wire.UData{
+	udata := bip183.UData{
 		AccProof:  accProof,
 		LeafDatas: lds,
 	}

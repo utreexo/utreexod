@@ -13,11 +13,13 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (
@@ -134,7 +136,7 @@ type TxSource interface {
 	// FetchLeafDatas returns the utreexo leaf data for the given
 	// transaction's inputs. This is used by CSN nodes to generate
 	// utreexo proofs for mined blocks.
-	FetchLeafDatas(txHash *chainhash.Hash) ([]wire.LeafData, error)
+	FetchLeafDatas(txHash *chainhash.Hash) ([]bip182.LeafData, error)
 }
 
 // txPrioItem houses a transaction along with extra information that allows the
@@ -286,7 +288,7 @@ type BlockTemplate struct {
 	// UData is the utreexo data for the block. This is only set when the
 	// node is a CSN (Compact State Node) and is needed to attach utreexo
 	// proofs to mined blocks.
-	UData *wire.UData
+	UData *bip183.UData
 }
 
 // mergeUtxoView adds all of the entries in viewB to viewA.  The result is that
@@ -916,7 +918,7 @@ mempoolLoop:
 	// If this is a utreexo CSN node, generate the utreexo proof data for
 	// the block. This is needed because checkConnectBlock requires UData
 	// when the utreexo view is active.
-	var udata *wire.UData
+	var udata *bip183.UData
 	if g.chain.IsUtreexoViewActive() {
 		// Use DedupeBlock to identify same-block spends (inputs
 		// spending outputs created in the same block). These are
@@ -927,7 +929,7 @@ mempoolLoop:
 
 		// Collect the leaf datas for all non-coinbase transactions'
 		// inputs from the mempool, skipping same-block spends.
-		var allLeafDatas []wire.LeafData
+		var allLeafDatas []bip182.LeafData
 		var blockInIdx uint32
 		for txIdx, tx := range block.Transactions() {
 			if txIdx == 0 {

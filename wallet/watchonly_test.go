@@ -12,9 +12,10 @@ import (
 	"testing/quick"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/wire"
 )
 
 func TestLeafDataExtrasJSONMarshal(t *testing.T) {
@@ -25,7 +26,7 @@ func TestLeafDataExtrasJSONMarshal(t *testing.T) {
 		{
 			name: "txid 60c08dafe80150afe2cabdba24e90853b072d02bc5111546da083d80b50ed66a",
 			relevantTx: LeafDataExtras{
-				LeafData: wire.LeafData{
+				LeafData: bip182.LeafData{
 					BlockHash: func() chainhash.Hash {
 						str := "00000000000000000003b05b4cafbac9c67afb76c3c3efb89aeb4db086c13f2b"
 						hash, err := chainhash.NewHashFromStr(str)
@@ -45,7 +46,7 @@ func TestLeafDataExtrasJSONMarshal(t *testing.T) {
 					Height:                784611,
 					IsCoinBase:            true,
 					Amount:                631465945,
-					ReconstructablePkType: wire.WitnessV0PubKeyHashTy,
+					ReconstructablePkType: bip182.WitnessV0PubKeyHashTy,
 					PkScript: func() []byte {
 						str := "001435f6de260c9f3bdee47524c473a6016c0c055cb9"
 						bytes, err := hex.DecodeString(str)
@@ -62,7 +63,7 @@ func TestLeafDataExtrasJSONMarshal(t *testing.T) {
 		{
 			name: "txid 64d01c1d5493a686f3d3d8e42e58c835a8cfc3296320768f90acb8e9c5fe5d65",
 			relevantTx: LeafDataExtras{
-				LeafData: wire.LeafData{
+				LeafData: bip182.LeafData{
 					BlockHash: func() chainhash.Hash {
 						str := "0000000000000000001861945b5d7ecc1c70c6b45a65ba266a3059a367b0ec39"
 						hash, err := chainhash.NewHashFromStr(str)
@@ -82,7 +83,7 @@ func TestLeafDataExtrasJSONMarshal(t *testing.T) {
 					Height:                541117,
 					IsCoinBase:            false,
 					Amount:                1150000,
-					ReconstructablePkType: wire.PubKeyHashTy,
+					ReconstructablePkType: bip182.PubKeyHashTy,
 					PkScript: func() []byte {
 						str := "001435f6de260c9f3bdee47524c473a6016c0c055cb9"
 						bytes, err := hex.DecodeString(str)

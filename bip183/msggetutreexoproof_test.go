@@ -1,0 +1,213 @@
+package bip183
+
+import (
+	"bytes"
+	"crypto/rand"
+	"testing"
+
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/stretchr/testify/assert"
+)
+
+func randomBytes(size int) []byte {
+	b := make([]byte, size)
+	_, err := rand.Read(b)
+	if err != nil {
+		panic("failed to generate random bytes")
+	}
+	return b
+}
+
+func TestMsgGetUtreexoProofEncodeDecode(t *testing.T) {
+	testCases := []struct {
+		name string
+		msg  MsgGetUtreexoProof
+	}{
+		{
+			name: "Basic case",
+			msg: MsgGetUtreexoProof{
+				BlockHash:        chainhash.HashH([]byte("basic test hash")),
+				RequestBitMap:    0b101,
+				ProofIndexBitMap: []byte{1, 2, 3, 4},
+				LeafIndexBitMap:  []byte{5, 6, 7, 8},
+			},
+		},
+		{
+			name: "Empty indexes",
+			msg: MsgGetUtreexoProof{
+				BlockHash:        chainhash.HashH([]byte("empty test hash")),
+				RequestBitMap:    0,
+				ProofIndexBitMap: []byte{},
+				LeafIndexBitMap:  []byte{},
+			},
+		},
+		{
+			name: "max size case",
+			msg: MsgGetUtreexoProof{
+				BlockHash:     chainhash.HashH([]byte("failure case hash")),
+				RequestBitMap: 0b010,
+				ProofIndexBitMap: func() []byte {
+					b := make([]bool, MaxProofHashes)
+					for i := range b {
+						b[i] = true
+					}
+
+					return createBitmap(b)
+				}(),
+				LeafIndexBitMap: func() []byte {
+					length := MaxPossibleInputsPerBlock
+					b := make([]bool, length)
+					for i := range b {
+						b[i] = true
+					}
+
+					return createBitmap(b)
+				}(),
+			},
+		},
+		{
+			name: "Large indexes",
+			msg: MsgGetUtreexoProof{
+				BlockHash:        chainhash.HashH([]byte("large test hash")),
+				RequestBitMap:    0b111,
+				ProofIndexBitMap: randomBytes(100),
+				LeafIndexBitMap:  randomBytes(100),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		var buf bytes.Buffer
+		pver := uint32(70015) // Example protocol version
+
+		// Encode the message
+		err := tc.msg.BtcEncode(&buf, pver, wire.LatestEncoding)
+		assert.NoError(t, err, "BtcEncode should not return an error")
+
+		assert.LessOrEqual(t, uint32(len(buf.Bytes())), tc.msg.MaxPayloadLength(0))
+
+		// Decode into a new message
+		var decodedMsg MsgGetUtreexoProof
+		err = decodedMsg.BtcDecode(&buf, pver, wire.LatestEncoding)
+		assert.NoError(t, err, "BtcDecode should not return an error")
+
+		// Verify the decoded message matches the original
+		assert.Equal(t, tc.msg.BlockHash, decodedMsg.BlockHash, "BlockHash should match")
+		assert.Equal(t, tc.msg.RequestBitMap, decodedMsg.RequestBitMap, "RequestBitMap should match")
+		assert.Equal(t, tc.msg.ProofIndexBitMap, decodedMsg.ProofIndexBitMap, "ProofIndexBitMap should match")
+		assert.Equal(t, tc.msg.LeafIndexBitMap, decodedMsg.LeafIndexBitMap, "LeafIndexBitMap should match")
+	}
+}
+
+func TestMsgGetUtreexoProofRequestBitMapBits(t *testing.T) {
+	var msg MsgGetUtreexoProof
+
+	assert.False(t, msg.AreTargetsRequested())
+	assert.False(t, msg.IsEntireProofRequested())
+	assert.False(t, msg.IsEntireLeafDataRequested())
+	assert.Equal(t, uint8(0), msg.RequestBitMap)
+
+	msg.SetTargetRequestBit()
+	assert.True(t, msg.AreTargetsRequested(), "target bit not set")
+	assert.False(t, msg.IsEntireProofRequested())
+	assert.False(t, msg.IsEntireLeafDataRequested())
+	assert.Equal(t, uint8(0b001), msg.RequestBitMap)
+
+	msg.SetProofHashRequestBit()
+	assert.True(t, msg.IsEntireProofRequested(), "proof bit not set")
+	assert.True(t, msg.AreTargetsRequested(), "target bit flipped unexpectedly")
+	assert.False(t, msg.IsEntireLeafDataRequested())
+	assert.Equal(t, uint8(0b011), msg.RequestBitMap)
+
+	msg.SetLeafDataRequestBit()
+	assert.True(t, msg.IsEntireLeafDataRequested(), "leaf bit not set")
+	assert.True(t, msg.IsEntireProofRequested())
+	assert.True(t, msg.AreTargetsRequested())
+	assert.Equal(t, uint8(0b111), msg.RequestBitMap)
+}
+
+func setBitSlice(size int, bitIndexes []int) []byte {
+	b := make([]byte, size)
+	for _, bitIndex := range bitIndexes {
+		byteIndex := bitIndex / 8
+		bitOffset := bitIndex % 8
+		if byteIndex < size {
+			b[byteIndex] |= (1 << bitOffset)
+		}
+	}
+	return b
+}
+
+func TestIsBitSet(t *testing.T) {
+	testCases := []struct {
+		slice    []byte
+		indexes  []int
+		expected []bool
+	}{
+		{
+			slice:    setBitSlice(32, []int{1, 4}),
+			indexes:  []int{1, 2, 4},
+			expected: []bool{true, false, true},
+		},
+
+		{
+			slice:    setBitSlice(100, []int{1, 4, 98}),
+			indexes:  []int{1, 2, 3, 55, 98, 100},
+			expected: []bool{true, false, false, false, true, false},
+		},
+	}
+
+	for _, tc := range testCases {
+		for i, index := range tc.indexes {
+			assert.Equal(t, tc.expected[i], isBitSet(tc.slice, index))
+		}
+	}
+}
+
+func TestCreateBitmap(t *testing.T) {
+	testCases := []struct {
+		name     string
+		includes []bool
+		expected []byte
+	}{
+		{
+			name:     "All false",
+			includes: []bool{false, false, false, false, false, false, false, false},
+			expected: []byte{0x00},
+		},
+		{
+			name:     "All true",
+			includes: []bool{true, true, true, true, true, true, true, true},
+			expected: []byte{0xFF},
+		},
+		{
+			name:     "Alternating true/false",
+			includes: []bool{true, false, true, false, true, false, true, false},
+			expected: []byte{0x55}, // 0b01010101
+		},
+		{
+			name:     "Partial byte (less than 8 bits)",
+			includes: []bool{true, false, true, false, true},
+			expected: []byte{0x15}, // 0b00010101
+		},
+		{
+			name: "Multi-byte input",
+			includes: []bool{
+				true, false, true, false, true, false, true, false, // 0b01010101
+				false, true, false, true, false, true, false, true, // 0b10101010
+			},
+			expected: []byte{0x55, 0xAA},
+		},
+		{
+			name:     "Single bit set at end",
+			includes: []bool{false, false, false, false, false, false, false, true},
+			expected: []byte{0x80}, // 0b10000000
+		},
+	}
+
+	for _, tc := range testCases {
+		bitmap := createBitmap(tc.includes)
+		assert.Equal(t, tc.expected, bitmap)
+	}
+}

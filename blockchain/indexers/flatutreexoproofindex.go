@@ -15,12 +15,14 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (
@@ -280,7 +282,7 @@ func (idx *FlatUtreexoProofIndex) initTTLState(height int32) (*utreexo.Pollard, 
 
 	// Add ttl for block 0. This is so that the ttl on height 1 also has a target
 	// of 1.
-	emptyTTL := wire.UtreexoTTL{}
+	emptyTTL := bip183.UtreexoTTL{}
 	buf := bytes.NewBuffer(make([]byte, 0, emptyTTL.SerializeSize()))
 	err := emptyTTL.Serialize(buf)
 	if err != nil {
@@ -308,7 +310,7 @@ func (idx *FlatUtreexoProofIndex) initTTLState(height int32) (*utreexo.Pollard, 
 			}
 		}
 
-		ttl := wire.UtreexoTTL{
+		ttl := bip183.UtreexoTTL{
 			BlockHeight: uint32(h),
 			TTLs:        ttls,
 		}
@@ -504,7 +506,7 @@ func (idx *FlatUtreexoProofIndex) ConnectBlock(dbTx database.Tx, block *btcutil.
 	adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
 
 	idx.mtx.RLock()
-	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
+	ud, err := bip183.GenerateUData(dels, idx.utreexoState.state)
 	idx.mtx.RUnlock()
 	if err != nil {
 		return err
@@ -598,7 +600,7 @@ type rawBlockItem struct {
 type recordItem struct {
 	delHashes []utreexo.Hash
 	addHashes []utreexo.Hash
-	leafDatas []wire.LeafData
+	leafDatas []bip182.LeafData
 	height    int32
 	numAdds   int
 	numDels   int
@@ -610,7 +612,7 @@ type recordItem struct {
 // by store.
 type generateItem struct {
 	pendingDels    []uint64
-	leafDatas      []wire.LeafData
+	leafDatas      []bip182.LeafData
 	createdIndexes []int32
 	height         int32
 	numAdds        int
@@ -625,7 +627,7 @@ type storeItem struct {
 	roots          []utreexo.Hash
 	numLeaves      uint64
 	proof          utreexo.Proof
-	leafDatas      []wire.LeafData
+	leafDatas      []bip182.LeafData
 	createdIndexes []int32
 	height         int32
 	numAdds        int
@@ -760,7 +762,7 @@ func (pp *proofPipeline) preprocess(idx *FlatUtreexoProofIndex) {
 	// single instance can be reused across blocks. The hash buffers
 	// themselves now travel through recordCh and so must be fresh per
 	// block — reusing them here would race with record's consumption.
-	lh := wire.NewLeafHasher()
+	lh := bip182.NewLeafHasher()
 
 	for raw := range pp.rawCh {
 		// Re-post any pipeline error so the caller sees it, then exit.
@@ -897,7 +899,7 @@ func (idx *FlatUtreexoProofIndex) store(item storeItem) error {
 	}
 
 	if !idx.config.Pruned && item.numDels > 0 {
-		ud := &wire.UData{
+		ud := &bip183.UData{
 			AccProof:  item.proof,
 			LeafDatas: item.leafDatas,
 		}
@@ -911,7 +913,7 @@ func (idx *FlatUtreexoProofIndex) store(item storeItem) error {
 			return err
 		}
 	} else if !idx.config.Pruned {
-		emptyUD := &wire.UData{AccProof: utreexo.Proof{}}
+		emptyUD := &bip183.UData{AccProof: utreexo.Proof{}}
 		if err := idx.storeProof(item.height, emptyUD); err != nil {
 			return err
 		}
@@ -1020,7 +1022,7 @@ func (idx *FlatUtreexoProofIndex) drainProofPipeline() error {
 
 // calcProofOverhead calculates the overhead of the current utreexo accumulator proof
 // has.
-func calcProofOverhead(ud *wire.UData) float64 {
+func calcProofOverhead(ud *bip183.UData) float64 {
 	if ud == nil || len(ud.AccProof.Targets) == 0 {
 		return 0
 	}
@@ -1037,7 +1039,7 @@ func (idx *FlatUtreexoProofIndex) attachBlock(blk *btcutil.Block, stxos []blockc
 	}
 
 	adds := blockchain.BlockToAddLeaves(blk, outskip, outCount)
-	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
+	ud, err := bip183.GenerateUData(dels, idx.utreexoState.state)
 	if err != nil {
 		return err
 	}
@@ -1104,13 +1106,13 @@ func printHashes(hashes []utreexo.Hash) string {
 // getUndoData returns the data needed for undo. For pruned nodes, we fetch the data from the undo block.
 // For archive nodes, we generate the data from the proof.
 func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (
-	[]utreexo.Hash, *utreexo.Proof, []utreexo.Hash, *wire.UData, error) {
+	[]utreexo.Hash, *utreexo.Proof, []utreexo.Hash, *bip183.UData, error) {
 
 	var (
 		addHashes []utreexo.Hash
 		proof     *utreexo.Proof
 		delHashes []utreexo.Hash
-		ud        *wire.UData
+		ud        *bip183.UData
 	)
 
 	if !idx.config.Pruned {
@@ -1145,7 +1147,7 @@ func (idx *FlatUtreexoProofIndex) getUndoData(block *btcutil.Block) (
 }
 
 // getCreateIndexes returns the indexes within the newly created leaves that the delhashes were at.
-func (idx *FlatUtreexoProofIndex) getCreateIndexes(lds []wire.LeafData, delHashes []utreexo.Hash) ([]int32, error) {
+func (idx *FlatUtreexoProofIndex) getCreateIndexes(lds []bip182.LeafData, delHashes []utreexo.Hash) ([]int32, error) {
 	createIndexes := make([]int32, 0, len(lds))
 	for i, ld := range lds {
 		stxoBlock, err := idx.chain.BlockByHeight(ld.Height)
@@ -1284,10 +1286,10 @@ func (idx *FlatUtreexoProofIndex) PruneBlock(_ database.Tx, _ *chainhash.Hash, l
 
 // FetchUtreexoProof returns the Utreexo proof data for the given block height.
 func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (
-	*wire.UData, error) {
+	*bip183.UData, error) {
 
 	if height == 0 {
-		return &wire.UData{}, nil
+		return &bip183.UData{}, nil
 	}
 
 	if idx.config.Pruned {
@@ -1300,7 +1302,7 @@ func (idx *FlatUtreexoProofIndex) FetchUtreexoProof(height int32) (
 // fetchUtreexoProof returns the Utreexo proof data for the given block height.
 // Returns an error if it couldn't fetch the proof.
 func (idx *FlatUtreexoProofIndex) fetchUtreexoProof(height int32) (
-	*wire.UData, error) {
+	*bip183.UData, error) {
 
 	targets, err := idx.fetchTargets(height)
 	if err != nil {
@@ -1317,7 +1319,7 @@ func (idx *FlatUtreexoProofIndex) fetchUtreexoProof(height int32) (
 		return nil, err
 	}
 
-	ud := wire.UData{
+	ud := bip183.UData{
 		AccProof: utreexo.Proof{
 			Targets: targets,
 			Proof:   proofHashes,
@@ -1340,12 +1342,12 @@ func (idx *FlatUtreexoProofIndex) fetchTargets(height int32) ([]uint64, error) {
 	}
 	r := bytes.NewReader(targetBytes)
 
-	return wire.ProofTargetsDeserialize(r)
+	return bip183.ProofTargetsDeserialize(r)
 }
 
 // fetchLeafDatas fetches the leafdatas at the given height. Returns an error if it couldn't
 // fetch it.
-func (idx *FlatUtreexoProofIndex) fetchLeafDatas(height int32) ([]wire.LeafData, error) {
+func (idx *FlatUtreexoProofIndex) fetchLeafDatas(height int32) ([]bip182.LeafData, error) {
 	leafDataBytes, err := idx.leafDataState.FetchData(height)
 	if err != nil {
 		return nil, err
@@ -1355,7 +1357,7 @@ func (idx *FlatUtreexoProofIndex) fetchLeafDatas(height int32) ([]wire.LeafData,
 	}
 	r := bytes.NewReader(leafDataBytes)
 
-	return wire.DeserializeUtxoData(r)
+	return bip183.DeserializeUtxoData(r)
 }
 
 // fetchProofHashes fetches the proof hashes at the given height. Returns an error if it
@@ -1370,7 +1372,7 @@ func (idx *FlatUtreexoProofIndex) fetchProofHashes(height int32) ([]utreexo.Hash
 	}
 	r := bytes.NewReader(proofHashesBytes)
 
-	return wire.ProofHashesDeserialize(r)
+	return bip183.ProofHashesDeserialize(r)
 }
 
 // GetLeafHashPositions returns the positions of the passed in hashes.
@@ -1389,11 +1391,11 @@ func (idx *FlatUtreexoProofIndex) GetLeafHashPositions(delHashes []utreexo.Hash)
 
 // GenerateUDataPartial generates a utreexo data based on the current state of the accumulator.
 // It leaves out the full proof hashes and only fetches the requested positions.
-func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []wire.LeafData, positions []uint64) (*wire.UData, error) {
+func (idx *FlatUtreexoProofIndex) GenerateUDataPartial(dels []bip182.LeafData, positions []uint64) (*bip183.UData, error) {
 	idx.mtx.RLock()
 	defer idx.mtx.RUnlock()
 
-	ud := new(wire.UData)
+	ud := new(bip183.UData)
 	ud.LeafDatas = dels
 
 	delHashes := make([]utreexo.Hash, 0, len(dels))
@@ -1441,21 +1443,21 @@ func (idx *FlatUtreexoProofIndex) getPollard(version uint32) *utreexo.Pollard {
 
 // FetchTTLs fetches the ttls as a MsgUtreexoTTLs from the given data.
 func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponent uint8) (
-	wire.MsgUtreexoTTLs, error) {
+	bip183.MsgUtreexoTTLs, error) {
 
 	p := idx.getPollard(version)
 	if p == nil {
-		return wire.MsgUtreexoTTLs{}, fmt.Errorf("version %v doesn't exist", version)
+		return bip183.MsgUtreexoTTLs{}, fmt.Errorf("version %v doesn't exist", version)
 	}
 
-	heights, err := wire.GetUtreexoTTLHeights(
+	heights, err := bip183.GetUtreexoTTLHeights(
 		int32(startHeight), int32(version), exponent)
 	if err != nil {
-		return wire.MsgUtreexoTTLs{}, err
+		return bip183.MsgUtreexoTTLs{}, err
 	}
 
-	msg := wire.MsgUtreexoTTLs{
-		TTLs: make([]wire.UtreexoTTL, 0, len(heights)),
+	msg := bip183.MsgUtreexoTTLs{
+		TTLs: make([]bip183.UtreexoTTL, 0, len(heights)),
 	}
 
 	// Version is the count of heights so we need to do -1 to get the endHeight.
@@ -1465,7 +1467,7 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 	for _, height := range heights {
 		ttls, err := idx.fetchTTLs(height)
 		if err != nil {
-			return wire.MsgUtreexoTTLs{}, err
+			return bip183.MsgUtreexoTTLs{}, err
 		}
 
 		// Remove the ttls that were added after the commitment.
@@ -1476,7 +1478,7 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 			}
 		}
 
-		ttl := wire.UtreexoTTL{
+		ttl := bip183.UtreexoTTL{
 			BlockHeight: uint32(height),
 			TTLs:        ttls,
 		}
@@ -1485,14 +1487,14 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 		buf := bytes.NewBuffer(make([]byte, 0, ttl.SerializeSize()))
 		err = ttl.Serialize(buf)
 		if err != nil {
-			return wire.MsgUtreexoTTLs{}, err
+			return bip183.MsgUtreexoTTLs{}, err
 		}
 		leafHashes = append(leafHashes, sha256.Sum256(buf.Bytes()))
 	}
 
 	proof, err := p.Prove(leafHashes)
 	if err != nil {
-		return wire.MsgUtreexoTTLs{}, err
+		return bip183.MsgUtreexoTTLs{}, err
 	}
 	msg.ProofHashes = proof.Proof
 
@@ -1501,7 +1503,7 @@ func (idx *FlatUtreexoProofIndex) FetchTTLs(version, startHeight uint32, exponen
 
 // fetchTTLs fetches the ttls at the given height.
 func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
-	[]wire.TTLInfo, error) {
+	[]bip183.TTLInfo, error) {
 
 	if height == 0 {
 		return nil, nil
@@ -1519,7 +1521,7 @@ func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
 		return nil, fmt.Errorf("Couldn't fetch ttl data for height %d", height)
 	}
 
-	ttls := make([]wire.TTLInfo, len(ttlBytes)/ttlSize)
+	ttls := make([]bip183.TTLInfo, len(ttlBytes)/ttlSize)
 	for i := range ttls {
 		start := i * ttlSize
 		ttls[i].DeathHeight = byteOrder.Uint32(ttlBytes[start : start+uint32Size])
@@ -1531,7 +1533,7 @@ func (idx *FlatUtreexoProofIndex) fetchTTLs(height int32) (
 
 // resetTTLs is used during reorganizations when stxos are turned about into utxos. The ttls
 // at the given heights and indexes are marked as unspent.
-func (idx *FlatUtreexoProofIndex) resetTTLs(ud *wire.UData, createdIndexes []int32) error {
+func (idx *FlatUtreexoProofIndex) resetTTLs(ud *bip183.UData, createdIndexes []int32) error {
 	if len(ud.LeafDatas) == 0 {
 		return nil
 	}
@@ -1550,7 +1552,7 @@ func (idx *FlatUtreexoProofIndex) resetTTLs(ud *wire.UData, createdIndexes []int
 }
 
 // writeTTLs writes the ttls at the given heights and indexes.
-func writeTTLs(curHeight int32, createdIndexes []int32, lds []wire.LeafData,
+func writeTTLs(curHeight int32, createdIndexes []int32, lds []bip182.LeafData,
 	ttlIdx *FlatFileState) error {
 
 	// Nothing to do.
@@ -1581,7 +1583,7 @@ func writeTTLs(curHeight int32, createdIndexes []int32, lds []wire.LeafData,
 
 // writeTTLs is a wrapper on raw writeTTLs.
 func (idx *FlatUtreexoProofIndex) writeTTLs(
-	curHeight int32, createdIndexes []int32, lds []wire.LeafData) error {
+	curHeight int32, createdIndexes []int32, lds []bip182.LeafData) error {
 
 	return writeTTLs(curHeight, createdIndexes, lds, &idx.ttlState)
 }
@@ -1598,14 +1600,14 @@ func (idx *FlatUtreexoProofIndex) addEmptyTTLs(height, numAdds int32) error {
 }
 
 // storeProof serializes and stores the utreexo data in the proof state.
-func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error {
+func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *bip183.UData) error {
 	// One buffer serves all three writes. Each StoreData copies the bytes
 	// before the next serialization reuses the buffer, so no scratch is
 	// shared across calls or instances.
 	var buf bytes.Buffer
 
-	buf.Grow(wire.BatchProofSerializeAccProofSize(&ud.AccProof))
-	if err := wire.ProofHashesSerialize(&buf, ud.AccProof.Proof); err != nil {
+	buf.Grow(bip183.BatchProofSerializeAccProofSize(&ud.AccProof))
+	if err := bip183.ProofHashesSerialize(&buf, ud.AccProof.Proof); err != nil {
 		return err
 	}
 	if err := idx.proofState.StoreData(height, buf.Bytes()); err != nil {
@@ -1613,8 +1615,8 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error
 	}
 
 	buf.Reset()
-	buf.Grow(wire.BatchProofSerializeTargetSize(&ud.AccProof))
-	if err := wire.ProofTargetsSerialize(&buf, ud.AccProof.Targets); err != nil {
+	buf.Grow(bip183.BatchProofSerializeTargetSize(&ud.AccProof))
+	if err := bip183.ProofTargetsSerialize(&buf, ud.AccProof.Targets); err != nil {
 		return err
 	}
 	if err := idx.targetState.StoreData(height, buf.Bytes()); err != nil {
@@ -1623,7 +1625,7 @@ func (idx *FlatUtreexoProofIndex) storeProof(height int32, ud *wire.UData) error
 
 	buf.Reset()
 	buf.Grow(ud.SerializeUtxoDataSize())
-	if err := wire.SerializeUtxoData(&buf, ud.LeafDatas); err != nil {
+	if err := bip183.SerializeUtxoData(&buf, ud.LeafDatas); err != nil {
 		return err
 	}
 	if err := idx.leafDataState.StoreData(height, buf.Bytes()); err != nil {
@@ -1706,9 +1708,9 @@ func (idx *FlatUtreexoProofIndex) fetchRoots(height int32) (utreexo.Stump, error
 // GenerateUData generates utreexo data for the dels passed in.  Height passed in
 // should either be of block height of where the deletions are happening or just
 // the lastest block height for mempool tx proof generation.
-func (idx *FlatUtreexoProofIndex) GenerateUData(dels []wire.LeafData) (*wire.UData, error) {
+func (idx *FlatUtreexoProofIndex) GenerateUData(dels []bip182.LeafData) (*bip183.UData, error) {
 	idx.mtx.RLock()
-	ud, err := wire.GenerateUData(dels, idx.utreexoState.state)
+	ud, err := bip183.GenerateUData(dels, idx.utreexoState.state)
 	idx.mtx.RUnlock()
 	if err != nil {
 		return nil, err
@@ -1730,7 +1732,7 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 
 	// We'll turn the entries and outpoints into leaves that go in
 	// the accumulator.
-	leaves := make([]wire.LeafData, 0, len(utxos))
+	leaves := make([]bip182.LeafData, 0, len(utxos))
 	for i, utxo := range utxos {
 		if utxo == nil || utxo.IsSpent() {
 			err := fmt.Errorf("Passed in utxo at index %d "+
@@ -1747,7 +1749,7 @@ func (idx *FlatUtreexoProofIndex) ProveUtxos(utxos []*blockchain.UtxoEntry,
 				utxo.BlockHeight())
 			return nil, err
 		}
-		leaf := wire.LeafData{
+		leaf := bip182.LeafData{
 			BlockHash:  *blockHash,
 			OutPoint:   (*outpoints)[i],
 			Amount:     utxo.Amount(),
@@ -1844,7 +1846,7 @@ func (idx *FlatUtreexoProofIndex) updateBlockTTLState(height int32) error {
 	return nil
 }
 
-func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (*wire.UtreexoBlockSummary, error) {
+func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (*bip183.UtreexoBlockSummary, error) {
 	height, err := idx.chain.BlockHeightByHash(blockHash)
 	if err != nil {
 		return nil, err
@@ -1868,7 +1870,7 @@ func (idx *FlatUtreexoProofIndex) fetchBlockSummary(blockHash *chainhash.Hash) (
 	}
 	numAdds := stump.NumLeaves - prevStump.NumLeaves
 
-	return &wire.UtreexoBlockSummary{
+	return &bip183.UtreexoBlockSummary{
 		BlockHash:    *blockHash,
 		NumAdds:      numAdds,
 		BlockTargets: ud.AccProof.Targets,
@@ -1889,7 +1891,7 @@ func (idx *FlatUtreexoProofIndex) FetchTTLRoots() (utreexo.Stump, error) {
 }
 
 // FetchMsgUtreexoRoot returns a complete utreexoroot bitcoin message on the requested block.
-func (idx *FlatUtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*wire.MsgUtreexoRoot, error) {
+func (idx *FlatUtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash) (*bip183.MsgUtreexoRoot, error) {
 	height, err := idx.chain.BlockHeightByHash(blockHash)
 	if err != nil {
 		return nil, err
@@ -1911,7 +1913,7 @@ func (idx *FlatUtreexoProofIndex) FetchMsgUtreexoRoot(blockHash *chainhash.Hash)
 		return nil, err
 	}
 
-	msg := &wire.MsgUtreexoRoot{
+	msg := &bip183.MsgUtreexoRoot{
 		NumLeaves: stump.NumLeaves,
 		Target:    proof.Targets[0],
 		BlockHash: *blockHash,

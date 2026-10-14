@@ -12,9 +12,10 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
-	"github.com/utreexo/utreexod/wire"
 )
 
 var errRegressionProofStore = errors.New("regression proof store failure")
@@ -157,11 +158,11 @@ func TestInvalidTTLUtreexoDataIsNotStored(t *testing.T) {
 				secondBlock, secondAdds := proofState.newBlock(t, chain, firstBlock, nil)
 				processBlock(t, chain, secondBlock, true)
 
-				spends := []wire.LeafData{firstAdds[0], secondAdds[0]}
+				spends := []bip182.LeafData{firstAdds[0], secondAdds[0]}
 				block, adds := proofState.newBlock(t, chain, secondBlock, spends)
-				block.SetUtreexoTTLs(&wire.UtreexoTTL{
+				block.SetUtreexoTTLs(&bip183.UtreexoTTL{
 					BlockHeight: uint32(block.Height()),
-					TTLs:        make([]wire.TTLInfo, len(adds)),
+					TTLs:        make([]bip183.TTLInfo, len(adds)),
 				})
 				test.mutate(block)
 

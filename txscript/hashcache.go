@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // calcHashPrevOuts calculates a single hash of all the previous outputs
