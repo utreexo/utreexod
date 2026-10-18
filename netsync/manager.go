@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
@@ -23,7 +24,6 @@ import (
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/mempool"
 	peerpkg "github.com/utreexo/utreexod/peer"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (
@@ -86,14 +86,14 @@ type headersMsg struct {
 // utreexoProofMsg packages a bitcoin utreexo proof message and the peer it came from
 // together so the block handler has access to that information.
 type utreexoProofMsg struct {
-	proof *wire.MsgUtreexoProof
+	proof *bip183.MsgUtreexoProof
 	peer  *peerpkg.Peer
 }
 
 // utreexoTTLsMsg packages a bitcoin utreexo ttls message and the peer it came from
 // together so the block handler has access to that information.
 type utreexoTTLsMsg struct {
-	ttls *wire.MsgUtreexoTTLs
+	ttls *bip183.MsgUtreexoTTLs
 	peer *peerpkg.Peer
 }
 
@@ -180,7 +180,7 @@ type peerSyncState struct {
 	requestedBlocks           map[chainhash.Hash]struct{}
 	requestedUtreexoSummaries map[chainhash.Hash]struct{}
 	requestedUtreexoProofs    map[chainhash.Hash]struct{}
-	requestedUtreexoTTLs      map[wire.MsgGetUtreexoTTLs]struct{}
+	requestedUtreexoTTLs      map[bip183.MsgGetUtreexoTTLs]struct{}
 }
 
 // limitAdd is a helper function for maps that require a maximum limit by
@@ -233,7 +233,7 @@ type SyncManager struct {
 	// The following fields are used for headers-first mode.
 	headersFirstMode    bool
 	committedTTLAcc     *utreexo.Stump
-	queuedTTLs          map[int32]wire.UtreexoTTL
+	queuedTTLs          map[int32]bip183.UtreexoTTL
 	queuedBlocks        map[chainhash.Hash]*blockMsg
 	queuedUtreexoProofs map[chainhash.Hash]*utreexoProofMsg
 
@@ -521,7 +521,7 @@ func (sm *SyncManager) handleNewPeerMsg(peer *peerpkg.Peer) {
 		requestedBlocks:           make(map[chainhash.Hash]struct{}),
 		requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
 		requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
-		requestedUtreexoTTLs:      make(map[wire.MsgGetUtreexoTTLs]struct{}),
+		requestedUtreexoTTLs:      make(map[bip183.MsgGetUtreexoTTLs]struct{}),
 	}
 
 	// Start syncing by choosing the best candidate if needed.
@@ -648,7 +648,7 @@ func (sm *SyncManager) updateSyncPeer(dcSyncPeer bool) {
 }
 
 // handleTxMsg handles transaction messages from all peers.
-func (sm *SyncManager) handleTxMsg(tx *btcutil.Tx, peer *peerpkg.Peer, utreexoData *wire.UData) {
+func (sm *SyncManager) handleTxMsg(tx *btcutil.Tx, peer *peerpkg.Peer, utreexoData *bip183.UData) {
 	state, exists := sm.peerStates[peer]
 	if !exists {
 		log.Warnf("Received tx message from unknown peer %s", peer)
@@ -819,7 +819,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		// it's safee to remove this utreexo proof from the queue.
 		delete(sm.queuedUtreexoProofs, *bmsg.block.Hash())
 
-		udata := wire.UData{
+		udata := bip183.UData{
 			AccProof: utreexo.Proof{
 				Targets: utreexoProofMsg.proof.Targets,
 				Proof:   utreexoProofMsg.proof.ProofHashes,
@@ -1035,9 +1035,9 @@ func (sm *SyncManager) fetchUtreexoTTLs(peer *peerpkg.Peer) {
 	stump := *sm.committedTTLAcc
 
 	bestState := sm.chain.BestSnapshot()
-	gtmsg := wire.CalculateGetUtreexoTTLMsgs(
+	gtmsg := bip183.CalculateGetUtreexoTTLMsgs(
 		uint32(stump.NumLeaves), bestState.Height+1,
-		bestState.Height+wire.MaxUtreexoTTLsPerMsg)
+		bestState.Height+bip183.MaxUtreexoTTLsPerMsg)
 
 	_, found := peerState.requestedUtreexoTTLs[gtmsg]
 	if !found {
@@ -1102,7 +1102,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		// If we're downloading ttl messages before asking for blocks,
 		// then the maximum amount of blocks we are able to download is
 		// the max utreexo ttls per message.
-		length = wire.MaxUtreexoTTLsPerMsg
+		length = bip183.MaxUtreexoTTLsPerMsg
 	}
 
 	// Build up a getdata request for the list of blocks the headers
@@ -1174,7 +1174,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 
 				// If we still have ttls left to download, then we only need
 				// the utreexo proof data since we're in swiftsync ibd.
-				msg := wire.MsgGetUtreexoProof{BlockHash: *hash}
+				msg := bip183.MsgGetUtreexoProof{BlockHash: *hash}
 				if sm.committedTTLAcc != nil &&
 					h <= int32(sm.committedTTLAcc.NumLeaves)-1 {
 					msg.SetLeafDataRequestBit()
@@ -1350,7 +1350,7 @@ func (sm *SyncManager) handleUtreexoTTLsMsg(tmsg *utreexoTTLsMsg) {
 	stump := *sm.committedTTLAcc
 
 	// Construct the get message that would've gave us this ttl message.
-	gotGtMsg := wire.CalculateGetUtreexoTTLMsgs(
+	gotGtMsg := bip183.CalculateGetUtreexoTTLMsgs(
 		uint32(stump.NumLeaves), startHeight, endHeight)
 
 	// Disconnect if we didn't request these.
@@ -1424,9 +1424,9 @@ func (sm *SyncManager) handleNotFoundMsg(nfmsg *notFoundMsg) {
 
 		case wire.InvTypeWitnessTx:
 			fallthrough
-		case wire.InvTypeUtreexoTx:
+		case bip183.InvTypeUtreexoTx:
 			fallthrough
-		case wire.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
 			fallthrough
 		case wire.InvTypeTx:
 			if _, exists := state.requestedTxns[inv.Hash]; exists {
@@ -1453,9 +1453,9 @@ func (sm *SyncManager) haveInventory(invVect *wire.InvVect) (bool, error) {
 
 	case wire.InvTypeWitnessTx:
 		fallthrough
-	case wire.InvTypeUtreexoTx:
+	case bip183.InvTypeUtreexoTx:
 		fallthrough
-	case wire.InvTypeWitnessUtreexoTx:
+	case bip183.InvTypeWitnessUtreexoTx:
 		fallthrough
 	case wire.InvTypeTx:
 		// Ask the transaction memory pool if the transaction is known
@@ -1574,9 +1574,9 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		case wire.InvTypeTx:
 		case wire.InvTypeWitnessBlock:
 		case wire.InvTypeWitnessTx:
-		case wire.InvTypeUtreexoTx:
-		case wire.InvTypeWitnessUtreexoTx:
-		case wire.InvTypeUtreexoProofHash:
+		case bip183.InvTypeUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeUtreexoProofHash:
 			// If the inv is a utreexo proof hash, then it means that
 			// we've already skipped/added the tx that it belongs to or
 			// we're in headers first mode.
@@ -1596,7 +1596,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 		}
 
 		addIv := *iv
-		addIv.Type &^= wire.InvUtreexoFlag
+		addIv.Type &^= bip183.InvUtreexoFlag
 		// Add the inventory to the cache of known inventory
 		// for the peer.
 		peer.AddKnownInventory(&addIv)
@@ -1633,14 +1633,14 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 				switch iv.Type {
 				case wire.InvTypeTx:
 				case wire.InvTypeWitnessTx:
-				case wire.InvTypeUtreexoTx:
-				case wire.InvTypeWitnessUtreexoTx:
+				case bip183.InvTypeUtreexoTx:
+				case bip183.InvTypeWitnessUtreexoTx:
 				default:
 					continue
 				}
 
 				for j := i + 1; j < len(invVects); j++ {
-					if invVects[j].Type != wire.InvTypeUtreexoProofHash {
+					if invVects[j].Type != bip183.InvTypeUtreexoProofHash {
 						break
 					}
 					state.requestQueue = append(state.requestQueue, invVects[j])
@@ -1721,9 +1721,9 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 
 		case wire.InvTypeWitnessTx:
 			fallthrough
-		case wire.InvTypeWitnessUtreexoTx:
+		case bip183.InvTypeWitnessUtreexoTx:
 			fallthrough
-		case wire.InvTypeUtreexoTx:
+		case bip183.InvTypeUtreexoTx:
 			fallthrough
 		case wire.InvTypeTx:
 			amUtreexoNode := sm.chain.IsUtreexoViewActive()
@@ -1751,7 +1751,7 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 					// tx from the request queue. These represent the positions of the
 					// inputs.
 					var targetPositions []chainhash.Hash
-					for len(requestQueue) > 0 && requestQueue[0].Type == wire.InvTypeUtreexoProofHash {
+					for len(requestQueue) > 0 && requestQueue[0].Type == bip183.InvTypeUtreexoProofHash {
 						proofInv := requestQueue[0]
 						targetPositions = append(targetPositions, proofInv.Hash)
 
@@ -1787,21 +1787,21 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 					}
 
 					// Add in the utreexo flag then add the tx inv.
-					iv.Type = wire.InvTypeUtreexoTx
+					iv.Type = bip183.InvTypeUtreexoTx
 					gdmsg.AddInvVect(iv)
 					numRequested++
 
 					// Then add all the packed proof positions inv.
 					for i := range neededPositions {
 						gdmsg.AddInvVect(wire.NewInvVect(
-							wire.InvTypeUtreexoProofHash,
+							bip183.InvTypeUtreexoProofHash,
 							&neededPositions[i]),
 						)
 						numRequested++
 					}
 				}
 			}
-		case wire.InvTypeUtreexoProofHash:
+		case bip183.InvTypeUtreexoProofHash:
 			// Purposely left empty. Utreexo proof hash invs are not useful on their own.
 			continue
 		}
@@ -1840,7 +1840,7 @@ out:
 
 			case *utreexoTxMsg:
 				sm.handleTxMsg(&msg.utreexoTx.Tx, msg.peer,
-					&wire.UData{
+					&bip183.UData{
 						AccProof:  msg.utreexoTx.MsgUtreexoTx().AccProof,
 						LeafDatas: msg.utreexoTx.MsgUtreexoTx().LeafDatas,
 					})
@@ -2087,7 +2087,7 @@ func (sm *SyncManager) QueueHeaders(headers *wire.MsgHeaders, peer *peerpkg.Peer
 }
 
 // QueueUtreexoProof adds the utreexo proof to the block handling queue.
-func (sm *SyncManager) QueueUtreexoProof(proof *wire.MsgUtreexoProof, peer *peerpkg.Peer) {
+func (sm *SyncManager) QueueUtreexoProof(proof *bip183.MsgUtreexoProof, peer *peerpkg.Peer) {
 	// No channel handling here because peers do not need to block on
 	// headers messages.
 	if atomic.LoadInt32(&sm.shutdown) != 0 {
@@ -2098,7 +2098,7 @@ func (sm *SyncManager) QueueUtreexoProof(proof *wire.MsgUtreexoProof, peer *peer
 }
 
 // QueueUtreexoTTLs adds the utreexo ttls to the block handling queue.
-func (sm *SyncManager) QueueUtreexoTTLs(ttls *wire.MsgUtreexoTTLs, peer *peerpkg.Peer) {
+func (sm *SyncManager) QueueUtreexoTTLs(ttls *bip183.MsgUtreexoTTLs, peer *peerpkg.Peer) {
 	// No channel handling here because peers do not need to block on
 	// utreexo ttl messages.
 	if atomic.LoadInt32(&sm.shutdown) != 0 {
@@ -2202,7 +2202,7 @@ func New(config *Config) (*SyncManager, error) {
 		rejectedTxns:        make(map[chainhash.Hash]struct{}),
 		requestedTxns:       make(map[chainhash.Hash]struct{}),
 		requestedBlocks:     make(map[chainhash.Hash]struct{}),
-		queuedTTLs:          make(map[int32]wire.UtreexoTTL),
+		queuedTTLs:          make(map[int32]bip183.UtreexoTTL),
 		queuedBlocks:        make(map[chainhash.Hash]*blockMsg),
 		queuedUtreexoProofs: make(map[chainhash.Hash]*utreexoProofMsg),
 		peerStates:          make(map[*peerpkg.Peer]*peerSyncState),

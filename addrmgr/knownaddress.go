@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/utreexo/utreexod/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // KnownAddress tracks information about a known network address that is used

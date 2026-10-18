@@ -20,13 +20,15 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/wire"
 )
 
 // HDVersion represents the different supported schemes of hierarchical
@@ -97,7 +99,7 @@ var (
 // would need for a relevant txo.
 type LeafDataExtras struct {
 	// LeafData is the The underlying leaf data.
-	LeafData wire.LeafData `json:"leafdata"`
+	LeafData bip182.LeafData `json:"leafdata"`
 
 	// BlockIdx is the in block position of the tx of the leafdata. Coinbases
 	// are always a blockindex of 0.
@@ -146,7 +148,7 @@ func (tx *LeafDataExtras) UnmarshalJSON(data []byte) error {
 			"Error: %v", err)
 	}
 
-	var ld wire.LeafData
+	var ld bip182.LeafData
 	err = json.Unmarshal(ldBytes, &ld)
 	if err != nil {
 		return err
@@ -820,9 +822,9 @@ func (wm *WatchOnlyWalletManager) GetTx(txHash chainhash.Hash) *wire.MsgTx {
 }
 
 // ProveTx generates a udata that will prove the given tx to another utreexo node.
-func (wm *WatchOnlyWalletManager) ProveTx(tx *btcutil.Tx) (*wire.UData, error) {
+func (wm *WatchOnlyWalletManager) ProveTx(tx *btcutil.Tx) (*bip183.UData, error) {
 	targetsToProve := []uint64{}
-	leaves := []wire.LeafData{}
+	leaves := []bip182.LeafData{}
 	leafHashes := []utreexo.Hash{}
 
 	for _, in := range tx.MsgTx().TxIn {
@@ -857,7 +859,7 @@ func (wm *WatchOnlyWalletManager) ProveTx(tx *btcutil.Tx) (*wire.UData, error) {
 		return nil, fmt.Errorf("Couldn't grab the utreexo proof for tx "+
 			"%s. Error: %v", tx.Hash(), err)
 	}
-	ud := wire.UData{
+	ud := bip183.UData{
 		AccProof:  proof,
 		LeafDatas: leaves,
 	}
@@ -1000,7 +1002,7 @@ func (wm *WatchOnlyWalletManager) filterBlock(block *btcutil.Block) ([]uint32, [
 			}
 			remembers = append(remembers, leafNum)
 
-			leaf := wire.LeafData{
+			leaf := bip182.LeafData{
 				BlockHash:  *block.Hash(),
 				OutPoint:   outPoint,
 				Amount:     out.Value,

@@ -11,8 +11,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/chaincfg"
-	"github.com/utreexo/utreexod/wire"
 )
 
 const (
@@ -37,7 +38,7 @@ func SeedFromDNS(chainParams *chaincfg.Params, reqServices wire.ServiceFlag,
 		var host string
 
 		// Ignore seeds that don't have filtering the reqServices include utreexo bit.
-		if !dnsseed.HasFiltering && reqServices&wire.SFNodeUtreexo == wire.SFNodeUtreexo {
+		if !dnsseed.HasFiltering && reqServices&bip183.SFNodeUtreexo == bip183.SFNodeUtreexo {
 			continue
 		}
 

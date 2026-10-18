@@ -10,7 +10,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/utreexo/utreexod/wire"
+	"github.com/utreexo/utreexod/bip183"
 )
 
 // ProofStatsSize has 10 elements that are each 8 bytes big.
@@ -47,9 +47,9 @@ func (ps *ProofStats) UpdateTotalDelCount(delCount uint64) {
 }
 
 // UpdateUDStats updates the all the udata statistics.
-func (ps *ProofStats) UpdateUDStats(excludeAccProof bool, ud *wire.UData) {
+func (ps *ProofStats) UpdateUDStats(excludeAccProof bool, ud *bip183.UData) {
 	// Update target size.
-	ps.TgSize += uint64(wire.BatchProofSerializeTargetSize(&ud.AccProof))
+	ps.TgSize += uint64(bip183.BatchProofSerializeTargetSize(&ud.AccProof))
 	ps.TgCount += uint64(len(ud.AccProof.Targets))
 
 	// Update leaf data size.
@@ -58,7 +58,7 @@ func (ps *ProofStats) UpdateUDStats(excludeAccProof bool, ud *wire.UData) {
 
 	// Update proof size if the proof is to be included.
 	if !excludeAccProof {
-		ps.ProofSize += uint64(wire.BatchProofSerializeAccProofSize(&ud.AccProof))
+		ps.ProofSize += uint64(bip183.BatchProofSerializeAccProofSize(&ud.AccProof))
 		ps.ProofCount += uint64(len(ud.AccProof.Proof))
 	}
 

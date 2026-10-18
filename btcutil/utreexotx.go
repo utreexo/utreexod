@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/utreexo/utreexod/wire"
+	"github.com/utreexo/utreexod/bip183"
 )
 
 // UtreexoTx defines a utreexo bitcoin transaction that provides easier and more
@@ -17,17 +17,17 @@ import (
 // the relatively expensive hashing operations.
 type UtreexoTx struct {
 	Tx
-	msgUtreexoTx *wire.MsgUtreexoTx
+	msgUtreexoTx *bip183.MsgUtreexoTx
 }
 
-// MsgUtreexoTx returns the underlying wire.MsgUtreexoTx for the utreexo transaction.
-func (t *UtreexoTx) MsgUtreexoTx() *wire.MsgUtreexoTx {
+// MsgUtreexoTx returns the underlying bip183.MsgUtreexoTx for the utreexo transaction.
+func (t *UtreexoTx) MsgUtreexoTx() *bip183.MsgUtreexoTx {
 	return t.msgUtreexoTx
 }
 
 // NewUtreexoTx returns a new instance of a bitcoin transaction given an underlying
-// wire.MsgUtreexoTx. See UtreexoTx.
-func NewUtreexoTx(msgUtreexoTx *wire.MsgUtreexoTx) *UtreexoTx {
+// bip183.MsgUtreexoTx. See UtreexoTx.
+func NewUtreexoTx(msgUtreexoTx *bip183.MsgUtreexoTx) *UtreexoTx {
 	return &UtreexoTx{
 		Tx:           *NewTx(&msgUtreexoTx.MsgTx),
 		msgUtreexoTx: msgUtreexoTx,
@@ -45,7 +45,7 @@ func NewUtreexoTxFromBytes(serializedUtreexoTx []byte) (*UtreexoTx, error) {
 // Reader to deserialize the transaction. See UtreexoTx.
 func NewUtreexoTxFromReader(r io.Reader) (*UtreexoTx, error) {
 	// Deserialize the bytes into a MsgUtreexoTx.
-	var msgUtreexoTx wire.MsgUtreexoTx
+	var msgUtreexoTx bip183.MsgUtreexoTx
 	err := msgUtreexoTx.Deserialize(r)
 	if err != nil {
 		return nil, err
