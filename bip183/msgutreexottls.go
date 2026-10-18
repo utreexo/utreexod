@@ -67,6 +67,10 @@ func (msg *MsgUtreexoTTLs) BtcDecode(r io.Reader, pver uint32, enc wire.MessageE
 	if err != nil {
 		return err
 	}
+	err = btcdwire.ValidateElementCount(r, count, chainhash.HashSize)
+	if err != nil {
+		return err
+	}
 
 	msg.ProofHashes = make([]utreexo.Hash, count)
 	for i := range msg.ProofHashes {

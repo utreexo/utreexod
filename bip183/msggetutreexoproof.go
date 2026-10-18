@@ -5,10 +5,12 @@
 package bip183
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/utreexo/utreexod/internal/btcdwire"
 )
 
 // maxProofIndexBitMapSize is the bitmap size for MaxProofHashes proof hashes. Ceiling divide.
@@ -69,6 +71,11 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc wire.Mess
 	if err != nil {
 		return err
 	}
+	if proofCount > maxProofIndexBitMapSize {
+		str := fmt.Sprintf("proof index bitmap too large for message "+
+			"[len %v, max %v]", proofCount, maxProofIndexBitMapSize)
+		return btcdwire.NewMessageError("MsgGetUtreexoProof.BtcDecode", str)
+	}
 
 	msg.ProofIndexBitMap = make([]byte, proofCount)
 	_, err = r.Read(msg.ProofIndexBitMap[:])
@@ -79,6 +86,11 @@ func (msg *MsgGetUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc wire.Mess
 	leafCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
+	}
+	if leafCount > maxLeafIndexBitMapSize {
+		str := fmt.Sprintf("leaf index bitmap too large for message "+
+			"[len %v, max %v]", leafCount, maxLeafIndexBitMapSize)
+		return btcdwire.NewMessageError("MsgGetUtreexoProof.BtcDecode", str)
 	}
 
 	msg.LeafIndexBitMap = make([]byte, leafCount)

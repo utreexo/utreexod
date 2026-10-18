@@ -5,12 +5,14 @@
 package bip183
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip182"
+	"github.com/utreexo/utreexod/internal/btcdwire"
 )
 
 // maxSupportedRows is the maximum number of rows in the utreexo tree that
@@ -71,6 +73,15 @@ func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc wire.Message
 	if err != nil {
 		return err
 	}
+	if proofCount > MaxProofHashes {
+		str := fmt.Sprintf("too many proof hashes for message "+
+			"[count %v, max %v]", proofCount, MaxProofHashes)
+		return btcdwire.NewMessageError("MsgUtreexoProof.BtcDecode", str)
+	}
+	err = btcdwire.ValidateElementCount(r, proofCount, chainhash.HashSize)
+	if err != nil {
+		return err
+	}
 
 	msg.ProofHashes = make([]utreexo.Hash, proofCount)
 	for i := range msg.ProofHashes {
@@ -84,6 +95,11 @@ func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc wire.Message
 	if err != nil {
 		return err
 	}
+	if targetCount > MaxPossibleInputsPerBlock {
+		str := fmt.Sprintf("too many targets for message "+
+			"[count %v, max %v]", targetCount, MaxPossibleInputsPerBlock)
+		return btcdwire.NewMessageError("MsgUtreexoProof.BtcDecode", str)
+	}
 
 	msg.Targets = make([]uint64, targetCount)
 	for i := range msg.Targets {
@@ -96,6 +112,11 @@ func (msg *MsgUtreexoProof) BtcDecode(r io.Reader, pver uint32, enc wire.Message
 	leafCount, err := wire.ReadVarInt(r, 0)
 	if err != nil {
 		return err
+	}
+	if leafCount > MaxPossibleInputsPerBlock {
+		str := fmt.Sprintf("too many leaf datas for message "+
+			"[count %v, max %v]", leafCount, MaxPossibleInputsPerBlock)
+		return btcdwire.NewMessageError("MsgUtreexoProof.BtcDecode", str)
 	}
 
 	msg.LeafDatas = make([]bip182.LeafData, leafCount)

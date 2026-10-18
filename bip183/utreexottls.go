@@ -56,6 +56,10 @@ func (ut *UtreexoTTL) Deserialize(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	err = btcdwire.ValidateElementCount(r, count, 4+4)
+	if err != nil {
+		return err
+	}
 
 	ut.TTLs = make([]TTLInfo, count)
 	for i := range ut.TTLs {

@@ -5,7 +5,8 @@
 // Package btcdwire holds wire code that bip182 and bip183 need but btcd's wire
 // package doesn't export.
 //
-// NOTHING HERE IS UTREEXO CODE. message.go is copied from btcd's wire, and
-// common.go stands in for wire's unexported serialization helpers. Don't add
-// utreexo logic here, and keep message.go in sync with btcd's wire.
+// NOTHING HERE IS UTREEXO CODE. message.go and elementcount.go are copied
+// from btcd's wire, and common.go stands in for wire's unexported
+// serialization helpers. Don't add utreexo logic here, and keep message.go and
+// elementcount.go in sync with btcd's wire.
 package btcdwire

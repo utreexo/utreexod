@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/internal/btcdwire"
 )
 
 // MaxUtreexoRootMsgSize is the very maximum size of a utreexo root message.
@@ -59,6 +60,10 @@ func (msg *MsgUtreexoRoot) BtcDecode(r io.Reader, pver uint32, enc wire.MessageE
 	if err != nil {
 		return err
 	}
+	err = btcdwire.ValidateElementCount(r, rootCount, chainhash.HashSize)
+	if err != nil {
+		return err
+	}
 	msg.Roots = make([]utreexo.Hash, rootCount)
 	for i := range msg.Roots {
 		_, err = io.ReadFull(r, msg.Roots[i][:])
@@ -68,6 +73,10 @@ func (msg *MsgUtreexoRoot) BtcDecode(r io.Reader, pver uint32, enc wire.MessageE
 	}
 
 	proofCount, err := wire.ReadVarInt(r, 0)
+	if err != nil {
+		return err
+	}
+	err = btcdwire.ValidateElementCount(r, proofCount, chainhash.HashSize)
 	if err != nil {
 		return err
 	}

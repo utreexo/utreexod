@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/internal/btcdwire"
 )
 
 // BatchProofSerializeTargetSize returns how many bytes it would take to serialize all
@@ -121,6 +122,10 @@ func ProofTargetsDeserialize(r io.Reader) ([]uint64, error) {
 	if targetCount == 0 {
 		return nil, nil
 	}
+	err = btcdwire.ValidateElementCount(r, targetCount, 1)
+	if err != nil {
+		return nil, err
+	}
 
 	targets := make([]uint64, 0, targetCount)
 	for i := 0; i < int(targetCount); i++ {
@@ -144,6 +149,10 @@ func ProofHashesDeserialize(r io.Reader) ([]utreexo.Hash, error) {
 	}
 	if proofCount == 0 {
 		return nil, nil
+	}
+	err = btcdwire.ValidateElementCount(r, proofCount, chainhash.HashSize)
+	if err != nil {
+		return nil, err
 	}
 
 	proofs := make([]utreexo.Hash, 0, proofCount)
