@@ -7,6 +7,9 @@ package blockchain
 import (
 	"math/big"
 	"testing"
+	"time"
+
+	"github.com/utreexo/utreexod/chaincfg"
 )
 
 // TestBigToCompact ensures BigToCompact converts big integers to the expected
@@ -70,6 +73,58 @@ func TestCalcWork(t *testing.T) {
 			t.Errorf("TestCalcWork test #%d failed: got %v want %d\n",
 				x, r.Int64(), test.out)
 			return
+		}
+	}
+}
+
+// TestCalcNextRequiredDifficultyNoRetargeting ensures that the difficulty does
+// not retarget on networks with PoWNoRetargeting set, and still retargets on
+// networks without it.
+func TestCalcNextRequiredDifficultyNoRetargeting(t *testing.T) {
+	tests := []struct {
+		name   string
+		params *chaincfg.Params
+		want   uint32
+	}{
+		{
+			// Regtest does not retarget, like Bitcoin Core.
+			name:   "regtest",
+			params: &chaincfg.RegressionNetParams,
+			want:   chaincfg.RegressionNetParams.PowLimitBits,
+		},
+		{
+			// Simnet has the same proof of work limit and retarget
+			// parameters as regtest, but retargets.  Blocks one
+			// second apart make the target four times harder.
+			name:   "simnet",
+			params: &chaincfg.SimNetParams,
+			want:   0x201fffff,
+		},
+	}
+
+	for _, test := range tests {
+		chain := newFakeChain(test.params)
+
+		// Extend the chain up to the block before the first retarget
+		// height.
+		node := chain.bestChain.Tip()
+		blockTime := node.Header().Timestamp
+		for i := int32(1); i < chain.blocksPerRetarget; i++ {
+			blockTime = blockTime.Add(time.Second)
+			node = newFakeNode(node, 1, test.params.PowLimitBits,
+				blockTime)
+			chain.index.AddNode(node)
+			chain.bestChain.SetTip(node)
+		}
+
+		got, err := chain.calcNextRequiredDifficulty(node,
+			blockTime.Add(time.Second))
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", test.name, err)
+		}
+		if got != test.want {
+			t.Errorf("%s: got bits %08x, want %08x", test.name, got,
+				test.want)
 		}
 	}
 }
