@@ -49,6 +49,9 @@ func TestElementCounts(t *testing.T) {
 			_, err := BatchProofDeserialize(bytes.NewReader(b))
 			return err
 		},
+		"UtreexoBlockSummary": func(b []byte) error {
+			return new(UtreexoBlockSummary).Deserialize(bytes.NewBuffer(b))
+		},
 	}
 
 	tests := []struct {
@@ -136,6 +139,18 @@ func TestElementCounts(t *testing.T) {
 			name:    "batch proof hashes",
 			decoder: "BatchProofDeserialize",
 			prefix:  varint(0),
+		},
+		{
+			name:    "block summary targets",
+			decoder: "UtreexoBlockSummary",
+			prefix:  cat(hash, varint(0)),
+			msgErr:  true,
+		},
+		{
+			name:    "block summary targets at the max",
+			decoder: "UtreexoBlockSummary",
+			prefix:  cat(hash, varint(0)),
+			counts:  []uint64{MaxPossibleInputsPerBlock},
 		},
 	}
 
