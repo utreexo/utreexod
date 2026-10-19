@@ -204,6 +204,7 @@ func TestBestHeaderUpdateOnBlockAccept(t *testing.T) {
 	defer tearDown()
 
 	genesis := btcutil.NewBlock(params.GenesisBlock)
+	genesis.SetHeight(0)
 
 	// Verify bestHeader starts at genesis.
 	require.Equal(t, int32(0), chain.bestHeader.Tip().height)

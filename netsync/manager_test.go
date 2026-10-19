@@ -728,6 +728,10 @@ func TestSyncStateMachine(t *testing.T) {
 			params := chaincfg.RegressionNetParams
 			params.Checkpoints = nil
 
+			// The test peers don't negotiate witness support,
+			// which startSync requires once segwit is active.
+			params.Deployments[chaincfg.DeploymentSegwit].AlwaysActiveHeight = 0
+
 			sm, tearDown := makeMockSyncManager(t, &params)
 			defer tearDown()
 
@@ -1094,6 +1098,10 @@ func TestStartSyncBlockFallback(t *testing.T) {
 	params := chaincfg.RegressionNetParams
 	params.Checkpoints = nil
 
+	// The test peers don't negotiate witness support,
+	// which startSync requires once segwit is active.
+	params.Deployments[chaincfg.DeploymentSegwit].AlwaysActiveHeight = 0
+
 	sm, tearDown := makeMockSyncManager(t, &params)
 	defer tearDown()
 
@@ -1385,11 +1393,15 @@ func TestBlockConnectedCleansMempool(t *testing.T) {
 		[]*btcutil.Tx{btcutil.NewTx(cb), btcutil.NewTx(blockSpend)},
 		false,
 	)
+	// Segwit is active on regtest, so the spend is checked with the witness
+	// flag, which needs BIP0016.  BIP0016 only applies to blocks with a
+	// timestamp at or after txscript.Bip16Activation.
 	header := wire.BlockHeader{
-		Version:    1,
+		// Regtest enforces the BIP34/65/66 version floor from height 1.
+		Version:    4,
 		PrevBlock:  snap.Hash,
 		MerkleRoot: merkleRoot,
-		Timestamp:  blocks[len(blocks)-1].MsgBlock().Header.Timestamp.Add(time.Minute),
+		Timestamp:  time.Now().Truncate(time.Second),
 		Bits:       params.PowLimitBits,
 	}
 	require.True(t, solveTestBlock(&header, &params))
