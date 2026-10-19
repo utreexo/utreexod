@@ -141,15 +141,22 @@ func (msg *MsgUtreexoTx) BtcEncode(w io.Writer, pver uint32, enc wire.MessageEnc
 	}
 
 	// Go through the TxIns and mark the ones that are not confirmed with a 1 in the LSB.
-	for i := range msg.TxIn {
-		msg.TxIn[i].PreviousOutPoint.Index <<= 1
+	// Mark copies of the TxIns since the receiver may share its inputs with a
+	// mempool transaction and must be left unchanged. The copies share the
+	// signature scripts and witnesses with the receiver.
+	msgTx := msg.MsgTx
+	msgTx.TxIn = make([]*wire.TxIn, len(msg.TxIn))
+	for i, txIn := range msg.TxIn {
+		txInCopy := *txIn
+		txInCopy.PreviousOutPoint.Index <<= 1
 		if msg.LeafDatas[i].IsUnconfirmed() {
-			msg.TxIn[i].PreviousOutPoint.Index |= 1
+			txInCopy.PreviousOutPoint.Index |= 1
 		}
+		msgTx.TxIn[i] = &txInCopy
 	}
 
 	// Encode the msgTx.
-	err = msg.MsgTx.BtcEncode(w, pver, enc)
+	err = msgTx.BtcEncode(w, pver, enc)
 	if err != nil {
 		return err
 	}
