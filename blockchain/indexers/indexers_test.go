@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,6 @@ import (
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
 	_ "github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/txscript"

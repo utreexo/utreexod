@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexod/bip183"
-	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/integration/rpctest"
 )
 

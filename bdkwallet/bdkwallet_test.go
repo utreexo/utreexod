@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 )
 
 func TestCreateAndLoad(t *testing.T) {

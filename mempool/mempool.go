@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
@@ -21,7 +22,6 @@ import (
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/mining"
 	"github.com/utreexo/utreexod/txscript"
 )

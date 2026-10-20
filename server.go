@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/decred/dcrd/lru"
@@ -34,7 +35,6 @@ import (
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/btcutil/bloom"
-	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/connmgr"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/electrum"
