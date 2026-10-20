@@ -15,6 +15,7 @@ import (
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
 	_ "github.com/utreexo/utreexod/database/ffldb"
+	"github.com/utreexo/utreexod/utreexoparams"
 )
 
 const (
@@ -28,7 +29,7 @@ var (
 	btcdHomeDir     = btcutil.AppDataDir("btcd", false)
 	defaultDataDir  = filepath.Join(btcdHomeDir, "data")
 	knownDbTypes    = database.SupportedDrivers()
-	activeNetParams = &chaincfg.MainNetParams
+	activeNetParams = &utreexoparams.MainNetParams
 )
 
 // config defines the configuration options for findcheckpoint.
@@ -99,7 +100,7 @@ func loadConfig() (*config, []string, error) {
 	// while we're at it
 	if cfg.TestNet3 {
 		numNets++
-		activeNetParams = &chaincfg.TestNet3Params
+		activeNetParams = &utreexoparams.TestNet3Params
 	}
 	if cfg.RegressionTest {
 		numNets++

@@ -5,7 +5,6 @@
 package chaincfg
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -61,10 +60,7 @@ var (
 	// DefaultSignetDNSSeeds is the list of seed nodes for the default
 	// (public, Taproot enabled) signet network.
 	DefaultSignetDNSSeeds = []DNSSeed{
-		{"signet.seed.utreexo.net.", true},          // utreexo.net (Chris G.), supports utreexo service filtering
-		{"signet.seed.dlsouza.lol.", true},          // Davidson Souza, supports filtering, including utreexo (1 << 24)
-		{"signetseed.calvinkim.info.", true},        // Calvin Kim, supports filtering, including utreexo (1 << 24)
-		{"signetmanualseed.calvinkim.info.", false}, // Only returns utreexo peers.
+		{"seed.signet.bitcoin.sprovoost.nl", true},
 		{"178.128.221.177", false},
 		{"2a01:7c8:d005:390::5", false},
 		{"v7ajjeirttkbnt32wpy3c6w3emwnfr3fkla7hpxcfokr3ysd3kqtzmqd.onion:38333", false},
@@ -175,17 +171,6 @@ const (
 
 	// DefinedDeployments is the number of currently defined deployments.
 	DefinedDeployments
-)
-
-const (
-	// Mainnet last checkpoint height.
-	mainnetLastCheckpointHeight = 943_013
-
-	// Testnet3 last checkpoint height.
-	testnetLastCheckpointHeight = 4_898_397
-
-	// Signet last checkpoint height.
-	signetLastCheckpointHeight = 294_687
 )
 
 // Params defines a Bitcoin network by its parameters.  These parameters may be
@@ -318,13 +303,14 @@ var MainNetParams = Params{
 	Net:         wire.MainNet,
 	DefaultPort: "8333",
 	DNSSeeds: []DNSSeed{
-		{"seed.calvinkim.info.", true},        // Calvin Kim, supports filtering, including utreexo (1 << 24)
-		{"manualseed.calvinkim.info.", false}, // Only returns utreexo peers.
 		{"seed.bitcoin.sipa.be", true},
 		{"dnsseed.bluematt.me", true},
 		{"dnsseed.bitcoin.dashjr.org", false},
 		{"seed.bitnodes.io", false},
 		{"seed.bitcoin.jonasschnelli.ch", true},
+		{"seed.btc.petertodd.net", true},
+		{"seed.bitcoin.sprovoost.nl", true},
+		{"seed.bitcoin.wiz.biz", true},
 	},
 
 	// Chain parameters
@@ -379,8 +365,9 @@ var MainNetParams = Params{
 		{691719, newHashFromStr("00000000000000000008a89e854d57e5667df88f1cdef6fde2fbca1de5b639ad")},
 		{724466, newHashFromStr("000000000000000000052d314a259755ca65944e68df6b12a067ea8f1f5a7091")},
 		{751565, newHashFromStr("00000000000000000009c97098b5295f7e5f183ac811fb5d1534040adb93cabd")},
-		{841776, newHashFromStr("00000000000000000000a174eebf5b9df9b9ebf062cc3c503a2024e7d9a618b6")},
-		{mainnetLastCheckpointHeight, newHashFromStr("00000000000000000001c595730bd4a5fb0e2b35af70882962ce7ae602f48aff")},
+		{781565, newHashFromStr("00000000000000000002b8c04999434c33b8e033f11a977b288f8411766ee61c")},
+		{800000, newHashFromStr("00000000000000000002a7c4c1e48d76c5a37902165a270156b7a8d72728a054")},
+		{810000, newHashFromStr("000000000000000000028028ca82b6aa81ce789e4eb9e0321b74c3cbaf405dd1")},
 	},
 
 	// Consensus rule change deployments.
@@ -604,11 +591,9 @@ var TestNet3Params = Params{
 	Net:         wire.TestNet3,
 	DefaultPort: "18333",
 	DNSSeeds: []DNSSeed{
-		{"testnetseed.calvinkim.info.", true},        // Calvin Kim, supports filtering, including utreexo (1 << 24)
-		{"testnetmanualseed.calvinkim.info.", false}, // Only returns utreexo peers.
 		{"testnet-seed.bitcoin.jonasschnelli.ch", true},
-		{"testnet-seed.bitcoin.schildbach.de", false},
-		{"seed.tbtc.petertodd.org", true},
+		{"seed.tbtc.petertodd.net", true},
+		{"seed.testnet.bitcoin.sprovoost.nl", true},
 		{"testnet-seed.bluematt.me", false},
 	},
 
@@ -653,8 +638,6 @@ var TestNet3Params = Params{
 		{2010000, newHashFromStr("0000000000004ae2f3896ca8ecd41c460a35bf6184e145d91558cece1c688a76")},
 		{2143398, newHashFromStr("00000000000163cfb1f97c4e4098a3692c8053ad9cab5ad9c86b338b5c00b8b7")},
 		{2344474, newHashFromStr("0000000000000004877fa2d36316398528de4f347df2f8a96f76613a298ce060")},
-		{2810937, newHashFromStr("000000000000005a4f7ec7942d57353c6200a284e021bc5c6be0bf1415890875")},
-		{testnetLastCheckpointHeight, newHashFromStr("000000006e2ff491ed5b4254949d1217eb5e642fd9935e62b89f10990c450e1e")},
 	},
 
 	// Consensus rule change deployments.
@@ -889,24 +872,6 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		append([]byte{challengeLength}, challenge...),
 	)
 
-	checkPoints := []Checkpoint{}
-	if bytes.Equal(challenge, DefaultSignetChallenge) {
-		checkPoints = []Checkpoint{
-			{20_000, newHashFromStr("000000d86368960eddbf7e127f8ba93a56efe71420b5dd8dbf8b0a68fa9ebbd1")},
-			{40_000, newHashFromStr("0000014086ddfe6836bd52179c2ce1ce5eb8a9b85aee87c18be05c605723793c")},
-			{60_000, newHashFromStr("00000130ab66a74ee232acb3f7ae35f9763dcec197b82b22f482ad0ea4c801f1")},
-			{80_000, newHashFromStr("0000011f3e29efed437f858f1757a7a8ac406194cc80ea2948ed543994962416")},
-			{100_000, newHashFromStr("0000008753108390007b3f5c26e5d924191567e147876b84489b0c0cf133a0bf")},
-			{120_000, newHashFromStr("0000011b6acd2af1a7dc04a2c88a7b2c3980ebd9375dc8d52d331e715deeffcb")},
-			{150_000, newHashFromStr("0000013d778ba3f914530f11f6b69869c9fab54acff85acd7b8201d111f19b7f")},
-			{170_000, newHashFromStr("00000041c812a89f084f633e4cf47e819a2f6b1c0a15162355a930410522c99d")},
-			{193_792, newHashFromStr("000000408463e4809d3a493baf8f17f25a919f883824f5b42247402cfeec1b73")},
-			{231_620, newHashFromStr("0000012f65a81923ad36ee7d6a0d0ab2c7880e1390fbb4a87b2ebab5ee956d2e")},
-			{270_566, newHashFromStr("00000004d85480599a5997038d256ea2a31a8e9dca48b1e4c0298063cb016fd6")},
-			{signetLastCheckpointHeight, newHashFromStr("000000057858aabfe204e2e2005c33567c6e310c90467d49bea36e4343f18d53")},
-		}
-	}
-
 	// We use little endian encoding of the hash prefix to be in line with
 	// the other wire network identities.
 	net := binary.LittleEndian.Uint32(hashDouble[0:4])
@@ -934,7 +899,7 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		GenerateSupported:        false,
 
 		// Checkpoints ordered from oldest to newest.
-		Checkpoints: checkPoints,
+		Checkpoints: nil,
 
 		// Consensus rule change deployments.
 		//

@@ -7,6 +7,7 @@ package main
 import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/utreexo/utreexod/utreexoparams"
 )
 
 // activeNetParams is a pointer to the parameters specific to the
@@ -27,7 +28,7 @@ type params struct {
 // it does not handle on to btcd.  This approach allows the wallet process
 // to emulate the full reference implementation RPC API.
 var mainNetParams = params{
-	Params:  &chaincfg.MainNetParams,
+	Params:  &utreexoparams.MainNetParams,
 	rpcPort: "8334",
 }
 
@@ -44,7 +45,7 @@ var regressionNetParams = params{
 // (wire.TestNet3).  NOTE: The RPC port is intentionally different than the
 // reference implementation - see the mainNetParams comment for details.
 var testNet3Params = params{
-	Params:  &chaincfg.TestNet3Params,
+	Params:  &utreexoparams.TestNet3Params,
 	rpcPort: "18334",
 }
 
@@ -58,7 +59,7 @@ var simNetParams = params{
 // sigNetParams contains parameters specific to the Signet network
 // (wire.SigNet).
 var sigNetParams = params{
-	Params:  &chaincfg.SigNetParams,
+	Params:  &utreexoparams.SigNetParams,
 	rpcPort: "38332",
 }
 
