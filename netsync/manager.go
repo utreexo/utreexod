@@ -24,6 +24,7 @@ import (
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/mempool"
 	peerpkg "github.com/utreexo/utreexod/peer"
+	"github.com/utreexo/utreexod/utreexoparams"
 )
 
 const (
@@ -2213,9 +2214,10 @@ func New(config *Config) (*SyncManager, error) {
 	}
 
 	if sm.chain.IsUtreexoViewActive() {
-		if len(sm.chainParams.TTL.Stump) > 0 {
+		ttl := utreexoparams.TTL(sm.chainParams.Net)
+		if len(ttl.Stump) > 0 {
 			// Initialize the committed ttl state.
-			sm.committedTTLAcc = &sm.chainParams.TTL.Stump[len(sm.chainParams.TTL.Stump)-1]
+			sm.committedTTLAcc = &ttl.Stump[len(ttl.Stump)-1]
 
 			log.Info("TTL downloading initialized")
 		}

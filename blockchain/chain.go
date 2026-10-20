@@ -19,6 +19,7 @@ import (
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoparams"
 )
 
 const (
@@ -151,7 +152,7 @@ type BlockChain struct {
 	// separate mutex.
 	checkpoints         []chaincfg.Checkpoint
 	checkpointsByHeight map[int32]*chaincfg.Checkpoint
-	assumeUtreexoPoint  chaincfg.AssumeUtreexo
+	assumeUtreexoPoint  utreexoparams.AssumeUtreexo
 	db                  database.DB
 	chainParams         *chaincfg.Params
 	timeSource          MedianTimeSource
@@ -2660,7 +2661,7 @@ type Config struct {
 
 	// AssumeUtreexoPoint holds the utreexo point in where the chain starts
 	// syncing from.
-	AssumeUtreexoPoint chaincfg.AssumeUtreexo
+	AssumeUtreexoPoint utreexoparams.AssumeUtreexo
 
 	// TimeSource defines the median time source to use for things such as
 	// block processing and determining whether or not the chain is current.

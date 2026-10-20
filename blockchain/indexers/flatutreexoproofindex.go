@@ -23,6 +23,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/utreexoparams"
 )
 
 const (
@@ -1816,12 +1817,14 @@ func (idx *FlatUtreexoProofIndex) updateRootsState() error {
 
 // updateBlockTTLState updates the latest ttls that have have became final.
 func (idx *FlatUtreexoProofIndex) updateBlockTTLState(height int32) error {
+	ttl := utreexoparams.TTL(idx.config.Params.Net)
+
 	// This means we've already initialized everything that we can.
-	if len(idx.blockTTLState) == len(idx.config.Params.TTL.Stump) {
+	if len(idx.blockTTLState) == len(ttl.Stump) {
 		return nil
 	}
 
-	for i, stump := range idx.config.Params.TTL.Stump {
+	for i, stump := range ttl.Stump {
 		// NumLeaves -1 as if we have 2 numleaves, it means the stump
 		// has heights 0 and 1.
 		if height < int32(stump.NumLeaves)-1 {

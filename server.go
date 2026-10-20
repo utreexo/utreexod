@@ -44,6 +44,7 @@ import (
 	"github.com/utreexo/utreexod/netsync"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoparams"
 	"github.com/utreexo/utreexod/wallet"
 )
 
@@ -3537,9 +3538,9 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		utreexo = blockchain.NewUtreexoViewpoint()
 	}
 
-	assumeUtreexoPoint := chainParams.AssumeUtreexoPoint
+	assumeUtreexoPoint := utreexoparams.AssumeUtreexoPoint(chainParams.Net)
 	if cfg.NoAssumeUtreexo {
-		assumeUtreexoPoint = chaincfg.AssumeUtreexo{}
+		assumeUtreexoPoint = utreexoparams.AssumeUtreexo{}
 	}
 
 	// Create a new block chain instance with the appropriate configuration.
