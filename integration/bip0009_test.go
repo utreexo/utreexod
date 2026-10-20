@@ -139,6 +139,24 @@ func testBIP0009(t *testing.T, forkKey string, deploymentID uint32) {
 	}
 	defer r.TearDown()
 
+	// Short-circuit deployments that are configured as always active.
+	if deploymentID < uint32(len(r.ActiveNet.Deployments)) {
+		dep := &r.ActiveNet.Deployments[deploymentID]
+		if dep.AlwaysActiveHeight != 0 {
+			assertChainHeight(r, t, 0)
+			assertSoftForkStatus(r, t, forkKey, blockchain.ThresholdActive)
+			return
+		}
+	}
+
+	// If the deployment is meant to be always active, then it should be
+	// active from the very first block.
+	if deploymentID == chaincfg.DeploymentTestDummyAlwaysActive {
+		assertChainHeight(r, t, 0)
+		assertSoftForkStatus(r, t, forkKey, blockchain.ThresholdActive)
+		return
+	}
+
 	// *** ThresholdDefined ***
 	//
 	// Assert the chain height is the expected value and the soft fork
@@ -340,6 +358,7 @@ func TestBIP0009(t *testing.T) {
 
 	testBIP0009(t, "dummy", chaincfg.DeploymentTestDummy)
 	testBIP0009(t, "dummy-min-activation", chaincfg.DeploymentTestDummyMinActivation)
+	testBIP0009(t, "dummy-always-active", chaincfg.DeploymentTestDummyAlwaysActive)
 	testBIP0009(t, "segwit", chaincfg.DeploymentSegwit)
 }
 

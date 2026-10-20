@@ -257,7 +257,7 @@ func NewBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*
 
 	block := btcutil.NewBlock(&wire.MsgBlock{
 		Header: wire.BlockHeader{
-			Version:    1,
+			Version:    4,
 			PrevBlock:  *prev.Hash(),
 			MerkleRoot: *merkles[len(merkles)-1],
 			Bits:       chain.chainParams.PowLimitBits,

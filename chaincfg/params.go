@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"math"
 	"math/big"
 	"strings"
 	"time"
@@ -83,6 +84,16 @@ type Checkpoint struct {
 	Hash   *chainhash.Hash
 }
 
+// EffectiveAlwaysActiveHeight returns the effective activation height for the
+// deployment. If AlwaysActiveHeight is unset (i.e. zero), it returns
+// the maximum uint32 value to indicate that it does not force activation.
+func (d *ConsensusDeployment) EffectiveAlwaysActiveHeight() uint32 {
+	if d.AlwaysActiveHeight == 0 {
+		return math.MaxUint32
+	}
+	return d.AlwaysActiveHeight
+}
+
 // AssumeUtreexo is all the information that's needed for a node to start off from
 // a given hardcoded block.
 type AssumeUtreexo struct {
@@ -134,6 +145,11 @@ type ConsensusDeployment struct {
 	// activation. A value of 1815 block denotes a 90% threshold.
 	CustomActivationThreshold uint32
 
+	// AlwaysActiveHeight defines an optional block threshold at which the
+	// deployment is forced to be active. If unset (0), it defaults to
+	// math.MaxUint32, meaning the deployment does not force activation.
+	AlwaysActiveHeight uint32
+
 	// DeploymentStarter is used to determine if the given
 	// ConsensusDeployment has started or not.
 	DeploymentStarter ConsensusDeploymentStarter
@@ -171,6 +187,10 @@ const (
 	// Taproot (+Schnorr) soft-fork package. The taproot package includes
 	// the deployment of BIPS 340, 341 and 342.
 	DeploymentTaproot
+
+	// DeploymentTestDummyAlwaysActive is a dummy deployment that is meant
+	// to always be active.
+	DeploymentTestDummyAlwaysActive
 
 	// NOTE: DefinedDeployments must always come last since it is used to
 	// determine how many defined deployments there currently are.
@@ -242,6 +262,7 @@ type Params struct {
 	// These fields define the block heights at which the specified softfork
 	// BIP became active.
 	BIP0034Height int32
+	BIP0034Hash   *chainhash.Hash
 	BIP0065Height int32
 	BIP0066Height int32
 
@@ -355,6 +376,7 @@ var MainNetParams = Params{
 	PowLimit:                 mainPowLimit,
 	PowLimitBits:             0x1d00ffff,
 	BIP0034Height:            227931, // 000000000000024b89b42a942fe0d9fea3bb44ab7bd1b19115dd6a759c0808b8
+	BIP0034Hash:              newHashFromStr("000000000000024b89b42a942fe0d9fea3bb44ab7bd1b19115dd6a759c0808b8"),
 	BIP0065Height:            388381, // 000000000000000004c2b624ed5d7756c508d90fd0da2c7c679febfa6c4735f0
 	BIP0066Height:            363725, // 00000000000000000379eaa19dce8c9b722d46ae6a57c2f1a988119488b50931
 	CoinbaseMaturity:         100,
@@ -484,6 +506,16 @@ var MainNetParams = Params{
 				time.Time{}, // Never expires
 			),
 		},
+		DeploymentTestDummyAlwaysActive: {
+			BitNumber: 30,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
+		},
 		DeploymentCSV: {
 			BitNumber: 0,
 			DeploymentStarter: NewMedianTimeDeploymentStarter(
@@ -554,9 +586,9 @@ var RegressionNetParams = Params{
 	PowLimitBits:             0x207fffff,
 	PoWNoRetargeting:         true,
 	CoinbaseMaturity:         100,
-	BIP0034Height:            100000000, // Not active - Permit ver 1 blocks
-	BIP0065Height:            1351,      // Used by regression tests
-	BIP0066Height:            1251,      // Used by regression tests
+	BIP0034Height:            1,
+	BIP0065Height:            1,
+	BIP0066Height:            1,
 	SubsidyReductionInterval: 150,
 	TargetTimespan:           time.Hour * 24 * 14, // 14 days
 	TargetTimePerBlock:       time.Minute * 10,    // 10 minutes
@@ -595,6 +627,16 @@ var RegressionNetParams = Params{
 				time.Time{}, // Never expires
 			),
 		},
+		DeploymentTestDummyAlwaysActive: {
+			BitNumber: 30,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
+		},
 		DeploymentCSV: {
 			BitNumber: 0,
 			DeploymentStarter: NewMedianTimeDeploymentStarter(
@@ -603,6 +645,7 @@ var RegressionNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires
 			),
+			AlwaysActiveHeight: 1,
 		},
 		DeploymentSegwit: {
 			BitNumber: 1,
@@ -612,6 +655,7 @@ var RegressionNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires.
 			),
+			AlwaysActiveHeight: 1,
 		},
 		DeploymentTaproot: {
 			BitNumber: 2,
@@ -621,7 +665,9 @@ var RegressionNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires.
 			),
-			CustomActivationThreshold: 1512, // 75%
+			MinActivationHeight: 0,
+			AlwaysActiveHeight:  1,
+			CustomActivationThreshold: 108, // Only needs 75% hash rate.
 		},
 	},
 
@@ -667,6 +713,7 @@ var TestNet3Params = Params{
 	GenesisHash:              &testNet3GenesisHash,
 	PowLimit:                 testNet3PowLimit,
 	PowLimitBits:             0x1d00ffff,
+	BIP0034Hash:              newHashFromStr("0000000023b3a96d3484e5abb3755c413e7d41500f8e2a5c3f0dd01299cd8ef8"),
 	BIP0034Height:            21111,  // 0000000023b3a96d3484e5abb3755c413e7d41500f8e2a5c3f0dd01299cd8ef8
 	BIP0065Height:            581885, // 00000000007f6655f22f98e72ed80d8b06dc761d5da09df0fa1dc4be4f861eb6
 	BIP0066Height:            330776, // 000000002104c8c45e99a8853285a3b592602a3ccde2b832481da85e9e4ba182
@@ -787,6 +834,16 @@ var TestNet3Params = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires
 			),
+		},
+		DeploymentTestDummyAlwaysActive: {
+			BitNumber: 30,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
 		},
 		DeploymentCSV: {
 			BitNumber: 0,
@@ -927,7 +984,17 @@ var SimNetParams = Params{
 			DeploymentEnder: NewMedianTimeDeploymentEnder(
 				time.Time{}, // Never expires.
 			),
-			CustomActivationThreshold: 1815, // 90%
+			CustomActivationThreshold: 75, // Only needs 75% hash rate.
+		},
+		DeploymentTestDummyAlwaysActive: {
+			BitNumber: 29,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
 		},
 	},
 
@@ -1097,6 +1164,16 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 				DeploymentEnder: NewMedianTimeDeploymentEnder(
 					time.Time{}, // Never expires
 				),
+			},
+			DeploymentTestDummyAlwaysActive: {
+				BitNumber: 30,
+				DeploymentStarter: NewMedianTimeDeploymentStarter(
+					time.Time{}, // Always available for vote
+				),
+				DeploymentEnder: NewMedianTimeDeploymentEnder(
+					time.Time{}, // Never expires
+				),
+				AlwaysActiveHeight: 1,
 			},
 			DeploymentCSV: {
 				BitNumber: 29,

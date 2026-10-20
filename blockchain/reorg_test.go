@@ -27,6 +27,7 @@ func TestReorg(t *testing.T) {
 	chain, params, tearDown := utxoCacheTestChain("TestReorg")
 	defer tearDown()
 	tip := btcutil.NewBlock(params.GenesisBlock)
+	tip.SetHeight(0)
 
 	// Create block at height 1.
 	var emptySpendableOuts []*SpendableOut

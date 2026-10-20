@@ -535,11 +535,15 @@ func TestIsInHeadersFirstMode(t *testing.T) {
 func createTestCoinbase(height int32, params *chaincfg.Params) *wire.MsgTx {
 	tx := wire.NewMsgTx(wire.TxVersion)
 
-	// Push the height as data to guarantee unique txids per block.
-	sigScript := []byte{
-		0x04,
-		byte(height), byte(height >> 8),
-		byte(height >> 16), byte(height >> 24),
+	// Encode the height as a minimally encoded script integer and add a trailing
+	// OP_0 so the script also satisfies the generic coinbase-length checks.
+	sigScript, err := txscript.NewScriptBuilder().
+		AddInt64(int64(height)).
+		AddInt64(0).
+		Script()
+	if err != nil {
+		panic(fmt.Sprintf("unable to encode coinbase height %d: %v",
+			height, err))
 	}
 
 	tx.AddTxIn(&wire.TxIn{
@@ -591,7 +595,8 @@ func generateTestBlocks(
 		merkleRoot := cb.TxHash()
 
 		header := wire.BlockHeader{
-			Version:    1,
+			// Regtest enforces the BIP34/65/66 version floor from height 1.
+			Version:    4,
 			PrevBlock:  *prevHash,
 			MerkleRoot: merkleRoot,
 			Timestamp:  prevTime.Add(time.Minute),
@@ -722,6 +727,10 @@ func TestSyncStateMachine(t *testing.T) {
 
 			params := chaincfg.RegressionNetParams
 			params.Checkpoints = nil
+
+			// The test peers don't negotiate witness support,
+			// which startSync requires once segwit is active.
+			params.Deployments[chaincfg.DeploymentSegwit].AlwaysActiveHeight = 0
 
 			sm, tearDown := makeMockSyncManager(t, &params)
 			defer tearDown()
@@ -1089,6 +1098,10 @@ func TestStartSyncBlockFallback(t *testing.T) {
 	params := chaincfg.RegressionNetParams
 	params.Checkpoints = nil
 
+	// The test peers don't negotiate witness support,
+	// which startSync requires once segwit is active.
+	params.Deployments[chaincfg.DeploymentSegwit].AlwaysActiveHeight = 0
+
 	sm, tearDown := makeMockSyncManager(t, &params)
 	defer tearDown()
 
@@ -1248,7 +1261,8 @@ func TestStartSyncChainCurrent(t *testing.T) {
 	// IsCurrent() returns true.
 	cb := createTestCoinbase(1, &params)
 	header := wire.BlockHeader{
-		Version:    1,
+		// Regtest enforces the BIP34/65/66 version floor from height 1.
+		Version:    4,
 		PrevBlock:  *params.GenesisHash,
 		MerkleRoot: cb.TxHash(),
 		Timestamp:  time.Now().Truncate(time.Second),
@@ -1379,11 +1393,15 @@ func TestBlockConnectedCleansMempool(t *testing.T) {
 		[]*btcutil.Tx{btcutil.NewTx(cb), btcutil.NewTx(blockSpend)},
 		false,
 	)
+	// Segwit is active on regtest, so the spend is checked with the witness
+	// flag, which needs BIP0016.  BIP0016 only applies to blocks with a
+	// timestamp at or after txscript.Bip16Activation.
 	header := wire.BlockHeader{
-		Version:    1,
+		// Regtest enforces the BIP34/65/66 version floor from height 1.
+		Version:    4,
 		PrevBlock:  snap.Hash,
 		MerkleRoot: merkleRoot,
-		Timestamp:  blocks[len(blocks)-1].MsgBlock().Header.Timestamp.Add(time.Minute),
+		Timestamp:  time.Now().Truncate(time.Second),
 		Bits:       params.PowLimitBits,
 	}
 	require.True(t, solveTestBlock(&header, &params))

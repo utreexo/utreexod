@@ -483,6 +483,7 @@ func TestProveUtxos(t *testing.T) {
 
 	// Create a chain with 101 blocks.
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	nextBlock.SetHeight(0)
 	for i := 0; i < 100; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
@@ -616,6 +617,7 @@ func TestUtreexoProofIndex(t *testing.T) {
 	defer tearDown()
 
 	tip := btcutil.NewBlock(params.GenesisBlock)
+	tip.SetHeight(0)
 
 	// Create block at height 1.
 	var emptySpendableOuts []*blockchain.SpendableOut
@@ -760,6 +762,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 	}
 
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	nextBlock.SetHeight(0)
 	for i := int32(1); i <= maxHeight; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
@@ -1116,6 +1119,7 @@ func TestUtreexoRootsAndSummaryState(t *testing.T) {
 	maxHeight := int32(300)
 
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	nextBlock.SetHeight(0)
 	for i := int32(1); i <= maxHeight; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
@@ -1302,6 +1306,7 @@ func TestTTLs(t *testing.T) {
 	expectAfterUndoTTLs := make([][]bip183.TTLInfo, 0, maxHeight)
 
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	nextBlock.SetHeight(0)
 	for i := int32(1); i <= maxHeight; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
@@ -1489,6 +1494,7 @@ func TestBridgeNodeSSTableFlush(t *testing.T) {
 	maxHeight := int32(300)
 
 	nextBlock := btcutil.NewBlock(params.GenesisBlock)
+	nextBlock.SetHeight(0)
 	for i := int32(1); i <= midHeight; i++ {
 		newBlock, newSpendableOuts, err := blockchain.AddBlock(chain, nextBlock, nextSpends)
 		if err != nil {
@@ -1596,7 +1602,9 @@ func TestCatchupPreservesUtreexoConsistencyHash(t *testing.T) {
 	// The catchup loop will start at genesis for the lagging cfindex
 	// below, so the blockhash the cfindex passes to Flush won't match
 	// the utreexo indexer's tip.
-	_, _, err := blockchain.AddBlock(chain, btcutil.NewBlock(params.GenesisBlock), nil)
+	genesis := btcutil.NewBlock(params.GenesisBlock)
+	genesis.SetHeight(0)
+	_, _, err := blockchain.AddBlock(chain, genesis, nil)
 	require.NoError(t, err)
 	tipHash := chain.BestSnapshot().Hash
 
