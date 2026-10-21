@@ -640,8 +640,8 @@ func (view *UtxoViewpoint) fetchInputUtxos(cache *utxoCache, block *btcutil.Bloc
 	return view.fetchUtxosFromCache(cache, view.findInputsToFetch(block))
 }
 
-// UBlockToUtxoView converts the UData from a block into a UtxoViewpoint. This
-// function essentially mimics that of addInputUtxos as the UtxoViewpoint will include
+// BlockToUtxoView converts the UData from a block into a UtxoViewpoint. This
+// function essentially mimics that of fetchInputUtxos as the UtxoViewpoint will include
 // all the utxos necessary to validate the given bitcoin block.
 //
 // NOTE: this function is only relevant when the utreexo accumulators are enabled.
@@ -660,30 +660,49 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 		m[ld.OutPoint] = utxo
 	}
 
-	_, _, _, outskip := DedupeBlock(block)
+	// Build a map from each transaction's hash to its index in the block
+	// because some of the inputs in this block could be referencing other
+	// transactions earlier in this block which are not yet in the chain.
+	txIndexes := map[chainhash.Hash]int{}
+	transactions := block.Transactions()
+	for i, tx := range transactions {
+		txIndexes[*tx.Hash()] = i
+	}
 
-	var txonum uint32
-	for coinbaseif0, tx := range block.Transactions() {
-		for idx, txOut := range tx.MsgTx().TxOut {
-			// Skip all the OP_RETURNs
-			if IsUnspendable(txOut) {
-				txonum++
+	// Loop through all of the transaction inputs (except for the coinbase
+	// which has no inputs) and add the outputs created earlier in this
+	// block that they spend to the view.  The LeafDatas above only cover
+	// outputs created in earlier blocks.
+	for i, tx := range transactions[1:] {
+		for _, txIn := range tx.MsgTx().TxIn {
+			// It is acceptable for a transaction input to reference
+			// the output of another transaction in this block only
+			// if the referenced transaction comes before the
+			// current one in this block.  Add the referenced output
+			// as an available utxo when this is the case.
+			//
+			// NOTE: The < is correct here because i is one less
+			// than the actual position of the transaction within
+			// the block due to skipping the coinbase.
+			originHash := &txIn.PreviousOutPoint.Hash
+			originIndex, ok := txIndexes[*originHash]
+			if !ok || i < originIndex {
 				continue
 			}
-			// only add txouts for the same block spends
-			if len(outskip) > 0 && outskip[0] == txonum {
-				utxo := NewUtxoEntry(
-					txOut, block.Height(), coinbaseif0 == 0)
-				op := wire.OutPoint{
-					Index: uint32(idx),
-					Hash:  *tx.Hash(),
-				}
-				m[op] = utxo
-				outskip = outskip[1:]
-				txonum++
+
+			// Can't add an output for an out of bounds index.
+			// Outputs that IsUnspendable reports are never added to
+			// the accumulator by BlockToAddLeaves, so they aren't
+			// added here either.
+			txOuts := transactions[originIndex].MsgTx().TxOut
+			txOutIdx := txIn.PreviousOutPoint.Index
+			if txOutIdx >= uint32(len(txOuts)) ||
+				IsUnspendable(txOuts[txOutIdx]) {
+
 				continue
 			}
-			txonum++
+			m[txIn.PreviousOutPoint] = NewUtxoEntry(txOuts[txOutIdx],
+				block.Height(), originIndex == 0)
 		}
 	}
 

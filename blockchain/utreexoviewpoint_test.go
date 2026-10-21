@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/txscript"
@@ -239,4 +240,85 @@ func TestCopyWithRootsAppliesProof(t *testing.T) {
 	require.NoError(t, err, "Ingest proof on copy")
 	err = copyView.accumulator.Modify(nil, delHashes, proof)
 	require.NoError(t, err, "Modify copy with proof")
+}
+
+// newSameBlockSpendBlock builds a block on top of prev with two transactions
+// after the coinbase.  originTx spends the provided leaf and spendTx spends
+// from the first output of originTx.  When createdLater is true, spendTx
+// comes before originTx, so it spends an output created later in the same
+// block.
+func newSameBlockSpendBlock(t *testing.T, chain *BlockChain,
+	prev *btcutil.Block, spend bip182.LeafData,
+	createdLater bool) *btcutil.Block {
+
+	t.Helper()
+
+	base, outs := NewBlock(chain, prev,
+		spendableOutsFromLeaves([]bip182.LeafData{spend}))
+	msgBlock := base.MsgBlock()
+	cb, originTx := msgBlock.Transactions[0], msgBlock.Transactions[1]
+
+	spendTx := wire.NewMsgTx(1)
+	spendTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: outs[1].PrevOut,
+		Sequence:         wire.MaxTxInSequenceNum,
+	})
+	spendTx.AddTxOut(wire.NewTxOut(int64(outs[1].Amount-lowFee),
+		opTrueScript))
+	spendTx.AddTxOut(wire.NewTxOut(0, uniqueOpReturnScript()))
+	cb.TxOut[0].Value += int64(lowFee)
+
+	msgBlock.Transactions = []*wire.MsgTx{cb, originTx, spendTx}
+	if createdLater {
+		msgBlock.Transactions = []*wire.MsgTx{cb, spendTx, originTx}
+	}
+
+	block := btcutil.NewBlock(msgBlock)
+	block.SetHeight(base.Height())
+	msgBlock.Header.MerkleRoot = CalcMerkleRoot(block.Transactions(), false)
+	require.True(t, SolveBlock(&msgBlock.Header), "unable to solve block")
+
+	return block
+}
+
+// TestUtreexoSameBlockSpend ensures a compact-state chain accepts a block
+// that spends an output created earlier in the same block and rejects a block
+// that spends an output created later in the same block.
+func TestUtreexoSameBlockSpend(t *testing.T) {
+	tests := []struct {
+		name         string
+		createdLater bool
+	}{
+		{name: "output created earlier"},
+		{name: "output created later", createdLater: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			chain, params, _, tearDown := countingUtreexoTestChain(t,
+				"same-block-spend")
+			defer tearDown()
+
+			genesis := btcutil.NewBlock(params.GenesisBlock)
+			genesis.SetHeight(0)
+			proofState := newTestUtreexoProofState()
+			firstBlock, firstAdds := proofState.newBlock(t, chain, genesis, nil)
+			processBlock(t, chain, firstBlock, true)
+
+			spends := firstAdds[:1]
+			block := newSameBlockSpendBlock(t, chain, firstBlock,
+				spends[0], test.createdLater)
+			proofState.attachUData(t, block, spends)
+			if !test.createdLater {
+				processBlock(t, chain, block, true)
+				return
+			}
+
+			_, _, err := chain.ProcessBlock(block, BFNone)
+			require.Error(t, err, "ProcessBlock accepted a spend of an "+
+				"output created later in the same block")
+			var rerr RuleError
+			require.ErrorAs(t, err, &rerr)
+			require.Equal(t, ErrMissingTxOut, rerr.ErrorCode)
+		})
+	}
 }
