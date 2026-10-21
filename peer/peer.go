@@ -1361,6 +1361,11 @@ out:
 					fallthrough
 				case bip183.CmdUtreexoTx:
 					fallthrough
+				// A utreexo node asks for the utreexo proofs of
+				// the blocks it requests ahead of the getdata,
+				// so the proofs arrive before the blocks.
+				case bip183.CmdUtreexoProof:
+					fallthrough
 				case wire.CmdNotFound:
 					delete(pendingResponses, wire.CmdBlock)
 					delete(pendingResponses, wire.CmdMerkleBlock)
