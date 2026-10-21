@@ -1444,17 +1444,6 @@ func (b *BlockChain) initChainState() error {
 		}
 		b.bestChain.SetTip(tip)
 
-		// Load the raw block bytes for the best block.
-		blockBytes, err := dbTx.FetchBlock(&state.hash)
-		if err != nil {
-			return err
-		}
-		var block wire.MsgBlock
-		err = block.Deserialize(bytes.NewReader(blockBytes))
-		if err != nil {
-			return err
-		}
-
 		// If utreexoView is enabled (aka not nil), then load the best
 		// utreexoView state.
 		if b.utreexoView != nil {
@@ -1483,7 +1472,29 @@ func (b *BlockChain) initChainState() error {
 			}
 		}
 
-		// Initialize the state related to the best block.
+		// Initialize the state related to the best block.  A node that
+		// starts from the assumed utreexo point doesn't download the
+		// block at that point, so the state for it comes from the
+		// assumed utreexo point.
+		assume := b.assumeUtreexoPoint
+		if assume.BlockHash != nil && state.hash == *assume.BlockHash {
+			b.stateSnapshot = newBestState(tip, assume.BlockSize,
+				assume.BlockWeight, assume.NumTxns, state.totalTxns,
+				tip.CalcPastMedianTime())
+			return nil
+		}
+
+		// Load the raw block bytes for the best block.
+		blockBytes, err := dbTx.FetchBlock(&state.hash)
+		if err != nil {
+			return err
+		}
+		var block wire.MsgBlock
+		err = block.Deserialize(bytes.NewReader(blockBytes))
+		if err != nil {
+			return err
+		}
+
 		blockSize := uint64(len(blockBytes))
 		blockWeight := uint64(GetBlockWeight(btcutil.NewBlock(&block)))
 		numTxns := uint64(len(block.Transactions))

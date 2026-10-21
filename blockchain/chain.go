@@ -99,10 +99,11 @@ func (b *BlockChain) AssumeUtreexoHash() chainhash.Hash {
 	return *b.assumeUtreexoPoint.BlockHash
 }
 
-// SetNewBestStateFromAssumedUtreexoPoint sets the best state for the node based
-// on the current blockIndex and the assumed utreexo point. Also marks all the
-// blocks in the blockIndex prior to the assumed utreexo point as valid.
-func (b *BlockChain) SetNewBestStateFromAssumedUtreexoPoint() {
+// SetNewBestStateFromAssumedUtreexoPoint sets the best state and the utreexo
+// state for the node based on the current blockIndex and the assumed utreexo
+// point, and stores them in the database. Also marks all the blocks in the
+// blockIndex prior to the assumed utreexo point as valid.
+func (b *BlockChain) SetNewBestStateFromAssumedUtreexoPoint() error {
 	// Create best state.
 	node := b.index.LookupNode(b.assumeUtreexoPoint.BlockHash)
 	state := newBestState(
@@ -140,6 +141,27 @@ func (b *BlockChain) SetNewBestStateFromAssumedUtreexoPoint() {
 	// Set the bestchain tip to the bestheaders tip as we'll be failing block
 	// validation otherwise.
 	b.bestChain.SetTip(tip)
+
+	// Set the utreexo state.
+	b.utreexoView = NewUtreexoViewpoint()
+	b.utreexoView.accumulator = utreexo.NewMapPollardFromRoots(
+		b.assumeUtreexoPoint.Roots, b.assumeUtreexoPoint.NumLeaves)
+
+	// Write the block status changes, the best state, and the utreexo state
+	// to the database so that the node starts from the assumed utreexo
+	// point on restart.
+	err := b.index.flushToDB()
+	if err != nil {
+		return err
+	}
+	return b.db.Update(func(dbTx database.Tx) error {
+		err := dbPutBestState(dbTx, state, tip.workSum)
+		if err != nil {
+			return err
+		}
+
+		return dbPutUtreexoView(dbTx, b.utreexoView, &tip.hash)
+	})
 }
 
 // BlockChain provides functions for working with the bitcoin block chain.

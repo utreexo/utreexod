@@ -1263,8 +1263,10 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		sm.headersBuildMode = false
 
 		// Set the best state and the utreexo state.
-		sm.chain.SetNewBestStateFromAssumedUtreexoPoint()
-		sm.chain.SetUtreexoStateFromAssumePoint()
+		err := sm.chain.SetNewBestStateFromAssumedUtreexoPoint()
+		if err != nil {
+			log.Errorf("Failed to store the assumed utreexo point: %v", err)
+		}
 
 		bestState := sm.chain.BestSnapshot()
 		log.Infof("Initialized assumed utreexo point at block %v(%d)",
