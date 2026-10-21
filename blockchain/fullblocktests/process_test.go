@@ -7,8 +7,8 @@ package fullblocktests
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/utreexo/utreexod/blockchain"
-	"github.com/utreexo/utreexod/chaincfg"
 )
 
 // TestProcessLogic ensures processing a mix of headers and blocks under a wide

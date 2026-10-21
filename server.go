@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/decred/dcrd/lru"
@@ -34,7 +35,6 @@ import (
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/btcutil/bloom"
-	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/connmgr"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/electrum"
@@ -44,6 +44,7 @@ import (
 	"github.com/utreexo/utreexod/netsync"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoparams"
 	"github.com/utreexo/utreexod/wallet"
 )
 
@@ -3537,9 +3538,9 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		utreexo = blockchain.NewUtreexoViewpoint()
 	}
 
-	assumeUtreexoPoint := chainParams.AssumeUtreexoPoint
+	assumeUtreexoPoint := utreexoparams.AssumeUtreexoPoint(chainParams.Net)
 	if cfg.NoAssumeUtreexo {
-		assumeUtreexoPoint = chaincfg.AssumeUtreexo{}
+		assumeUtreexoPoint = utreexoparams.AssumeUtreexo{}
 	}
 
 	// Create a new block chain instance with the appropriate configuration.

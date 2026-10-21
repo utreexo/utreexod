@@ -3,9 +3,9 @@ package blockchain
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
-	"github.com/utreexo/utreexod/chaincfg"
 )
 
 // mustHashFromStr is a helper to parse hashes inside tests.  It fails the

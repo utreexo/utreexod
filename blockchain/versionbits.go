@@ -5,7 +5,7 @@
 package blockchain
 
 import (
-	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 )
 
 const (

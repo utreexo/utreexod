@@ -19,17 +19,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/go-socks/socks"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/connmgr"
 	"github.com/utreexo/utreexod/database"
 	_ "github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/peer"
+	"github.com/utreexo/utreexod/utreexoparams"
 )
 
 const (
@@ -617,7 +618,7 @@ func loadConfig() (*config, []string, error) {
 		// challenge defines the actual signet network to join and the
 		// seed nodes are needed for network discovery.
 		sigNetChallenge := chaincfg.DefaultSignetChallenge
-		sigNetSeeds := chaincfg.DefaultSignetDNSSeeds
+		sigNetSeeds := utreexoparams.DefaultSignetDNSSeeds
 		if cfg.SigNetChallenge != "" {
 			challenge, err := hex.DecodeString(cfg.SigNetChallenge)
 			if err != nil {
@@ -643,7 +644,7 @@ func loadConfig() (*config, []string, error) {
 			}
 		}
 
-		chainParams := chaincfg.CustomSignetParams(
+		chainParams := utreexoparams.CustomSignetParams(
 			sigNetChallenge, sigNetSeeds,
 		)
 		activeNetParams.Params = &chainParams

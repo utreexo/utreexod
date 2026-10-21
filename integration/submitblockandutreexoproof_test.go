@@ -6,9 +6,9 @@ package integration
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/btcutil"
-	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/integration/rpctest"
 	"github.com/utreexo/utreexod/txscript"
 )

@@ -7,7 +7,7 @@ package blockchain
 import (
 	"testing"
 
-	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 )
 
 // TestNotifications ensures that notification callbacks are fired on events.

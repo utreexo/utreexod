@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 )
 
 // TestBigToCompact ensures BigToCompact converts big integers to the expected

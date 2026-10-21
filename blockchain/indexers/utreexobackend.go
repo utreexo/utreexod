@@ -12,12 +12,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/blockchain"
-	"github.com/utreexo/utreexod/chaincfg"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/utreexoparams"
 )
 
 const (
@@ -442,7 +443,7 @@ func InitUtreexoState(cfg *UtreexoConfig, chain *blockchain.BlockChain, ttlIdx *
 	// Presize the position map to the next power of 2 above the assume
 	// utreexo point's leaf count to avoid costly resizes during initial
 	// block download.
-	presizeLeaves := uint64(1) << bits.Len64(cfg.Params.AssumeUtreexoPoint.NumLeaves)
+	presizeLeaves := uint64(1) << bits.Len64(utreexoparams.AssumeUtreexoPoint(cfg.Params.Net).NumLeaves)
 	forest, err := utreexo.OpenForest(basePath,
 		utreexo.MaxCacheMemory(cfg.MaxMemoryUsage),
 		utreexo.ExpectedMaxLeaves(presizeLeaves),

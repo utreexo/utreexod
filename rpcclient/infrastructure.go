@@ -25,10 +25,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/btcsuite/websocket"
 	"github.com/utreexo/utreexod/btcjson"
-	"github.com/utreexo/utreexod/chaincfg"
 )
 
 var (

@@ -11,7 +11,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/utreexo/utreexod/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/utreexo/utreexod/integration/rpctest"
 )
 
