@@ -467,6 +467,11 @@ type Peer struct {
 	cfg     Config
 	inbound bool
 
+	// stallTickInterval and stallResponseTimeout hold the constants of the
+	// same names so that tests can shorten them for a peer.
+	stallTickInterval    time.Duration
+	stallResponseTimeout time.Duration
+
 	flagsMtx             sync.Mutex // protects the peer flags below
 	na                   *wire.NetAddressV2
 	id                   int32
@@ -1275,7 +1280,7 @@ func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd st
 	// sent asynchronously and as a result of a long backlock of messages,
 	// such as is typical in the case of initial block download, the
 	// response won't be received in time.
-	deadline := time.Now().Add(stallResponseTimeout)
+	deadline := time.Now().Add(p.stallResponseTimeout)
 	switch msgCmd {
 	case wire.CmdVersion:
 		// Expects a verack message.
@@ -1301,7 +1306,7 @@ func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd st
 		// Expects a headers message.  Use a longer deadline since it
 		// can take a while for the remote peer to load all of the
 		// headers.
-		deadline = time.Now().Add(stallResponseTimeout * 3)
+		deadline = time.Now().Add(p.stallResponseTimeout * 3)
 		pendingResponses[wire.CmdHeaders] = deadline
 	}
 }
@@ -1325,7 +1330,7 @@ func (p *Peer) stallHandler() {
 	// stallTicker is used to periodically check pending responses that have
 	// exceeded the expected deadline and disconnect the peer due to
 	// stalling.
-	stallTicker := time.NewTicker(stallTickInterval)
+	stallTicker := time.NewTicker(p.stallTickInterval)
 	defer stallTicker.Stop()
 
 	// ioStopped is used to detect when both the input and output handler
@@ -2683,6 +2688,9 @@ func newPeerBase(origCfg *Config, inbound bool) *Peer {
 		cfg:             cfg, // Copy so caller can't mutate.
 		services:        cfg.Services,
 		protocolVersion: cfg.ProtocolVersion,
+
+		stallTickInterval:    stallTickInterval,
+		stallResponseTimeout: stallResponseTimeout,
 	}
 
 	if p.cfg.UsingV2Conn && p.Services()&wire.SFNodeP2PV2 == wire.SFNodeP2PV2 {
