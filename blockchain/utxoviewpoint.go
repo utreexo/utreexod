@@ -672,7 +672,9 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 	// Loop through all of the transaction inputs (except for the coinbase
 	// which has no inputs) and add the outputs created earlier in this
 	// block that they spend to the view.  The LeafDatas above only cover
-	// outputs created in earlier blocks.
+	// outputs created in earlier blocks.  Inputs that spend an output
+	// created later in this block are collected in createdLater.
+	createdLater := make([]wire.OutPoint, 0, 4)
 	for i, tx := range transactions[1:] {
 		for _, txIn := range tx.MsgTx().TxIn {
 			// It is acceptable for a transaction input to reference
@@ -680,13 +682,20 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 			// if the referenced transaction comes before the
 			// current one in this block.  Add the referenced output
 			// as an available utxo when this is the case.
+			// Otherwise, the referenced output is missing from the
+			// view.
 			//
 			// NOTE: The < is correct here because i is one less
 			// than the actual position of the transaction within
 			// the block due to skipping the coinbase.
 			originHash := &txIn.PreviousOutPoint.Hash
 			originIndex, ok := txIndexes[*originHash]
-			if !ok || i < originIndex {
+			if !ok {
+				continue
+			}
+			if i < originIndex {
+				createdLater = append(createdLater,
+					txIn.PreviousOutPoint)
 				continue
 			}
 
@@ -704,6 +713,14 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 			m[txIn.PreviousOutPoint] = NewUtxoEntry(txOuts[txOutIdx],
 				block.Height(), originIndex == 0)
 		}
+	}
+
+	// An output referenced before the transaction that creates it gets a
+	// nil entry in the view, the same entry fetchUtxosFromCache leaves for
+	// an output that doesn't exist.  This replaces any entry that a later
+	// input spending the same output added above.
+	for _, outpoint := range createdLater {
+		m[outpoint] = nil
 	}
 
 	return nil
