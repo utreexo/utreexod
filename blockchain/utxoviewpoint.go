@@ -672,6 +672,7 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *utreexoblock.Block) error {
 
 	// 3. Walk the non-coinbase inputs and add the spendable outputs they
 	// reference from earlier transactions in this block.
+	createdLater := make([]wire.OutPoint, 0, 4)
 	for txIndex := 1; txIndex < len(transactions); txIndex++ {
 		tx := transactions[txIndex]
 		for _, txIn := range tx.MsgTx().TxIn {
@@ -681,7 +682,12 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *utreexoblock.Block) error {
 			// mean the input references its own transaction.
 			originHash := &txIn.PreviousOutPoint.Hash
 			originIndex, ok := txIndexes[*originHash]
-			if !ok || originIndex >= txIndex {
+			if !ok {
+				continue
+			}
+			if originIndex >= txIndex {
+				createdLater = append(createdLater,
+					txIn.PreviousOutPoint)
 				continue
 			}
 
@@ -699,6 +705,13 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *utreexoblock.Block) error {
 			m[txIn.PreviousOutPoint] = NewUtxoEntry(txOuts[txOutIdx],
 				block.Height(), originIndex == 0)
 		}
+	}
+
+	// 4. Mark each output referenced before its creation as missing.
+	// Set the entry to nil last because a later input may have added
+	// the same output to the view.
+	for _, outpoint := range createdLater {
+		m[outpoint] = nil
 	}
 
 	return nil

@@ -243,40 +243,41 @@ func TestCopyWithRootsAppliesProof(t *testing.T) {
 	require.NoError(t, err, "Modify copy with proof")
 }
 
-// newSameBlockSpendBlock builds a block on top of prev with two transactions
-// after the coinbase.  originTx spends the provided leaf and spendTx spends
-// from the first output of originTx.  When createdLater is true, spendTx
-// comes before originTx, so it spends an output created later in the same
-// block.
+// newSpendTx returns a transaction that spends the provided output to
+// opTrueScript.
+func newSpendTx(spend SpendableOut) *wire.MsgTx {
+	spendTx := wire.NewMsgTx(1)
+	spendTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: spend.PrevOut,
+		Sequence:         wire.MaxTxInSequenceNum,
+	})
+	spendTx.AddTxOut(wire.NewTxOut(int64(spend.Amount-lowFee),
+		opTrueScript))
+	// Add a random (prunable) OP_RETURN output to make the txid unique.
+	spendTx.AddTxOut(wire.NewTxOut(0, uniqueOpReturnScript()))
+
+	return spendTx
+}
+
+// newSameBlockSpendBlock builds a block on top of prev.  The transactions
+// after the coinbase are the ones that txs returns, given the coinbase and
+// originTx, a transaction that spends the provided leaf.
 func newSameBlockSpendBlock(t *testing.T, chain *BlockChain,
 	prev *btcutil.Block, spend bip182.LeafData,
-	createdLater bool) *btcutil.Block {
+	txs func(cb, originTx *wire.MsgTx) []*wire.MsgTx) *btcutil.Block {
 
 	t.Helper()
 
 	// 1. Build on prev with one spend so the base block supplies both
 	// the coinbase and originTx.
-	base, outs := NewBlock(chain, prev,
+	base, _ := NewBlock(chain, prev,
 		spendableOutsFromLeaves([]bip182.LeafData{spend}))
 	msgBlock := base.MsgBlock()
 	cb, originTx := msgBlock.Transactions[0], msgBlock.Transactions[1]
 
-	// 2. Add a spend of originTx and arrange the transactions in the
-	// order for this test case.
-	spendTx := wire.NewMsgTx(1)
-	spendTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: outs[1].PrevOut,
-		Sequence:         wire.MaxTxInSequenceNum,
-	})
-	spendTx.AddTxOut(wire.NewTxOut(int64(outs[1].Amount-lowFee),
-		opTrueScript))
-	spendTx.AddTxOut(wire.NewTxOut(0, uniqueOpReturnScript()))
-	cb.TxOut[0].Value += int64(lowFee)
-
-	msgBlock.Transactions = []*wire.MsgTx{cb, originTx, spendTx}
-	if createdLater {
-		msgBlock.Transactions = []*wire.MsgTx{cb, spendTx, originTx}
-	}
+	// 2. Keep the coinbase first and let the test case choose the
+	// remaining transactions and their order.
+	msgBlock.Transactions = append([]*wire.MsgTx{cb}, txs(cb, originTx)...)
 
 	// 3. Recalculate the merkle root for the final transaction list
 	// and solve the updated header.
@@ -289,15 +290,80 @@ func newSameBlockSpendBlock(t *testing.T, chain *BlockChain,
 }
 
 // TestUtreexoSameBlockSpend ensures a compact-state chain accepts a block
-// that spends an output created earlier in the same block and rejects a block
-// that spends an output created later in the same block.
+// that spends an output created earlier in the same block, and rejects and
+// marks invalid, with the error a full node returns, a block whose
+// transactions spend outputs in ways the block alone rules out.
 func TestUtreexoSameBlockSpend(t *testing.T) {
 	tests := []struct {
-		name         string
-		createdLater bool
+		name  string
+		txs   func(cb, originTx *wire.MsgTx) []*wire.MsgTx
+		valid bool
+		code  ErrorCode
 	}{
-		{name: "output created earlier"},
-		{name: "output created later", createdLater: true},
+		{
+			name: "output created earlier",
+			txs: func(_, originTx *wire.MsgTx) []*wire.MsgTx {
+				spendTx := newSpendTx(MakeSpendableOutForTx(originTx, 0))
+				return []*wire.MsgTx{originTx, spendTx}
+			},
+			valid: true,
+		},
+		{
+			name: "output created later",
+			txs: func(_, originTx *wire.MsgTx) []*wire.MsgTx {
+				spendTx := newSpendTx(MakeSpendableOutForTx(originTx, 0))
+				return []*wire.MsgTx{spendTx, originTx}
+			},
+			code: ErrMissingTxOut,
+		},
+		{
+			name: "output spent twice",
+			txs: func(_, originTx *wire.MsgTx) []*wire.MsgTx {
+				spend := MakeSpendableOutForTx(originTx, 0)
+				return []*wire.MsgTx{originTx, newSpendTx(spend),
+					newSpendTx(spend)}
+			},
+			code: ErrMissingTxOut,
+		},
+		{
+			name: "output spent before and after it is created",
+			txs: func(_, originTx *wire.MsgTx) []*wire.MsgTx {
+				spend := MakeSpendableOutForTx(originTx, 0)
+				return []*wire.MsgTx{newSpendTx(spend), originTx,
+					newSpendTx(spend)}
+			},
+			code: ErrMissingTxOut,
+		},
+		{
+			name: "output index out of range",
+			txs: func(_, originTx *wire.MsgTx) []*wire.MsgTx {
+				spend := MakeSpendableOutForTx(originTx, 0)
+				spend.PrevOut.Index = uint32(len(originTx.TxOut))
+				return []*wire.MsgTx{originTx, newSpendTx(spend)}
+			},
+			code: ErrMissingTxOut,
+		},
+		{
+			name: "coinbase output",
+			txs: func(cb, originTx *wire.MsgTx) []*wire.MsgTx {
+				spendTx := newSpendTx(MakeSpendableOutForTx(cb, 0))
+				return []*wire.MsgTx{originTx, spendTx}
+			},
+			code: ErrImmatureSpend,
+		},
+		{
+			name: "output from an earlier block spent twice",
+			txs: func(_, originTx *wire.MsgTx) []*wire.MsgTx {
+				// Spend the outpoint that originTx already spends.
+				spendTx := newSpendTx(SpendableOut{
+					PrevOut: originTx.TxIn[0].PreviousOutPoint,
+					Amount: btcutil.Amount(
+						originTx.TxOut[0].Value),
+				})
+				return []*wire.MsgTx{originTx, spendTx}
+			},
+			code: ErrMissingTxOut,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -318,22 +384,28 @@ func TestUtreexoSameBlockSpend(t *testing.T) {
 			// the output it spends from the first block.
 			spends := firstAdds[:1]
 			block := newSameBlockSpendBlock(t, chain, firstBlock,
-				spends[0], test.createdLater)
+				spends[0], test.txs)
 			proofState.attachUData(t, block, spends)
 
 			// 3. Check that a valid block joins the main chain and an
 			// invalid block returns the expected RuleError.
-			if !test.createdLater {
+			if test.valid {
 				processBlock(t, chain, block, true)
 				return
 			}
 
 			_, _, err := chain.ProcessBlock(block, BFNone)
-			require.Error(t, err, "ProcessBlock accepted a spend of an "+
-				"output created later in the same block")
+			require.Error(t, err, "ProcessBlock accepted an invalid block")
 			var rerr RuleError
 			require.ErrorAs(t, err, &rerr)
-			require.Equal(t, ErrMissingTxOut, rerr.ErrorCode)
+			require.Equal(t, test.code, rerr.ErrorCode)
+
+			// 4. Check that the block index also marks the rejected
+			// block invalid.
+			node := chain.index.LookupNode(block.Hash())
+			require.NotNil(t, node, "block is not in the block index")
+			require.True(t, chain.index.NodeStatus(node).KnownValidateFailed(),
+				"block is not marked invalid")
 		})
 	}
 }
