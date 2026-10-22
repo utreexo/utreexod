@@ -2073,7 +2073,7 @@ func (s *server) pushMerkleBlockMsg(sp *serverPeer, hash *chainhash.Hash,
 
 	// Generate a merkle block by filtering the requested block according
 	// to the filter for the peer.
-	merkle, matchedTxIndices := bloom.NewMerkleBlock(blk, sp.filter)
+	merkle, matchedTxIndices := bloom.NewMerkleBlock(blk.Block, sp.filter)
 
 	// Once we have fetched data wait for any previous operation to finish.
 	if waitChan != nil {

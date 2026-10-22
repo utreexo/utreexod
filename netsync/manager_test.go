@@ -27,6 +27,7 @@ import (
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 	"github.com/utreexo/utreexod/utreexoparams"
 )
 
@@ -254,7 +255,7 @@ func TestCheckHeadersList(t *testing.T) {
 		}
 		block := btcutil.NewBlock(msgBlock)
 
-		isCheckpoint, gotFlags := sm.checkHeadersList(block)
+		isCheckpoint, gotFlags := sm.checkHeadersList(utreexoblock.New(block))
 		require.Equal(t, test.isCheckpointBlock, isCheckpoint)
 		require.Equal(t, test.behaviorFlags, gotFlags)
 	}
@@ -332,7 +333,7 @@ func TestQueuedUtreexoTTLs(t *testing.T) {
 
 			// Test: an invalid block body must leave the TTL available for retry.
 			sm.handleUtreexoProofMsg(proof)
-			invalid := btcutil.NewBlock(&wire.MsgBlock{Header: block.MsgBlock().Header})
+			invalid := utreexoblock.New(btcutil.NewBlock(&wire.MsgBlock{Header: block.MsgBlock().Header}))
 			sm.handleBlockMsg(&blockMsg{peer: p, block: invalid})
 			require.Equal(t, &ttl, invalid.UtreexoTTLs())
 			require.Equal(t, int32(0), chain.BestSnapshot().Height)
@@ -346,9 +347,10 @@ func TestQueuedUtreexoTTLs(t *testing.T) {
 			require.Contains(t, sm.peerStates[p].requestedBlocks, *block.Hash())
 			sm.handleUtreexoProofMsg(proof)
 			flushErr = test.flushErr
-			sm.handleBlockMsg(&blockMsg{peer: p, block: block})
+			connected := utreexoblock.New(block)
+			sm.handleBlockMsg(&blockMsg{peer: p, block: connected})
 			require.Equal(t, *block.Hash(), chain.BestSnapshot().Hash)
-			require.Equal(t, &ttl, block.UtreexoTTLs())
+			require.Equal(t, &ttl, connected.UtreexoTTLs())
 			require.Empty(t, sm.queuedTTLs)
 			require.Equal(t, test.flushErr != nil, failedFlush)
 		})
@@ -897,7 +899,7 @@ func syncProcessBlocks(t *testing.T, sm *SyncManager, syncPeer *peer.Peer,
 
 	for i, block := range blocks {
 		sm.handleBlockMsg(&blockMsg{
-			block: block,
+			block: utreexoblock.New(block),
 			peer:  syncPeer,
 			reply: make(chan struct{}, 1),
 		})
@@ -924,7 +926,7 @@ func syncStalledPeerRecovery(t *testing.T, sm *SyncManager,
 	// Process the first stallAfter blocks from the stalled peer.
 	for _, block := range blocks[:stallAfter] {
 		sm.handleBlockMsg(&blockMsg{
-			block: block,
+			block: utreexoblock.New(block),
 			peer:  stalledPeer,
 			reply: make(chan struct{}, 1),
 		})
@@ -991,7 +993,7 @@ func syncStalledPeerRecovery(t *testing.T, sm *SyncManager,
 	// Feed remaining blocks from the replacement peer.
 	for _, block := range blocks[stallAfter:] {
 		sm.handleBlockMsg(&blockMsg{
-			block: block,
+			block: utreexoblock.New(block),
 			peer:  replacementPeer,
 			reply: make(chan struct{}, 1),
 		})
@@ -1276,7 +1278,7 @@ func TestStartSyncChainCurrent(t *testing.T) {
 		Header:       header,
 		Transactions: []*wire.MsgTx{cb},
 	})
-	_, _, err := sm.chain.ProcessBlock(block, blockchain.BFNone)
+	_, _, err := sm.chain.ProcessBlock(utreexoblock.New(block), blockchain.BFNone)
 	require.NoError(t, err)
 	require.True(t, sm.chain.IsCurrent())
 
@@ -1346,7 +1348,7 @@ func TestBlockConnectedCleansMempool(t *testing.T) {
 	// Mine enough blocks to mature the first coinbase.
 	blocks := generateTestBlocks(t, &params, int(params.CoinbaseMaturity)+1)
 	for _, blk := range blocks {
-		_, _, err := chain.ProcessBlock(blk, blockchain.BFNone)
+		_, _, err := chain.ProcessBlock(utreexoblock.New(blk), blockchain.BFNone)
 		require.NoError(t, err)
 	}
 
@@ -1408,7 +1410,7 @@ func TestBlockConnectedCleansMempool(t *testing.T) {
 	}
 	require.True(t, solveTestBlock(&header, &params))
 	_, _, err = chain.ProcessBlock(
-		btcutil.NewBlock(&wire.MsgBlock{Header: header, Transactions: blockTxns}),
+		utreexoblock.New(btcutil.NewBlock(&wire.MsgBlock{Header: header, Transactions: blockTxns})),
 		blockchain.BFNone,
 	)
 	require.NoError(t, err)

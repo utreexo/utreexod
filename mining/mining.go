@@ -20,6 +20,7 @@ import (
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 const (
@@ -912,7 +913,7 @@ mempoolLoop:
 	// Finally, perform a full check on the created block against the chain
 	// consensus rules to ensure it properly connects to the current best
 	// chain with no issues.
-	block := btcutil.NewBlock(&msgBlock)
+	block := utreexoblock.New(btcutil.NewBlock(&msgBlock))
 	block.SetHeight(nextBlockHeight)
 
 	// If this is a utreexo CSN node, generate the utreexo proof data for
@@ -925,7 +926,7 @@ mempoolLoop:
 		// never added to the accumulator and must be skipped.
 		// This reuses the same deduplication logic used by
 		// FlatUtreexoProofIndex.ConnectBlock and BlockToDelLeaves.
-		_, _, inskip, _ := blockchain.DedupeBlock(block)
+		_, _, inskip, _ := blockchain.DedupeBlock(block.Block)
 
 		// Collect the leaf datas for all non-coinbase transactions'
 		// inputs from the mempool, skipping same-block spends.

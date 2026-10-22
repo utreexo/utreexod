@@ -29,6 +29,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // HDVersion represents the different supported schemes of hierarchical
@@ -1039,8 +1040,8 @@ func (wm *WatchOnlyWalletManager) filterBlock(block *btcutil.Block) ([]uint32, [
 // filterBlockForUndo filters the block to undo that block. The returned indexes are
 // of the targets that were deleted in the block that needs to be re-added as this
 // watch only wallet controls it.
-func (wm *WatchOnlyWalletManager) filterBlockForUndo(block *btcutil.Block) ([]uint64, [][]byte) {
-	_, _, inskip, outskip := blockchain.DedupeBlock(block)
+func (wm *WatchOnlyWalletManager) filterBlockForUndo(block *utreexoblock.Block) ([]uint64, [][]byte) {
+	_, _, inskip, outskip := blockchain.DedupeBlock(block.Block)
 
 	var targetsToProve []uint64
 	updates := [][]byte{}
@@ -1147,13 +1148,13 @@ func (wm *WatchOnlyWalletManager) handleBlockchainNotification(notification *blo
 	switch notification.Type {
 	// A block has been accepted into the block chain.
 	case blockchain.NTBlockConnected:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			log.Warnf("Chain connected notification is not a block.")
 			break
 		}
 
-		remembers, updates := wm.filterBlock(block)
+		remembers, updates := wm.filterBlock(block.Block)
 
 		ud := block.UtreexoData()
 		targets := ud.AccProof.Targets
@@ -1190,7 +1191,7 @@ func (wm *WatchOnlyWalletManager) handleBlockchainNotification(notification *blo
 
 	// A block has been disconnected from the main block chain.
 	case blockchain.NTBlockDisconnected:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			log.Warnf("Chain disconnected notification is not a block.")
 			break

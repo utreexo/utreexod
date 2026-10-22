@@ -376,17 +376,17 @@ func (us *UtreexoState) initConsistentUtreexoState(chain *blockchain.BlockChain,
 			return err
 		}
 
-		stxos, err := chain.FetchSpendJournal(block)
+		stxos, err := chain.FetchSpendJournal(block.Block)
 		if err != nil {
 			return err
 		}
 
-		_, outCount, inskip, outskip := blockchain.DedupeBlock(block)
-		dels, err := blockchain.BlockToDelLeaves(stxos, chain, block, inskip)
+		_, outCount, inskip, outskip := blockchain.DedupeBlock(block.Block)
+		dels, err := blockchain.BlockToDelLeaves(stxos, chain, block.Block, inskip)
 		if err != nil {
 			return err
 		}
-		adds := blockchain.BlockToAddLeaves(block, outskip, outCount)
+		adds := blockchain.BlockToAddLeaves(block.Block, outskip, outCount)
 
 		ud, err := bip183.GenerateUData(dels, us.state)
 		if err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // TestReorg exercises connecting a main chain of blocks followed by a
@@ -180,19 +181,20 @@ func newTestUtreexoProofState() *testUtreexoProofState {
 // and attaches a valid proof for the tracked state.  It returns the block
 // along with the accumulator leaves it creates.
 func (s *testUtreexoProofState) newBlock(t *testing.T, chain *BlockChain,
-	prev *btcutil.Block, spends []bip182.LeafData) (*btcutil.Block,
+	prev *utreexoblock.Block, spends []bip182.LeafData) (*utreexoblock.Block,
 	[]bip182.LeafData) {
 
 	t.Helper()
 
-	block, _ := NewBlock(chain, prev, spendableOutsFromLeaves(spends))
+	btcBlock, _ := NewBlock(chain, prev.Block, spendableOutsFromLeaves(spends))
+	block := utreexoblock.New(btcBlock)
 	adds := s.attachUData(t, block, spends)
 
 	return block, adds
 }
 
 // attachUData proves the block and advances the tracked branch state.
-func (s *testUtreexoProofState) attachUData(t *testing.T, block *btcutil.Block,
+func (s *testUtreexoProofState) attachUData(t *testing.T, block *utreexoblock.Block,
 	spends []bip182.LeafData) []bip182.LeafData {
 
 	t.Helper()
@@ -201,7 +203,7 @@ func (s *testUtreexoProofState) attachUData(t *testing.T, block *btcutil.Block,
 	require.NoError(t, err, "GenerateUData")
 	block.SetUtreexoData(udata)
 
-	adds := ExtractAccumulatorAdds(block)
+	adds := ExtractAccumulatorAdds(block.Block)
 	addLeaves := make([]utreexo.Leaf, len(adds))
 	for i := range adds {
 		addLeaves[i] = utreexo.Leaf{
@@ -224,7 +226,7 @@ func (s *testUtreexoProofState) attachUData(t *testing.T, block *btcutil.Block,
 // processBlock runs the block through ProcessBlock and asserts it is
 // accepted without being orphaned, on the main chain when wantMainChain is
 // true.
-func processBlock(t *testing.T, chain *BlockChain, block *btcutil.Block,
+func processBlock(t *testing.T, chain *BlockChain, block *utreexoblock.Block,
 	wantMainChain bool) {
 
 	t.Helper()
@@ -240,7 +242,7 @@ func processBlock(t *testing.T, chain *BlockChain, block *btcutil.Block,
 // assertStoredUtreexoProof ensures the proof attached to block is present
 // in the proof store and matches it.
 func assertStoredUtreexoProof(t *testing.T, chain *BlockChain,
-	block *btcutil.Block) {
+	block *utreexoblock.Block) {
 
 	t.Helper()
 
@@ -279,7 +281,7 @@ func TestInvalidUtreexoProofIsNotStored(t *testing.T) {
 				"invalid-proof")
 			defer tearDown()
 
-			genesis := btcutil.NewBlock(params.GenesisBlock)
+			genesis := utreexoblock.New(btcutil.NewBlock(params.GenesisBlock))
 			genesis.SetHeight(0)
 			mainProofState := newTestUtreexoProofState()
 			branchProofState := newTestUtreexoProofState()
@@ -328,7 +330,7 @@ func TestStoreMainChainUtreexoProof(t *testing.T) {
 		"main-proof")
 	defer tearDown()
 
-	genesis := btcutil.NewBlock(params.GenesisBlock)
+	genesis := utreexoblock.New(btcutil.NewBlock(params.GenesisBlock))
 	genesis.SetHeight(0)
 	proofState := newTestUtreexoProofState()
 	block, _ := proofState.newBlock(t, chain, genesis, nil)
@@ -345,7 +347,7 @@ func TestUtreexoProofStoreReplaysForkPointBranch(t *testing.T) {
 		"target")
 	defer tearDownTarget()
 
-	genesis := btcutil.NewBlock(params.GenesisBlock)
+	genesis := utreexoblock.New(btcutil.NewBlock(params.GenesisBlock))
 	genesis.SetHeight(0)
 	mainProofState := newTestUtreexoProofState()
 	sideProofState := newTestUtreexoProofState()
@@ -393,7 +395,7 @@ func TestUtreexoProofStoreReorgWritesOnce(t *testing.T) {
 		"reorg-proof")
 	defer tearDown()
 
-	genesis := btcutil.NewBlock(params.GenesisBlock)
+	genesis := utreexoblock.New(btcutil.NewBlock(params.GenesisBlock))
 	genesis.SetHeight(0)
 	mainProofState := newTestUtreexoProofState()
 	sideProofState := newTestUtreexoProofState()
@@ -423,7 +425,7 @@ func TestUtreexoProofStoreReorgWritesOnce(t *testing.T) {
 	processBlock(t, chain, side3, true)
 	require.Equal(t, 1, countingDB.stores-storesBeforeReorg,
 		"proof store calls during reorg")
-	for _, block := range []*btcutil.Block{side1, side2, side3} {
+	for _, block := range []*utreexoblock.Block{side1, side2, side3} {
 		assertStoredUtreexoProof(t, chain, block)
 	}
 

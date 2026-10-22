@@ -17,6 +17,7 @@ import (
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 const (
@@ -1068,7 +1069,7 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpo
 // with that node.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
+func (b *BlockChain) checkConnectBlock(node *blockNode, block *utreexoblock.Block,
 	view *UtxoViewpoint, utreexoView *UtreexoViewpoint, stxos *[]SpentTxOut) error {
 
 	udata := block.UtreexoData()
@@ -1105,7 +1106,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 		if utreexoView != nil {
 			// purposely left empty
 		} else {
-			err := b.checkBIP0030(node, block, view)
+			err := b.checkBIP0030(node, block.Block, view)
 			if err != nil {
 				return err
 			}
@@ -1131,8 +1132,8 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 				return fmt.Errorf("checkConnectBlock fail. error: %v", err)
 			}
 		} else {
-			_, _, inskip, _ := DedupeBlock(block)
-			_, err := reconstructUData(udata, block, b.bestChain, inskip)
+			_, _, inskip, _ := DedupeBlock(block.Block)
+			_, err := reconstructUData(udata, block.Block, b.bestChain, inskip)
 			if err != nil {
 				return err
 			}
@@ -1143,7 +1144,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 			return err
 		}
 	} else {
-		err := view.fetchInputUtxos(b.utxoCache, block)
+		err := view.fetchInputUtxos(b.utxoCache, block.Block)
 		if err != nil {
 			return err
 		}
@@ -1344,7 +1345,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 	// expensive ECDSA signature check scripts.  Doing this last helps
 	// prevent CPU exhaustion attacks.
 	if runScripts {
-		err := checkBlockScripts(block, view, scriptFlags, b.sigCache,
+		err := checkBlockScripts(block.Block, view, scriptFlags, b.sigCache,
 			b.hashCache)
 		if err != nil {
 			return err
@@ -1359,7 +1360,7 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block,
 // work requirement. The block must connect to the current tip of the main chain.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
+func (b *BlockChain) CheckConnectBlockTemplate(block *utreexoblock.Block) error {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
 
@@ -1376,12 +1377,12 @@ func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
 		return ruleError(ErrPrevBlockNotBest, str)
 	}
 
-	err := checkBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
+	err := checkBlockSanity(block.Block, b.chainParams.PowLimit, b.timeSource, flags)
 	if err != nil {
 		return err
 	}
 
-	err = b.checkBlockContext(block, tip, flags)
+	err = b.checkBlockContext(block.Block, tip, flags)
 	if err != nil {
 		return err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/utreexo/utreexod/blockchain/indexers"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 var zeroHash = chainhash.Hash{}
@@ -129,7 +130,7 @@ func (bi *blockImporter) processBlock(serializedBlock []byte) (bool, error) {
 
 	// Ensure the blocks follows all of the chain rules and match up to the
 	// known checkpoints.
-	isMainChain, isOrphan, err := bi.chain.ProcessBlock(block,
+	isMainChain, isOrphan, err := bi.chain.ProcessBlock(utreexoblock.New(block),
 		blockchain.BFFastAdd)
 	if err != nil {
 		return false, err

@@ -15,6 +15,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	_ "github.com/utreexo/utreexod/database/ffldb"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // This example demonstrates how to create a new chain instance and use
@@ -59,7 +60,7 @@ func ExampleBlockChain_ProcessBlock() {
 	// cause an error by trying to process the genesis block which already
 	// exists.
 	genesisBlock := btcutil.NewBlock(chaincfg.MainNetParams.GenesisBlock)
-	isMainChain, isOrphan, err := chain.ProcessBlock(genesisBlock,
+	isMainChain, isOrphan, err := chain.ProcessBlock(utreexoblock.New(genesisBlock),
 		blockchain.BFNone)
 	if err != nil {
 		fmt.Printf("Failed to process block: %v\n", err)

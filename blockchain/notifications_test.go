@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // TestNotifications ensures that notification callbacks are fired on events.
@@ -39,7 +40,7 @@ func TestNotifications(t *testing.T) {
 		chain.Subscribe(callback)
 	}
 
-	_, _, err = chain.ProcessBlock(blocks[1], BFNone)
+	_, _, err = chain.ProcessBlock(utreexoblock.New(blocks[1]), BFNone)
 	if err != nil {
 		t.Fatalf("ProcessBlock fail on block 1: %v\n", err)
 	}

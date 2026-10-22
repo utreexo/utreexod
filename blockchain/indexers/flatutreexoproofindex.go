@@ -1076,12 +1076,12 @@ func (idx *FlatUtreexoProofIndex) resyncUtreexoState(start, finish int32) error 
 			return err
 		}
 
-		stxos, err := idx.chain.FetchSpendJournalUnsafe(blk)
+		stxos, err := idx.chain.FetchSpendJournalUnsafe(blk.Block)
 		if err != nil {
 			return err
 		}
 
-		err = idx.attachBlock(blk, stxos)
+		err = idx.attachBlock(blk.Block, stxos)
 		if err != nil {
 			return err
 		}
@@ -1156,8 +1156,8 @@ func (idx *FlatUtreexoProofIndex) getCreateIndexes(lds []bip182.LeafData, delHas
 			return nil, err
 		}
 
-		_, outCount, _, outskip := blockchain.DedupeBlock(stxoBlock)
-		adds := blockchain.BlockToAddLeaves(stxoBlock, outskip, outCount)
+		_, outCount, _, outskip := blockchain.DedupeBlock(stxoBlock.Block)
+		adds := blockchain.BlockToAddLeaves(stxoBlock.Block, outskip, outCount)
 		for j, add := range adds {
 			if add.LeafHash() == delHashes[i] {
 				createIndexes = append(createIndexes, int32(j))

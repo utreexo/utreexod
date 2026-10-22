@@ -20,6 +20,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/database/ffldb"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 func TestMapSlice(t *testing.T) {
@@ -731,7 +732,7 @@ func TestFlushOnPrune(t *testing.T) {
 		//
 		// (genesis block) -> 1 -> 2 -> 3 -> ...
 		//                \-> 1a
-		_, _, err = chain.ProcessBlock(staleBlock, BFNoPoWCheck)
+		_, _, err = chain.ProcessBlock(utreexoblock.New(staleBlock), BFNoPoWCheck)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -741,7 +742,7 @@ func TestFlushOnPrune(t *testing.T) {
 				// Skip the genesis block.
 				continue
 			}
-			_, _, err = chain.ProcessBlock(block, BFNone)
+			_, _, err = chain.ProcessBlock(utreexoblock.New(block), BFNone)
 			if err != nil {
 				t.Fatalf("Failed to process block %v(%v). %v",
 					block.Hash().String(), block.Height(), err)
@@ -842,7 +843,7 @@ func TestInitConsistentState(t *testing.T) {
 			continue
 		}
 
-		isMainChain, _, err := chain.ProcessBlock(block, BFNone)
+		isMainChain, _, err := chain.ProcessBlock(utreexoblock.New(block), BFNone)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -914,7 +915,7 @@ func TestInitConsistentState(t *testing.T) {
 		if i <= initialSyncHeight {
 			continue
 		}
-		isMainChain, _, err := chain.ProcessBlock(block, BFNone)
+		isMainChain, _, err := chain.ProcessBlock(utreexoblock.New(block), BFNone)
 		if err != nil {
 			t.Fatal(err)
 		}

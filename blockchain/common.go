@@ -23,6 +23,7 @@ import (
 	"github.com/utreexo/utreexod/database"
 	_ "github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 const (
@@ -176,7 +177,7 @@ func MakeSpendableOutForTx(tx *wire.MsgTx, txOutIndex uint32) SpendableOut {
 func AddBlock(chain *BlockChain, prev *btcutil.Block, spends []*SpendableOut) (*btcutil.Block, []*SpendableOut, error) {
 	block, outs := NewBlock(chain, prev, spends)
 
-	_, _, err := chain.ProcessBlock(block, BFNone)
+	_, _, err := chain.ProcessBlock(utreexoblock.New(block), BFNone)
 	if err != nil {
 		return nil, nil, err
 	}

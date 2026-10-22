@@ -18,6 +18,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // proofStoreUpgradeFixture holds a database laid out in the legacy format,
@@ -111,10 +112,11 @@ func newProofStoreUpgradeFixture(t *testing.T) *proofStoreUpgradeFixture {
 	if _, err := oldBytes.Write(proofBytes.Bytes()); err != nil {
 		t.Fatalf("append proof: %v", err)
 	}
-	block, err := btcutil.NewBlockFromBytes(oldBytes.Bytes())
+	btcBlock, err := btcutil.NewBlockFromBytes(oldBytes.Bytes())
 	if err != nil {
 		t.Fatalf("NewBlockFromBytes: %v", err)
 	}
+	block := utreexoblock.New(btcBlock)
 	block.SetHeight(1)
 
 	// Sanity check that the inline proof parses back.
@@ -132,7 +134,7 @@ func newProofStoreUpgradeFixture(t *testing.T) *proofStoreUpgradeFixture {
 
 	// Store the block in the legacy format.
 	err = db.Update(func(dbTx database.Tx) error {
-		if err := dbStoreBlock(dbTx, block); err != nil {
+		if err := dbStoreBlock(dbTx, block.Block); err != nil {
 			return err
 		}
 		// New databases are initialized at the latest version.  Delete the
@@ -204,10 +206,11 @@ func (f *proofStoreUpgradeFixture) assertUpgraded(t *testing.T) {
 		if bytes.Contains(gotBlockBytes, f.proofBytes) {
 			t.Fatal("block bytes still contain the old inline proof")
 		}
-		roundTrip, err := btcutil.NewBlockFromBytes(gotBlockBytes)
+		btcBlock, err := btcutil.NewBlockFromBytes(gotBlockBytes)
 		if err != nil {
 			return err
 		}
+		roundTrip := utreexoblock.New(btcBlock)
 		roundTrip.ParseUtreexoData()
 		if roundTrip.UtreexoData() != nil {
 			t.Fatal("inline proof should have been stripped from block bytes")

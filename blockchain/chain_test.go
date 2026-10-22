@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/btcutil"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // TestHaveBlock tests the HaveBlock API to ensure proper functionality.
@@ -51,7 +52,7 @@ func TestHaveBlock(t *testing.T) {
 	chain.TstSetCoinbaseMaturity(1)
 
 	for i := 1; i < len(blocks); i++ {
-		_, isOrphan, err := chain.ProcessBlock(blocks[i], BFNone)
+		_, isOrphan, err := chain.ProcessBlock(utreexoblock.New(blocks[i]), BFNone)
 		if err != nil {
 			t.Errorf("ProcessBlock fail on block %v: %v\n", i, err)
 			return
@@ -64,7 +65,7 @@ func TestHaveBlock(t *testing.T) {
 	}
 
 	// Insert an orphan block.
-	_, isOrphan, err := chain.ProcessBlock(btcutil.NewBlock(&Block100000),
+	_, isOrphan, err := chain.ProcessBlock(utreexoblock.New(btcutil.NewBlock(&Block100000)),
 		BFNone)
 	if err != nil {
 		t.Errorf("Unable to process block: %v", err)
@@ -1960,7 +1961,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 						// The block validation will fail here and we'll mark the
 						// block as invalid in the block index.
-						chain.ProcessBlock(invalidBlock, BFNone)
+						chain.ProcessBlock(utreexoblock.New(invalidBlock), BFNone)
 
 						// Modify the amount again so it's valid.
 						nextSpends[0].Amount -= lowFee
@@ -2030,7 +2031,7 @@ func TestReconsiderBlock(t *testing.T) {
 
 						// The block validation will fail here and we'll mark the
 						// block as invalid in the block index.
-						chain.ProcessBlock(invalidBlock, BFNone)
+						chain.ProcessBlock(utreexoblock.New(invalidBlock), BFNone)
 
 						// Modify the amount again so it's valid.
 						nextSpends[0].Amount -= lowFee

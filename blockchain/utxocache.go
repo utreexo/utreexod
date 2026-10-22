@@ -16,6 +16,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // mapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
@@ -672,7 +673,7 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 	for e := attachNodes.Front(); e != nil; e = e.Next() {
 		node = e.Value.(*blockNode)
 
-		var block *btcutil.Block
+		var block *utreexoblock.Block
 		err := s.db.View(func(dbTx database.Tx) error {
 			block, err = dbFetchBlockByNode(dbTx, node, b.utreexoView != nil)
 			if err != nil {
@@ -685,7 +686,7 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 			return err
 		}
 
-		err = b.utxoCache.connectTransactions(block, nil)
+		err = b.utxoCache.connectTransactions(block.Block, nil)
 		if err != nil {
 			return err
 		}

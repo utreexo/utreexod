@@ -13,6 +13,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // txoFlags is a bitmask defining additional information and state for a
@@ -645,7 +646,7 @@ func (view *UtxoViewpoint) fetchInputUtxos(cache *utxoCache, block *btcutil.Bloc
 // all the utxos necessary to validate the given bitcoin block.
 //
 // NOTE: this function is only relevant when the utreexo accumulators are enabled.
-func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
+func (view *UtxoViewpoint) BlockToUtxoView(block *utreexoblock.Block) error {
 	ud := block.UtreexoData()
 	if ud == nil {
 		return fmt.Errorf("UData is nil. Cannot verify block with hash %s.",
@@ -660,7 +661,7 @@ func (view *UtxoViewpoint) BlockToUtxoView(block *btcutil.Block) error {
 		m[ld.OutPoint] = utxo
 	}
 
-	_, _, _, outskip := DedupeBlock(block)
+	_, _, _, outskip := DedupeBlock(block.Block)
 
 	var txonum uint32
 	for coinbaseif0, tx := range block.Transactions() {

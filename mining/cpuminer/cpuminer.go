@@ -18,6 +18,7 @@ import (
 	"github.com/utreexo/utreexod/blockchain"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/mining"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 const (
@@ -64,7 +65,7 @@ type Config struct {
 	// ProcessBlock defines the function to call with any solved blocks.
 	// It typically must run the provided block through the same set of
 	// rules and handling as any other block coming from the network.
-	ProcessBlock func(*btcutil.Block, blockchain.BehaviorFlags) (bool, error)
+	ProcessBlock func(*utreexoblock.Block, blockchain.BehaviorFlags) (bool, error)
 
 	// ConnectedCount defines the function to use to obtain how many other
 	// peers the server is connected to.  This is used by the automatic
@@ -152,7 +153,7 @@ out:
 
 // submitBlock submits the passed block to network after ensuring it passes all
 // of the consensus validation rules.
-func (m *CPUMiner) submitBlock(block *btcutil.Block) bool {
+func (m *CPUMiner) submitBlock(block *utreexoblock.Block) bool {
 	m.submitBlockLock.Lock()
 	defer m.submitBlockLock.Unlock()
 
@@ -355,7 +356,7 @@ out:
 		// a new block template can be generated.  When the return is
 		// true a solution was found, so submit the solved block.
 		if m.solveBlock(template.Block, curHeight+1, ticker, quit) {
-			block := btcutil.NewBlock(template.Block)
+			block := utreexoblock.New(btcutil.NewBlock(template.Block))
 			if template.UData != nil {
 				block.SetUtreexoData(template.UData)
 			}
@@ -612,7 +613,7 @@ func (m *CPUMiner) GenerateNBlocks(n uint32) ([]*chainhash.Hash, error) {
 		// a new block template can be generated.  When the return is
 		// true a solution was found, so submit the solved block.
 		if m.solveBlock(template.Block, curHeight+1, ticker, nil) {
-			block := btcutil.NewBlock(template.Block)
+			block := utreexoblock.New(btcutil.NewBlock(template.Block))
 			if template.UData != nil {
 				block.SetUtreexoData(template.UData)
 			}

@@ -24,6 +24,7 @@ import (
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/mempool"
 	peerpkg "github.com/utreexo/utreexod/peer"
+	"github.com/utreexo/utreexod/utreexoblock"
 	"github.com/utreexo/utreexod/utreexoparams"
 )
 
@@ -70,7 +71,7 @@ type newPeerMsg struct {
 // blockMsg packages a bitcoin block message and the peer it came from together
 // so the block handler has access to that information.
 type blockMsg struct {
-	block *btcutil.Block
+	block *utreexoblock.Block
 	peer  *peerpkg.Peer
 	reply chan struct{}
 }
@@ -150,7 +151,7 @@ type processBlockResponse struct {
 // extra handling whereas this message essentially is just a concurrent safe
 // way to call ProcessBlock on the internal block chain instance.
 type processBlockMsg struct {
-	block *btcutil.Block
+	block *utreexoblock.Block
 	flags blockchain.BehaviorFlags
 	reply chan processBlockResponse
 }
@@ -744,7 +745,7 @@ func (sm *SyncManager) current() bool {
 // if the given block hash is a checkpointed block and the behavior flags for this
 // block. If the block is still under the checkpoint, then it's given the fast-add
 // flag.
-func (sm *SyncManager) checkHeadersList(block *btcutil.Block) (
+func (sm *SyncManager) checkHeadersList(block *utreexoblock.Block) (
 	bool, blockchain.BehaviorFlags) {
 
 	isCheckpointBlock := false
@@ -931,7 +932,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 
 		// When the block is not an orphan, log information about it and
 		// update the chain state.
-		sm.progressLogger.LogBlockHeight(bmsg.block, sm.chain)
+		sm.progressLogger.LogBlockHeight(bmsg.block.Block, sm.chain)
 
 		// Update this peer's latest block height, for future
 		// potential sync node candidacy.
@@ -1957,7 +1958,7 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 			return
 		}
 
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			log.Warnf("Chain accepted notification is not a block.")
 			break
@@ -1969,7 +1970,7 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 	// A block has been connected to the main block chain.
 	case blockchain.NTBlockConnected:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			log.Warnf("Chain connected notification is not a block.")
 			break
@@ -1993,7 +1994,7 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 		// Register block with the fee estimator, if it exists.
 		if sm.feeEstimator != nil {
-			err := sm.feeEstimator.RegisterBlock(block)
+			err := sm.feeEstimator.RegisterBlock(block.Block)
 
 			// If an error is somehow generated then the fee estimator
 			// has entered an invalid state. Since it doesn't know how
@@ -2007,7 +2008,7 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 	// A block has been disconnected from the main block chain.
 	case blockchain.NTBlockDisconnected:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			log.Warnf("Chain disconnected notification is not a block.")
 			break
@@ -2080,7 +2081,7 @@ func (sm *SyncManager) QueueBlock(block *btcutil.Block, peer *peerpkg.Peer, done
 		return
 	}
 
-	sm.msgChan <- &blockMsg{block: block, peer: peer, reply: done}
+	sm.msgChan <- &blockMsg{block: utreexoblock.New(block), peer: peer, reply: done}
 }
 
 // QueueInv adds the passed inv message and peer to the block handling queue.
@@ -2186,7 +2187,7 @@ func (sm *SyncManager) SyncPeerID() int32 {
 
 // ProcessBlock makes use of ProcessBlock on an internal instance of a block
 // chain.
-func (sm *SyncManager) ProcessBlock(block *btcutil.Block, flags blockchain.BehaviorFlags) (bool, error) {
+func (sm *SyncManager) ProcessBlock(block *utreexoblock.Block, flags blockchain.BehaviorFlags) (bool, error) {
 	reply := make(chan processBlockResponse, 1)
 	sm.msgChan <- processBlockMsg{block: block, flags: flags, reply: reply}
 	response := <-reply

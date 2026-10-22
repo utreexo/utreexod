@@ -29,6 +29,7 @@ import (
 	"github.com/utreexo/utreexod/btcjson"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/mempool"
+	"github.com/utreexo/utreexod/utreexoblock"
 	wallet "github.com/utreexo/utreexod/wallet"
 )
 
@@ -1085,7 +1086,7 @@ func (s *ElectrumServer) handleBlockChainNotification(notification *blockchain.N
 	switch notification.Type {
 	// A block has been accepted into the block chain.
 	case blockchain.NTBlockConnected:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			log.Warnf("Chain connected notification is not a block.")
 			return
