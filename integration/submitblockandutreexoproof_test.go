@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/integration/rpctest"
@@ -135,15 +136,25 @@ func TestSubmitBlockAndUtreexoProofInvalidProof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestSubmitBlockAndUtreexoProofInvalidProof fail. Unable to create bridge node harness: %v", err)
 	}
-	if err := bridgeNode.SetUp(true, 0); err != nil {
+	// Generate 110 blocks to get mature coinbase outputs (100 for maturity + 10 mature outputs).
+	// SetUp returns once the wallet has synced to the generated blocks.
+	if err := bridgeNode.SetUp(true, 10); err != nil {
 		t.Fatalf("TestSubmitBlockAndUtreexoProofInvalidProof fail. Unable to setup bridge node: %v", err)
 	}
 	defer bridgeNode.TearDown()
 
-	// Generate 110 blocks to get mature coinbase outputs (100 for maturity + 10 mature outputs).
-	blockHashes, err := bridgeNode.Client.Generate(110)
+	_, bestHeight, err := bridgeNode.Client.GetBestBlock()
 	if err != nil {
-		t.Fatalf("TestSubmitBlockAndUtreexoProofInvalidProof fail. Unable to generate blocks: %v", err)
+		t.Fatalf("TestSubmitBlockAndUtreexoProofInvalidProof fail. Unable to get best block: %v", err)
+	}
+	blockHashes := make([]*chainhash.Hash, 0, bestHeight+1)
+	for height := int64(1); height <= int64(bestHeight); height++ {
+		hash, err := bridgeNode.Client.GetBlockHash(height)
+		if err != nil {
+			t.Fatalf("TestSubmitBlockAndUtreexoProofInvalidProof fail. Unable to get block hash at height %d: %v",
+				height, err)
+		}
+		blockHashes = append(blockHashes, hash)
 	}
 
 	// Create a spend to ensure the next block has a non-empty utreexo proof.
