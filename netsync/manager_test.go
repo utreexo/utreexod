@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,6 +27,7 @@ import (
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoparams"
 )
 
 // The package-level log variable is nil by default. Set it to the
@@ -1414,4 +1416,306 @@ func TestBlockConnectedCleansMempool(t *testing.T) {
 	// The mempool tx must have been evicted, even though we were not current.
 	require.False(t, txPool.HaveTransaction(mempoolTx.Hash()),
 		"mempool should have removed the double-spending tx on block connect")
+}
+
+// newUtreexoSyncManager creates a SyncManager for a utreexo compact state node
+// whose chain is stored in db and configured with the given assumed utreexo
+// point.  Calling it again with the same db is the same as restarting the
+// node.
+func newUtreexoSyncManager(t *testing.T, db database.DB,
+	params *chaincfg.Params, assume utreexoparams.AssumeUtreexo) *SyncManager {
+
+	t.Helper()
+
+	chain, err := blockchain.New(&blockchain.Config{
+		DB:                 db,
+		ChainParams:        params,
+		TimeSource:         blockchain.NewMedianTime(),
+		SigCache:           txscript.NewSigCache(1000),
+		UtreexoView:        blockchain.NewUtreexoViewpoint(),
+		AssumeUtreexoPoint: assume,
+	})
+	require.NoError(t, err)
+
+	sm, err := New(&Config{
+		PeerNotifier: noopPeerNotifier{},
+		Chain:        chain,
+		ChainParams:  params,
+	})
+	require.NoError(t, err)
+
+	return sm
+}
+
+// headersFor returns a headers message with the headers of the given blocks.
+func headersFor(t *testing.T, blocks []*btcutil.Block) *wire.MsgHeaders {
+	t.Helper()
+
+	headers := wire.NewMsgHeaders()
+	for _, block := range blocks {
+		require.NoError(t, headers.AddBlockHeader(&block.MsgBlock().Header))
+	}
+
+	return headers
+}
+
+// newConnectedPeer connects a peer over localhost and waits for both peers
+// to complete the handshake.
+func newConnectedPeer(t *testing.T, params *chaincfg.Params,
+	listeners peer.MessageListeners) *peer.Peer {
+
+	t.Helper()
+
+	verack := make(chan struct{}, 2)
+	listeners.OnVerAck = func(*peer.Peer, *wire.MsgVerAck) {
+		verack <- struct{}{}
+	}
+	cfg := peer.Config{
+		ChainParams:    params,
+		AllowSelfConns: true,
+		Listeners:      listeners,
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	conn, err := net.Dial("tcp", listener.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	remoteConn, err := listener.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { remoteConn.Close() })
+
+	syncPeer, err := peer.NewOutboundPeer(&cfg, listener.Addr().String())
+	require.NoError(t, err)
+	remotePeer := peer.NewInboundPeer(&cfg)
+	syncPeer.AssociateConnection(conn)
+	remotePeer.AssociateConnection(remoteConn)
+	t.Cleanup(func() {
+		syncPeer.Disconnect()
+		remotePeer.Disconnect()
+		syncPeer.WaitForDisconnect()
+		remotePeer.WaitForDisconnect()
+	})
+	for i := 0; i < 2; i++ {
+		select {
+		case <-verack:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for the peers to connect")
+		}
+	}
+
+	return syncPeer
+}
+
+// TestFetchHeaderBlocksUtreexoOrder verifies that each block request follows
+// its utreexo proof request, so the node can connect blocks as proofs arrive.
+func TestFetchHeaderBlocksUtreexoOrder(t *testing.T) {
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	db, tearDown, err := dbSetup(t, &params)
+	require.NoError(t, err)
+	defer tearDown()
+
+	sm := newUtreexoSyncManager(t, db, &params, utreexoparams.AssumeUtreexo{})
+
+	const numBlocks = 100
+	blocks := generateTestBlocks(t, &params, numBlocks)
+	requests := make(chan wire.Message, 2*numBlocks)
+	syncPeer := newConnectedPeer(t, &params, peer.MessageListeners{
+		OnGetUtreexoProof: func(_ *peer.Peer, msg *bip183.MsgGetUtreexoProof) {
+			requests <- msg
+		},
+		OnGetData: func(_ *peer.Peer, msg *wire.MsgGetData) {
+			requests <- msg
+		},
+	})
+	syncPeer.UpdateLastBlockHeight(numBlocks)
+	sm.peerStates[syncPeer] = &peerSyncState{
+		syncCandidate:             true,
+		requestedTxns:             make(map[chainhash.Hash]struct{}),
+		requestedBlocks:           make(map[chainhash.Hash]struct{}),
+		requestedUtreexoSummaries: make(map[chainhash.Hash]struct{}),
+		requestedUtreexoProofs:    make(map[chainhash.Hash]struct{}),
+		requestedUtreexoTTLs:      make(map[bip183.MsgGetUtreexoTTLs]struct{}),
+	}
+	sm.syncPeer = syncPeer
+	sm.headersFirstMode = true
+
+	// The headers reach the sync peer's height, so the node requests the
+	// blocks.
+	sm.handleHeadersMsg(&headersMsg{
+		headers: headersFor(t, blocks),
+		peer:    syncPeer,
+	})
+
+	timeout := time.After(5 * time.Second)
+	readRequest := func() wire.Message {
+		t.Helper()
+		select {
+		case msg := <-requests:
+			return msg
+		case <-timeout:
+			t.Fatal("timed out waiting for a block or utreexo proof request")
+			return nil
+		}
+	}
+
+	for i, block := range blocks {
+		msg := readRequest()
+		proof, ok := msg.(*bip183.MsgGetUtreexoProof)
+		require.True(t, ok, "block %d: expected getuproof, got %T", i+1, msg)
+		require.Equal(t, *block.Hash(), proof.BlockHash)
+
+		msg = readRequest()
+		getData, ok := msg.(*wire.MsgGetData)
+		require.True(t, ok, "block %d: expected getdata, got %T", i+1, msg)
+		require.Len(t, getData.InvList, 1)
+		require.Equal(t, *block.Hash(), getData.InvList[0].Hash)
+	}
+}
+
+// requestedHeights returns the heights of the blocks, starting from height 1,
+// whose hashes are in requested, followed by -1 for each hash in requested
+// that isn't one of the blocks.
+func requestedHeights(blocks []*btcutil.Block,
+	requested map[chainhash.Hash]struct{}) []int32 {
+
+	heights := make([]int32, 0, len(requested))
+	found := 0
+	for i, block := range blocks {
+		if _, ok := requested[*block.Hash()]; ok {
+			heights = append(heights, int32(i+1))
+			found++
+		}
+	}
+	for i := found; i < len(requested); i++ {
+		heights = append(heights, -1)
+	}
+
+	return heights
+}
+
+// heightRange returns the heights from start to end, inclusive.
+func heightRange(start, end int32) []int32 {
+	heights := make([]int32, 0, end-start+1)
+	for h := start; h <= end; h++ {
+		heights = append(heights, h)
+	}
+
+	return heights
+}
+
+// TestAssumeUtreexoRestart verifies that a utreexo compact state node that
+// restarts after initializing the assumed utreexo point, but before it connects
+// a block above it, resumes from the assumed utreexo point.
+func TestAssumeUtreexoRestart(t *testing.T) {
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	db, tearDown, err := dbSetup(t, &params)
+	require.NoError(t, err)
+	defer tearDown()
+
+	const (
+		numBlocks    = 20
+		assumeHeight = 10
+	)
+	blocks := generateTestBlocks(t, &params, numBlocks)
+	assume := utreexoparams.AssumeUtreexo{
+		BlockHash:   blocks[assumeHeight-1].Hash(),
+		BlockHeight: assumeHeight,
+		Roots:       []utreexo.Hash{{1}},
+		NumLeaves:   1,
+	}
+
+	// Like on mainnet, the committed ttls end at the assumed utreexo point.
+	ttlStump := utreexo.Stump{NumLeaves: assumeHeight + 1}
+
+	sm := newUtreexoSyncManager(t, db, &params, assume)
+	require.True(t, sm.headersBuildMode)
+	sm.committedTTLAcc = &ttlStump
+
+	syncPeer := newSyncCandidate(t, sm, numBlocks)
+	sm.syncPeer = syncPeer
+	sm.headersFirstMode = true
+
+	// Headers up to the assumed utreexo point initialize it.
+	sm.handleHeadersMsg(&headersMsg{
+		headers: headersFor(t, blocks[:assumeHeight]),
+		peer:    syncPeer,
+	})
+	require.False(t, sm.headersBuildMode)
+	require.Equal(t, int32(assumeHeight), sm.chain.BestSnapshot().Height)
+
+	// The remaining headers get the node to request the blocks above the
+	// assumed utreexo point.
+	sm.handleHeadersMsg(&headersMsg{
+		headers: headersFor(t, blocks[assumeHeight:]),
+		peer:    syncPeer,
+	})
+
+	// Restart before any of those blocks arrive.  A utreexo compact state
+	// node has no utxo cache to flush on shutdown, so nothing else is
+	// written to the database.
+	sm = newUtreexoSyncManager(t, db, &params, assume)
+	sm.committedTTLAcc = &ttlStump
+	syncPeer = newSyncCandidate(t, sm, numBlocks)
+
+	// startSync only picks peers that signal utreexo, which test peers
+	// can't, so take its path for a peer at the best header height here.
+	sm.headersFirstMode = true
+	sm.syncPeer = syncPeer
+	sm.fetchHeaderBlocks(nil)
+
+	require.Equal(t, int32(assumeHeight), sm.chain.BestSnapshot().Height,
+		"the best state should resume at the assumed utreexo point")
+	uview := sm.chain.GetUtreexoView()
+	require.NotNil(t, uview, "the utreexo state should be loaded")
+	require.Equal(t, []*chainhash.Hash{(*chainhash.Hash)(&assume.Roots[0])},
+		uview.GetRoots(),
+		"the utreexo state should resume at the assumed utreexo point")
+
+	state := sm.peerStates[syncPeer]
+	require.Empty(t, state.requestedUtreexoTTLs,
+		"the ttls below the assumed utreexo point aren't needed")
+	require.Equal(t, heightRange(assumeHeight+1, numBlocks),
+		requestedHeights(blocks, state.requestedBlocks),
+		"the blocks above the assumed utreexo point should be requested")
+}
+
+// TestFetchHeaderBlocksUtreexoLimit verifies that a utreexo compact state node
+// requests at most maxRequestedUtreexoBlocks blocks at a time from its sync
+// peer.
+func TestFetchHeaderBlocksUtreexoLimit(t *testing.T) {
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	db, tearDown, err := dbSetup(t, &params)
+	require.NoError(t, err)
+	defer tearDown()
+
+	sm := newUtreexoSyncManager(t, db, &params, utreexoparams.AssumeUtreexo{})
+
+	const numBlocks = maxRequestedUtreexoBlocks + 10
+	blocks := generateTestBlocks(t, &params, numBlocks)
+
+	syncPeer := newSyncCandidate(t, sm, numBlocks)
+	sm.syncPeer = syncPeer
+	sm.headersFirstMode = true
+
+	// The headers reach the sync peer's height, so the node requests the
+	// blocks.
+	sm.handleHeadersMsg(&headersMsg{
+		headers: headersFor(t, blocks),
+		peer:    syncPeer,
+	})
+
+	want := heightRange(1, maxRequestedUtreexoBlocks)
+	state := sm.peerStates[syncPeer]
+	require.Equal(t, want, requestedHeights(blocks, state.requestedBlocks),
+		"heights of the requested blocks")
+	require.Equal(t, want, requestedHeights(blocks, state.requestedUtreexoProofs),
+		"heights of the requested utreexo proofs")
 }

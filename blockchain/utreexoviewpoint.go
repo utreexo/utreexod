@@ -883,14 +883,6 @@ func NewUtreexoViewpoint() *UtreexoViewpoint {
 	}
 }
 
-// SetUtreexoStateFromAssumePoint sets an initialized utreexoviewpoint from the
-// assumedUtreexoPoint.
-func (b *BlockChain) SetUtreexoStateFromAssumePoint() {
-	b.utreexoView = NewUtreexoViewpoint()
-	b.utreexoView.accumulator = utreexo.NewMapPollardFromRoots(
-		b.assumeUtreexoPoint.Roots, b.assumeUtreexoPoint.NumLeaves)
-}
-
 // GetUtreexoView returns the underlying utreexo viewpoint.
 func (b *BlockChain) GetUtreexoView() *UtreexoViewpoint {
 	return b.utreexoView

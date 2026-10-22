@@ -41,6 +41,11 @@ const (
 	// hashes to store in memory.
 	maxRequestedBlocks = wire.MaxInvPerMsg
 
+	// maxRequestedUtreexoBlocks is the maximum number of blocks a utreexo
+	// node requests from its sync peer at a time.  This bounds the blocks
+	// and utreexo proofs the node holds while it waits to connect them.
+	maxRequestedUtreexoBlocks = 128
+
 	// maxRequestedTxns is the maximum number of requested transactions
 	// hashes to store in memory.
 	maxRequestedTxns = wire.MaxInvPerMsg
@@ -1086,6 +1091,10 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		return
 	}
 	length := bestHeaderHeight - forkHeight
+	maxRequested := wire.MaxInvPerMsg
+	if sm.chain.IsUtreexoViewActive() {
+		maxRequested = maxRequestedUtreexoBlocks
+	}
 
 	// Check if we have the ttl for the next block lined up to be downloaded.
 	// Note: when committedTTLAcc is set, reorgs cannot happen below its
@@ -1165,7 +1174,6 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				iv.Type = wire.InvTypeWitnessBlock
 			}
 
-			gdmsg.AddInvVect(iv)
 			numRequested++
 
 			// Immediately queue the utreexo proof for this block if we're a
@@ -1187,10 +1195,19 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				}
 
 				reqPeer.QueueMessage(&msg, nil)
+
+				// The node keeps each utreexo proof until its block
+				// arrives and the peer answers in order, so ask for the
+				// block right after its proof.
+				blockGdmsg := wire.NewMsgGetDataSizeHint(1)
+				blockGdmsg.AddInvVect(iv)
+				reqPeer.QueueMessage(blockGdmsg, nil)
+			} else {
+				gdmsg.AddInvVect(iv)
 			}
 		}
 
-		if numRequested >= wire.MaxInvPerMsg {
+		if numRequested >= maxRequested {
 			break
 		}
 	}
@@ -1255,8 +1272,10 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		sm.headersBuildMode = false
 
 		// Set the best state and the utreexo state.
-		sm.chain.SetNewBestStateFromAssumedUtreexoPoint()
-		sm.chain.SetUtreexoStateFromAssumePoint()
+		err := sm.chain.SetNewBestStateFromAssumedUtreexoPoint()
+		if err != nil {
+			log.Errorf("Failed to store the assumed utreexo point: %v", err)
+		}
 
 		bestState := sm.chain.BestSnapshot()
 		log.Infof("Initialized assumed utreexo point at block %v(%d)",
