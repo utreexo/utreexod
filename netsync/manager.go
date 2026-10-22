@@ -41,6 +41,11 @@ const (
 	// hashes to store in memory.
 	maxRequestedBlocks = wire.MaxInvPerMsg
 
+	// maxRequestedUtreexoBlocks is the maximum number of blocks a utreexo
+	// node requests from its sync peer at a time.  This bounds the blocks
+	// and utreexo proofs the node holds while it waits to connect them.
+	maxRequestedUtreexoBlocks = 128
+
 	// maxRequestedTxns is the maximum number of requested transactions
 	// hashes to store in memory.
 	maxRequestedTxns = wire.MaxInvPerMsg
@@ -1086,6 +1091,10 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 		return
 	}
 	length := bestHeaderHeight - forkHeight
+	maxRequested := wire.MaxInvPerMsg
+	if sm.chain.IsUtreexoViewActive() {
+		maxRequested = maxRequestedUtreexoBlocks
+	}
 
 	// Check if we have the ttl for the next block lined up to be downloaded.
 	// Note: when committedTTLAcc is set, reorgs cannot happen below its
@@ -1198,7 +1207,7 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 			}
 		}
 
-		if numRequested >= wire.MaxInvPerMsg {
+		if numRequested >= maxRequested {
 			break
 		}
 	}

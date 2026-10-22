@@ -1684,3 +1684,38 @@ func TestAssumeUtreexoRestart(t *testing.T) {
 		requestedHeights(blocks, state.requestedBlocks),
 		"the blocks above the assumed utreexo point should be requested")
 }
+
+// TestFetchHeaderBlocksUtreexoLimit verifies that a utreexo compact state node
+// requests at most maxRequestedUtreexoBlocks blocks at a time from its sync
+// peer.
+func TestFetchHeaderBlocksUtreexoLimit(t *testing.T) {
+	params := chaincfg.RegressionNetParams
+	params.Checkpoints = nil
+
+	db, tearDown, err := dbSetup(t, &params)
+	require.NoError(t, err)
+	defer tearDown()
+
+	sm := newUtreexoSyncManager(t, db, &params, utreexoparams.AssumeUtreexo{})
+
+	const numBlocks = maxRequestedUtreexoBlocks + 10
+	blocks := generateTestBlocks(t, &params, numBlocks)
+
+	syncPeer := newSyncCandidate(t, sm, numBlocks)
+	sm.syncPeer = syncPeer
+	sm.headersFirstMode = true
+
+	// The headers reach the sync peer's height, so the node requests the
+	// blocks.
+	sm.handleHeadersMsg(&headersMsg{
+		headers: headersFor(t, blocks),
+		peer:    syncPeer,
+	})
+
+	want := heightRange(1, maxRequestedUtreexoBlocks)
+	state := sm.peerStates[syncPeer]
+	require.Equal(t, want, requestedHeights(blocks, state.requestedBlocks),
+		"heights of the requested blocks")
+	require.Equal(t, want, requestedHeights(blocks, state.requestedUtreexoProofs),
+		"heights of the requested utreexo proofs")
+}
