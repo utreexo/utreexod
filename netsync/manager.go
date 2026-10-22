@@ -1165,7 +1165,6 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				iv.Type = wire.InvTypeWitnessBlock
 			}
 
-			gdmsg.AddInvVect(iv)
 			numRequested++
 
 			// Immediately queue the utreexo proof for this block if we're a
@@ -1187,6 +1186,15 @@ func (sm *SyncManager) fetchHeaderBlocks(peer *peerpkg.Peer) {
 				}
 
 				reqPeer.QueueMessage(&msg, nil)
+
+				// The node keeps each utreexo proof until its block
+				// arrives and the peer answers in order, so ask for the
+				// block right after its proof.
+				blockGdmsg := wire.NewMsgGetDataSizeHint(1)
+				blockGdmsg.AddInvVect(iv)
+				reqPeer.QueueMessage(blockGdmsg, nil)
+			} else {
+				gdmsg.AddInvVect(iv)
 			}
 		}
 
