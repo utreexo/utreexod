@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"sort"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -214,8 +213,8 @@ func (uview *UtreexoViewpoint) Modify(ud *bip183.UData,
 }
 
 // blockToDelOPs gives all the UTXOs in a block that need proofs in order to be
-// deleted.  All txinputs except for the coinbase input and utxos created
-// within the same block (on the skiplist)
+// deleted.  All txinputs except for the coinbase input and the inputs on
+// DedupeBlock's inskip list.
 func BlockToDelOPs(
 	blk *btcutil.Block) []wire.OutPoint {
 
@@ -252,19 +251,37 @@ func BlockToDelOPs(
 // within the block as a whole, even the coinbase tx.
 // So the coinbase tx in & output numbers affect the skip lists even though
 // the coinbase ins/outs can never be deduped.  it's simpler that way.
+//
+// An input is on the inskip list when it references a transaction in the
+// block or repeats an earlier input's outpoint.  An output is on the outskip
+// list when an input in the block references it.
+//
+// DedupeBlock doesn't check that a referenced output exists, comes earlier in
+// the block, or is spent only once.  Block validation rejects those spends,
+// so don't use the skip lists to decide what a block may spend.
 func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, outskip []uint32) {
+	txids := make(map[chainhash.Hash]struct{}, len(blk.Transactions()))
+	for _, tx := range blk.Transactions() {
+		txids[*tx.Hash()] = struct{}{}
+	}
+
 	var i uint32
 	// wire.Outpoints are comparable with == which is nice.
-	inmap := make(map[wire.OutPoint]uint32)
+	inmap := make(map[wire.OutPoint]struct{})
 
-	// go through txs then inputs building map
+	// go through txs then inputs building map and finding skips
 	for coinbase, tx := range blk.Transactions() {
 		if coinbase == 0 { // coinbase tx can't be deduped
 			i += uint32(len(tx.MsgTx().TxIn)) // coinbase can have many inputs
 			continue
 		}
 		for _, in := range tx.MsgTx().TxIn {
-			inmap[in.PreviousOutPoint] = i
+			_, inBlock := txids[in.PreviousOutPoint.Hash]
+			_, repeated := inmap[in.PreviousOutPoint]
+			if inBlock || repeated {
+				inskip = append(inskip, i)
+			}
+			inmap[in.PreviousOutPoint] = struct{}{}
 			i++
 		}
 	}
@@ -281,17 +298,13 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 
 		for outidx := range txOut {
 			op := wire.OutPoint{Hash: *tx.Hash(), Index: uint32(outidx)}
-			inpos, exists := inmap[op]
-			if exists {
-				inskip = append(inskip, inpos)
+			if _, exists := inmap[op]; exists {
 				outskip = append(outskip, i)
 			}
 			i++
 		}
 	}
 	outCount = int(i)
-	// sort inskip list, as it's built in order consumed not created
-	sortUint32s(inskip)
 	return
 }
 
@@ -347,11 +360,6 @@ func ExtractAccumulatorAdds(block *btcutil.Block) []bip182.LeafData {
 	// Make the now verified utxos into the leaf preimages that will be added into the
 	// utreexo accumulator.
 	return BlockToAddLeaves(block, outskip, outCount)
-}
-
-// it'd be cool if you just had .sort() methods on slices of builtin types...
-func sortUint32s(s []uint32) {
-	sort.Slice(s, func(a, b int) bool { return s[a] < s[b] })
 }
 
 // ProofSanity checks that the UData that was given proves the same outPoints that
