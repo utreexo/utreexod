@@ -18,6 +18,7 @@ import (
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 const (
@@ -1565,7 +1566,7 @@ func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, e
 // with the height set.  When isUtreexo is true the utreexo proof is loaded
 // from the proof store if present, or from the proof serialized inline
 // with the block bytes by older versions.
-func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*btcutil.Block, error) {
+func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*utreexoblock.Block, error) {
 	// Load the raw block bytes from the database.
 	blockBytes, err := dbTx.FetchBlock(&node.hash)
 	if err != nil {
@@ -1573,11 +1574,12 @@ func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*btc
 	}
 
 	// Create the encapsulated block and set the height appropriately.
-	block, err := btcutil.NewBlockFromBytes(blockBytes)
+	btcBlock, err := btcutil.NewBlockFromBytes(blockBytes)
 	if err != nil {
 		return nil, err
 	}
-	block.SetHeight(node.height)
+	btcBlock.SetHeight(node.height)
+	block := utreexoblock.New(btcBlock)
 
 	// Only utreexo CSN nodes have proof data for the block.  Prefer the
 	// proof store and fall back to the proof serialized inline with
@@ -1649,7 +1651,7 @@ func blockIndexKey(blockHash *chainhash.Hash, blockHeight uint32) []byte {
 // BlockByHeight returns the block at the given height in the main chain.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) BlockByHeight(blockHeight int32) (*btcutil.Block, error) {
+func (b *BlockChain) BlockByHeight(blockHeight int32) (*utreexoblock.Block, error) {
 	// Lookup the block height in the best chain.
 	node := b.bestChain.NodeByHeight(blockHeight)
 	if node == nil {
@@ -1658,7 +1660,7 @@ func (b *BlockChain) BlockByHeight(blockHeight int32) (*btcutil.Block, error) {
 	}
 
 	// Load the block from the database and return it.
-	var block *btcutil.Block
+	var block *utreexoblock.Block
 	err := b.db.View(func(dbTx database.Tx) error {
 		var err error
 		block, err = dbFetchBlockByNode(dbTx, node, b.utreexoView != nil)
@@ -1671,7 +1673,7 @@ func (b *BlockChain) BlockByHeight(blockHeight int32) (*btcutil.Block, error) {
 // the appropriate chain height set.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (*btcutil.Block, error) {
+func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (*utreexoblock.Block, error) {
 	// Lookup the block hash in block index and ensure it is in the best
 	// chain.
 	node := b.index.LookupNode(hash)
@@ -1681,7 +1683,7 @@ func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (*btcutil.Block, error) {
 	}
 
 	// Load the block from the database and return it.
-	var block *btcutil.Block
+	var block *utreexoblock.Block
 	err := b.db.View(func(dbTx database.Tx) error {
 		var err error
 		block, err = dbFetchBlockByNode(dbTx, node, b.utreexoView != nil)

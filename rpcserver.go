@@ -47,6 +47,7 @@ import (
 	"github.com/utreexo/utreexod/mining/cpuminer"
 	"github.com/utreexo/utreexod/peer"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 	"github.com/utreexo/utreexod/wallet"
 )
 
@@ -2324,7 +2325,7 @@ func handleGetBlockTemplateProposal(s *rpcServer, request *btcjson.TemplateReque
 		return "bad-prevblk", nil
 	}
 
-	if err := s.cfg.Chain.CheckConnectBlockTemplate(block); err != nil {
+	if err := s.cfg.Chain.CheckConnectBlockTemplate(utreexoblock.New(block)); err != nil {
 		if _, ok := err.(blockchain.RuleError); !ok {
 			errStr := fmt.Sprintf("Failed to process block proposal: %v", err)
 			rpcsLog.Error(errStr)
@@ -4445,7 +4446,7 @@ func handleSubmitBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 
 	// Process this block using the same rules as blocks coming from other
 	// nodes.  This will in turn relay it to the network like normal.
-	_, err = s.cfg.SyncMgr.SubmitBlock(block, blockchain.BFNone)
+	_, err = s.cfg.SyncMgr.SubmitBlock(utreexoblock.New(block), blockchain.BFNone)
 	if err != nil {
 		return fmt.Sprintf("rejected: %s", err.Error()), nil
 	}
@@ -4507,13 +4508,14 @@ func handleSubmitBlockAndUtreexoProof(s *rpcServer, cmd interface{}, closeChan <
 		}
 	}
 
-	block.SetUtreexoData(
+	ublock := utreexoblock.New(block)
+	ublock.SetUtreexoData(
 		&bip183.UData{
 			AccProof:  *proof,
 			LeafDatas: leafDatas,
 		})
 
-	_, err = s.cfg.SyncMgr.SubmitBlock(block, blockchain.BFNone)
+	_, err = s.cfg.SyncMgr.SubmitBlock(ublock, blockchain.BFNone)
 	if err != nil {
 		return fmt.Sprintf("rejected: %s", err.Error()), nil
 	}
@@ -4617,7 +4619,7 @@ func verifyChain(s *rpcServer, level, depth int32) error {
 
 		// Level 1 does basic chain sanity checks.
 		if level > 0 {
-			err := blockchain.CheckBlockSanity(block,
+			err := blockchain.CheckBlockSanity(block.Block,
 				s.cfg.ChainParams.PowLimit, s.cfg.TimeSource)
 			if err != nil {
 				rpcsLog.Errorf("Verify is unable to validate "+
@@ -5724,7 +5726,7 @@ type rpcserverSyncManager interface {
 
 	// SubmitBlock submits the provided block to the network after
 	// processing it locally.
-	SubmitBlock(block *btcutil.Block, flags blockchain.BehaviorFlags) (bool, error)
+	SubmitBlock(block *utreexoblock.Block, flags blockchain.BehaviorFlags) (bool, error)
 
 	// Pause pauses the sync manager until the returned channel is closed.
 	Pause() chan<- struct{}
@@ -5839,7 +5841,7 @@ func newRPCServer(config *rpcserverConfig) (*rpcServer, error) {
 func (s *rpcServer) handleBlockchainNotification(notification *blockchain.Notification) {
 	switch notification.Type {
 	case blockchain.NTBlockAccepted:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			rpcsLog.Warnf("Chain accepted notification is not a block.")
 			break
@@ -5851,24 +5853,24 @@ func (s *rpcServer) handleBlockchainNotification(notification *blockchain.Notifi
 		s.gbtWorkState.NotifyBlockConnected(block.Hash())
 
 	case blockchain.NTBlockConnected:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			rpcsLog.Warnf("Chain connected notification is not a block.")
 			break
 		}
 
 		// Notify registered websocket clients of incoming block.
-		s.ntfnMgr.NotifyBlockConnected(block)
+		s.ntfnMgr.NotifyBlockConnected(block.Block)
 
 	case blockchain.NTBlockDisconnected:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			rpcsLog.Warnf("Chain disconnected notification is not a block.")
 			break
 		}
 
 		// Notify registered websocket clients.
-		s.ntfnMgr.NotifyBlockDisconnected(block)
+		s.ntfnMgr.NotifyBlockDisconnected(block.Block)
 	}
 }
 

@@ -11,9 +11,6 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/bip182"
-	"github.com/utreexo/utreexod/bip183"
 )
 
 // OutOfRangeError describes an error due to accessing an element that is out
@@ -35,24 +32,13 @@ func (e OutOfRangeError) Error() string {
 // transactions on their first access so subsequent accesses don't have to
 // repeat the relatively expensive hashing operations.
 type Block struct {
-	msgBlock                 *wire.MsgBlock    // Underlying MsgBlock
-	serializedBlock          []byte            // Serialized bytes for the block
-	serializedBlockNoWitness []byte            // Serialized bytes for block w/o witness data
-	blockHash                *chainhash.Hash   // Cached block hash
-	blockHeight              int32             // Height in the main block chain
-	transactions             []*Tx             // Transactions
-	txnsGenerated            bool              // ALL wrapped transactions generated
-	utreexoData              *blockUtreexoData // All Utreexo related data
-}
-
-// blockUtreexoData contains all of the optional Utreexo-related metadata attached
-// to a block.
-type blockUtreexoData struct {
-	updateData *utreexo.UpdateData // Utreexo update data for this block.
-	adds       []utreexo.Hash      // Hashes of the utreexo leaves being added.
-	leafTTLs   *bip183.UtreexoTTL  // The ttls of the leaves created in this block.
-	leafDatas  []bip182.LeafData   // The leaves of the inputs in this block.
-	proofData  *utreexo.Proof      // Utreexo proof for this block.
+	msgBlock                 *wire.MsgBlock  // Underlying MsgBlock
+	serializedBlock          []byte          // Serialized bytes for the block
+	serializedBlockNoWitness []byte          // Serialized bytes for block w/o witness data
+	blockHash                *chainhash.Hash // Cached block hash
+	blockHeight              int32           // Height in the main block chain
+	transactions             []*Tx           // Transactions
+	txnsGenerated            bool            // ALL wrapped transactions generated
 }
 
 // MsgBlock returns the underlying wire.MsgBlock for the Block.
@@ -72,8 +58,8 @@ func (b *Block) Bytes() ([]byte, error) {
 
 	// Serialize the MsgBlock.  The utreexo proof is no longer appended here:
 	// it is stored separately in the database's proof store, written only
-	// after it validates.  ParseUtreexoData still reads the trailing proof of
-	// blocks stored by older versions.
+	// after it validates.  utreexoblock's ParseUtreexoData still reads the
+	// trailing proof of blocks stored by older versions.
 	size := b.msgBlock.SerializeSize()
 	w := bytes.NewBuffer(make([]byte, 0, size))
 	err := b.msgBlock.Serialize(w)
@@ -234,92 +220,6 @@ func (b *Block) SetHeight(height int32) {
 	b.blockHeight = height
 }
 
-// SetUtreexoData stores the serialized Utreexo proof data for this block.
-func (b *Block) SetUtreexoData(data *bip183.UData) {
-	b.setUtreexoDataInternal(data)
-}
-
-// UtreexoData returns the serialized Utreexo proof data for the block.
-func (b *Block) UtreexoData() *bip183.UData {
-	if b.utreexoData == nil || b.utreexoData.proofData == nil {
-		return nil
-	}
-
-	return &bip183.UData{
-		AccProof:  *b.utreexoData.proofData,
-		LeafDatas: b.utreexoData.leafDatas,
-	}
-}
-
-// SetUtreexoUpdateData sets the utreexo update data of the block in the block chain.
-func (b *Block) SetUtreexoUpdateData(data *utreexo.UpdateData) {
-	b.ensureUtreexoData().updateData = data
-}
-
-// UtreexoUpdateData returns the utreexo update data for the block in the block chain.
-func (b *Block) UtreexoUpdateData() *utreexo.UpdateData {
-	if b.utreexoData == nil {
-		return nil
-	}
-	return b.utreexoData.updateData
-}
-
-// SetUtreexoAdds sets the hashes of the utreexo leaves being added in this block.
-func (b *Block) SetUtreexoAdds(adds []utreexo.Leaf) {
-	addHashes := make([]utreexo.Hash, 0, len(adds))
-	for _, add := range adds {
-		addHashes = append(addHashes, add.Hash)
-	}
-	b.ensureUtreexoData().adds = addHashes
-}
-
-// UtreexoAdds returns the hashes of the utreexo leaves added in this block.
-func (b *Block) UtreexoAdds() []utreexo.Hash {
-	if b.utreexoData == nil {
-		return nil
-	}
-	return b.utreexoData.adds
-}
-
-// SetUtreexoTTLs sets the ttls for this block.
-func (b *Block) SetUtreexoTTLs(ttls *bip183.UtreexoTTL) {
-	b.ensureUtreexoData().leafTTLs = ttls
-}
-
-// UtreexoTTLs returns the ttls for this block.
-func (b *Block) UtreexoTTLs() *bip183.UtreexoTTL {
-	if b.utreexoData == nil {
-		return nil
-	}
-	return b.utreexoData.leafTTLs
-}
-
-// SetUtreexoLeafDatas sets the leaf data for the inputs in this block.
-func (b *Block) SetUtreexoLeafDatas(leafDatas []bip182.LeafData) {
-	b.ensureUtreexoData().leafDatas = leafDatas
-}
-
-// UtreexoLeafDatas returns the leaf data for the inputs in this block.
-func (b *Block) UtreexoLeafDatas() []bip182.LeafData {
-	if b.utreexoData == nil {
-		return nil
-	}
-	return b.utreexoData.leafDatas
-}
-
-// SetUtreexoProof sets the utreexo proof for this block.
-func (b *Block) SetUtreexoProof(proof *utreexo.Proof) {
-	b.ensureUtreexoData().proofData = proof
-}
-
-// UtreexoProof returns the utreexo proof for this block.
-func (b *Block) UtreexoProof() *utreexo.Proof {
-	if b.utreexoData == nil {
-		return nil
-	}
-	return b.utreexoData.proofData
-}
-
 // NewBlock returns a new instance of a bitcoin block given an underlying
 // wire.MsgBlock.  See Block.
 func NewBlock(msgBlock *wire.MsgBlock) *Block {
@@ -383,69 +283,4 @@ func NewBlockFromBlockAndBytes(msgBlock *wire.MsgBlock, serializedBlock []byte) 
 		serializedBlock: serializedBlock,
 		blockHeight:     BlockHeightUnknown,
 	}
-}
-
-// ParseUtreexoData attempts to read serialized utreexo data appended after the
-// base block in the cached serialized bytes.  This must be called explicitly by
-// utreexo nodes that store proof data alongside the block; non-utreexo nodes
-// should never call this.
-func (b *Block) ParseUtreexoData() {
-	b.attachUtreexoDataFromSerialized(b.serializedBlock)
-}
-
-// ensureUtreexoData lazily initializes the container that holds the block's
-// Utreexo-related metadata.
-func (b *Block) ensureUtreexoData() *blockUtreexoData {
-	if b.utreexoData == nil {
-		b.utreexoData = &blockUtreexoData{}
-	}
-	return b.utreexoData
-}
-
-// attachUtreexoDataFromSerialized attempts to read serialized Utreexo data
-// appended to the provided serialized block bytes.  If the trailing bytes
-// cannot be deserialized or are not fully consumed (e.g. an older incompatible
-// format), they are silently ignored and the block is returned without utreexo
-// data.
-func (b *Block) attachUtreexoDataFromSerialized(serialized []byte) {
-	baseLen := b.baseBlockSerializeLen()
-	if baseLen >= len(serialized) {
-		return
-	}
-
-	extra := serialized[baseLen:]
-	r := bytes.NewReader(extra)
-
-	ud := new(bip183.UData)
-	if err := ud.Deserialize(r); err != nil {
-		return
-	}
-
-	// If there are unconsumed bytes the trailing data is not in the
-	// expected format (e.g. an older serialization that includes
-	// remember indexes or non-compact leaf data).  Discard the result.
-	if r.Len() != 0 {
-		return
-	}
-
-	b.setUtreexoDataInternal(ud)
-}
-
-// baseBlockSerializeLen returns the serialized length of the underlying block
-// without any appended Utreexo data.
-func (b *Block) baseBlockSerializeLen() int {
-	return b.msgBlock.SerializeSize()
-}
-
-// setUtreexoDataInternal stores the provided Utreexo data.
-func (b *Block) setUtreexoDataInternal(data *bip183.UData) {
-	if data == nil {
-		b.utreexoData.proofData = nil
-		b.utreexoData.leafDatas = nil
-		return
-	}
-
-	ud := b.ensureUtreexoData()
-	ud.proofData = &data.AccProof
-	ud.leafDatas = data.LeafDatas
 }

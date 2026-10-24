@@ -10,10 +10,10 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexod/blockchain"
-	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/mempool"
 	"github.com/utreexo/utreexod/netsync"
 	"github.com/utreexo/utreexod/peer"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // rpcPeer provides a peer for use with the RPC server and implements the
@@ -266,7 +266,7 @@ func (b *rpcSyncMgr) IsCurrent() bool {
 //
 // This function is safe for concurrent access and is part of the
 // rpcserverSyncManager interface implementation.
-func (b *rpcSyncMgr) SubmitBlock(block *btcutil.Block, flags blockchain.BehaviorFlags) (bool, error) {
+func (b *rpcSyncMgr) SubmitBlock(block *utreexoblock.Block, flags blockchain.BehaviorFlags) (bool, error) {
 	return b.syncMgr.ProcessBlock(block, flags)
 }
 

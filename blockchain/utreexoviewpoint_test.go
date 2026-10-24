@@ -14,6 +14,7 @@ import (
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 func TestProcessUDataTTLCount(t *testing.T) {
@@ -32,7 +33,7 @@ func TestProcessUDataTTLCount(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Setup: a coinbase with two accumulator additions.
-			block := btcutil.NewBlock(&wire.MsgBlock{
+			block := utreexoblock.New(btcutil.NewBlock(&wire.MsgBlock{
 				Transactions: []*wire.MsgTx{{
 					TxIn: []*wire.TxIn{{PreviousOutPoint: wire.OutPoint{Index: wire.MaxPrevOutIndex}}},
 					TxOut: []*wire.TxOut{
@@ -40,7 +41,7 @@ func TestProcessUDataTTLCount(t *testing.T) {
 						{Value: 2, PkScript: []byte{txscript.OP_TRUE}},
 					},
 				}},
-			})
+			}))
 			block.SetHeight(1)
 			block.SetUtreexoTTLs(&bip183.UtreexoTTL{BlockHeight: 1, TTLs: test.ttls})
 			view := NewUtreexoViewpoint()

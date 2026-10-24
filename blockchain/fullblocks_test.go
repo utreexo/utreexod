@@ -21,6 +21,7 @@ import (
 	"github.com/utreexo/utreexod/database"
 	_ "github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 const (
@@ -151,7 +152,7 @@ func TestFullBlocks(t *testing.T) {
 			switch notification.Type {
 
 			case blockchain.NTBlockDisconnected:
-				block, ok := notification.Data.(*btcutil.Block)
+				block, ok := notification.Data.(*utreexoblock.Block)
 				if !ok {
 					t.Fatalf("expected a block")
 				}
@@ -178,7 +179,7 @@ func TestFullBlocks(t *testing.T) {
 		unexpectedCallBack := func(notification *blockchain.Notification) {
 			switch notification.Type {
 			case blockchain.NTBlockDisconnected:
-				block, ok := notification.Data.(*btcutil.Block)
+				block, ok := notification.Data.(*utreexoblock.Block)
 				if !ok {
 					t.Fatalf("expected a block")
 				}
@@ -220,7 +221,7 @@ func TestFullBlocks(t *testing.T) {
 		t.Logf("Testing block %s (hash %s, height %d)",
 			item.Name, block.Hash(), blockHeight)
 
-		isMainChain, isOrphan, err := chain.ProcessBlock(block,
+		isMainChain, isOrphan, err := chain.ProcessBlock(utreexoblock.New(block),
 			blockchain.BFNone)
 		if err != nil {
 			t.Fatalf("block %q (hash %s, height %d) should "+
@@ -254,7 +255,7 @@ func TestFullBlocks(t *testing.T) {
 		t.Logf("Testing block %s (hash %s, height %d)",
 			item.Name, block.Hash(), blockHeight)
 
-		_, _, err := chain.ProcessBlock(block, blockchain.BFNone)
+		_, _, err := chain.ProcessBlock(utreexoblock.New(block), blockchain.BFNone)
 		if err == nil {
 			t.Fatalf("block %q (hash %s, height %d) should not "+
 				"have been accepted", item.Name, block.Hash(),
@@ -311,7 +312,7 @@ func TestFullBlocks(t *testing.T) {
 		t.Logf("Testing block %s (hash %s, height %d)",
 			item.Name, block.Hash(), blockHeight)
 
-		_, isOrphan, err := chain.ProcessBlock(block, blockchain.BFNone)
+		_, isOrphan, err := chain.ProcessBlock(utreexoblock.New(block), blockchain.BFNone)
 		if err != nil {
 			// Ensure the error code is of the expected type.
 			if _, ok := err.(blockchain.RuleError); !ok {

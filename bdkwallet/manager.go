@@ -6,8 +6,8 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/utreexo/utreexod/blockchain"
-	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/mempool"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 var defaultWalletPath = "bdkwallet"
@@ -103,12 +103,12 @@ func (m *Manager) handleBlockchainNotification(notification *blockchain.Notifica
 	switch notification.Type {
 	// A block has been accepted into the block chain.
 	case blockchain.NTBlockConnected:
-		block, ok := notification.Data.(*btcutil.Block)
+		block, ok := notification.Data.(*utreexoblock.Block)
 		if !ok {
 			log.Warnf("Chain connected notification is not a block.")
 			return
 		}
-		err := m.Wallet.ApplyBlock(block)
+		err := m.Wallet.ApplyBlock(block.Block)
 		if err != nil {
 			log.Criticalf("Couldn't apply block to the wallet. %v", err)
 		}

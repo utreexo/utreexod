@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // blockFileRewriter rewrites the stored block files by transforming each
@@ -89,10 +90,11 @@ func (b *BlockChain) upgradeUtreexoProofStoreToV1(interrupt <-chan struct{}) err
 			return nil, nil, errInterruptRequested
 		}
 
-		blk, err := btcutil.NewBlockFromBytes(blockBytes)
+		btcBlock, err := btcutil.NewBlockFromBytes(blockBytes)
 		if err != nil {
 			return nil, nil, err
 		}
+		blk := utreexoblock.New(btcBlock)
 		blk.ParseUtreexoData()
 		ud := blk.UtreexoData()
 		if ud == nil {

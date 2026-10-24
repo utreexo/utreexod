@@ -526,13 +526,13 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 			}
 			var stxos []blockchain.SpentTxOut
 			if needsInputs {
-				stxos, err = chain.FetchSpendJournal(block)
+				stxos, err = chain.FetchSpendJournal(block.Block)
 				if err != nil {
 					prefetchCh <- prefetchedBlock{err: err}
 					return
 				}
 			}
-			prefetchCh <- prefetchedBlock{block: block, spentTxos: stxos}
+			prefetchCh <- prefetchedBlock{block: block.Block, spentTxos: stxos}
 		}
 	}()
 

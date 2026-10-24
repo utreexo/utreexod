@@ -21,6 +21,7 @@ import (
 	"github.com/utreexo/utreexod/database"
 	_ "github.com/utreexo/utreexod/database/ffldb"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 	"golang.org/x/exp/slices"
 )
 
@@ -929,7 +930,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		stxos, err := chain.FetchSpendJournal(block)
+		stxos, err := chain.FetchSpendJournal(block.Block)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -945,7 +946,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 		for _, indexer := range indexes {
 			switch idxType := indexer.(type) {
 			case *FlatUtreexoProofIndex:
-				err = idxType.DisconnectBlock(nil, block, stxos)
+				err = idxType.DisconnectBlock(nil, block.Block, stxos)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -966,7 +967,7 @@ func TestBridgeNodePruneUndoDataGen(t *testing.T) {
 
 			case *UtreexoProofIndex:
 				err = idxType.db.Update(func(dbTx database.Tx) error {
-					return idxType.DisconnectBlock(dbTx, block, stxos)
+					return idxType.DisconnectBlock(dbTx, block.Block, stxos)
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -1468,7 +1469,7 @@ func TestIndexFlushFailurePreservesConnectedState(t *testing.T) {
 
 			// Test: the flush error reaches the caller after the committed
 			// block's state and notification are published.
-			_, _, err := chain.ProcessBlock(block, blockchain.BFNone)
+			_, _, err := chain.ProcessBlock(utreexoblock.New(block), blockchain.BFNone)
 			require.Equal(t, test.err, err)
 			checkState()
 

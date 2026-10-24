@@ -92,7 +92,7 @@ func findCandidates(chain *blockchain.BlockChain, latestHash *chainhash.Hash) ([
 		}
 
 		// Determine if this block is a checkpoint candidate.
-		isCandidate, err := chain.IsCheckpointCandidate(block)
+		isCandidate, err := chain.IsCheckpointCandidate(block.Block)
 		if err != nil {
 			return nil, err
 		}

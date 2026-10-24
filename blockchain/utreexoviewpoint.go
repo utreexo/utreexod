@@ -21,6 +21,7 @@ import (
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // UtreexoViewpoint is the compact state of the chainstate using the utreexo accumulator
@@ -50,12 +51,12 @@ func (uview *UtreexoViewpoint) CopyWithRoots() *UtreexoViewpoint {
 }
 
 // ProcessUData updates the underlying accumulator. It does NOT check if the verification passes.
-func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
+func (uview *UtreexoViewpoint) ProcessUData(block *utreexoblock.Block,
 	bestChain *chainView, ud *bip183.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
 	// Adds correspond to newly created UTXOs and dels correspond to STXOs.
-	adds := ExtractAccumulatorAdds(block)
+	adds := ExtractAccumulatorAdds(block.Block)
 
 	ttls := block.UtreexoTTLs()
 	if ttls != nil {
@@ -85,8 +86,8 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 		// from the aggregator.
 		if len(ud.LeafDatas) > 0 {
 			var err error
-			_, _, inskip, _ := DedupeBlock(block)
-			delHashes, err := reconstructUData(ud, block, bestChain, inskip)
+			_, _, inskip, _ := DedupeBlock(block.Block)
+			delHashes, err := reconstructUData(ud, block.Block, bestChain, inskip)
 			if err != nil {
 				return err
 			}
@@ -132,7 +133,7 @@ func (uview *UtreexoViewpoint) ProcessUData(block *btcutil.Block,
 
 // VerifyUData checks the accumulator proof to ensure that the leaf preimages exist in the
 // accumulator.
-func (uview *UtreexoViewpoint) VerifyUData(block *btcutil.Block,
+func (uview *UtreexoViewpoint) VerifyUData(block *utreexoblock.Block,
 	bestChain *chainView, ud *bip183.UData) error {
 
 	// Extracts the block into additions and deletions that will be processed.
@@ -296,7 +297,7 @@ func DedupeBlock(blk *btcutil.Block) (inCount, outCount int, inskip []uint32, ou
 }
 
 // ExtractAccumulatorDels extracts the deletions that will be used to modify the utreexo accumulator.
-func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
+func ExtractAccumulatorDels(block *utreexoblock.Block, bestChain *chainView) (
 	[]utreexo.Hash, error) {
 
 	// Check that UData field isn't nil before doing anything else.
@@ -306,10 +307,10 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 			"Cannot extract utreexo accumulator deletions")
 	}
 
-	_, _, inskip, _ := DedupeBlock(block)
+	_, _, inskip, _ := DedupeBlock(block.Block)
 
 	// Reconstruction indexes one leaf data for each outpoint needing a proof.
-	OPsToProve := BlockToDelOPs(block)
+	OPsToProve := BlockToDelOPs(block.Block)
 	if len(OPsToProve) != len(ud.LeafDatas) {
 		return nil, fmt.Errorf("ExtractAccumulatorDels(): expected %d leaf datas, got %d",
 			len(OPsToProve), len(ud.LeafDatas))
@@ -323,7 +324,7 @@ func ExtractAccumulatorDels(block *btcutil.Block, bestChain *chainView) (
 	var delHashes []utreexo.Hash
 	if len(ud.LeafDatas) > 0 {
 		var err error
-		delHashes, err = reconstructUData(ud, block, bestChain, inskip)
+		delHashes, err = reconstructUData(ud, block.Block, bestChain, inskip)
 		if err != nil {
 			return nil, err
 		}
@@ -390,8 +391,8 @@ func (b *BlockChain) ReconstructUData(ud *bip183.UData, blockHash chainhash.Hash
 		return nil, err
 	}
 
-	_, _, inskip, _ := DedupeBlock(block)
-	delHashes, err := reconstructUData(ud, block, b.bestChain, inskip)
+	_, _, inskip, _ := DedupeBlock(block.Block)
+	delHashes, err := reconstructUData(ud, block.Block, b.bestChain, inskip)
 	if err != nil {
 		return nil, err
 	}

@@ -2543,7 +2543,7 @@ func handleRescanBlocks(wsc *wsClient, icmd interface{}) (interface{}, error) {
 		}
 		lastBlockHash = blockHashes[i]
 
-		transactions := rescanBlockFilter(filter, block, params)
+		transactions := rescanBlockFilter(filter, block.Block, params)
 		if len(transactions) != 0 {
 			discoveredData = append(discoveredData, btcjson.RescannedBlock{
 				Hash:         cmd.BlockHashes[i],
@@ -2584,7 +2584,7 @@ func recoverFromReorg(chain *blockchain.BlockChain, minBlock, maxBlock int32,
 			Message: "Database error: " + err.Error(),
 		}
 	}
-	jsonErr := descendantBlock(lastBlock, blk)
+	jsonErr := descendantBlock(lastBlock, blk.Block)
 	if jsonErr != nil {
 		return nil, jsonErr
 	}
@@ -2742,7 +2742,7 @@ fetchRange:
 			if i == 0 && lastBlockHash != nil {
 				// Ensure the new hashList is on the same fork
 				// as the last block from the old hashList.
-				jsonErr := descendantBlock(lastBlockHash, blk)
+				jsonErr := descendantBlock(lastBlockHash, blk.Block)
 				if jsonErr != nil {
 					return nil, nil, jsonErr
 				}
@@ -2756,8 +2756,8 @@ fetchRange:
 					"for disconnected client", blk.Height())
 				return nil, nil, nil
 			default:
-				rescanBlock(wsc, lookups, blk)
-				lastBlock = blk
+				rescanBlock(wsc, lookups, blk.Block)
+				lastBlock = blk.Block
 				lastBlockHash = blk.Hash()
 			}
 
@@ -2899,13 +2899,14 @@ func handleRescan(wsc *wsClient, icmd interface{}) (interface{}, error) {
 		// notification.
 		chainTip := chain.BestSnapshot()
 		lastBlockHash = &chainTip.Hash
-		lastBlock, err = chain.BlockByHash(lastBlockHash)
+		block, err := chain.BlockByHash(lastBlockHash)
 		if err != nil {
 			return nil, &btcjson.RPCError{
 				Code:    btcjson.ErrRPCBlockNotFound,
 				Message: "Error getting block: " + err.Error(),
 			}
 		}
+		lastBlock = block.Block
 	}
 
 	// Notify websocket client of the finished rescan.  Due to how btcd

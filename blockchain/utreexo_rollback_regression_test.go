@@ -16,6 +16,7 @@ import (
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 var errRegressionProofStore = errors.New("regression proof store failure")
@@ -54,7 +55,7 @@ func TestUtreexoViewRollbackOnProofStoreFailure(t *testing.T) {
 		"proof-store-rollback")
 	defer tearDown()
 
-	genesis := btcutil.NewBlock(params.GenesisBlock)
+	genesis := utreexoblock.New(btcutil.NewBlock(params.GenesisBlock))
 	genesis.SetHeight(0)
 	proofState := newTestUtreexoProofState()
 	block, _ := proofState.newBlock(t, chain, genesis, nil)
@@ -110,11 +111,11 @@ func TestUtreexoViewRollbackOnProofStoreFailure(t *testing.T) {
 func TestInvalidTTLUtreexoDataIsNotStored(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*btcutil.Block)
+		mutate func(*utreexoblock.Block)
 	}{
 		{
 			name: "empty leaf data",
-			mutate: func(block *btcutil.Block) {
+			mutate: func(block *utreexoblock.Block) {
 				udata := block.UtreexoData()
 				udata.LeafDatas = nil
 				block.SetUtreexoData(udata)
@@ -122,7 +123,7 @@ func TestInvalidTTLUtreexoDataIsNotStored(t *testing.T) {
 		},
 		{
 			name: "short leaf data",
-			mutate: func(block *btcutil.Block) {
+			mutate: func(block *utreexoblock.Block) {
 				udata := block.UtreexoData()
 				udata.LeafDatas = udata.LeafDatas[:1]
 				block.SetUtreexoData(udata)
@@ -130,7 +131,7 @@ func TestInvalidTTLUtreexoDataIsNotStored(t *testing.T) {
 		},
 		{
 			name: "short ttls",
-			mutate: func(block *btcutil.Block) {
+			mutate: func(block *utreexoblock.Block) {
 				ttls := block.UtreexoTTLs()
 				ttls.TTLs = ttls.TTLs[:len(ttls.TTLs)-1]
 			},
@@ -150,7 +151,7 @@ func TestInvalidTTLUtreexoDataIsNotStored(t *testing.T) {
 				defer tearDown()
 
 				// Build a block that needs two leaf datas so a partial slice is invalid.
-				genesis := btcutil.NewBlock(params.GenesisBlock)
+				genesis := utreexoblock.New(btcutil.NewBlock(params.GenesisBlock))
 				genesis.SetHeight(0)
 				proofState := newTestUtreexoProofState()
 				firstBlock, firstAdds := proofState.newBlock(t, chain, genesis, nil)

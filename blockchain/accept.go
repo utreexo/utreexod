@@ -9,8 +9,8 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
+	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // maybeAcceptBlock potentially accepts a block into the block chain and, if
@@ -23,7 +23,7 @@ import (
 // their documentation for how the flags modify their behavior.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) maybeAcceptBlock(block *utreexoblock.Block, flags BehaviorFlags) (bool, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
 	prevHash := &block.MsgBlock().Header.PrevBlock
@@ -41,7 +41,7 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 
 	// The block must pass all of the validation rules which depend on the
 	// position of the block within the block chain.
-	err := b.checkBlockContext(block, prevNode, flags)
+	err := b.checkBlockContext(block.Block, prevNode, flags)
 	if err != nil {
 		return false, err
 	}
@@ -70,7 +70,7 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
 	err = b.db.Update(func(dbTx database.Tx) error {
-		if err := dbStoreBlock(dbTx, block); err != nil {
+		if err := dbStoreBlock(dbTx, block.Block); err != nil {
 			return err
 		}
 		if b.utreexoView != nil {
