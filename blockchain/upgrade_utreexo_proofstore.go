@@ -8,9 +8,9 @@ import (
 	"bytes"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/utreexo/utreexod/btcutil"
+	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/database"
-	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // blockFileRewriter rewrites the stored block files by transforming each
@@ -90,19 +90,18 @@ func (b *BlockChain) upgradeUtreexoProofStoreToV1(interrupt <-chan struct{}) err
 			return nil, nil, errInterruptRequested
 		}
 
-		btcBlock, err := btcutil.NewBlockFromBytes(blockBytes)
+		var msgBlock wire.MsgBlock
+		err := msgBlock.Deserialize(bytes.NewReader(blockBytes))
 		if err != nil {
 			return nil, nil, err
 		}
-		blk := utreexoblock.New(btcBlock)
-		blk.ParseUtreexoData()
-		ud := blk.UtreexoData()
+		ud := parseInlineProof(&msgBlock, blockBytes)
 		if ud == nil {
 			return blockBytes, nil, nil
 		}
 
 		var stripped bytes.Buffer
-		if err := blk.MsgBlock().Serialize(&stripped); err != nil {
+		if err := msgBlock.Serialize(&stripped); err != nil {
 			return nil, nil, err
 		}
 		var proof bytes.Buffer
@@ -121,4 +120,34 @@ func (b *BlockChain) upgradeUtreexoProofStoreToV1(interrupt <-chan struct{}) err
 		return dbPutVersion(dbTx, utreexoProofStoreVersionKeyName,
 			utreexoProofStoreVersion)
 	})
+}
+
+// parseInlineProof attempts to read the serialized utreexo data that older
+// versions appended after the base block in blockBytes.
+//
+// If the trailing bytes cannot be deserialized or are not fully consumed (e.g.
+// an older incompatible format), they are silently ignored and nil is
+// returned.
+func parseInlineProof(msgBlock *wire.MsgBlock, blockBytes []byte) *bip183.UData {
+	baseLen := msgBlock.SerializeSize()
+	if baseLen >= len(blockBytes) {
+		return nil
+	}
+
+	extra := blockBytes[baseLen:]
+	r := bytes.NewReader(extra)
+
+	ud := new(bip183.UData)
+	if err := ud.Deserialize(r); err != nil {
+		return nil
+	}
+
+	// If there are unconsumed bytes the trailing data is not in the
+	// expected format (e.g. an older serialization that includes
+	// remember indexes or non-compact leaf data).  Discard the result.
+	if r.Len() != 0 {
+		return nil
+	}
+
+	return ud
 }
