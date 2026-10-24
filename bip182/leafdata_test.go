@@ -38,6 +38,28 @@ func hexToBytes(s string) []byte {
 	return b
 }
 
+func TestPkTypeString(t *testing.T) {
+	tests := []struct {
+		ty   PkType
+		want string
+	}{
+		{OtherTy, "other"},
+		{PubKeyHashTy, "pubkeyhash"},
+		{WitnessV0PubKeyHashTy, "witness_v0_keyhash"},
+		{ScriptHashTy, "scripthash"},
+		{WitnessV0ScriptHashTy, "witness_v0_scripthash"},
+		{PkType(len(pkTypeToName)), "Invalid"},
+		{PkType(255), "Invalid"},
+	}
+
+	for _, test := range tests {
+		if got := test.ty.String(); got != test.want {
+			t.Fatalf("PkType(%d).String() = %s, want %s",
+				int(test.ty), got, test.want)
+		}
+	}
+}
+
 func TestSerializeSize(t *testing.T) {
 	tests := []struct {
 		ld   LeafData

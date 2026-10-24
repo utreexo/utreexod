@@ -5,10 +5,12 @@
 package bip183
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/utreexo/utreexod/internal/btcdwire"
 )
 
 // MaxPossibleInputsPerBlock is the maximum possible inputs you can have per block.
@@ -79,6 +81,15 @@ func readUtreexoBlockSummary(r io.Reader, _ uint32, bh *UtreexoBlockSummary) err
 	}
 
 	count, err := wire.ReadVarInt(r, 0)
+	if err != nil {
+		return err
+	}
+	if count > MaxPossibleInputsPerBlock {
+		str := fmt.Sprintf("too many block targets for message "+
+			"[count %v, max %v]", count, MaxPossibleInputsPerBlock)
+		return btcdwire.NewMessageError("readUtreexoBlockSummary", str)
+	}
+	err = btcdwire.ValidateElementCount(r, count, 1)
 	if err != nil {
 		return err
 	}
