@@ -8,8 +8,6 @@
 package utreexoblock
 
 import (
-	"bytes"
-
 	"github.com/utreexo/utreexo"
 	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
@@ -88,41 +86,4 @@ func (b *Block) SetUtreexoTTLs(ttls *bip183.UtreexoTTL) {
 // UtreexoTTLs returns the ttls for this block.
 func (b *Block) UtreexoTTLs() *bip183.UtreexoTTL {
 	return b.leafTTLs
-}
-
-// ParseUtreexoData attempts to read serialized utreexo data appended after the
-// base block in the cached serialized bytes.  This must be called explicitly by
-// utreexo nodes that store proof data alongside the block; non-utreexo nodes
-// should never call this.
-//
-// If the trailing bytes cannot be deserialized or are not fully consumed (e.g.
-// an older incompatible format), they are silently ignored and the block is
-// left without utreexo data.
-func (b *Block) ParseUtreexoData() {
-	serialized, err := b.Bytes()
-	if err != nil {
-		return
-	}
-
-	baseLen := b.MsgBlock().SerializeSize()
-	if baseLen >= len(serialized) {
-		return
-	}
-
-	extra := serialized[baseLen:]
-	r := bytes.NewReader(extra)
-
-	ud := new(bip183.UData)
-	if err := ud.Deserialize(r); err != nil {
-		return
-	}
-
-	// If there are unconsumed bytes the trailing data is not in the
-	// expected format (e.g. an older serialization that includes
-	// remember indexes or non-compact leaf data).  Discard the result.
-	if r.Len() != 0 {
-		return
-	}
-
-	b.SetUtreexoData(ud)
 }
