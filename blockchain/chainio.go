@@ -1562,10 +1562,9 @@ func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, e
 }
 
 // dbFetchBlockByNode uses an existing database transaction to retrieve the
-// raw block for the provided node, deserialize it, and return a btcutil.Block
-// with the height set.  When isUtreexo is true the utreexo proof is loaded
-// from the proof store if present, or from the proof serialized inline
-// with the block bytes by older versions.
+// raw block for the provided node, deserialize it, and return a
+// utreexoblock.Block with the height set.  When isUtreexo is true the utreexo
+// proof is loaded from the proof store if present.
 func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*utreexoblock.Block, error) {
 	// Load the raw block bytes from the database.
 	blockBytes, err := dbTx.FetchBlock(&node.hash)
@@ -1581,9 +1580,7 @@ func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*utr
 	btcBlock.SetHeight(node.height)
 	block := utreexoblock.New(btcBlock)
 
-	// Only utreexo CSN nodes have proof data for the block.  Prefer the
-	// proof store and fall back to the proof serialized inline with
-	// the block bytes by older versions.
+	// Only utreexo CSN nodes have proof data for the block.
 	if isUtreexo {
 		proofBytes, err := dbTx.FetchUtreexoProof(&node.hash)
 		if err != nil {
@@ -1595,8 +1592,6 @@ func dbFetchBlockByNode(dbTx database.Tx, node *blockNode, isUtreexo bool) (*utr
 				return nil, err
 			}
 			block.SetUtreexoData(ud)
-		} else {
-			block.ParseUtreexoData()
 		}
 	}
 

@@ -56,10 +56,7 @@ func (b *Block) Bytes() ([]byte, error) {
 		return b.serializedBlock, nil
 	}
 
-	// Serialize the MsgBlock.  The utreexo proof is no longer appended here:
-	// it is stored separately in the database's proof store, written only
-	// after it validates.  utreexoblock's ParseUtreexoData still reads the
-	// trailing proof of blocks stored by older versions.
+	// Serialize the MsgBlock.
 	size := b.msgBlock.SerializeSize()
 	w := bytes.NewBuffer(make([]byte, 0, size))
 	err := b.msgBlock.Serialize(w)

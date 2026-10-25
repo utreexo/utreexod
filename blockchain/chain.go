@@ -1474,8 +1474,7 @@ func dbStoreUtreexoProof(dbTx database.Tx, block *utreexoblock.Block) error {
 // reconstructUtreexoViewForParent returns the accumulator state immediately
 // before node by loading the stored state of its nearest best-chain ancestor
 // and replaying the intervening branch blocks.  Every replayed block has a
-// durable proof: current proofs are in the proof store, while proofs written by
-// older versions might still be inline with the block.
+// durable proof in the proof store.
 //
 // This function MUST be called with the chain state lock held (for writes).
 func (b *BlockChain) reconstructUtreexoViewForParent(node *blockNode,
