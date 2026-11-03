@@ -320,32 +320,30 @@ out:
 					connReq.conn.Close()
 				}
 
-				if cm.cfg.OnDisconnection != nil {
-					go cm.cfg.OnDisconnection(connReq)
-				}
-
-				// All internal state has been cleaned up, if
-				// this connection is being removed, we will
-				// make no further attempts with this request.
+				// Update the connection state before notifying
+				// via the callback to prevent a race where the
+				// callback consumer reads a stale state.
 				if !msg.retry {
 					connReq.updateState(ConnDisconnected)
-					continue
-				}
-
-				// Otherwise, we will attempt a reconnection if
-				// we do not have enough peers, or if this is a
-				// persistent peer. The connection request is
-				// re added to the pending map, so that
-				// subsequent processing of connections and
-				// failures do not ignore the request.
-				if uint32(len(conns)) < cm.cfg.TargetOutbound ||
+				} else if uint32(len(conns)) < cm.cfg.TargetOutbound ||
 					connReq.Permanent {
 
+					// We will attempt a reconnection if
+					// we do not have enough peers, or if
+					// this is a persistent peer. The
+					// connection request is re added to the
+					// pending map, so that subsequent
+					// processing of connections and failures
+					// do not ignore the request.
 					connReq.updateState(ConnPending)
 					log.Debugf("Reconnecting to %v",
 						connReq)
 					pending[msg.id] = connReq
 					cm.handleFailedConn(connReq, msg.triggerReconnect)
+				}
+
+				if cm.cfg.OnDisconnection != nil {
+					go cm.cfg.OnDisconnection(connReq)
 				}
 
 			case handleFailed:
