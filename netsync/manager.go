@@ -127,9 +127,10 @@ type txMsg struct {
 // utreexoTxMsg packages a bitcoin utreexo tx message and the peer it came from together
 // so the block handler has access to that information.
 type utreexoTxMsg struct {
-	utreexoTx *btcutil.UtreexoTx
-	peer      *peerpkg.Peer
-	reply     chan struct{}
+	tx          *btcutil.Tx
+	utreexoData *bip183.UData
+	peer        *peerpkg.Peer
+	reply       chan struct{}
 }
 
 // getSyncPeerMsg is a message type to be sent across the message channel for
@@ -1860,11 +1861,7 @@ out:
 				msg.reply <- struct{}{}
 
 			case *utreexoTxMsg:
-				sm.handleTxMsg(&msg.utreexoTx.Tx, msg.peer,
-					&bip183.UData{
-						AccProof:  msg.utreexoTx.MsgUtreexoTx().AccProof,
-						LeafDatas: msg.utreexoTx.MsgUtreexoTx().LeafDatas,
-					})
+				sm.handleTxMsg(msg.tx, msg.peer, msg.utreexoData)
 				msg.reply <- struct{}{}
 
 			case *blockMsg:
@@ -2061,14 +2058,16 @@ func (sm *SyncManager) QueueTx(tx *btcutil.Tx, peer *peerpkg.Peer, done chan str
 // QueueUtreexoTx adds the passed transaction message and peer to the block handling
 // queue. Responds to the done channel argument after the utreexo tx message is
 // processed.
-func (sm *SyncManager) QueueUtreexoTx(tx *btcutil.UtreexoTx, peer *peerpkg.Peer, done chan struct{}) {
+func (sm *SyncManager) QueueUtreexoTx(tx *btcutil.Tx, utreexoData *bip183.UData,
+	peer *peerpkg.Peer, done chan struct{}) {
+
 	// Don't accept more transactions if we're shutting down.
 	if atomic.LoadInt32(&sm.shutdown) != 0 {
 		done <- struct{}{}
 		return
 	}
 
-	sm.msgChan <- &utreexoTxMsg{utreexoTx: tx, peer: peer, reply: done}
+	sm.msgChan <- &utreexoTxMsg{tx: tx, utreexoData: utreexoData, peer: peer, reply: done}
 }
 
 // QueueBlock adds the passed block message and peer to the block handling
