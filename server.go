@@ -677,9 +677,9 @@ func (sp *serverPeer) OnUtreexoTx(_ *peer.Peer, msg *bip183.MsgUtreexoTx) {
 	}
 
 	// Add the transaction to the known inventory for the peer.
-	// Convert the raw MsgUtreexoTx to a btcutil.UtreexoTx which provides some convenience
+	// Convert the raw MsgTx to a btcutil.Tx which provides some convenience
 	// methods and things such as hash caching.
-	tx := btcutil.NewUtreexoTx(msg)
+	tx := btcutil.NewTx(&msg.MsgTx)
 	iv := wire.NewInvVect(wire.InvTypeTx, tx.Hash())
 	sp.AddKnownInventory(iv)
 
@@ -688,7 +688,8 @@ func (sp *serverPeer) OnUtreexoTx(_ *peer.Peer, msg *bip183.MsgUtreexoTx) {
 	// processed and known good or bad.  This helps prevent a malicious peer
 	// from queuing up a bunch of bad transactions before disconnecting (or
 	// being disconnected) and wasting memory.
-	sp.server.syncManager.QueueUtreexoTx(tx, sp.Peer, sp.txProcessed)
+	udata := &bip183.UData{AccProof: msg.AccProof, LeafDatas: msg.LeafDatas}
+	sp.server.syncManager.QueueUtreexoTx(tx, udata, sp.Peer, sp.txProcessed)
 	<-sp.txProcessed
 }
 
