@@ -8,17 +8,19 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
+	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/database"
 	"github.com/utreexo/utreexod/txscript"
-	"github.com/utreexo/utreexod/utreexoblock"
 )
 
 // proofStoreUpgradeFixture holds a database laid out in the legacy format,
@@ -112,16 +114,11 @@ func newProofStoreUpgradeFixture(t *testing.T) *proofStoreUpgradeFixture {
 	if _, err := oldBytes.Write(proofBytes.Bytes()); err != nil {
 		t.Fatalf("append proof: %v", err)
 	}
-	btcBlock, err := btcutil.NewBlockFromBytes(oldBytes.Bytes())
-	if err != nil {
-		t.Fatalf("NewBlockFromBytes: %v", err)
-	}
-	block := utreexoblock.New(btcBlock)
+	block := btcutil.NewBlockFromBlockAndBytes(msgBlock, oldBytes.Bytes())
 	block.SetHeight(1)
 
 	// Sanity check that the inline proof parses back.
-	block.ParseUtreexoData()
-	if block.UtreexoData() == nil {
+	if parseInlineProof(msgBlock, oldBytes.Bytes()) == nil {
 		t.Fatal("inline proof should parse from the old-format block bytes")
 	}
 
@@ -134,7 +131,7 @@ func newProofStoreUpgradeFixture(t *testing.T) *proofStoreUpgradeFixture {
 
 	// Store the block in the legacy format.
 	err = db.Update(func(dbTx database.Tx) error {
-		if err := dbStoreBlock(dbTx, block.Block); err != nil {
+		if err := dbStoreBlock(dbTx, block); err != nil {
 			return err
 		}
 		// New databases are initialized at the latest version.  Delete the
@@ -206,13 +203,12 @@ func (f *proofStoreUpgradeFixture) assertUpgraded(t *testing.T) {
 		if bytes.Contains(gotBlockBytes, f.proofBytes) {
 			t.Fatal("block bytes still contain the old inline proof")
 		}
-		btcBlock, err := btcutil.NewBlockFromBytes(gotBlockBytes)
+		var roundTrip wire.MsgBlock
+		err = roundTrip.Deserialize(bytes.NewReader(gotBlockBytes))
 		if err != nil {
 			return err
 		}
-		roundTrip := utreexoblock.New(btcBlock)
-		roundTrip.ParseUtreexoData()
-		if roundTrip.UtreexoData() != nil {
+		if parseInlineProof(&roundTrip, gotBlockBytes) != nil {
 			t.Fatal("inline proof should have been stripped from block bytes")
 		}
 		return nil
@@ -251,4 +247,110 @@ func TestUpgradeUtreexoProofStore(t *testing.T) {
 		t.Fatalf("maybeUpgradeUtreexoProofStore: %v", err)
 	}
 	fixture.assertUpgraded(t)
+}
+
+func assertUDataEqual(t *testing.T, got, want *bip183.UData) {
+	t.Helper()
+
+	switch {
+	case want == nil && got == nil:
+		return
+	case want == nil && got != nil:
+		t.Fatalf("expected nil UData, got %v", got)
+	case want != nil && got == nil:
+		t.Fatalf("expected non-nil UData, got nil")
+	}
+
+	if !reflect.DeepEqual(got.AccProof, want.AccProof) {
+		t.Fatalf("unexpected accumulator proof\ngot:  %v\nwant: %v",
+			got.AccProof, want.AccProof)
+	}
+	if !reflect.DeepEqual(got.LeafDatas, want.LeafDatas) {
+		t.Fatalf("unexpected leaf data\ngot:  %v\nwant: %v",
+			got.LeafDatas, want.LeafDatas)
+	}
+}
+
+// TestParseInlineProof verifies that parseInlineProof reads current-format
+// data (the proof store upgrade code path) and silently ignores incompatible
+// formats.
+func TestParseInlineProof(t *testing.T) {
+	// Serialize the base block (no utreexo data).
+	var baseBuf bytes.Buffer
+	if err := Block100000.Serialize(&baseBuf); err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+	baseBytes := baseBuf.Bytes()
+
+	// Build current-format utreexo data bytes.
+	ud := testWireUData()
+	var udBuf bytes.Buffer
+	if err := ud.Serialize(&udBuf); err != nil {
+		t.Fatalf("UData.Serialize: %v", err)
+	}
+
+	oldBytes := testOldFormatUData(&ud.AccProof)
+
+	tests := []struct {
+		name     string
+		extra    []byte
+		wantData bool
+	}{
+		{"no trailing bytes", nil, false},
+		{"current format", udBuf.Bytes(), true},
+		{"old format is ignored", oldBytes, false},
+		{"garbage is ignored", []byte{0xde, 0xad, 0xbe, 0xef}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			serialized := make([]byte, len(baseBytes)+len(tc.extra))
+			copy(serialized, baseBytes)
+			copy(serialized[len(baseBytes):], tc.extra)
+
+			got := parseInlineProof(&Block100000, serialized)
+
+			if tc.wantData {
+				assertUDataEqual(t, got, ud)
+			} else if got != nil {
+				t.Fatalf("expected nil UData")
+			}
+		})
+	}
+}
+
+// testOldFormatUData builds serialized bytes that mimic the v0.4.0 utreexo
+// data format: remember indexes + batch proof + non-compact leaf data.
+func testOldFormatUData(proof *utreexo.Proof) []byte {
+	var buf bytes.Buffer
+	// Write remember indexes: count=2, values={0, 1}.
+	wire.WriteVarInt(&buf, 0, 2)
+	wire.WriteVarInt(&buf, 0, 0)
+	wire.WriteVarInt(&buf, 0, 1)
+	// Write a batch proof.
+	bip183.BatchProofSerialize(&buf, proof)
+	// Write non-compact leaf data (count + full Serialize per leaf).
+	ld := bip182.LeafData{
+		BlockHash: chainhash.Hash{0xaa, 0xbb},
+		OutPoint:  wire.OutPoint{Hash: chainhash.Hash{0xcc}, Index: 0},
+		Height:    100,
+		Amount:    5000,
+		PkScript:  []byte{0x51},
+	}
+	wire.WriteVarInt(&buf, 0, 1)
+	ld.Serialize(&buf)
+	return buf.Bytes()
+}
+
+func testWireUData() *bip183.UData {
+	return &bip183.UData{
+		AccProof: utreexo.Proof{
+			Targets: []uint64{1, 2, 3},
+			Proof: []utreexo.Hash{
+				{0x01},
+				{0x02},
+				{0x03},
+			},
+		},
+	}
 }

@@ -6,14 +6,12 @@ package utreexoblock_test
 
 import (
 	"bytes"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/utreexo/utreexo"
-	"github.com/utreexo/utreexod/bip182"
 	"github.com/utreexo/utreexod/bip183"
 	"github.com/utreexo/utreexod/btcutil"
 	"github.com/utreexo/utreexod/utreexoblock"
@@ -37,108 +35,6 @@ func TestSetUtreexoDataNotSerialized(t *testing.T) {
 	if !bytes.Equal(got, want.Bytes()) {
 		t.Fatalf("serialized block must not change when utreexo data is set")
 	}
-}
-
-func assertUDataEqual(t *testing.T, got, want *bip183.UData) {
-	t.Helper()
-
-	switch {
-	case want == nil && got == nil:
-		return
-	case want == nil && got != nil:
-		t.Fatalf("expected nil UData, got %v", got)
-	case want != nil && got == nil:
-		t.Fatalf("expected non-nil UData, got nil")
-	}
-
-	if !reflect.DeepEqual(got.AccProof, want.AccProof) {
-		t.Fatalf("unexpected accumulator proof\ngot:  %v\nwant: %v",
-			got.AccProof, want.AccProof)
-	}
-	if !reflect.DeepEqual(got.LeafDatas, want.LeafDatas) {
-		t.Fatalf("unexpected leaf data\ngot:  %v\nwant: %v",
-			got.LeafDatas, want.LeafDatas)
-	}
-}
-
-// TestParseUtreexoData verifies that ParseUtreexoData explicitly attaches
-// current-format data (the utreexo CSN code path) and silently ignores
-// incompatible formats.
-func TestParseUtreexoData(t *testing.T) {
-	// Serialize the base block (no utreexo data).
-	var baseBuf bytes.Buffer
-	if err := Block100000.Serialize(&baseBuf); err != nil {
-		t.Fatalf("Serialize: %v", err)
-	}
-	baseBytes := baseBuf.Bytes()
-
-	// Build current-format utreexo data bytes.
-	ud := testWireUData()
-	var udBuf bytes.Buffer
-	if err := ud.Serialize(&udBuf); err != nil {
-		t.Fatalf("UData.Serialize: %v", err)
-	}
-
-	oldBytes := testOldFormatUData(&ud.AccProof)
-
-	tests := []struct {
-		name     string
-		extra    []byte
-		wantData bool
-	}{
-		{"no trailing bytes", nil, false},
-		{"current format", udBuf.Bytes(), true},
-		{"old format is ignored", oldBytes, false},
-		{"garbage is ignored", []byte{0xde, 0xad, 0xbe, 0xef}, false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			serialized := make([]byte, len(baseBytes)+len(tc.extra))
-			copy(serialized, baseBytes)
-			copy(serialized[len(baseBytes):], tc.extra)
-
-			btcBlock, err := btcutil.NewBlockFromBytes(serialized)
-			if err != nil {
-				t.Fatalf("NewBlockFromBytes: unexpected error: %v", err)
-			}
-			block := utreexoblock.New(btcBlock)
-			if block.UtreexoData() != nil {
-				t.Fatalf("expected nil UtreexoData before parsing")
-			}
-
-			block.ParseUtreexoData()
-
-			if tc.wantData {
-				assertUDataEqual(t, block.UtreexoData(), ud)
-			} else if block.UtreexoData() != nil {
-				t.Fatalf("expected nil UtreexoData")
-			}
-		})
-	}
-}
-
-// testOldFormatUData builds serialized bytes that mimic the v0.4.0 utreexo
-// data format: remember indexes + batch proof + non-compact leaf data.
-func testOldFormatUData(proof *utreexo.Proof) []byte {
-	var buf bytes.Buffer
-	// Write remember indexes: count=2, values={0, 1}.
-	wire.WriteVarInt(&buf, 0, 2)
-	wire.WriteVarInt(&buf, 0, 0)
-	wire.WriteVarInt(&buf, 0, 1)
-	// Write a batch proof.
-	bip183.BatchProofSerialize(&buf, proof)
-	// Write non-compact leaf data (count + full Serialize per leaf).
-	ld := bip182.LeafData{
-		BlockHash: chainhash.Hash{0xaa, 0xbb},
-		OutPoint:  wire.OutPoint{Hash: chainhash.Hash{0xcc}, Index: 0},
-		Height:    100,
-		Amount:    5000,
-		PkScript:  []byte{0x51},
-	}
-	wire.WriteVarInt(&buf, 0, 1)
-	ld.Serialize(&buf)
-	return buf.Bytes()
 }
 
 func testWireUData() *bip183.UData {

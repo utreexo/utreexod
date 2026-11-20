@@ -2037,10 +2037,8 @@ func (tx *transaction) StoreUtreexoProof(blockHash *chainhash.Hash, proof []byte
 }
 
 // FetchUtreexoProof returns the raw serialized utreexo proof for the block
-// identified by hash, or (nil, nil) when no proof is stored for it.  Callers
-// rely on the nil return to fall back to other proof sources (e.g. the inline
-// proof of an old block).  The returned bytes are only valid for the lifetime
-// of the transaction.
+// identified by hash, or (nil, nil) when no proof is stored for it.  The
+// returned bytes are only valid for the lifetime of the transaction.
 //
 // The interface contract guarantees at least the following errors will be
 // returned (other implementation-specific errors are possible):
