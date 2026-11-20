@@ -275,9 +275,17 @@ func assertUDataEqual(t *testing.T, got, want *bip183.UData) {
 // data (the proof store upgrade code path) and silently ignores incompatible
 // formats.
 func TestParseInlineProof(t *testing.T) {
+	// Give the coinbase input a witness so the base block serializes with
+	// witness data.
+	block := Block100000
+	coinbase := block.Transactions[0].Copy()
+	coinbase.TxIn[0].Witness = wire.TxWitness{{0x04, 0x31}, {0x01, 0x43}}
+	block.Transactions = append([]*wire.MsgTx{coinbase},
+		block.Transactions[1:]...)
+
 	// Serialize the base block (no utreexo data).
 	var baseBuf bytes.Buffer
-	if err := Block100000.Serialize(&baseBuf); err != nil {
+	if err := block.Serialize(&baseBuf); err != nil {
 		t.Fatalf("Serialize: %v", err)
 	}
 	baseBytes := baseBuf.Bytes()
@@ -308,7 +316,7 @@ func TestParseInlineProof(t *testing.T) {
 			copy(serialized, baseBytes)
 			copy(serialized[len(baseBytes):], tc.extra)
 
-			got := parseInlineProof(&Block100000, serialized)
+			got := parseInlineProof(&block, serialized)
 
 			if tc.wantData {
 				assertUDataEqual(t, got, ud)
