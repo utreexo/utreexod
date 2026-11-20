@@ -65,14 +65,6 @@ func (b *BlockChain) upgradeUtreexoProofStoreToV1(interrupt <-chan struct{}) err
 	}
 
 	bestHeight := b.bestChain.Tip().height
-	if bestHeight < 1 {
-		// Nothing to backfill (only the genesis block, which has no proof).
-		return b.db.Update(func(dbTx database.Tx) error {
-			return dbPutVersion(dbTx, utreexoProofStoreVersionKeyName,
-				utreexoProofStoreVersion)
-		})
-	}
-
 	log.Infof("Backfilling the utreexo proof store from inline block proofs "+
 		"up to height %d. This is a one-time database migration and may take "+
 		"a while...", bestHeight)

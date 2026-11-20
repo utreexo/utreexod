@@ -249,6 +249,25 @@ func TestUpgradeUtreexoProofStore(t *testing.T) {
 	fixture.assertUpgraded(t)
 }
 
+// TestUpgradeUtreexoProofStoreGenesisTip verifies that the upgrade moves the
+// inline proofs of stored blocks into the proof store when the best chain
+// tip is the genesis block.
+func TestUpgradeUtreexoProofStoreGenesisTip(t *testing.T) {
+	// The fixture stores block 1 with its proof serialized inline and sets
+	// it as the best chain tip.
+	fixture := newProofStoreUpgradeFixture(t)
+
+	// Set the tip back to block 1's parent, the genesis block.  Block 1
+	// stays in the block files above the tip, as a block that was stored
+	// but not yet connected would.
+	fixture.chain.bestChain.SetTip(fixture.node.parent)
+
+	if err := fixture.chain.maybeUpgradeUtreexoProofStore(nil); err != nil {
+		t.Fatalf("maybeUpgradeUtreexoProofStore: %v", err)
+	}
+	fixture.assertUpgraded(t)
+}
+
 func assertUDataEqual(t *testing.T, got, want *bip183.UData) {
 	t.Helper()
 
@@ -275,9 +294,17 @@ func assertUDataEqual(t *testing.T, got, want *bip183.UData) {
 // data (the proof store upgrade code path) and silently ignores incompatible
 // formats.
 func TestParseInlineProof(t *testing.T) {
+	// Give the coinbase input a witness so the base block serializes with
+	// witness data.
+	block := Block100000
+	coinbase := block.Transactions[0].Copy()
+	coinbase.TxIn[0].Witness = wire.TxWitness{{0x04, 0x31}, {0x01, 0x43}}
+	block.Transactions = append([]*wire.MsgTx{coinbase},
+		block.Transactions[1:]...)
+
 	// Serialize the base block (no utreexo data).
 	var baseBuf bytes.Buffer
-	if err := Block100000.Serialize(&baseBuf); err != nil {
+	if err := block.Serialize(&baseBuf); err != nil {
 		t.Fatalf("Serialize: %v", err)
 	}
 	baseBytes := baseBuf.Bytes()
@@ -308,7 +335,7 @@ func TestParseInlineProof(t *testing.T) {
 			copy(serialized, baseBytes)
 			copy(serialized[len(baseBytes):], tc.extra)
 
-			got := parseInlineProof(&Block100000, serialized)
+			got := parseInlineProof(&block, serialized)
 
 			if tc.wantData {
 				assertUDataEqual(t, got, ud)
