@@ -1285,7 +1285,7 @@ func ReconstructScript(sigScript []byte, witness wire.TxWitness, class ScriptCla
 			return nil, fmt.Errorf("unable to reconstruct script due to missing witness: %v", witness)
 		}
 		last := witness[len(witness)-1]
-		hash := hash160(last)
+		hash := btcutil.Hash160(last)
 
 		script, err = payToWitnessPubKeyHashScript(hash)
 		if err != nil {
