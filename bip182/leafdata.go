@@ -421,7 +421,7 @@ var pkTypeToName = []string{
 
 // String returns a string for the type of PkType.
 func (ty PkType) String() string {
-	if int(ty) > len(pkTypeToName) || int(ty) < 0 {
+	if int(ty) >= len(pkTypeToName) || int(ty) < 0 {
 		return "Invalid"
 	}
 
