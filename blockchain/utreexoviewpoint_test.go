@@ -263,14 +263,14 @@ func newSpendTx(spend SpendableOut) *wire.MsgTx {
 // after the coinbase are the ones that txs returns, given the coinbase and
 // originTx, a transaction that spends the provided leaf.
 func newSameBlockSpendBlock(t *testing.T, chain *BlockChain,
-	prev *btcutil.Block, spend bip182.LeafData,
-	txs func(cb, originTx *wire.MsgTx) []*wire.MsgTx) *btcutil.Block {
+	prev *utreexoblock.Block, spend bip182.LeafData,
+	txs func(cb, originTx *wire.MsgTx) []*wire.MsgTx) *utreexoblock.Block {
 
 	t.Helper()
 
 	// 1. Build on prev with one spend so the base block supplies both
 	// the coinbase and originTx.
-	base, _ := NewBlock(chain, prev,
+	base, _ := NewBlock(chain, prev.Block,
 		spendableOutsFromLeaves([]bip182.LeafData{spend}))
 	msgBlock := base.MsgBlock()
 	cb, originTx := msgBlock.Transactions[0], msgBlock.Transactions[1]
@@ -286,7 +286,7 @@ func newSameBlockSpendBlock(t *testing.T, chain *BlockChain,
 	msgBlock.Header.MerkleRoot = CalcMerkleRoot(block.Transactions(), false)
 	require.True(t, SolveBlock(&msgBlock.Header), "unable to solve block")
 
-	return block
+	return utreexoblock.New(block)
 }
 
 // TestUtreexoSameBlockSpend ensures a compact-state chain accepts a block
@@ -374,7 +374,7 @@ func TestUtreexoSameBlockSpend(t *testing.T) {
 				"same-block-spend")
 			defer tearDown()
 
-			genesis := btcutil.NewBlock(params.GenesisBlock)
+			genesis := utreexoblock.New(btcutil.NewBlock(params.GenesisBlock))
 			genesis.SetHeight(0)
 			proofState := newTestUtreexoProofState()
 			firstBlock, firstAdds := proofState.newBlock(t, chain, genesis, nil)
