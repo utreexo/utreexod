@@ -1381,7 +1381,7 @@ func TestReconstructScript(t *testing.T) {
 				"DATA_33 0x0270e4215fbe540cab09ac91c9586eba4fc797537859489f4a23d3e22356f1732f",
 			class:       PubKeyHashTy,
 			expectErr:   false,
-			expectEqual: false,
+			expectEqual: true,
 		},
 		{
 			// 8ea059a12212dd6d2ca3a87b9550bbaa290211679a6be990e9ed8152094c987d:0 on testnet3
@@ -1482,7 +1482,7 @@ func TestReconstructScript(t *testing.T) {
 				"cc6022100ef76bcd57a871129836d7fe3b898e97bf" +
 				"6a241e7d81c2ae3b026567b9246c4dc01",
 			class:       PubKeyTy,
-			expectErr:   false,
+			expectErr:   true,
 			expectEqual: false,
 		},
 	}
@@ -1511,7 +1511,11 @@ func TestReconstructScript(t *testing.T) {
 				t.Errorf("%s: got unexpected error - %v",
 					test.name, err)
 			}
-			return
+			continue
+		}
+
+		if test.expectErr {
+			t.Errorf("%s: expected an error", test.name)
 		}
 
 		if (test.class == PubKeyHashTy) ||
@@ -1519,7 +1523,7 @@ func TestReconstructScript(t *testing.T) {
 			(test.class == WitnessV0PubKeyHashTy) ||
 			(test.class == WitnessV0ScriptHashTy) {
 
-			if !bytes.Equal(reconScript, pkScript) && test.expectEqual {
+			if bytes.Equal(reconScript, pkScript) != test.expectEqual {
 				t.Errorf("%s: expect %s, got %s",
 					test.name,
 					hex.EncodeToString(pkScript),
