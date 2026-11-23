@@ -517,7 +517,7 @@ func reconstructLeafData(ld *bip182.LeafData, txIn *wire.TxIn, chainView *chainV
 			class = txscript.WitnessV0ScriptHashTy
 		}
 
-		scriptToUse, err := txscript.ReconstructScript(
+		scriptToUse, err := reconstructScript(
 			txIn.SignatureScript, txIn.Witness, class)
 		if err != nil {
 			return nil, err
@@ -527,6 +527,178 @@ func reconstructLeafData(ld *bip182.LeafData, txIn *wire.TxIn, chainView *chainV
 	}
 
 	return ld, nil
+}
+
+// getReconstructScriptType returns the script class of the passed in pkscript. It'll attempt to
+// first reconstruct the pkscript from the sigScript or the witness and if it's able to reconstruct
+// it, only then will it be considered reconstructable. The types of pkscripts that are eligible are:
+// p2pkh, p2sh, p2wpkh, p2wsh.
+func getReconstructScriptType(sigScript, pkScript []byte, witness wire.TxWitness) (txscript.ScriptClass, error) {
+	class := txscript.GetScriptClass(pkScript)
+	switch class {
+	case txscript.PubKeyHashTy:
+		if len(sigScript) == 0 {
+			return txscript.NonStandardTy,
+				fmt.Errorf("Have %v script but sigscript is %v", class.String(), sigScript)
+		}
+		script, err := reconstructScript(sigScript, witness, txscript.PubKeyHashTy)
+		if err != nil {
+			return txscript.NonStandardTy, err
+		}
+		if !bytes.Equal(script, pkScript) {
+			log.Debugf("expected pkscript of %v but got %v",
+				hex.EncodeToString(pkScript),
+				hex.EncodeToString(script))
+			return txscript.NonStandardTy, nil
+		}
+
+		return txscript.PubKeyHashTy, nil
+
+	case txscript.ScriptHashTy:
+		if len(sigScript) == 0 {
+			return txscript.NonStandardTy,
+				fmt.Errorf("Have %v script but sigscript is %v", class.String(), sigScript)
+		}
+		script, err := reconstructScript(sigScript, witness, txscript.ScriptHashTy)
+		if err != nil {
+			return txscript.NonStandardTy, err
+		}
+		if !bytes.Equal(script, pkScript) {
+			log.Debugf("expected pkscript of %v but got %v",
+				hex.EncodeToString(pkScript),
+				hex.EncodeToString(script))
+			return txscript.NonStandardTy, nil
+		}
+
+		return txscript.ScriptHashTy, nil
+
+	case txscript.WitnessV0PubKeyHashTy:
+		if len(witness) == 0 {
+			return txscript.NonStandardTy,
+				fmt.Errorf("Have %v script but witness is %v", class.String(), witness)
+		}
+		script, err := reconstructScript(sigScript, witness, txscript.WitnessV0PubKeyHashTy)
+		if err != nil {
+			return txscript.NonStandardTy, err
+		}
+		if !bytes.Equal(script, pkScript) {
+			log.Debugf("expected pkscript of %v but got %v",
+				hex.EncodeToString(pkScript),
+				hex.EncodeToString(script))
+			return txscript.NonStandardTy, nil
+		}
+
+		return txscript.WitnessV0PubKeyHashTy, nil
+
+	case txscript.WitnessV0ScriptHashTy:
+		if len(witness) == 0 {
+			return txscript.NonStandardTy,
+				fmt.Errorf("Have %v script but witness is %v", class.String(), witness)
+		}
+		script, err := reconstructScript(sigScript, witness, txscript.WitnessV0ScriptHashTy)
+		if err != nil {
+			return txscript.NonStandardTy, err
+		}
+		if !bytes.Equal(script, pkScript) {
+			log.Debugf("expected pkscript of %v but got %v",
+				hex.EncodeToString(pkScript),
+				hex.EncodeToString(script))
+			return txscript.NonStandardTy, nil
+		}
+
+		return txscript.WitnessV0ScriptHashTy, nil
+	default:
+	}
+
+	return txscript.NonStandardTy, nil
+}
+
+// reconstructScript reconstructs the script from the witness for standard
+// transactions.  This function only works for p2pkh, p2wpkh, p2sh and p2wsh.
+// Only version 0 witness scripts are supported.  Returns nil for types that
+// are not supported
+func reconstructScript(sigScript []byte, witness wire.TxWitness, class txscript.ScriptClass) ([]byte, error) {
+	var script []byte
+	var err error
+
+	getLastData := func(bytes []byte) []byte {
+		var data []byte
+		tokenizer := txscript.MakeScriptTokenizer(0, bytes)
+		for tokenizer.Next() {
+			data = tokenizer.Data()
+		}
+
+		return data
+	}
+
+	switch class {
+	case txscript.PubKeyHashTy:
+		hash := btcutil.Hash160(getLastData(sigScript))
+		script, err = payToPubKeyHashScript(hash)
+		if err != nil {
+			return nil, err
+		}
+	case txscript.ScriptHashTy:
+		hash := btcutil.Hash160(getLastData(sigScript))
+		script, err = payToScriptHashScript(hash)
+		if err != nil {
+			return nil, err
+		}
+	case txscript.WitnessV0PubKeyHashTy:
+		if len(witness) == 0 {
+			return nil, fmt.Errorf("unable to reconstruct script due to missing witness: %v", witness)
+		}
+		last := witness[len(witness)-1]
+		hash := btcutil.Hash160(last)
+
+		script, err = payToWitnessPubKeyHashScript(hash)
+		if err != nil {
+			return nil, err
+		}
+	case txscript.WitnessV0ScriptHashTy:
+		if len(witness) == 0 {
+			return nil, fmt.Errorf("unable to reconstruct script due to missing witness: %v", witness)
+		}
+		last := witness[len(witness)-1]
+		hash := chainhash.HashH(last)
+
+		script, err = payToWitnessScriptHashScript(hash[:])
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unsupported scriptclass %v", class.String())
+	}
+
+	return script, nil
+}
+
+// payToPubKeyHashScript creates a new script to pay a transaction
+// output to a 20-byte pubkey hash. It is expected that the input is a valid
+// hash.
+func payToPubKeyHashScript(pubKeyHash []byte) ([]byte, error) {
+	return txscript.NewScriptBuilder().AddOp(txscript.OP_DUP).AddOp(txscript.OP_HASH160).
+		AddData(pubKeyHash).AddOp(txscript.OP_EQUALVERIFY).AddOp(txscript.OP_CHECKSIG).
+		Script()
+}
+
+// payToWitnessPubKeyHashScript creates a new script to pay to a version 0
+// pubkey hash witness program. The passed hash is expected to be valid.
+func payToWitnessPubKeyHashScript(pubKeyHash []byte) ([]byte, error) {
+	return txscript.NewScriptBuilder().AddOp(txscript.OP_0).AddData(pubKeyHash).Script()
+}
+
+// payToScriptHashScript creates a new script to pay a transaction output to a
+// script hash. It is expected that the input is a valid hash.
+func payToScriptHashScript(scriptHash []byte) ([]byte, error) {
+	return txscript.NewScriptBuilder().AddOp(txscript.OP_HASH160).AddData(scriptHash).
+		AddOp(txscript.OP_EQUAL).Script()
+}
+
+// payToWitnessScriptHashScript creates a new script to pay to a version 0
+// script hash witness program. The passed hash is expected to be valid.
+func payToWitnessScriptHashScript(scriptHash []byte) ([]byte, error) {
+	return txscript.NewScriptBuilder().AddOp(txscript.OP_0).AddData(scriptHash).Script()
 }
 
 // IsUnspendable determines whether a tx is spendable or not.
@@ -652,10 +824,10 @@ func BlockToDelLeaves(stxos []SpentTxOut, chain *BlockChain, block *btcutil.Bloc
 
 			var pkType bip182.PkType
 
-			scriptType, err := txscript.GetReconstructScriptType(
+			scriptType, err := getReconstructScriptType(
 				txIn.SignatureScript, stxo.PkScript, txIn.Witness)
 			if err != nil {
-				log.Debugf("GetReconstructScriptType error. %v. "+
+				log.Debugf("getReconstructScriptType error. %v. "+
 					"Defaulting to bip182.OtherTy", err)
 				scriptType = txscript.NonStandardTy
 			}
@@ -752,10 +924,10 @@ func TxToDelLeaves(tx *btcutil.Tx, chain *BlockChain) ([]bip182.LeafData, error)
 
 		var pkType bip182.PkType
 
-		scriptType, err := txscript.GetReconstructScriptType(
+		scriptType, err := getReconstructScriptType(
 			txIn.SignatureScript, entry.PkScript(), txIn.Witness)
 		if err != nil {
-			log.Debugf("GetReconstructScriptType error. %v. "+
+			log.Debugf("getReconstructScriptType error. %v. "+
 				"Defaulting to bip182.OtherTy", err)
 			scriptType = txscript.NonStandardTy
 		}
