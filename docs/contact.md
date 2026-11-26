@@ -1,15 +1,10 @@
 # Contact
 
-## IRC
+## Discord
 
-* [irc.libera.chat](irc://irc.libera.chat), channel `#btcd`
-
-## Mailing Lists
-
-* [btcd](mailto:btcd+subscribe@opensource.conformal.com): discussion of btcd and its packages.
-* [btcd-commits](mailto:btcd-commits+subscribe@opensource.conformal.com): readonly mail-out of source code changes.
+* Join the [utreexo Discord server](https://discord.gg/6jRY2hqf3G) for discussion of utreexod and its packages.
 
 ## Issue Tracker
 
-The [integrated github issue tracker](https://github.com/btcsuite/btcd/issues)
+The [integrated github issue tracker](https://github.com/utreexo/utreexod/issues)
 is used for this project.
